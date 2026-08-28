@@ -1,0 +1,10 @@
+# generated environments live outside the repo, but be safe
+.tdd/
+envs/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.claude/
+.idea/
