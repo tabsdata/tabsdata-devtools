@@ -1,0 +1,62 @@
+{
+  "fingerprint": "51761d386445961d",
+  "members": {
+    "demo-env1": [
+      "tabsdata-dev-common-core",
+      "tabsdata-dev-deps-demo-env1",
+      "tabsdata-dev-tool-demo-exe1"
+    ],
+    "demo-env2": [
+      "tabsdata-dev-common-core",
+      "tabsdata-dev-deps-demo-env2",
+      "tabsdata-dev-tool-demo-exe2"
+    ]
+  },
+  "schema": 1,
+  "shell": {
+    "demo-fn1": {
+      "demo": true,
+      "file": "demo-fn1.sh",
+      "reqs": [
+        "whoami",
+        "hostname"
+      ],
+      "summary": "demo shell command: prints its name, then whoami@hostname"
+    },
+    "demo-fn2": {
+      "demo": true,
+      "file": "demo-fn2.sh",
+      "reqs": [
+        "uname",
+        "date"
+      ],
+      "summary": "demo shell command: prints its name, then the OS and the date"
+    },
+    "tdd-env": {
+      "demo": false,
+      "file": "tdd-env.sh",
+      "reqs": [],
+      "summary": "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
+    }
+  },
+  "tools": {
+    "demo-exe1": {
+      "demo": true,
+      "package": "tabsdata-dev-tool-demo-exe1",
+      "reqs": [],
+      "summary": "demo tool in the demo-env1 toolset: prints its name",
+      "toolset": "demo-env1"
+    },
+    "demo-exe2": {
+      "demo": true,
+      "package": "tabsdata-dev-tool-demo-exe2",
+      "reqs": [],
+      "summary": "demo tool in the demo-env2 toolset: prints its name",
+      "toolset": "demo-env2"
+    }
+  },
+  "toolsets": [
+    "demo-env1",
+    "demo-env2"
+  ]
+}

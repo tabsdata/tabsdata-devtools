@@ -1,6 +1,11 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
 # generated environments live outside the repo, but be safe
 .tdd/
-envs/
+tdd-venvs/
+managed-venvs/
 __pycache__/
 *.egg-info/
 .pytest_cache/

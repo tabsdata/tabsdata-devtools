@@ -1,0 +1,169 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+"""Scanning the source repo for tools, deps bundles, shell commands and their
+groupings.
+
+Standard library only -- bin-reqs.txt is plain text, shell scripts are matched
+with a regex, and pyproject.toml is read with tomllib, so nothing here needs a
+third-party parser.
+"""
+
+from __future__ import annotations
+
+import pathlib
+import re
+import tomllib
+
+from . import paths
+
+TOOL_PREFIX = "tabsdata-dev-tool-"
+DEPS_PREFIX = "tabsdata-dev-deps-"
+TOOLSET_PREFIX = "tabsdata-dev-toolset-"
+COMMON_PREFIX = "tabsdata-dev-common-"
+SHELL_DIST = "tabsdata-dev-shell"
+SHELL_SCRIPTS = "scripts/unix"
+BIN_REQS = "bin-reqs.txt"
+
+# `tdd_fn_register [--demo] <name> "<summary>"`, as the shell files write it.
+_REGISTER = re.compile(
+    r'^tdd_fn_register\s+(?P<demo>--demo\s+)?(?P<name>\S+)\s+"(?P<summary>[^"]*)"'
+)
+
+
+class LayoutError(Exception):
+    pass
+
+
+def parse_bin_reqs(path: pathlib.Path) -> list[str]:
+    """One bare binary name per line. Blank lines and # comments ignored."""
+    if not path.is_file():
+        return []
+    out = []
+    for lineno, raw in enumerate(path.read_text().splitlines(), 1):
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if len(line.split()) != 1 or "/" in line:
+            raise LayoutError(
+                f"{path}:{lineno}: expected a bare binary name, got {line!r}"
+            )
+        out.append(line)
+    return out
+
+
+def shell_commands(root: pathlib.Path) -> dict[str, dict]:
+    """Shell commands and their declared binaries, read from the shell package.
+
+    The registry tdd-source.sh builds while sourcing is the runtime truth; this
+    reads the same files statically so the catalog can carry their reqs -- for
+    `tdd --reqs` before anything is sourced -- and their names, so no Python
+    tool can be given a name the shell function would answer to first.
+
+    A `<file>.bin-reqs.txt` beside `<file>.sh` applies to every command that
+    file registers.
+    """
+    scripts = root / "packages" / SHELL_DIST / SHELL_SCRIPTS
+    found: dict[str, dict] = {}
+    for script in sorted(scripts.glob("*.sh")):
+        reqs = parse_bin_reqs(script.with_name(f"{script.stem}.{BIN_REQS}"))
+        registered = 0
+        for raw in script.read_text().splitlines():
+            match = _REGISTER.match(raw)
+            if match is None:
+                continue
+            name = match["name"]
+            if name in found:
+                raise LayoutError(
+                    f"duplicate shell command {name!r}: "
+                    f"{found[name]['file']} and {script.name}"
+                )
+            found[name] = {
+                "file": script.name,
+                "summary": match["summary"],
+                "reqs": reqs,
+                "demo": bool(match["demo"]),
+            }
+            registered += 1
+        if not registered:
+            raise LayoutError(f"{script}: registers no command")
+    for reqs_file in sorted(scripts.glob(f"*.{BIN_REQS}")):
+        stem = reqs_file.name[: -len(f".{BIN_REQS}")]
+        if not (scripts / f"{stem}.sh").is_file():
+            raise LayoutError(f"{reqs_file}: no {stem}.sh beside it to apply to")
+    return found
+
+
+def discover(root: pathlib.Path) -> dict:
+    """Return {"tools": {...}, "toolsets": {name: [dist, ...]}, "shell": {...}}."""
+    pkgs = root / "packages"
+    if not pkgs.is_dir():
+        raise LayoutError(f"no packages/ directory under {root}")
+
+    tools: dict[str, dict] = {}
+    toolsets: dict[str, list[str]] = {}
+    shell = shell_commands(root)
+
+    for pyproject in sorted(pkgs.glob(TOOL_PREFIX + "*/pyproject.toml")):
+        doc = tomllib.loads(pyproject.read_text())
+        data = doc["project"]
+        dist = data["name"]
+        deps = data.get("dependencies", [])
+        # `[tool.tdd] demo = true` marks a tool that exists to show the shape of
+        # one and exercise the machinery. It stays dispatchable but is left
+        # out of `tdd help` and `tdd list` unless asked for with --demo.
+        demo = bool(doc.get("tool", {}).get("tdd", {}).get("demo", False))
+
+        bundles = [d for d in deps if d.startswith(DEPS_PREFIX)]
+        if len(bundles) != 1:
+            raise LayoutError(
+                f"{dist}: must depend on exactly one {DEPS_PREFIX}* package, "
+                f"found {bundles or 'none'}"
+            )
+        toolset = bundles[0][len(DEPS_PREFIX) :]
+
+        scripts = data.get("scripts", {})
+        if not scripts:
+            raise LayoutError(f"{dist}: declares no [project.scripts] entry point")
+
+        reqs = parse_bin_reqs(pyproject.parent / BIN_REQS)
+
+        for command in scripts:
+            if command in paths.RESERVED:
+                raise LayoutError(
+                    f"{dist}: tool name {command!r} is a reserved tdd word"
+                )
+            if command in shell:
+                # The tdd function consults its shell registry first, so the
+                # tool would exist but never be reachable.
+                raise LayoutError(
+                    f"{dist}: tool name {command!r} is already a shell command "
+                    f"({shell[command]['file']})"
+                )
+            if command in tools:
+                raise LayoutError(
+                    f"duplicate tool name {command!r}: "
+                    f"{tools[command]['package']} and {dist}"
+                )
+            tools[command] = {
+                "toolset": toolset,
+                "package": dist,
+                "summary": data.get("description", ""),
+                "reqs": reqs,
+                "demo": demo,
+            }
+        toolsets.setdefault(toolset, []).append(dist)
+
+    for name in toolsets:
+        bundle = pkgs / (DEPS_PREFIX + name)
+        if not bundle.is_dir():
+            raise LayoutError(f"missing deps bundle {bundle.name} for toolset {name}")
+
+    return {"tools": tools, "toolsets": toolsets, "shell": shell}
+
+
+def common_packages(root: pathlib.Path) -> list[str]:
+    return sorted(
+        p.name for p in (root / "packages").glob(COMMON_PREFIX + "*") if p.is_dir()
+    )
