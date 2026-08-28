@@ -185,6 +185,7 @@ def _info(dir_: pathlib.Path, out: render.Renderer) -> int:
         catalog = catalog_mod.installed(dir_)
     except catalog_mod.NotInitialized as exc:
         return out.error(str(exc))
+    out.debug(f"catalog: {dir_ / catalog_mod.CATALOG_NAME}")
     # tdd-exe lives inside the tdd dir, so how *it* was installed is how the
     # dir was built: editable from a checkout, or from wheels staged in it.
     root = paths.repo_root()
@@ -243,6 +244,9 @@ def _doctor(dir_: pathlib.Path, out: render.Renderer) -> int:
         catalog = catalog_mod.installed(dir_)
     except catalog_mod.NotInitialized as exc:
         return out.error(str(exc))
+    out.debug(
+        f"catalog: {dir_ / catalog_mod.CATALOG_NAME} (shipped: {catalog_mod.shipped_path()})"
+    )
     out.info(f"tdd dir: {dir_}")
     # Informational: an editable dir legitimately lags the checkout until the
     # next tdd-install, and a wheels dir is whatever was staged into it.
@@ -357,6 +361,7 @@ def _run(argv: list[str]) -> int:
 
     dir_ = paths.tdd_dir(opts["dir"])
     out = _renderer("tdd", opts["format"], opts["verbose"])
+    out.debug(f"tdd dir: {dir_}")
 
     if opts.get("version"):
         found = version_mod.current(dir_)

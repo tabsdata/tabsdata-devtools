@@ -115,3 +115,18 @@ def test_run_refuses_an_undeclared_binary(monkeypatch, tmp_path):
         assert "bin-reqs.txt" in str(exc)
         return
     raise AssertionError("expected UndeclaredRequirement")
+
+
+def test_run_maps_sys_exit_and_interrupt_to_the_model(tmp_path, monkeypatch, capsys):
+    import sys
+
+    monkeypatch.setattr(render, "LOG_DIR", tmp_path)
+    assert cli.run("t", "d", lambda a, o: sys.exit(0), argv=[]) == 0
+    assert cli.run("t", "d", lambda a, o: sys.exit("bad"), argv=["--format=json"]) == 1
+    assert json.loads(capsys.readouterr().out)["message"] == "bad"
+
+    def interrupted(a, o):
+        raise KeyboardInterrupt
+
+    assert cli.run("t", "d", interrupted, argv=["--format=json"]) == 1
+    assert json.loads(capsys.readouterr().out)["message"] == "interrupted"

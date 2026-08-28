@@ -126,6 +126,9 @@ but leave the colour cube alone.
   with **jq**, so jq is a requirement of every shell command (`common.bin-reqs.txt`); a command
   never touches JSON itself. A sourced function `return`s the code — never `exit`. The tests
   reject a command file that prints on its own.
-- **`tdd` itself**: no exception for being the front door. The shell function uses `common.sh`;
-  `tdd-exe` uses `tabsdata_dev.tdd.render`, a byte-identical twin of `common.core.render` (it
-  cannot import `common-core`), kept identical by a test.
+- **`tdd` itself, `tdd-install`, `cargo make gen`**: no exception for being the front door or
+  a build step. The shell function uses `common.sh`; `tdd-exe`, `tdd-install` and the generator
+  use `tabsdata_dev.tdd.render`, a byte-identical twin of `common.core.render` (they cannot
+  import `common-core`), kept identical by a test. `tdd-install` captures every `uv` step's
+  output: `debug` on success, the error log on failure. The only plain output left is the
+  `--porcelain`/`--defaults` plumbing the shell reads, and `--help` text.

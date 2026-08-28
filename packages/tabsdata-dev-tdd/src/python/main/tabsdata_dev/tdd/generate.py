@@ -12,6 +12,7 @@ import tomllib
 from . import catalog as catalog_mod
 from . import discover as discover_mod
 from . import paths
+from . import render
 from . import version as version_mod
 
 TOOLSET_PREFIX = discover_mod.TOOLSET_PREFIX
@@ -56,8 +57,12 @@ def _toolset_pyproject(
     return "\n".join(lines)
 
 
-def generate(root: pathlib.Path) -> dict:
-    """Emit toolset-*/pyproject.toml and the catalog. Returns the catalog."""
+def generate(root: pathlib.Path, out: render.Renderer | None = None) -> dict:
+    """Emit toolset-*/pyproject.toml and the catalog. Returns the catalog.
+
+    Drift warnings go to `out` when given; a caller without a renderer (a
+    test) gets them nowhere, which is fine -- they are advice, not results.
+    """
     found = discover_mod.discover(root)
     commons = discover_mod.common_packages(root)
     version = (root / version_mod.VERSION_NAME).read_text().strip()
@@ -70,7 +75,8 @@ def generate(root: pathlib.Path) -> dict:
         )
 
     for warning in _check_common_floor(root, found):
-        print(f"  warning: {warning}")
+        if out is not None:
+            out.warn(warning)
 
     # Every first-party distribution belonging to each toolset. Wheels-mode
     # installs need this explicitly: they install with --no-deps so the
@@ -141,18 +147,51 @@ def _check_common_floor(root: pathlib.Path, found: dict) -> list[str]:
     return warnings
 
 
-def main() -> int:
-    """`python -m tabsdata_dev.tdd.generate`, what `cargo make gen` runs."""
+def main(argv: list[str] | None = None) -> int:
+    """`python -m tabsdata_dev.tdd.generate [--format json|view] [--verbose]`,
+    what `cargo make gen` runs. A build step, but a command all the same."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    fmt, verbose = "view", False
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--format" and i + 1 < len(argv):
+            fmt = argv[i + 1]
+            i += 2
+            continue
+        if argv[i].startswith("--format="):
+            fmt = argv[i].split("=", 1)[1]
+        elif argv[i] in ("-v", "--verbose"):
+            verbose = True
+        elif argv[i] in ("-h", "--help"):
+            print(
+                "usage: python -m tabsdata_dev.tdd.generate [--format json|view] [--verbose]"
+            )
+            return 0
+        else:
+            return render.Renderer("gen").error(
+                f"unexpected argument {argv[i]!r} (see --help)"
+            )
+        i += 1
+    if fmt not in ("json", "view"):
+        return render.Renderer("gen").error(
+            f"--format must be json or view, got {fmt!r}"
+        )
+    out = render.Renderer("gen", fmt=fmt, verbose=verbose)
     root = paths.repo_root()
     if root is None:
-        print("tdd: no source repo; nothing to generate", file=sys.stderr)
-        return 1
-    catalog = generate(root)
-    print(
-        f"  generated {len(catalog['tools'])} tools "
-        f"across {len(catalog['toolsets'])} toolsets"
+        return out.error("no source repo; nothing to generate")
+    out.debug(f"checkout: {root}")
+    try:
+        catalog = generate(root, out)
+    except discover_mod.LayoutError as exc:
+        return out.error(str(exc))
+    return out.ok(
+        f"generated {len(catalog['tools'])} tools across {len(catalog['toolsets'])} toolsets",
+        tools=sorted(catalog["tools"]),
+        toolsets=catalog["toolsets"],
+        shell=sorted(catalog["shell"]),
+        catalog=str(catalog_mod.shipped_path()),
     )
-    return 0
 
 
 if __name__ == "__main__":

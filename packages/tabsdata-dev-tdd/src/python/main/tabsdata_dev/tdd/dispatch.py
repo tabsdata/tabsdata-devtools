@@ -45,5 +45,6 @@ def dispatch(
     env["TDD_DIR"] = str(dir_)
     env["TDD_TOOL"] = tool
 
+    out.debug(f"exec {exe} {' '.join(argv)}", toolset=entry["toolset"], exe=str(exe))
     os.execve(str(exe), [str(exe), *argv], env)
     return 1  # unreachable; execve does not return

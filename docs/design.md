@@ -105,9 +105,11 @@ Every shell command follows [command-cli-guidelines.md](command-cli-guidelines.m
 `scripts/unix/common.sh` (options, the event model, colours, the failure log); every Python
 tool through `common.core.cli.run()` and `common.core.render`. The same model on both sides:
 `command` + `event` (`ok`, `error`, `warn`, `info`, `debug`) + `message` + fields, one line
-each, green/red/yellow/plain/white on a terminal. `tdd-exe` cannot import `common-core`, so
-`tabsdata_dev.tdd.render` is a byte-identical twin of `common.core.render`, kept identical by a
-test.
+each, green/red/yellow/plain/white on a terminal. `tdd-exe`, `tdd-install` and the generator
+cannot import `common-core`, so `tabsdata_dev.tdd.render` is a byte-identical twin of
+`common.core.render`, kept identical by a test. `tdd-install` runs every `uv` step with its
+output captured — `debug` under `--verbose`, the error log on failure — so `tdd-install
+--format json` is a clean event stream.
 
 What is *not* a `tdd` word, and why: **setup** is `tdd-install` (above); **regenerating the
 catalog** is `cargo make gen`, a build step that must run before wheels are built and never

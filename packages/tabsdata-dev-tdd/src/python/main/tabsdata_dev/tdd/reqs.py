@@ -19,6 +19,7 @@ from . import render
 
 def check(tool: str | None, out: render.Renderer) -> int:
     catalog = catalog_mod.shipped()
+    out.debug(f"catalog: {catalog_mod.shipped_path()}")
     # Both halves declare binaries the same way; the shell ones are marked so
     # the report reads like `tdd help`.
     entries = {name: (entry, "") for name, entry in catalog["tools"].items()}

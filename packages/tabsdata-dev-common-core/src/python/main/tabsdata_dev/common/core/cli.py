@@ -80,6 +80,16 @@ def run(
     out = render.Renderer(prog, fmt=args.format, verbose=args.verbose)
     try:
         code = body(args, out)
+    except KeyboardInterrupt:
+        return out.error("interrupted")
+    except SystemExit as exc:
+        # A body that calls sys.exit() still gets the 0/1 mapping; a message
+        # passed to it is worth an error line.
+        if exc.code in (0, None):
+            return 0
+        return out.error(
+            str(exc.code) if not isinstance(exc.code, int) else f"exit {exc.code}"
+        )
     except Exception as exc:  # noqa: BLE001 -- the guidelines want one error line, not a trace
         return out.error(f"{type(exc).__name__}: {exc}", details=traceback.format_exc())
     return 0 if code in (0, None) else 1

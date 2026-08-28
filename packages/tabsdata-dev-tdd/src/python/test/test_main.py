@@ -56,3 +56,27 @@ def test_reqs_reports_every_declaration(capsys):
     assert events[-1]["event"] in ("ok", "error")
     assert (code == 0) == (events[-1]["event"] == "ok")
     assert any(e["event"] == "info" and e.get("binary") == "jq" for e in events)
+
+
+def test_tdd_install_help_and_usage_errors():
+    from tabsdata_dev.tdd import install
+
+    assert install.main(["--help"]) == 0
+
+
+def test_tdd_install_usage_error_is_an_event(tmp_path, monkeypatch, capsys):
+    from tabsdata_dev.tdd import install
+
+    monkeypatch.setattr(render, "LOG_DIR", tmp_path)
+    assert install.main(["--bogus", "--format", "json"]) == 1
+    (event,) = _events(capsys)
+    assert event["command"] == "tdd-install" and event["event"] == "error"
+    assert install.main(["--format", "xml"]) == 1
+
+
+def test_generate_entry_point_reports_as_events(tmp_path, monkeypatch, capsys):
+    from tabsdata_dev.tdd import generate
+
+    monkeypatch.setattr(render, "LOG_DIR", tmp_path)
+    assert generate.main(["--bogus"]) == 1
+    assert generate.main(["--help"]) == 0

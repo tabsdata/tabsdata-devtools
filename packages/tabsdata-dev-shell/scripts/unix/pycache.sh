@@ -126,16 +126,19 @@ _tdd_pycache_clean() {
             | sed -E 's/\.dist-info$//; s/\.(rkyv|msgpack|http|rev|whl|tar\.gz|zip)$//; s/-[0-9].*$//' \
             | tr '_' '-' | tr 'A-Z' 'a-z')"
     done
-    _tdd_names="$(printf '%s\n' $_tdd_names | sort -u | tr '\n' ' ')"
+    # $(printf ...) rather than a bare $_tdd_names: zsh does not word-split an
+    # unquoted parameter, so the whole list would travel as one argument (and
+    # uv would reject it as one invalid package name).
+    _tdd_names="$(printf '%s\n' $(printf '%s' "$_tdd_names") | sort -u | tr '\n' ' ')"
     _tdd_names="${_tdd_names% }"
     _tdd_purged=0
     if [ -n "$_tdd_names" ]; then
-        _tdd_info "uv cache clean ($(printf '%s\n' $_tdd_names | wc -l | tr -d ' ') packages)"
+        _tdd_info "uv cache clean ($(printf '%s\n' $(printf '%s' "$_tdd_names") | wc -l | tr -d ' ') packages)"
         # shellcheck disable=SC2086
-        _tdd_out="$(uv cache clean $_tdd_names 2>&1)" || { _tdd_error "uv cache clean failed" "$_tdd_out"; return 1; }
+        _tdd_out="$(uv cache clean $(printf '%s' "$_tdd_names") 2>&1)" || { _tdd_error "uv cache clean failed" "$_tdd_out"; return 1; }
         _tdd_debug "uv: $_tdd_names"
         _tdd_debug "uv cache clean: done"
-        _tdd_purged="$(printf '%s\n' $_tdd_names | wc -l | tr -d ' ')"
+        _tdd_purged="$(printf '%s\n' $(printf '%s' "$_tdd_names") | wc -l | tr -d ' ')"
     else
         _tdd_debug "uv: nothing cached under $_tdd_prefixes"
     fi
@@ -152,7 +155,7 @@ _tdd_pycache_clean() {
     _tdd_json='"scope":"prefixes","prefixes":['
     for _tdd_p in $(printf '%s' "$_tdd_prefixes" | tr ',' ' '); do _tdd_json="$_tdd_json\"$(_tdd_json_str "$_tdd_p")\","; done
     _tdd_json="${_tdd_json%,}],\"uv_packages\":["
-    for _tdd_p in $_tdd_names; do _tdd_json="$_tdd_json\"$_tdd_p\","; done
+    for _tdd_p in $(printf '%s' "$_tdd_names"); do _tdd_json="$_tdd_json\"$_tdd_p\","; done
     _tdd_json="${_tdd_json%,}],\"pip\":$([ -n "$_tdd_pip" ] && echo true || echo false)"
     _tdd_ok "uv: purged $_tdd_purged cached packages under $_tdd_prefixes$([ -n "$_tdd_pip" ] && echo '; pip: purged matching wheels' || echo '; pip: not found, skipped')" "$_tdd_json"
 }

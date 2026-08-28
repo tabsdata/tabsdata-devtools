@@ -42,8 +42,9 @@ Every command meets `docs/command-cli-guidelines.md` through one shared layer pe
 shell commands source `scripts/unix/common.sh` (`_tdd_cmd_reset`, `_tdd_common_opt`,
 `_tdd_optval`, `_tdd_cmd_check`, `_tdd_ok`, `_tdd_error`, `_tdd_warn`, `_tdd_info`,
 `_tdd_debug`); Python tools go through `common.core.cli.run()` and `common.core.render`
-(`Event`, `Renderer`); `tdd-exe` through `tabsdata_dev.tdd.render`, a byte-identical twin of
-the latter (stdlib-only, cannot import `common-core`) — a test fails if they diverge; edit both.
+(`Event`, `Renderer`); `tdd-exe`, `tdd-install` and the generator through
+`tabsdata_dev.tdd.render`, a byte-identical twin of the latter (stdlib-only, cannot import
+`common-core`) — a test fails if they diverge; edit both.
 Commands never print on their own; the tests check it. A shell command with options declares
 their built-in defaults in `tdd_defaults_<name>()` for `tdd defaults --command <name>`.
 
