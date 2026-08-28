@@ -48,17 +48,19 @@ tddfn_pycache() {
 }
 
 _tdd_pycache_help() {
-    cat <<'HELP'
+    _tdd_help_text <<'HELP'
 usage: tdd pycache clean [--package-prefixes PREFIX[,PREFIX...]] [--all]
 
 Remove packages from the uv cache and the pip cache.
 
-  --package-prefixes PREFIXES
-                      comma-separated name prefixes; every cached package whose
-                      name starts with one is purged. Default: tabsdata
-  --all               purge both caches entirely instead
+commands:
+  clean     purge the caches
 
-common options: --help/-h, --verbose/-v, --format json|view (default view)
+options:
+  --package-prefixes PREFIXES
+            comma-separated name prefixes; every cached package whose name
+            starts with one is purged (default: tabsdata)
+  --all     purge both caches entirely instead
 
 example: tdd pycache clean --package-prefixes tabsdata,td-
 HELP

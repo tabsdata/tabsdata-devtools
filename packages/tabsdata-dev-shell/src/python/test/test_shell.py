@@ -114,7 +114,8 @@ def test_every_command_uses_the_shared_helpers():
         text = path.read_text()
         for helper in helpers:
             assert helper in text, f"{path.name} does not call {helper}"
-        assert "cat <<'HELP'" in text, f"{path.name} has no help text"
+        assert "_tdd_help_text <<'HELP'" in text, f"{path.name} has no help text"
+        assert "cat <<" not in text, f"{path.name} prints help on its own"
         assert "exit " not in text, (
             f"{path.name} calls exit; a sourced function must return"
         )
@@ -154,3 +155,92 @@ def test_common_sh_declares_jq_for_every_command():
     # shell commands -- declared once, beside common.sh.
     assert "jq -cn" in (shell.scripts_dir() / COMMON).read_text()
     assert "jq" in _bin_reqs(shell.scripts_dir() / "common.bin-reqs.txt")
+
+
+def test_no_two_command_files_define_the_same_function():
+    # Every command file is sourced into one shell, so a helper name defined
+    # twice is silently the last one loaded -- `tdd env --help` once printed
+    # tdd-env's help this way, and a `_tdd_help` in common.sh once replaced the
+    # loader's own.
+    import re
+
+    sources = {p.name: p.read_text() for p in _command_files()}
+    sources[COMMON] = (shell.scripts_dir() / COMMON).read_text()
+    sources["tddsrc.sh"] = (
+        shell.source_template()
+    )  # the loader shares the namespace too
+    owners: dict[str, str] = {}
+    for name, text in sorted(sources.items()):
+        for fn in re.findall(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*\(\)", text, re.M):
+            assert fn not in owners, (
+                f"{fn}() is defined in both {owners[fn]} and {name}"
+            )
+            owners[fn] = name
+
+
+def _render_help(declaration: str) -> list[str]:
+    import os
+    import subprocess
+
+    done = subprocess.run(
+        ["bash", "-c", f'. "{shell.scripts_dir() / COMMON}"; _tdd_help_text'],
+        input=declaration,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "COLUMNS": "80"},
+    )
+    assert done.returncode == 0, done.stderr
+    return done.stdout.splitlines()
+
+
+def test_help_renders_in_the_argparse_layout():
+    # The shell helps must read like the Python ones: usage, description,
+    # tables with the help at column 24 and wrapped, common options first.
+    long_help = " ".join(["word"] * 30)
+    lines = _render_help(
+        "usage: tdd x sub [--name NAME]\n"
+        "\n"
+        "Does a thing.\n"
+        "\n"
+        "commands:\n"
+        "  sub   the one subcommand\n"
+        "\n"
+        "options:\n"
+        f"  --name NAME   who; {long_help}\n"
+        "  --a-very-long-option-name VALUE   goes on its own line\n"
+        "\n"
+        "example: tdd x sub\n"
+    )
+    assert lines[0] == "usage: tdd x sub [--name NAME]"
+    assert lines[1:3] == ["", "Does a thing."]
+    o = lines.index("options:")
+    assert lines.index("commands:") < o
+    assert lines[o + 1] == "  -h, --help            show this help message and exit"
+    assert lines[o + 2] == "  -v, --verbose         show debug events too"
+    assert lines[o + 3] == (
+        "  --format {json,view}  json is JSON Lines, one event per line (default: view)"
+    )
+    assert lines[o + 4].startswith("  --name NAME           who; word")
+    assert lines[o + 5].startswith(" " * 24 + "word")
+    i = lines.index("  --a-very-long-option-name VALUE")
+    assert lines[i + 1] == " " * 24 + "goes on its own line"
+    assert lines[-1] == "example: tdd x sub"
+    assert max(len(line) for line in lines) <= 78
+
+
+def test_help_adds_the_options_section_when_the_declaration_has_none():
+    lines = _render_help("usage: tdd y [-h]\n\nDoes.\n")
+    assert lines == [
+        "usage: tdd y [-h]",
+        "",
+        "Does.",
+        "",
+        "options:",
+        "  -h, --help            show this help message and exit",
+        "  -v, --verbose         show debug events too",
+        "  --format {json,view}  json is JSON Lines, one event per line (default: view)",
+    ]
+
+
+def test_common_sh_declares_awk_for_the_help_layout():
+    assert "awk" in _bin_reqs(shell.scripts_dir() / "common.bin-reqs.txt")

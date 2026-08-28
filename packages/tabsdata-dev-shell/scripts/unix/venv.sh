@@ -66,30 +66,37 @@ _tdd_venv_root() {
 }
 
 _tdd_venv_help() {
-    cat <<'HELP'
-usage: tdd venv <subcommand> [options]
+    _tdd_help_text <<'HELP'
+usage: tdd venv create --name NAME [--type {pyenv,uv,conda}]
+                       [--python VERSION]
+       tdd venv activate --name NAME
+       tdd venv deactivate
+       tdd venv delete --name NAME
+       tdd venv list
 
 Managed virtualenvs, all under $TDD_DIR/managed-venvs/<type>/<name>. A
 <name>.env file beside them records the type, so every subcommand knows which
 tool to use.
 
-  create --name NAME [--type pyenv|uv|conda] [--python VERSION]
-                      make a venv and enter it; --type defaults to pyenv. For
-                      pyenv the VERSION must already be installed (pyenv
-                      install VERSION). Refuses while a venv tdd did not
-                      activate is active; switches from a managed one.
-  activate --name NAME
-                      enter it, in this shell; the prompt shows (<type>/NAME).
-                      Switches if another managed venv is active; refuses if a
-                      venv tdd did not activate is (deactivate that one first)
-  deactivate          leave the active managed venv; never touches a venv tdd
-                      did not activate
-  delete --name NAME  remove it and its marker; refuses while it is active
-  list                every managed venv with its type and path
+commands:
+  create        make a venv and enter it. Refuses while a venv tdd did not
+                activate is active; switches from a managed one
+  activate      enter it, in this shell; the prompt shows (<type>/NAME).
+                Switches if another managed venv is active; refuses if a venv
+                tdd did not activate is (deactivate that one first)
+  deactivate    leave the active managed venv; never touches a venv tdd did
+                not activate
+  delete        remove it and its marker; refuses while it is active
+  list          every managed venv with its type and path
 
-common options: --help/-h, --verbose/-v, --format json|view (default view)
+options:
+  --name NAME              the venv
+  --type {pyenv,uv,conda}  the tool that creates it (default: pyenv)
+  --python VERSION         interpreter for create: pyenv needs it installed
+                           already (pyenv install VERSION), uv and conda fetch
+                           it (default: the tool's current one)
 
-example: tdd venv create --name scratch --type uv --python 3.12 && tdd venv activate --name scratch
+example: tdd venv create --name scratch --type uv --python 3.12
 HELP
 }
 

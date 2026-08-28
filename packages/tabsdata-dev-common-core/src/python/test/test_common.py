@@ -130,3 +130,51 @@ def test_run_maps_sys_exit_and_interrupt_to_the_model(tmp_path, monkeypatch, cap
 
     assert cli.run("t", "d", interrupted, argv=["--format=json"]) == 1
     assert json.loads(capsys.readouterr().out)["message"] == "interrupted"
+
+
+def test_read_field_goes_through_op_read(monkeypatch):
+    import subprocess
+
+    from tabsdata_dev.common.core import secrets
+
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(
+            argv, 0, stdout="s3cr3t-value-123\n", stderr=""
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert (
+        secrets.read_field("1p", "Employee", "DevSecrets", "TD_BACKENDS_CRYPTO_KEY")
+        == "s3cr3t-value-123"
+    )
+    assert calls[-1] == [
+        "op",
+        "read",
+        "op://Employee/DevSecrets/TD_BACKENDS_CRYPTO_KEY",
+    ]
+
+
+def test_read_field_reports_op_failures(monkeypatch, tmp_path):
+    import subprocess
+
+    from tabsdata_dev.common.core import secrets
+
+    def fake_run(argv, **kw):
+        if argv[0] == "which":  # the `op` presence probe passes
+            return subprocess.CompletedProcess(
+                argv, 0, stdout="/usr/bin/op\n", stderr=""
+            )
+        return subprocess.CompletedProcess(
+            argv, 1, stdout="", stderr="[ERROR] not signed in"
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    try:
+        secrets.read_field("1p", "Employee", "DevSecrets", "X")
+    except secrets.ToolError as exc:
+        assert "not signed in" in str(exc)
+        return
+    raise AssertionError("expected ToolError")

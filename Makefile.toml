@@ -130,19 +130,19 @@ while read -r tool toolset package; do
     "$DIR/tdd-venvs/$toolset/bin/python" -m pytest "${PACKAGES}/$package/src/python/test" -q
 done
 
-# common-* lives in every toolset, so its real compatibility matrix is one run
-# per toolset env. Read the toolset list from the catalog rather than globbing
-# tdd-venvs/: that directory also holds the tdd and shells envs, which are not
-# toolsets and hold no common-*.
-TOOLSETS="$("$PY" -c \
-    "import json;print(' '.join(json.load(open('$DIR/catalog.json'))['toolsets']))")"
-
-for pkg in "${PACKAGES}"/tabsdata-dev-common-*; do
-    name="$(basename "$pkg")"
-    for toolset in $TOOLSETS; do
-        echo "== $name  [$toolset]"
-        "$DIR/tdd-venvs/$toolset/bin/python" -m pytest "$pkg/src/python/test" -q
-    done
+# A common-* is tested once per toolset env it is a member of -- that is its
+# real compatibility matrix (common-core: every toolset; a family library: the
+# toolsets whose tools use it). Membership comes from the catalog, not from
+# globbing tdd-venvs/: that directory also holds the tdd and shells envs.
+"$PY" -c 'import json, sys
+c = json.load(open(sys.argv[1]))
+for ts in c["toolsets"]:
+    for m in c["members"][ts]:
+        if m.startswith("tabsdata-dev-common-"):
+            print(m, ts)' "$DIR/catalog.json" |
+while read -r name toolset; do
+    echo "== $name  [$toolset]"
+    "$DIR/tdd-venvs/$toolset/bin/python" -m pytest "${PACKAGES}/$name/src/python/test" -q
 done
 
 # The shell package is tested in its own env, where its script data is installed.

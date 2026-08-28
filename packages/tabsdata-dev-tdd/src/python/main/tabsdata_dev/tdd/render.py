@@ -125,24 +125,38 @@ class Renderer:
     def debug(self, message: str, **fields: Any) -> None:
         self._event("debug", message, fields)
 
-    def error(self, message: str, details: str = "", **fields: Any) -> int:
+    def error(
+        self, message: str, details: str = "", log: str | None = None, **fields: Any
+    ) -> int:
         """The failure: exactly one, last. Writes the log, returns 1.
 
         The terminal keeps one line of *what* went wrong; the log has the why:
         the command line, where it ran, and whatever details the caller
-        captured (a traceback, a subprocess's output).
+        captured (a traceback, a subprocess's output). A command that kept its
+        own detail log all along passes it as `log`; the failure block is
+        appended there instead of starting a second file.
         """
-        log = write_failure_log(self.command, message, details)
+        log = write_failure_log(self.command, message, details, path=log)
         self._event("error", message, {**fields, "log": str(log)})
         if self.fmt != "json":
             print(colored("error", f"details: {log}", self.err), file=self.err)
         return 1
 
 
-def write_failure_log(command: str, message: str, details: str = "") -> pathlib.Path:
-    """/tmp/tdd-<command>-<stamp>-<pid>.log, as the guidelines specify."""
+def write_failure_log(
+    command: str,
+    message: str,
+    details: str = "",
+    path: str | pathlib.Path | None = None,
+) -> pathlib.Path:
+    """/tmp/tdd-<command>-<stamp>-<pid>.log, as the guidelines specify -- or,
+    given `path`, the failure block appended to that existing log."""
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    path = LOG_DIR / f"tdd-{command}-{stamp}-{os.getpid()}.log"
+    path = (
+        pathlib.Path(path)
+        if path
+        else LOG_DIR / f"tdd-{command}-{stamp}-{os.getpid()}.log"
+    )
     tdd_dir = os.environ.get("TDD_DIR", "")
     version = ""
     if tdd_dir and (pathlib.Path(tdd_dir) / "VERSION").is_file():
@@ -158,7 +172,8 @@ def write_failure_log(command: str, message: str, details: str = "") -> pathlib.
     if details:
         lines += ["", "details:", details.rstrip("\n")]
     try:
-        path.write_text("\n".join(lines) + "\n")
+        with path.open("a") as f:
+            f.write("\n".join(lines) + "\n")
     except OSError:
         pass  # a log that cannot be written must not mask the error itself
     return path

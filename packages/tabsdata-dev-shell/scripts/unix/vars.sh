@@ -49,17 +49,19 @@ tddfn_vars() {
 }
 
 _tdd_vars_help() {
-    cat <<'HELP'
+    _tdd_help_text <<'HELP'
 usage: tdd vars unset (--dev | --pypi) [--dev --pypi]
 
-Unset groups of exported environment variables in this shell.
+Unset groups of exported environment variables in this shell. At least one
+group is required.
 
+commands:
+  unset     remove the selected groups
+
+options:
   --dev     every variable starting with TD_
-  --pypi    every UV_* or PIP_* variable naming a package index
-            (UV_INDEX, UV_DEFAULT_INDEX, UV_EXTRA_INDEX_URL, PIP_INDEX_URL, ...)
-
-At least one group is required. Common options: --help/-h, --verbose/-v,
---format json|view (default view)
+  --pypi    every UV_* or PIP_* variable naming a package index (UV_INDEX,
+            UV_DEFAULT_INDEX, UV_EXTRA_INDEX_URL, PIP_INDEX_URL, ...)
 
 example: tdd vars unset --dev --pypi
 HELP

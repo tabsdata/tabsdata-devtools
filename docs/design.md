@@ -98,6 +98,9 @@ The whole surface, deliberately small:
 | `tdd venv create\|activate\|deactivate\|delete\|list` | `*` shell — *managed* venvs (pyenv, uv or conda) under `managed-venvs/`; create ends in activation; prompt shows `(<type>/<name>)`; activate switches; a venv tdd did not activate blocks both |
 | `tdd pycache clean [--package-prefixes …] [--all]` | `*` shell — purge uv and pip caches by package prefix |
 | `tdd vars unset --dev\|--pypi` | `*` shell — unset `TD_*` / index variables in this shell |
+| `tdd system <verb> …` | external systems for testing: create/destroy/status/purge/restart/fetch-bin/connect, plus types/list/info/manifest/upgrade/secrets/crypto-key |
+| `tdd env set-crypto\|set-secrets` | `*` shell — run `system crypto-key` / `system secrets` with `--as export` and eval the result into this shell |
+| `tdd domain <verb> …` | domains inside systems: create/destroy/status/models/create-model/create-data/modify-data, plus list/info/manifest/upgrade |
 | `tdd defaults --command <name>` | `*` shell — a command's option defaults: built-in (white) vs customized (blue) |
 | `tdd <tool> [args…]` | dispatch |
 
@@ -251,6 +254,7 @@ tabsdata-devtools/
     │   │   ├── venv.sh                    #     venv create/activate/deactivate/delete/list (managed)
     │   │   ├── pycache.sh                 #     pycache clean; pycache.bin-reqs.txt declares uv
     │   │   ├── vars.sh                    #     vars unset --dev / --pypi
+    │   │   ├── env.sh                     #     env set-crypto / set-secrets (eval `system …` exports)
     │   │   ├── defaults.sh                #     defaults --command <name>: built-in vs customized
     │   │   ├── demo-fn1.sh                #     demo-fn1, registered --demo
     │   │   ├── demo-fn1.bin-reqs.txt      #       whoami, hostname
@@ -265,8 +269,24 @@ tabsdata-devtools/
     │       ├── main/tabsdata_dev/common/core/
     │       │   ├── cli.py                 #   parser with the mandatory options; run() wrapper
     │       │   ├── render.py              #   Event model + Renderer: json/view, colours, failure log
-    │       │   ├── proc.py                #   process launching + req enforcement
+    │       │   ├── proc.py                #   process launching + req enforcement; run_tool()
+    │       │   ├── batch.py               #   parallel child runs, heaviest first, on the event model
+    │       │   ├── ports.py / passwords.py / docker.py / ssh.py / secrets*.py
+    │       │   ├── datadir.py             #   <tdd_dir>/data/<command>
+    │       │   ├── latch.py               #   --latch FILE for background waits
     │       │   └── parallel.py            #   bounded map
+    ├── tabsdata-dev-common-systems/       # the system/domain family (pydantic, pyyaml, cryptography ranges)
+    │   └── src/python/main/tabsdata_dev/common/systems/
+    │       ├── dispatch.py, main.py       #   the CLI over the backend registry
+    │       ├── descriptor.py, crypto.py, manifest.py, store.py, naming.py, options.py
+    │       ├── batch.py, console.py, cli.py, datagen.py, emit.py, sql_runner.py
+    │       ├── models/<name>/             #   entities.json, datagenerator.py, data files
+    │       └── systems/<slug>/            #   backend.py [+ domain/ overrides, models/<name>/*.ddl]
+    ├── tabsdata-dev-deps-systems/         # python 3.12; SQL dialects+drivers, object stores, kafka, polars
+    ├── tabsdata-dev-deps-salesforce/      # python 3.12; cumulusci-plus, snowfakery (sqlalchemy<2)
+    ├── tabsdata-dev-tool-system/          # `system`  -> common.systems.main.run("system"); bin-reqs: docker, op
+    ├── tabsdata-dev-tool-domain/          # `domain`; bin-reqs: docker, op
+    ├── tabsdata-dev-tool-domain-sf/       # `domain-sf` (hidden), toolset salesforce
     │       └── test/test_common.py
     ├── tabsdata-dev-deps-demo-env1/       # NO logic, PINS only
     │   ├── pyproject.toml                 #   pytest==8.4.2, packaging==24.0
@@ -291,6 +311,7 @@ A tdd dir, created by `tdd-install`:
 ├── config.toml                            # reserved for per-tool config; NOT a locator
 ├── tdd-source.sh                          # tddsrc.sh with this dir baked in
 ├── wheels/                                # wheels + locks (wheels mode only)
+├── data/                                  # per-command state: data/<command>/ (system, domain)
 ├── default-opts/                          # <command>.txt / <command>_<action>.txt: options tdd adds
 ├── managed-venvs/                         # `tdd venv`: <name>.env markers + <type>/<name>/ envs
 │   ├── scratch.env                        #   content: uv | pyenv | conda
@@ -375,6 +396,54 @@ missing `common-core` — the tools imported fine at build time and failed at ru
 
 `fingerprint` hashes tools, members and shell commands, so `doctor` and dispatch can say the
 envs predate the current tool set rather than dying on a missing executable.
+
+## The system / domain family
+
+`tdd system` and `tdd domain` are the port of `tdx-system` / `tdx-domain` from tabsdata-os's
+devutils: ~30 backends (docker-run and compose databases, object stores, warehouses, kafka,
+credential-only services), encrypted descriptors, YAML manifests, a batch runner, deterministic
+data generation with per-system DDL. What changed in the port, and why:
+
+- **One shared library, `tabsdata-dev-common-systems`** (`tabsdata_dev.common.systems`), holds
+  the whole family — descriptors, registry, backends, models, the dispatcher — and the tools
+  are thin entry points naming which command they are. Two toolsets need the same code
+  (below), and a tool may only depend on one `deps-*`, so shared code has to be a `common-*`.
+  The generator now puts a `common-*` **only in the toolsets whose tools depend on it**, so
+  this library does not land in the demo envs.
+- **Toolsets replace the three self-managed venvs.** The original re-exec'd every command into
+  one of `~/.uv/envs/_tdx-sys-{a,b,c}` chosen from raw argv. Here `systems` (the driver set,
+  `deps-systems`) is where every system verb and most domain verbs run, and `salesforce`
+  (`deps-salesforce`: cumulusci-plus, snowfakery — sqlalchemy<2, which the driver set's
+  dialects contradict) is where the org's data plane runs. A backend declares the toolset each
+  plane needs (`sys_toolset` / `dom_toolset`, formerly `sys_env` / `dom_env`); a model may
+  override it (`models/<model>/model.json`); when that is not the toolset `domain` runs in, it
+  re-dispatches the invocation through `tdd-exe` to the sibling tool of that toolset —
+  `domain-sf`, a hidden tool in `salesforce`. The driver-free venv `c` had no reason to exist
+  once envs are built ahead of time. Both toolsets pin Python 3.12 (`[tool.tdd] python`):
+  several drivers ship no wheels for the newest CPython.
+- **Generic pieces moved to `common-core`**, for any command to use: the parallel child runner
+  (`batch`, on the event model), free ports (`ports`), `passwords`, `docker`, `ssh`, 1Password
+  `secrets`, `data_dir()` and `latch`. `common.systems` keeps `shell`/`ssh` shims so the
+  backends' imports read as before.
+- **State moved to `<tdd_dir>/data/system` and `data/domain`** (was `$TD_BACKENDS_DIR`,
+  `~/.tabsdatax/{systems2,domains2}`); `--sys-dir` / `--domain-dir` still override.
+- **Output follows the guidelines** through the family's `console` adapter: `out`/`good` are
+  `info`, `bad`/`warn` are `warn`, the last `good` line becomes the run's `ok` message (held
+  back so it prints once), and `console.result()` records what `--out json` used to print —
+  the `ok` event now carries it. The chatty verbs still run under an fd-level detail log
+  (`/tmp/tdd-<tool>-<verb>-<name>-<stamp>.log`) so subprocess output never reaches the event
+  stream; that same file is the failure log. Batch children run through `tdd-exe` in view
+  mode with their output captured.
+- **`system crypto-key`** is new: what `envx set-crypto` did — `op read
+  op://$ONE_PASSWORD_EMPLOYEE_VAULT/DevSecrets/TD_BACKENDS_CRYPTO_KEY`, at least 12
+  characters — as a verb next to `secrets`, so the key that every other verb needs is
+  fetched the same way as the rest. The shell command **`tdd env set-crypto` /
+  `set-secrets`** runs the Python verb with `--as export` and `eval`s the lines into the
+  current shell (`set-secrets` defaults `--set` to `1p:$ONE_PASSWORD_DEV_XP_VAULT`).
+- **Option changes forced by the guidelines**, otherwise names are as they were: `-f` is gone
+  (`--force`); `--out json` is gone (`--format json`); `info`'s and `secrets`' own
+  `--format`/`--out json|export|unset` became `--as`; `clear-venvs` is gone; the parallelism
+  variable is `TDD_PARALLELISM`; exit codes are 0/1 (usage errors included).
 
 ## Two rules that make it work
 

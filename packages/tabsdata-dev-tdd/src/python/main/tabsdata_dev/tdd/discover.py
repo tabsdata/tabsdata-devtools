@@ -117,9 +117,19 @@ def discover(root: pathlib.Path) -> dict:
         dist = data["name"]
         deps = data.get("dependencies", [])
         # `[tool.tdd] demo = true` marks a tool that exists to show the shape of
-        # one and exercise the machinery. It stays dispatchable but is left
-        # out of `tdd help` unless asked for with --demo.
-        demo = bool(doc.get("tool", {}).get("tdd", {}).get("demo", False))
+        # one and exercise the machinery; `hidden = true` marks plumbing another
+        # tool dispatches to (a sibling in a second toolset). Both stay
+        # dispatchable and are left out of `tdd help` unless asked with --demo.
+        tdd_cfg = doc.get("tool", {}).get("tdd", {})
+        demo = bool(tdd_cfg.get("demo", False))
+        hidden = bool(tdd_cfg.get("hidden", False))
+        # The common-* packages this tool uses: they join its toolset, and only
+        # its toolset -- a heavy shared library must not land in every env.
+        commons = sorted(
+            re.split(r"[<>=!~\[ ;]", d, maxsplit=1)[0]
+            for d in deps
+            if d.startswith(COMMON_PREFIX)
+        )
 
         bundles = [d for d in deps if d.startswith(DEPS_PREFIX)]
         if len(bundles) != 1:
@@ -158,15 +168,30 @@ def discover(root: pathlib.Path) -> dict:
                 "summary": data.get("description", ""),
                 "reqs": reqs,
                 "demo": demo,
+                "hidden": hidden,
+                "commons": commons,
             }
         toolsets.setdefault(toolset, []).append(dist)
 
+    pythons: dict[str, str] = {}
     for name in toolsets:
         bundle = pkgs / (DEPS_PREFIX + name)
         if not bundle.is_dir():
             raise LayoutError(f"missing deps bundle {bundle.name} for toolset {name}")
+        # `[tool.tdd] python = "3.12"` in a bundle pins the toolset's interpreter
+        # minor: drivers without wheels for the newest CPython are the usual
+        # reason a toolset cannot ride the default interpreter.
+        cfg_path = bundle / "pyproject.toml"
+        cfg = tomllib.loads(cfg_path.read_text()) if cfg_path.is_file() else {}
+        python = cfg.get("tool", {}).get("tdd", {}).get("python")
+        if python:
+            if not re.fullmatch(r"3\.\d+", str(python)):
+                raise LayoutError(
+                    f"{bundle.name}: [tool.tdd] python must be like 3.12, got {python!r}"
+                )
+            pythons[name] = str(python)
 
-    return {"tools": tools, "toolsets": toolsets, "shell": shell}
+    return {"tools": tools, "toolsets": toolsets, "shell": shell, "python": pythons}
 
 
 def common_packages(root: pathlib.Path) -> list[str]:

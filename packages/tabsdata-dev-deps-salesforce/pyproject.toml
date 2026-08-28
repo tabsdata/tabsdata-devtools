@@ -1,0 +1,40 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+[project]
+name = "tabsdata-dev-deps-salesforce"
+dynamic = ["version"]
+description = "pins for the salesforce toolset: the org's data plane (cumulusci-plus, snowfakery)"
+requires-python = ">=3.12,<3.13"
+# Kept apart from the systems toolset because cumulusci-plus pins sqlalchemy<2,
+# which that toolset's dialects contradict (databricks-sqlalchemy needs >=2.0.21).
+# simple-salesforce is a direct import of the loader, so it is pinned here rather
+# than left to arrive transitively through cumulusci-plus.
+dependencies = [
+    "pytest==9.1.1",
+    "pydantic==2.13.5",
+    "pyyaml==6.0.3",
+    "cryptography==50.0.1",
+    "sqlalchemy==1.4.54",
+    "cumulusci-plus==5.3.1",
+    "simple-salesforce==1.12.9",
+    "snowfakery==4.2.1",]
+
+[tool.tdd]
+python = "3.12"
+
+[tool.hatch.version]
+path = "../../VERSION"
+pattern = '^(?P<version>\S+)'
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src/python/main/tabsdata_dev"]
+sources = ["src/python/main"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/python/test"]

@@ -1,0 +1,10 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# venv.bin-reqs.txt -- external binaries `tdd venv` needs on PATH: one per
+# venv type it can create and activate. All three are required up front, not
+# per --type, so `tdd --reqs` says whether every kind of managed venv works.
+pyenv
+uv
+conda

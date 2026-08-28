@@ -157,7 +157,7 @@ def _listed(catalog: dict, demo: bool) -> list[tuple[str, dict]]:
     return sorted(
         (name, entry)
         for name, entry in catalog["tools"].items()
-        if demo or not entry.get("demo", False)
+        if demo or not (entry.get("demo", False) or entry.get("hidden", False))
     )
 
 

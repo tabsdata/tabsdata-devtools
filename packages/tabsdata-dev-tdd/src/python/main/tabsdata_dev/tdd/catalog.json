@@ -1,5 +1,5 @@
 {
-  "fingerprint": "598b4ce7bbb5a0e0",
+  "fingerprint": "2fe253947db045d4",
   "members": {
     "demo-env1": [
       "tabsdata-dev-common-core",
@@ -10,7 +10,24 @@
       "tabsdata-dev-common-core",
       "tabsdata-dev-deps-demo-env2",
       "tabsdata-dev-tool-demo-exe2"
+    ],
+    "salesforce": [
+      "tabsdata-dev-common-core",
+      "tabsdata-dev-common-systems",
+      "tabsdata-dev-deps-salesforce",
+      "tabsdata-dev-tool-domain-sf"
+    ],
+    "systems": [
+      "tabsdata-dev-common-core",
+      "tabsdata-dev-common-systems",
+      "tabsdata-dev-deps-systems",
+      "tabsdata-dev-tool-domain",
+      "tabsdata-dev-tool-system"
     ]
+  },
+  "python": {
+    "salesforce": "3.12",
+    "systems": "3.12"
   },
   "schema": 1,
   "shell": {
@@ -18,7 +35,8 @@
       "demo": false,
       "file": "defaults.sh",
       "reqs": [
-        "jq"
+        "jq",
+        "awk"
       ],
       "summary": "show a command's option defaults: built-in in white, customized in blue"
     },
@@ -27,6 +45,7 @@
       "file": "demo-fn1.sh",
       "reqs": [
         "jq",
+        "awk",
         "whoami",
         "hostname"
       ],
@@ -37,16 +56,27 @@
       "file": "demo-fn2.sh",
       "reqs": [
         "jq",
+        "awk",
         "uname",
         "date"
       ],
       "summary": "demo shell command: prints its name, then the OS and the date"
+    },
+    "env": {
+      "demo": false,
+      "file": "env.sh",
+      "reqs": [
+        "jq",
+        "awk"
+      ],
+      "summary": "set-crypto or set-secrets: fetch from 1Password and export into this shell"
     },
     "pycache": {
       "demo": false,
       "file": "pycache.sh",
       "reqs": [
         "jq",
+        "awk",
         "uv"
       ],
       "summary": "clean the uv and pip caches, by package prefix (default tabsdata) or all of it"
@@ -55,7 +85,8 @@
       "demo": false,
       "file": "tdd-env.sh",
       "reqs": [
-        "jq"
+        "jq",
+        "awk"
       ],
       "summary": "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
     },
@@ -63,7 +94,8 @@
       "demo": false,
       "file": "vars.sh",
       "reqs": [
-        "jq"
+        "jq",
+        "awk"
       ],
       "summary": "unset groups of environment variables in this shell: --dev (TD_*), --pypi (UV/PIP index)"
     },
@@ -71,29 +103,85 @@
       "demo": false,
       "file": "venv.sh",
       "reqs": [
-        "jq"
+        "jq",
+        "awk",
+        "pyenv",
+        "uv",
+        "conda"
       ],
       "summary": "create, activate, deactivate, delete or list managed venvs (pyenv, uv or conda)"
     }
   },
   "tools": {
     "demo-exe1": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
       "demo": true,
+      "hidden": false,
       "package": "tabsdata-dev-tool-demo-exe1",
       "reqs": [],
       "summary": "demo tool in the demo-env1 toolset: prints its name",
       "toolset": "demo-env1"
     },
     "demo-exe2": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
       "demo": true,
+      "hidden": false,
       "package": "tabsdata-dev-tool-demo-exe2",
       "reqs": [],
       "summary": "demo tool in the demo-env2 toolset: prints its name",
       "toolset": "demo-env2"
+    },
+    "domain": {
+      "commons": [
+        "tabsdata-dev-common-core",
+        "tabsdata-dev-common-systems"
+      ],
+      "demo": false,
+      "hidden": false,
+      "package": "tabsdata-dev-tool-domain",
+      "reqs": [
+        "docker",
+        "op"
+      ],
+      "summary": "manage domains inside systems: schemas, generated data, change sets",
+      "toolset": "systems"
+    },
+    "domain-sf": {
+      "commons": [
+        "tabsdata-dev-common-core",
+        "tabsdata-dev-common-systems"
+      ],
+      "demo": false,
+      "hidden": true,
+      "package": "tabsdata-dev-tool-domain-sf",
+      "reqs": [],
+      "summary": "domain, running in the salesforce toolset (the org's data plane)",
+      "toolset": "salesforce"
+    },
+    "system": {
+      "commons": [
+        "tabsdata-dev-common-core",
+        "tabsdata-dev-common-systems"
+      ],
+      "demo": false,
+      "hidden": false,
+      "package": "tabsdata-dev-tool-system",
+      "reqs": [
+        "docker",
+        "op"
+      ],
+      "summary": "manage external systems for testing: databases, object stores, services (docker, cloud, remote)",
+      "toolset": "systems"
     }
   },
   "toolsets": [
     "demo-env1",
-    "demo-env2"
+    "demo-env2",
+    "salesforce",
+    "systems"
   ]
 }

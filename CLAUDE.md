@@ -30,7 +30,8 @@ tdd-install    executable                -> the only way to build a tdd dir
 The user-facing surface: `tdd --help | --version | --reqs`, `tdd doctor`, `tdd info`,
 the tools, and on the shell side `tdd tdd-env activate|deactivate` (toolset venvs),
 `tdd venv create|activate|deactivate|delete|list` (managed pyenv/uv/conda venvs under
-`<tdd_dir>/managed-venvs/`), `tdd pycache clean`, and `tdd vars unset --dev|--pypi`. Setup is
+`<tdd_dir>/managed-venvs/`), `tdd pycache clean`, `tdd vars unset --dev|--pypi`, and
+`tdd env set-crypto|set-secrets` (eval `system crypto-key`/`secrets --as export` into the shell). Setup is
 `tdd-install`; regenerating the catalog is `cargo make gen`; testing is `cargo make test`. None
 of those are `tdd` words — see `.claude/DECISIONS.md`.
 
@@ -54,16 +55,22 @@ Packages, all prefixed `tabsdata-dev-`, all under the `tabsdata_dev` PEP 420 nam
 |---|---|---|
 | `-tdd` | the executable | nothing, stdlib only |
 | `-shell` | sourced shell commands | nothing, shell files as data |
-| `-common-*` | shared library code | third-party **ranges** |
+| `-common-*` | shared library code; joins only the toolsets whose tools depend on it | third-party **ranges** |
 | `-deps-*` | dependency bundle, no logic | third-party **pins** |
 | `-tool-*` | one tool | exactly one `-deps-*` + any `-common-*` |
 | `-toolset-*` | **GENERATED** meta-package | its `-deps-*` + every tool using it |
 
-The repo ships only **demo** tools, which print their own names and nothing else: `demo-exe1`
-(toolset `demo-env1`), `demo-exe2` (toolset `demo-env2`), and the shell functions `demo-fn1`
-and `demo-fn2`. The two toolsets pin `packaging` differently on purpose — that conflict is the
-reason toolsets exist. Demo commands are hidden from `tdd help` unless `--demo`
-is given; they dispatch, test and report reqs like any other tool.
+Real tools: `system` and `domain` (toolset `systems`, Python 3.12, the SQL/object-store/kafka
+driver set) manage external systems for testing and the domains inside them; both are thin
+entry points over `tabsdata_dev.common.systems`. `domain-sf` (toolset `salesforce`, hidden) is
+the same `domain` family running where cumulusci/snowfakery live — `domain` re-dispatches
+salesforce data-plane verbs to it. Their state lives in `<tdd_dir>/data/system` and
+`data/domain`.
+
+Demo tools: `demo-exe1` (toolset `demo-env1`), `demo-exe2` (toolset `demo-env2`), and the shell
+functions `demo-fn1`/`demo-fn2` print their own names. The two demo toolsets pin `packaging`
+differently on purpose. Demo and hidden commands stay out of `tdd help` unless `--demo` is
+given; they dispatch, test and report reqs like any other tool.
 
 ## Invariants — do not break these
 
@@ -93,10 +100,18 @@ is given; they dispatch, test and report reqs like any other tool.
     are `dynamic` and read `../../VERSION`. `tabsdata-dev-tdd` force-includes the file so
     wheels-mode knows it; `tdd-install` stamps `<tdd_dir>/VERSION`; `tdd --version` prints
     that stamp. Never hardcode a version string anywhere else.
-11. **Demo status is an explicit marker, never a name convention.** A Python tool sets
-    `[tool.tdd] demo = true` in its `pyproject.toml` (the generator carries it into the catalog
-    as `"demo": true`); a shell command registers with `tdd_fn_register --demo`. Hiding is a
-    listing concern only — nothing but `tdd help` consults the flag.
+11. **Demo/hidden status is an explicit marker, never a name convention.** A Python tool sets
+    `[tool.tdd] demo = true` (a sample) or `hidden = true` (plumbing another tool dispatches
+    to) in its `pyproject.toml`; a shell command registers with `tdd_fn_register --demo`.
+    Hiding is a listing concern only — nothing but `tdd help` consults the flags.
+12. **A `-deps-*` bundle may pin its toolset's interpreter** with `[tool.tdd] python = "3.12"`;
+    the generator writes `requires-python` and the catalog's `python` map from it and
+    `tdd-install` creates that venv on it. Otherwise the default interpreter is used.
+13. **Generic code goes in `common-core`, family code in a `common-<family>`.** Parallel child
+    runs (`batch`), free ports, passwords, docker, ssh, 1Password secrets, `data_dir()`,
+    latches are `common-core` (stdlib only, in every toolset). Descriptors, backends, models
+    and the dispatcher of the system/domain family are `common-systems` (pydantic/pyyaml/
+    cryptography ranges), which joins only the toolsets whose tools depend on it.
 
 ## Commands
 

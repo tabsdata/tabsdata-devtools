@@ -1,0 +1,10 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# gcs object-store system. Only the storage backend + create command are
+# system-specific; every other verb runs the shared command in _common/commands.
+
+from tabsdata_dev.common.systems.systems.gcs.backend import GCS
+
+__all__ = ["GCS"]

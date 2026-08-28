@@ -6,3 +6,4 @@
 # because common.sh uses them. Added to each command's own bin-reqs.txt by the
 # loader and by the catalog generator.
 jq      # builds every JSON line and escapes every string
+awk     # lays out every --help like argparse does for the Python tools

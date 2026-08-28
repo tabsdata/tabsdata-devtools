@@ -51,7 +51,16 @@ sources = ["src/python/main"]
 The name after `tabsdata-dev-deps-` is the toolset name and the env directory:
 `deps-legacy` → `toolset-legacy` → `<tdd_dir>/tdd-venvs/legacy`. Keep `pytest` pinned in every
 bundle — it is what lets the tool's tests run inside its own env. `common-core` joins every
-toolset automatically, so its tests run there too.
+toolset automatically, so its tests run there too; any other `common-*` joins a toolset only
+when one of its tools depends on it.
+
+If the bundle's drivers need a specific interpreter (no wheels for the newest CPython yet),
+pin the minor in the bundle and the toolset's venv is created on it:
+
+```toml
+[tool.tdd]
+python = "3.12"
+```
 
 ## 2. Create the tool package
 
@@ -167,6 +176,9 @@ ships with:
 cargo make test          # everything; each package under the interpreter it ships with
 ```
 
+Each `common-*` runs once per toolset it is a member of (`common-core` everywhere, a family
+library like `common-systems` only where its tools live) — that is its compatibility matrix.
+
 Enforcement of `bin-reqs.txt` is skipped when `$TDD_TOOL` is unset, so tests can import the
 tool freely — which also means a clean test run says nothing about whether the declarations
 are complete. Only `tdd <tool>` dispatch checks them.
@@ -196,6 +208,13 @@ the reproducibility record for that env. Never edit it by hand; `cargo make gen`
   toolset cannot import one in another: `proc.run_tool("other", *args)`. No `--dir` is needed;
   `tdd` exports `TDD_DIR` before exec.
 - **Hide it while it is a sample**: `[tool.tdd] demo = true` keeps it out of `tdd help` unless
-  `--demo` is passed; it still dispatches, tests and reports reqs.
+  `--demo` is passed; it still dispatches, tests and reports reqs. `hidden = true` does the
+  same for plumbing another tool dispatches to (a sibling in a second toolset, like
+  `domain-sf`).
+- **Reuse before writing**: `common.core` has the parallel child runner (`batch.execute` with a
+  `spawn`), `ports`, `passwords`, `docker`, `ssh`, `secrets` (1Password), `datadir.data_dir()`
+  for your state under `<tdd_dir>/data/<command>`, and `latch`. A family of related commands
+  that needs to share code across toolsets puts it in its own `common-<family>` (see
+  `common-systems`).
 - **Moving or renaming the checkout** breaks every editable env (`.pth` files hold absolute
   paths). `tdd doctor` says so; `cargo make install -- -e` fixes it.

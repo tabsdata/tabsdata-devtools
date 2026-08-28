@@ -30,10 +30,15 @@ def _fingerprint(payload: dict) -> str:
 
 
 def _toolset_pyproject(
-    name: str, version: str, tool_dists: list[str], commons: list[str]
+    name: str,
+    version: str,
+    tool_dists: list[str],
+    commons: list[str],
+    python: str | None,
 ) -> str:
     bundle = DEPS_PREFIX + name
     members = [bundle] + sorted(tool_dists)
+    requires = f">={python},<{_next_minor(python)}" if python else ">=3.11"
     lines = [
         HEADER,
         "[project]",
@@ -42,7 +47,7 @@ def _toolset_pyproject(
         # way the other packages do; the generator writes the value in.
         f'version = "{version}"',
         f'description = "toolset {name}: materialized environment"',
-        'requires-python = ">=3.11"',
+        f'requires-python = "{requires}"',
         "dependencies = [",
     ]
     lines += [f'    "{m}",' for m in members]
@@ -57,6 +62,22 @@ def _toolset_pyproject(
     return "\n".join(lines)
 
 
+def _next_minor(python: str) -> str:
+    major, minor = python.split(".")
+    return f"{major}.{int(minor) + 1}"
+
+
+def _commons_of(found: dict, toolset: str) -> list[str]:
+    """The common-* packages the toolset's tools actually depend on. Only those
+    join the toolset: a heavy shared library (drivers' worth of ranges) must
+    not be dragged into every env by the mere fact of existing."""
+    used: set[str] = set()
+    for entry in found["tools"].values():
+        if entry["toolset"] == toolset:
+            used.update(entry.get("commons", []))
+    return sorted(used)
+
+
 def generate(root: pathlib.Path, out: render.Renderer | None = None) -> dict:
     """Emit toolset-*/pyproject.toml and the catalog. Returns the catalog.
 
@@ -64,14 +85,19 @@ def generate(root: pathlib.Path, out: render.Renderer | None = None) -> dict:
     test) gets them nowhere, which is fine -- they are advice, not results.
     """
     found = discover_mod.discover(root)
-    commons = discover_mod.common_packages(root)
     version = (root / version_mod.VERSION_NAME).read_text().strip()
 
     for name, dists in sorted(found["toolsets"].items()):
         target = root / "packages" / (TOOLSET_PREFIX + name)
         (target / "src" / "python" / "main").mkdir(parents=True, exist_ok=True)
         (target / "pyproject.toml").write_text(
-            _toolset_pyproject(name, version, dists, commons)
+            _toolset_pyproject(
+                name,
+                version,
+                dists,
+                _commons_of(found, name),
+                found["python"].get(name),
+            )
         )
 
     for warning in _check_common_floor(root, found):
@@ -83,7 +109,7 @@ def generate(root: pathlib.Path, out: render.Renderer | None = None) -> dict:
     # exported lock stays authoritative, which also blocks first-party
     # dependency resolution.
     members = {
-        name: sorted({DEPS_PREFIX + name, *dists, *commons})
+        name: sorted({DEPS_PREFIX + name, *dists, *_commons_of(found, name)})
         for name, dists in found["toolsets"].items()
     }
 
@@ -94,6 +120,9 @@ def generate(root: pathlib.Path, out: render.Renderer | None = None) -> dict:
         ),
         "toolsets": sorted(found["toolsets"]),
         "members": members,
+        # toolset -> interpreter minor a bundle pinned with [tool.tdd] python;
+        # absent means the default interpreter.
+        "python": found["python"],
         "tools": found["tools"],
         # Shell commands are not dispatched from the catalog -- tdd-source.sh
         # has its own registry -- but their reqs live here so `tdd --reqs` can

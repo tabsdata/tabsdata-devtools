@@ -48,15 +48,20 @@ tddfn_tdd-env() {
 }
 
 _tdd_env_help() {
-    cat <<'HELP'
-usage: tdd tdd-env activate --toolset <toolset>
+    _tdd_help_text <<'HELP'
+usage: tdd tdd-env activate --toolset TOOLSET
        tdd tdd-env deactivate
 
 Enter or leave one of the toolset venvs under $TDD_DIR/tdd-venvs -- the envs
 the Python tools run in. Useful while developing a tool: the toolset's bin/
 goes on PATH exactly as `tdd <tool>` would arrange it.
 
-common options: --help/-h, --verbose/-v, --format json|view (default view)
+commands:
+  activate      put the toolset's bin/ first on PATH, in this shell
+  deactivate    restore PATH
+
+options:
+  --toolset TOOLSET   the toolset to enter (`tdd help` lists them)
 
 example: tdd tdd-env activate --toolset demo-env1
 HELP

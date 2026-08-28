@@ -77,9 +77,22 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
 
 
 def run_tool(name: str, *args: str, **kwargs) -> subprocess.CompletedProcess:
-    """Invoke a sibling tool in its own environment.
+    """Invoke a sibling tool in its own environment, through the dispatcher.
 
-    No --dir needed: tdd exports TDD_DIR before exec, and accepts it as
-    an input default, so the child lands in the same tdd dir we did.
+    `tdd` itself is a shell function and cannot be exec'd, so this goes to the
+    `tdd-exe` inside the tdd dir the dispatcher exported as TDD_DIR -- which
+    also routes the sibling into *its* toolset, whatever this one is. Outside a
+    dispatch (a direct development run) it falls back to a `tdd-exe` on PATH.
     """
-    return subprocess.run(["tdd", name, *args], **kwargs)
+    import shutil
+
+    dir_ = os.environ.get("TDD_DIR")
+    if dir_:
+        exe = str(pathlib.Path(dir_) / "tdd-venvs" / "tdd" / "bin" / "tdd-exe")
+        argv = [exe, "--dir", dir_, name, *args]
+    else:
+        exe = shutil.which("tdd-exe")
+        if exe is None:
+            raise RuntimeError("no tdd dir (TDD_DIR unset) and no tdd-exe on PATH")
+        argv = [exe, name, *args]
+    return subprocess.run(argv, **kwargs)

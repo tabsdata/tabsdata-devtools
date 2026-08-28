@@ -1,0 +1,167 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+"""Single source of truth for CLI vocabulary and environment variables.
+
+Command names, option flags, roles and sentinels are constants (never string
+literals at call sites) so the dispatcher's argv peeking and each command's
+declared options can never drift apart. ``ENV_VARS`` drives the ``environment:``
+section printed by top-level help.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal
+
+from tabsdata_dev.common.core import batch as core_batch
+
+# --- tools -----------------------------------------------------------------
+# The two commands, and the hidden sibling of `domain` that lives in the
+# salesforce toolset (see TOOLSET_* and DOMAIN_TOOL_BY_TOOLSET).
+SYS_TOOL = "system"
+DOM_TOOL = "domain"
+DOM_SF_TOOL = "domain-sf"
+
+# --- toolsets --------------------------------------------------------------
+# Every system verb and most domain verbs run in the `systems` toolset (the
+# driver set). The salesforce data plane runs in `salesforce`: cumulusci-plus
+# pins sqlalchemy<2, which the driver set's dialects contradict. A backend
+# declares the toolset each plane needs; `domain` re-dispatches to the sibling
+# tool registered for it when it is not the one running.
+TOOLSET_SYSTEMS = "systems"
+TOOLSET_SALESFORCE = "salesforce"
+DOMAIN_TOOL_BY_TOOLSET = {TOOLSET_SYSTEMS: DOM_TOOL, TOOLSET_SALESFORCE: DOM_SF_TOOL}
+
+# --- descriptor roles ------------------------------------------------------
+ROLE_SYSTEM: Literal["system"] = "system"
+ROLE_DOMAIN: Literal["domain"] = "domain"
+
+# --- verbs -----------------------------------------------------------------
+V_TYPES = "types"
+V_LIST = "list"
+V_INFO = "info"
+V_CREATE = "create"
+V_DESTROY = "destroy"
+V_STATUS = "status"
+V_PURGE = "purge"
+V_FETCH_BIN = "fetch-bin"
+V_RESTART = "restart"
+V_MODELS = "models"
+V_CREATE_MODEL = "create-model"
+V_CREATE_DATA = "create-data"
+V_MODIFY_DATA = "modify-data"
+V_MANIFEST = "manifest"
+V_UPGRADE = "upgrade"
+V_SECRETS = "secrets"
+V_CRYPTO_KEY = "crypto-key"
+V_CONNECT = "connect"
+
+# --- option flags ----------------------------------------------------------
+OPT_TYPE = "--type"
+OPT_SYS = "--sys"
+OPT_DOMAIN = "--domain"
+OPT_SYS_DIR = "--sys-dir"
+OPT_DOMAIN_DIR = "--domain-dir"
+OPT_FORCE = "--force"
+OPT_LATCH = "--latch"
+OPT_MODEL = "--model"
+OPT_SIZE = "--size"
+OPT_ENTITY = "--entity"
+OPT_SETS = "--sets"
+OPT_OPS = "--ops"
+OPT_SEED = "--seed"
+OPT_PREFIX = "--prefix"
+OPT_NAME_IN_SYSTEM = "--name-in-system"
+OPT_PORT = "--port"
+OPT_PORTS = "--ports"
+OPT_FORMAT = "--format"  # the guidelines' json|view rendering
+OPT_VERBOSE = "--verbose"
+OPT_AS = "--as"  # info / secrets: json|export|unset (was --format / --out)
+OPT_OUT = "--out"  # manifest: destination file
+OPT_SET = "--set"
+OPT_VAULT = "--vault"
+OPT_ITEM = "--item"
+OPT_FIELD = "--field"
+OPT_MANIFEST = "--manifest"
+OPT_SYNC = "--sync"
+OPT_EXTERNAL_PREFIX = "--external-prefix"
+OPT_REPORT = "--report"
+OPT_FAIL_FAST = "--fail-fast"
+OPT_SYS_PREFIX = "--sys-prefix"
+OPT_SYS_HOSTNAME = "--sys-hostname"
+OPT_DOMAIN_PREFIX = "--domain-prefix"
+OPT_DRY_RUN = "--dry-run"
+OPT_ENV_PREFIX = "--env-prefix"
+OPT_REMOTE_SYS = "--remote-sys"
+OPT_REMOTE_SECRET_ENV = "--remote-secret-env"
+OPT_SSH_PORT = "--ssh-port"
+OPT_IDENTITY = "--identity"
+HELP_FLAGS = ("-h", "--help")
+
+# --- batch execution -------------------------------------------------------
+TARGET_ALL = "ALL"  # --sys/--domain ALL selects every type (create) / stored one
+# Candidate free ports the dispatcher pre-allocates per system when starting many
+# in parallel, so no two racing creates pick the same free port (a system uses as
+# many as it needs -- most one, a couple for multi-port stacks -- and ignores the
+# rest).
+PORTS_PER_SYSTEM = 10
+
+# --- sentinels / value sets ------------------------------------------------
+SEED_AUTO = "AUTO"
+ENTITY_ALL = "ALL"
+AS_FORMATS = ("json", "export", "unset")
+
+# --- environment variables -------------------------------------------------
+ENV_CRYPTO_KEY = "TD_BACKENDS_CRYPTO_KEY"
+# Where `crypto-key` reads the personal key from, unless told otherwise: the
+# 1Password Employee vault every user has, item DevSecrets, field named like
+# the variable -- the same place `envx set-crypto` read it.
+ENV_EMPLOYEE_VAULT = "ONE_PASSWORD_EMPLOYEE_VAULT"
+DEFAULT_EMPLOYEE_VAULT = "Employee"
+DEFAULT_CRYPTO_ITEM = "DevSecrets"
+ENV_BUILD_USER = "TD_BUILD_USER"
+ENV_BUILD_NUMBER = "TD_BUILD_NUMBER"
+ENV_MYSQL_IMAGE_VERSION = "MYSQL_IMAGE_VERSION"
+DEFAULT_MYSQL_IMAGE_VERSION = "8.4"
+
+# The mutating verbs keep a detailed log per run (docker pulls, readiness waits,
+# DDL) beside the guidelines' failure logs, named tdd-<tool>-<verb>-<name>-<stamp>.log.
+LOG_DIR = "/tmp"
+LOG_MAX_AGE_DAYS = 1  # each run deletes its tool's logs in LOG_DIR older than this
+
+
+@dataclass(frozen=True)
+class EnvVar:
+    name: str
+    default: str  # human-readable default
+    help: str
+
+
+ENV_VARS: tuple[EnvVar, ...] = (
+    EnvVar(
+        ENV_EMPLOYEE_VAULT,
+        DEFAULT_EMPLOYEE_VAULT,
+        "1Password vault `crypto-key` reads the key from",
+    ),
+    EnvVar(
+        ENV_CRYPTO_KEY, "(required, >=12 chars)", "secret that encrypts descriptors"
+    ),
+    EnvVar(
+        ENV_BUILD_USER,
+        "<OS login>",
+        "build-identity user in the d_<user>_<build>_ prefix",
+    ),
+    EnvVar(
+        ENV_BUILD_NUMBER, "0", "build-identity number in the d_<user>_<build>_ prefix"
+    ),
+    EnvVar(
+        ENV_MYSQL_IMAGE_VERSION, DEFAULT_MYSQL_IMAGE_VERSION, "MySQL docker image tag"
+    ),
+    EnvVar(
+        core_batch.ENV_PARALLELISM,
+        str(core_batch.DEFAULT_PARALLELISM),
+        "max concurrent targets in a batch (--sys/--domain list/ALL) run",
+    ),
+)

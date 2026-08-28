@@ -54,11 +54,14 @@ def test_tools_default_to_not_demo(tmp_path):
 def test_shell_commands_and_their_reqs_reach_the_catalog():
     found = discover.discover(paths.repo_root())
     shell = found["shell"]
-    # common.sh needs jq, so every shell command does; own reqs follow.
-    assert shell["tdd-env"]["demo"] is False and shell["tdd-env"]["reqs"] == ["jq"]
+    # common.sh needs jq and awk, so every shell command does; own reqs follow.
+    assert shell["tdd-env"]["demo"] is False and shell["tdd-env"]["reqs"] == [
+        "jq",
+        "awk",
+    ]
     assert shell["demo-fn1"]["demo"] is True
-    assert shell["demo-fn1"]["reqs"] == ["jq", "whoami", "hostname"]
-    assert shell["demo-fn2"]["reqs"] == ["jq", "uname", "date"]
+    assert shell["demo-fn1"]["reqs"] == ["jq", "awk", "whoami", "hostname"]
+    assert shell["demo-fn2"]["reqs"] == ["jq", "awk", "uname", "date"]
 
 
 def _shell_fixture(tmp_path, tool_name):

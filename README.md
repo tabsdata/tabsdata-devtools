@@ -37,6 +37,9 @@ tdd --help        # everything there is; add --demo to see the sample commands
 tdd info          # what this install is and where it lives
 tdd --reqs        # external binaries the tools expect on your PATH
 tdd venv --help   # managed pyenv/uv/conda venvs; also: tdd pycache --help, tdd vars --help
+tdd system --help # external systems for testing (databases in docker, object stores, services)
+tdd domain --help # domains inside those systems: schemas, generated data, change sets
+tdd env set-crypto  # fetch TD_BACKENDS_CRYPTO_KEY from 1Password into this shell (needs `op`)
 tdd defaults --command venv   # a command's option defaults: built-in vs your default-opts
 ```
 

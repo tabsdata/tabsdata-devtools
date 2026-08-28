@@ -21,8 +21,8 @@ tddfn_demo-fn1() {
         shift "$_TDD_CONSUMED"
     done
     if [ "$_TDD_HELP" = 1 ]; then
-        cat <<'HELP'
-usage: tdd demo-fn1 [--verbose] [--format json|view]
+        _tdd_help_text <<'HELP'
+usage: tdd demo-fn1 [-h] [-v] [--format {json,view}]
 
 Demo shell command: prints its name, then whoami@hostname.
 HELP

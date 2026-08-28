@@ -20,7 +20,7 @@ alike. A command that does not is a bug. Short, because each rule is absolute.
 
 | Option | Meaning |
 |---|---|
-| `--help`, `-h` | usage, options, and one example; exit 0 |
+| `--help`, `-h` | usage, description, options, and one example, in argparse's layout on both sides (`_tdd_help_text` renders it for shell commands); exit 0 |
 | `--verbose`, `-v` | more detail about what is happening — never a different *result* |
 | `--format json\|view` | output format, default `view` |
 

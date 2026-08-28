@@ -1,0 +1,60 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+[project]
+name = "tabsdata-dev-deps-systems"
+dynamic = ["version"]
+description = "pins for the systems toolset: SQL dialects and drivers, object-store SDKs, kafka, the frame writer"
+requires-python = ">=3.12,<3.13"
+# A SQL system needs its SQLAlchemy *dialect*, not just its driver: the dialect
+# is what registers the name in Backend.driver (clickhousedb <- clickhouse-connect,
+# snowflake <- snowflake-sqlalchemy, databricks <- databricks-sqlalchemy).
+# ibm_db has no arm64 wheels; the db2 backends stay importable without it.
+dependencies = [
+    "pytest==9.1.1",
+    "pydantic==2.13.5",
+    "pyyaml==6.0.3",
+    "cryptography==50.0.1",
+    "polars==1.44.1",
+    "pyarrow==25.0.1",
+    "pandas==3.0.5",
+    "sqlalchemy==2.0.52",
+    "sqlparse==0.6.0",
+    "psycopg2-binary==2.9.12",
+    "mysql-connector-python==26.7.0",
+    "oracledb==4.0.2",
+    "pymongo==4.17.0",
+    "pyodbc==5.3.0",
+    "boto3==1.43.82",
+    "google-cloud-storage==3.13.1",
+    "google-cloud-bigquery==3.44.0",
+    "azure-storage-blob==12.30.1",
+    "snowflake-sqlalchemy==1.11.0",
+    "databricks-sqlalchemy==2.0.10",
+    "clickhouse-connect==1.7.2",
+    "confluent-kafka==2.15.0",
+    "fastavro==1.12.2",
+    "protobuf==7.36.0",    "ibm_db==3.2.6; platform_machine != 'aarch64' and platform_machine != 'arm64'",
+    "ibm_db_sa==0.4.1; platform_machine != 'aarch64' and platform_machine != 'arm64'",
+]
+
+# Several drivers ship no wheels for the newest CPython yet; this toolset's
+# venv is created on 3.12 (uv finds or fetches it).
+[tool.tdd]
+python = "3.12"
+
+[tool.hatch.version]
+path = "../../VERSION"
+pattern = '^(?P<version>\S+)'
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src/python/main/tabsdata_dev"]
+sources = ["src/python/main"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/python/test"]

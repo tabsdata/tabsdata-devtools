@@ -123,6 +123,7 @@ routes, so events and the log name the subcommand.
 | `_tdd_warn msg [fields]` | same, yellow |
 | `_tdd_debug msg [fields]` | only under `--verbose`, white |
 | `_tdd_ok msg [fields]` | the one result, last, green; stdout in view; then return 0 |
+| `_tdd_help_text <<'HELP'` | renders `--help` from a declaration on stdin, in argparse's layout (below) |
 | `_tdd_error msg [details]` | writes `/tmp/tdd-<cmd>-<stamp>-<pid>.log`, emits the red `error` event with the path (view adds `details: <path>`), returns 1 — always `return 1` right after it |
 
 `fields` is a string of extra JSON members, `"name":"x","count":3`, appended to the json line;
@@ -132,6 +133,37 @@ Colours appear only when the stream is a terminal and `NO_COLOR` is unset.
 
 Subcommand groups (`tdd venv create …`) route on `$1` inside the function and pass the rest
 on; `venv.sh` shows the shape, including the cleanup of `_tdd_` temporaries in one place.
+
+### Help, laid out like the Python tools
+
+`--help` must read the same whether the command is Python or shell, so a shell command does
+not format its help: it declares it and `_tdd_help_text` renders it as argparse would — usage,
+description, `commands:`/`options:` tables with the help text at column 24 and wrapped to the
+terminal, epilog. The common options are added to `options:` (or an `options:` section is
+created) automatically; never list them yourself.
+
+```sh
+_tdd_help_gitroot() {
+    _tdd_help_text <<'HELP'
+usage: tdd gitroot [--depth N]
+
+cd to the top of the current git checkout.
+
+options:
+  --depth N   how many levels to climb at most (default: 1)
+
+example: tdd gitroot && pwd
+HELP
+}
+```
+
+The declaration is line-oriented: the lines up to the first blank one are the usage and are
+printed as written; free text is a paragraph and gets re-wrapped (lines indented four or
+more are kept verbatim, for examples); a lowercase word ending in `:` at column 0 opens a
+section, whose entries are indented two spaces — the term, two or more spaces, the help —
+with deeper-indented lines continuing the help of the entry above. `commands:` for the
+sub-words of a group, `options:` for options, `example:` in the epilog. `tdd venv --help`
+and `tdd defaults --help` are the fullest examples.
 
 ### User defaults: nothing to do
 
@@ -163,7 +195,8 @@ names an action you do not have.
 
 The shell package's tests (`packages/tabsdata-dev-shell/src/python/test/test_shell.py`)
 check the conventions above statically: every file sources `common.sh`, registers something,
-defines its `tddfn_`, uses the helpers (and never `echo`es), returns only 0 or 1, has help text;
+defines its `tddfn_`, uses the helpers (and never `echo`es), returns only 0 or 1, declares its help
+through `_tdd_help_text` (whose layout is itself tested);
 no `|` in summaries; every `*.bin-reqs.txt` sits beside a script; the demo commands use what
 they declare. Add a case for your command if it has structure worth
 pinning down. `cargo make test` runs them.

@@ -95,11 +95,18 @@ def _from_source(dir_: pathlib.Path, out: render.Renderer, relock: bool) -> dict
     for toolset in catalog["toolsets"]:
         project = root / "packages" / (generate_mod.TOOLSET_PREFIX + toolset)
         target = envs / toolset
-        out.info(f"syncing toolset {toolset} -> {target}", step="sync", toolset=toolset)
+        python = catalog.get("python", {}).get(toolset)
+        out.info(
+            f"syncing toolset {toolset} -> {target}"
+            + (f" (python {python})" if python else ""),
+            step="sync",
+            toolset=toolset,
+            python=python,
+        )
         # uv sync would create the env itself, but not relocatably; make it
         # first so sync populates a relocatable venv instead.
         if not target.exists():
-            _make_venv(target, out)
+            _make_venv(target, out, python)
         argv = ["uv", "sync", "--quiet", "--project", str(project)]
         if relock:
             argv.append("--upgrade")
@@ -158,6 +165,7 @@ def _from_wheels(dir_: pathlib.Path, out: render.Renderer) -> dict | None:
             catalog["members"][toolset],
             f"toolset {toolset}",
             out,
+            python=catalog.get("python", {}).get(toolset),
         )
     for env_name, dist, label in (
         (TDD_ENV, TDD_DIST, "tdd-exe"),
@@ -181,6 +189,7 @@ def _install_locked(
     dists: list[str],
     label: str,
     out: render.Renderer,
+    python: str | None = None,
 ) -> None:
     """Install `dists` into `target` against an exported lock.
 
@@ -196,7 +205,7 @@ def _install_locked(
         )
 
     out.info(f"installing {label} -> {target}", step="install", env=target.name)
-    _make_venv(target, out)
+    _make_venv(target, out, python)
     if not _lock_is_empty(lock):
         _venv_install(
             target,
@@ -258,19 +267,22 @@ def _venv_install(
     )
 
 
-def _make_venv(target: pathlib.Path, out: render.Renderer) -> None:
+def _make_venv(
+    target: pathlib.Path, out: render.Renderer, python: str | None = None
+) -> None:
     """Create a relocatable venv. Copies rather than hardlinks from the cache,
     so the result survives being archived or moved to another filesystem.
 
     --clear because re-running init over an existing tdd dir is the documented
     way to pick up a dependency change, and uv refuses to overwrite a venv
     without it. A rebuilt env starts empty, which is what "re-init" should mean.
+    `python` pins the interpreter minor a toolset's bundle asked for; uv finds
+    or fetches it.
     """
-    _uv(
-        ["uv", "venv", "--quiet", "--clear", "--relocatable", str(target)],
-        out,
-        f"failed to create the venv {target}",
-    )
+    argv = ["uv", "venv", "--quiet", "--clear", "--relocatable"]
+    if python:
+        argv += ["--python", python]
+    _uv([*argv, str(target)], out, f"failed to create the venv {target}")
 
 
 # --------------------------------------------------------------- shared tail

@@ -59,30 +59,32 @@ tddfn_defaults() {
 }
 
 _tdd_defaults_help() {
-    cat <<'HELP'
-usage: tdd defaults [--command <name>]
+    _tdd_help_text <<'HELP'
+usage: tdd defaults [--command NAME]
 
 Show what a command's options default to and where each value comes from.
+Options typed on the command line always win over these. Without --command:
+check the directory and list the commands that have customizations. Every run
+warns about a missing directory and about files that name no command or action.
 
-  built-in    the command's own default (white)
-  customized  your value from a file in $TDD_DIR/default-opts/ (blue); it
-              overrides the built-in
+options:
+  --command NAME   a command `tdd help --demo` lists
 
-Files:  $TDD_DIR/default-opts/<command>.txt            every action of <command>
-        $TDD_DIR/default-opts/<command>_<action>.txt   one action only
+sources:
+  built-in     the command's own default (white)
+  customized   your value from a file in $TDD_DIR/default-opts/ (blue); it
+               overrides the built-in
 
-Each file holds ONE OPTION PER LINE, as it would be typed; # starts a comment:
+files:
+  <command>.txt            every action of <command>
+  <command>_<action>.txt   one action only
+
+Each file, under $TDD_DIR/default-opts/, holds ONE OPTION PER LINE, as it would
+be typed; # starts a comment:
 
     # default-opts/venv_create.txt
     --type conda
     --python 3.12.13
-
-Options typed on the command line always win over these. <name> must be a
-command `tdd help --demo` lists. Without --command: check the directory and
-list the commands that have customizations. Every run warns about a missing
-directory and about files that name no command or action.
-
-common options: --help/-h, --verbose/-v, --format json|view (default view)
 
 example: tdd defaults --command venv
 HELP

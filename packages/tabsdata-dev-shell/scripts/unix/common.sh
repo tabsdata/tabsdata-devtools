@@ -6,6 +6,7 @@
 # docs/command-cli-guidelines.md that are the same for all of them.
 #
 #   the common options      --help/-h, --verbose/-v, --format json|view
+#   the help layout         argparse's, from a declaration (_tdd_help_text)
 #   the event model         command + event (ok, error, warn, info, debug)
 #                           + message [+ fields], one line each
 #   the two renderings      json: one JSON object per line on stdout
@@ -87,6 +88,113 @@ _tdd_cmd_check() {
         return 1
     fi
     return 0
+}
+
+# ---------------------------------------------------------------- help
+
+# Render a command's --help in the layout argparse gives the Python tools --
+# usage, description, `commands:`/`options:` tables with the help text at
+# column 24 and wrapped to the terminal, epilog -- from a short declaration
+# on stdin, so both halves of tdd read the same. The declaration:
+#
+#   usage: tdd venv create --name NAME       the first lines, up to the first
+#          tdd venv list                     blank one, are printed verbatim
+#
+#   Free text is a paragraph and is re-wrapped; lines indented 4+ are kept.
+#
+#   commands:                     a section: one lowercase word and a colon
+#     create    make a venv       an entry: 2-space indent, the term, two or
+#               and enter it      more spaces, the help; deeper lines continue
+#   options:                      the help of the entry above
+#     --name NAME   the venv
+#
+#   Text after the sections is the epilog.
+#
+# The common options are added at the top of `options:` -- created after the
+# last section, or after the description, when the declaration has none -- so
+# no command repeats them. awk does the layout; common.bin-reqs.txt declares it.
+_tdd_help_text() {
+    awk -v width="${COLUMNS:-80}" '
+    function sp(n) { return sprintf("%" n "s", "") }
+    function wrap(text, first, rest, w,   words, nw, i, line, out, ind) {
+        nw = split(text, words, / +/); line = ""; out = ""; ind = first
+        for (i = 1; i <= nw; i++) {
+            if (words[i] == "") continue
+            if (line == "") line = words[i]
+            else if (length(ind) + length(line) + 1 + length(words[i]) <= w) line = line " " words[i]
+            else { out = out ind line "\n"; line = words[i]; ind = rest }
+        }
+        return out ind line
+    }
+    function entry(term, help,   pad) {
+        if (help == "") { print "  " term; return }
+        if (length(term) <= HC - 4) {
+            pad = sprintf("%-" (HC - 2) "s", term)
+            print wrap(help, "  " pad, sp(HC), W)
+        } else {
+            print "  " term
+            print wrap(help, sp(HC), sp(HC), W)
+        }
+    }
+    function newblock(type, text, gap) { btype[nb] = type; btext[nb] = text; bgap[nb] = gap; return nb++ }
+    function flushpara() { if (para != "") { newblock("para", para, paragap); para = "" } }
+    function common() {
+        entry("-h, --help", "show this help message and exit")
+        entry("-v, --verbose", "show debug events too")
+        entry("--format {json,view}", "json is JSON Lines, one event per line (default: view)")
+    }
+    function section(b,   k) {
+        print ""; print btext[b]
+        if (btext[b] == "options:") common()
+        for (k = 0; k < nent[b]; k++) entry(eterm[b, k], ehelp[b, k])
+    }
+    BEGIN { W = width - 2; if (W < 40) W = 40; HC = 24; n = 0; nb = 0; para = "" }
+    { lines[n++] = $0 }
+    END {
+        i = 0
+        while (i < n && lines[i] != "") { print lines[i]; i++ }
+        cur = -1; gap = 1; hasopts = 0; lastsec = -1
+        for (; i < n; i++) {
+            l = lines[i]
+            if (l == "") { flushpara(); gap = 1; continue }
+            if (l ~ /^[a-z][a-z0-9 -]*:$/) {
+                flushpara(); cur = newblock("sec", l, 1); nent[cur] = 0; lastsec = cur
+                if (l == "options:") hasopts = 1
+                gap = 0; continue
+            }
+            if (cur >= 0 && l ~ /^ /) {
+                if (l ~ /^  [^ ]/) {
+                    t = substr(l, 3)
+                    if (match(t, /  +/)) { term = substr(t, 1, RSTART - 1); help = substr(t, RSTART + RLENGTH) }
+                    else { term = t; help = "" }
+                    k = nent[cur]++; eterm[cur, k] = term; ehelp[cur, k] = help
+                } else if (nent[cur] > 0) {
+                    k = nent[cur] - 1; sub(/^ +/, "", l)
+                    ehelp[cur, k] = (ehelp[cur, k] == "" ? l : ehelp[cur, k] " " l)
+                }
+                gap = 0; continue
+            }
+            cur = -1
+            if (l ~ /^    /) {
+                flushpara()
+                if (nb > 0 && btype[nb - 1] == "pre") btext[nb - 1] = btext[nb - 1] (gap ? "\n\n" : "\n") l
+                else newblock("pre", l, gap)
+                gap = 0; continue
+            }
+            sub(/^ +/, "", l); sub(/ +$/, "", l)
+            if (para == "") paragap = gap
+            para = (para == "" ? l : para " " l)
+            gap = 0
+        }
+        flushpara()
+        optafter = hasopts ? -2 : (lastsec >= 0 ? lastsec : (nb > 0 ? 0 : -1))
+        if (optafter == -1) { print ""; print "options:"; common() }
+        for (b = 0; b < nb; b++) {
+            if (btype[b] == "sec") section(b)
+            else { if (bgap[b]) print ""; print (btype[b] == "para") ? wrap(btext[b], "", "", W) : btext[b] }
+            if (b == optafter) { print ""; print "options:"; common() }
+        }
+    }'
 }
 
 # ---------------------------------------------------------------- rendering
