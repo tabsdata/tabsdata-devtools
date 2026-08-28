@@ -2,6 +2,8 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
+import os
+import pytest
 import io
 import json
 
@@ -178,3 +180,46 @@ def test_read_field_reports_op_failures(monkeypatch, tmp_path):
         assert "not signed in" in str(exc)
         return
     raise AssertionError("expected ToolError")
+
+
+def test_managedvenv_needs_tdd_venv_and_points_at_tdd_venv(monkeypatch):
+    from tabsdata_dev.common.core import managedvenv
+    from tabsdata_dev.common.core.errors import ToolError
+
+    monkeypatch.delenv("TDD_VENV", raising=False)
+    with pytest.raises(ToolError, match="tdd venv"):
+        managedvenv.active()
+    monkeypatch.setenv("TDD_VENV", "work")
+    assert managedvenv.active() == "work"
+
+
+def test_managedvenv_resolves_the_marker_and_composes_each_manager(
+    tmp_path, monkeypatch
+):
+    from tabsdata_dev.common.core import managedvenv
+    from tabsdata_dev.common.core.errors import ToolError
+
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    root = tmp_path / "managed-venvs"
+    for manager in ("pyenv", "uv", "conda"):
+        (root / manager / f"v-{manager}").mkdir(parents=True)
+        (root / f"v-{manager}.env").write_text(f"{manager}\n")
+    assert managedvenv.resolve("v-uv") == ("uv", root / "uv" / "v-uv")
+    with pytest.raises(ToolError, match="does not exist"):
+        managedvenv.resolve("nope")
+    (root / "odd.env").write_text("virtualenvwrapper\n")
+    with pytest.raises(ToolError, match="unknown venv manager"):
+        managedvenv.resolve("odd")
+
+    argv, env = managedvenv.launch("uv", root / "uv" / "v-uv", "tdk", ["fn", "--x"])
+    assert argv == ["uv", "run", "--active", "--no-project", "tdk", "fn", "--x"]
+    assert env == {"VIRTUAL_ENV": str(root / "uv" / "v-uv")}
+    argv, env = managedvenv.launch("conda", root / "conda" / "v-conda", "tdk", [])
+    assert argv[:3] == ["conda", "run", "--prefix"] and "--no-capture-output" in argv
+    assert argv[-1] == "tdk" and env == {}
+    argv, env = managedvenv.launch(
+        "pyenv", root / "pyenv" / "v-pyenv", "tdkserver", ["a"]
+    )
+    assert argv == [str(root / "pyenv" / "v-pyenv" / "bin" / "tdkserver"), "a"]
+    assert env["VIRTUAL_ENV"] == str(root / "pyenv" / "v-pyenv")
+    assert env["PATH"].startswith(str(root / "pyenv" / "v-pyenv" / "bin") + os.pathsep)

@@ -213,7 +213,8 @@ the reproducibility record for that env. Never edit it by hand; `cargo make gen`
   `domain-sf`).
 - **Reuse before writing**: `common.core` has the parallel child runner (`batch.execute` with a
   `spawn`), `ports`, `passwords`, `docker`, `ssh`, `secrets` (1Password), `datadir.data_dir()`
-  for your state under `<tdd_dir>/data/<command>`, and `latch`. A family of related commands
+  for your state under `<tdd_dir>/data/<command>`, `latch`, and `managedvenv` + `launcher`
+  for a tool that runs a program inside the user's `tdd venv` (see `tool-tdk`). A family of related commands
   that needs to share code across toolsets puts it in its own `common-<family>` (see
   `common-systems`).
 - **Moving or renaming the checkout** breaks every editable env (`.pth` files hold absolute

@@ -1,5 +1,5 @@
 {
-  "fingerprint": "2fe253947db045d4",
+  "fingerprint": "e4b4e0a189ca5aa2",
   "members": {
     "demo-env1": [
       "tabsdata-dev-common-core",
@@ -10,6 +10,13 @@
       "tabsdata-dev-common-core",
       "tabsdata-dev-deps-demo-env2",
       "tabsdata-dev-tool-demo-exe2"
+    ],
+    "launchers": [
+      "tabsdata-dev-common-core",
+      "tabsdata-dev-deps-launchers",
+      "tabsdata-dev-tool-km",
+      "tabsdata-dev-tool-tdk",
+      "tabsdata-dev-tool-tdkserver"
     ],
     "salesforce": [
       "tabsdata-dev-common-core",
@@ -162,6 +169,21 @@
       "summary": "domain, running in the salesforce toolset (the org's data plane)",
       "toolset": "salesforce"
     },
+    "km": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "demo": false,
+      "hidden": false,
+      "package": "tabsdata-dev-tool-km",
+      "reqs": [
+        "km",
+        "uv",
+        "conda"
+      ],
+      "summary": "run tabsdata's km CLI inside the managed venv named by $TDD_VENV",
+      "toolset": "launchers"
+    },
     "system": {
       "commons": [
         "tabsdata-dev-common-core",
@@ -176,11 +198,42 @@
       ],
       "summary": "manage external systems for testing: databases, object stores, services (docker, cloud, remote)",
       "toolset": "systems"
+    },
+    "tdk": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "demo": false,
+      "hidden": false,
+      "package": "tabsdata-dev-tool-tdk",
+      "reqs": [
+        "tdk",
+        "uv",
+        "conda"
+      ],
+      "summary": "run tabsdata's tdk CLI inside the managed venv named by $TDD_VENV",
+      "toolset": "launchers"
+    },
+    "tdkserver": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "demo": false,
+      "hidden": false,
+      "package": "tabsdata-dev-tool-tdkserver",
+      "reqs": [
+        "tdkserver",
+        "uv",
+        "conda"
+      ],
+      "summary": "run tabsdata's tdkserver inside the managed venv named by $TDD_VENV",
+      "toolset": "launchers"
     }
   },
   "toolsets": [
     "demo-env1",
     "demo-env2",
+    "launchers",
     "salesforce",
     "systems"
   ]

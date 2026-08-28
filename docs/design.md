@@ -100,6 +100,7 @@ The whole surface, deliberately small:
 | `tdd vars unset --dev\|--pypi` | `*` shell — unset `TD_*` / index variables in this shell |
 | `tdd system <verb> …` | external systems for testing: create/destroy/status/purge/restart/fetch-bin/connect, plus types/list/info/manifest/upgrade/secrets/crypto-key |
 | `tdd env set-crypto\|set-secrets` | `*` shell — run `system crypto-key` / `system secrets` with `--as export` and eval the result into this shell |
+| `tdd tdk ARGS…`, `tdd tdkserver ARGS…`, `tdd km ARGS…` | run tabsdata's CLIs inside the managed venv `$TDD_VENV` names, through its manager |
 | `tdd domain <verb> …` | domains inside systems: create/destroy/status/models/create-model/create-data/modify-data, plus list/info/manifest/upgrade |
 | `tdd defaults --command <name>` | `*` shell — a command's option defaults: built-in (white) vs customized (blue) |
 | `tdd <tool> [args…]` | dispatch |
@@ -286,6 +287,10 @@ tabsdata-devtools/
     ├── tabsdata-dev-deps-salesforce/      # python 3.12; cumulusci-plus, snowfakery (sqlalchemy<2)
     ├── tabsdata-dev-tool-system/          # `system`  -> common.systems.main.run("system"); bin-reqs: docker, op
     ├── tabsdata-dev-tool-domain/          # `domain`; bin-reqs: docker, op
+    ├── tabsdata-dev-deps-launchers/       # toolset `launchers`: pins nothing but pytest
+    ├── tabsdata-dev-tool-tdk/             # `tdk`       -> common.core.launcher.run("tdk"); bin-reqs: tdk, uv, conda
+    ├── tabsdata-dev-tool-tdkserver/       # `tdkserver` -> same, for tdkserver
+    ├── tabsdata-dev-tool-km/              # `km`        -> same, for km
     ├── tabsdata-dev-tool-domain-sf/       # `domain-sf` (hidden), toolset salesforce
     │       └── test/test_common.py
     ├── tabsdata-dev-deps-demo-env1/       # NO logic, PINS only

@@ -25,7 +25,9 @@ alike. A command that does not is a bug. Short, because each rule is absolute.
 | `--format json\|view` | output format, default `view` |
 
 Everything after the command word belongs to the command: `tdd <command> --help` is the
-command's help, not `tdd`'s.
+command's help, not `tdd`'s. The one exception to the rules below are the launchers (`tdd tdk`,
+`tdd tdkserver`, `tdd km`): they own no options, so `--help`, `--format` and everything else reach the
+program they run; only their own failures before it runs follow this contract.
 
 Because every option is a long `--name`, a user can preset it: `tdd` merges
 `<tdd_dir>/default-opts/<command>.txt` or `<command>_<action>.txt` (one `--name value` per line)

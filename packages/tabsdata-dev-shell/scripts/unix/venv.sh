@@ -24,7 +24,7 @@
 # activation; activating while another managed venv is active switches to the
 # new one; a venv that tdd did not activate (VIRTUAL_ENV, or a conda env other
 # than base) blocks both, and deactivate only ever leaves a managed venv. State
-# lives in TDD_VENV_ACTIVE (the name) and TDD_VENV_PS1 (the prompt to restore).
+# lives in TDD_VENV (the name) and TDD_VENV_PS1 (the prompt to restore).
 
 tdd_fn_register venv "create, activate, deactivate, delete or list managed venvs (pyenv, uv or conda)"
 
@@ -75,15 +75,16 @@ usage: tdd venv create --name NAME [--type {pyenv,uv,conda}]
        tdd venv list
 
 Managed virtualenvs, all under $TDD_DIR/managed-venvs/<type>/<name>. A
-<name>.env file beside them records the type, so every subcommand knows which
-tool to use.
+<name>.env file beside them records the type, so every subcommand -- and the
+tdk launchers -- know which tool to use. The active one is named by TDD_VENV.
 
 commands:
   create        make a venv and enter it. Refuses while a venv tdd did not
                 activate is active; switches from a managed one
-  activate      enter it, in this shell; the prompt shows (<type>/NAME).
-                Switches if another managed venv is active; refuses if a venv
-                tdd did not activate is (deactivate that one first)
+  activate      enter it, in this shell: the prompt shows (<type>/NAME) and
+                TDD_VENV=NAME is exported, which `tdd tdk` and `tdd tdkserver`
+                read. Switches if another managed venv is active; refuses if a
+                venv tdd did not activate is (deactivate that one first)
   deactivate    leave the active managed venv; never touches a venv tdd did
                 not activate
   delete        remove it and its marker; refuses while it is active
@@ -255,17 +256,17 @@ _tdd_venv_current() {
     fi
 }
 
-# Directory of the managed venv recorded in TDD_VENV_ACTIVE.
+# Directory of the managed venv recorded in TDD_VENV.
 _tdd_venv_active_dir() {
-    _tdd_prev_type="$(cat "$(_tdd_venv_root)/$TDD_VENV_ACTIVE.env" 2>/dev/null)"
-    printf '%s' "$(_tdd_venv_root)/$_tdd_prev_type/$TDD_VENV_ACTIVE"
+    _tdd_prev_type="$(cat "$(_tdd_venv_root)/$TDD_VENV.env" 2>/dev/null)"
+    printf '%s' "$(_tdd_venv_root)/$_tdd_prev_type/$TDD_VENV"
     unset _tdd_prev_type
 }
 
 # Leave the recorded managed venv: the tool's own deactivate, then the prompt
 # and the record. Shared by deactivate and by activate when switching.
 _tdd_venv_leave() {
-    case "$(cat "$(_tdd_venv_root)/$TDD_VENV_ACTIVE.env" 2>/dev/null)" in
+    case "$(cat "$(_tdd_venv_root)/$TDD_VENV.env" 2>/dev/null)" in
         conda)
             CONDA_CHANGEPS1=false
             export CONDA_CHANGEPS1
@@ -279,7 +280,7 @@ _tdd_venv_leave() {
     if [ -n "${TDD_VENV_PS1+x}" ]; then
         PS1="$TDD_VENV_PS1"
     fi
-    unset TDD_VENV_ACTIVE TDD_VENV_PS1
+    unset TDD_VENV TDD_VENV_PS1
 }
 
 # Refuse when a venv tdd did not activate is in the way: on its own, or on top
@@ -287,9 +288,9 @@ _tdd_venv_leave() {
 # fail before changing anything.
 _tdd_venv_foreign_check() {
     _tdd_current="$(_tdd_venv_current)"
-    if [ -n "${TDD_VENV_ACTIVE:-}" ]; then
+    if [ -n "${TDD_VENV:-}" ]; then
         if [ -n "$_tdd_current" ] && [ "$_tdd_current" != "$(_tdd_venv_active_dir)" ]; then
-            _tdd_error "a venv tdd did not activate is on top of managed venv $TDD_VENV_ACTIVE ($_tdd_current); deactivate it first"
+            _tdd_error "a venv tdd did not activate is on top of managed venv $TDD_VENV ($_tdd_current); deactivate it first"
             return 1
         fi
     elif [ -n "$_tdd_current" ]; then
@@ -304,8 +305,8 @@ _tdd_venv_foreign_check() {
 # silenced, write ours, record the state. Foreign check already done.
 _tdd_venv_enter() {
     _tdd_prev=""
-    if [ -n "${TDD_VENV_ACTIVE:-}" ]; then
-        _tdd_prev="$TDD_VENV_ACTIVE"
+    if [ -n "${TDD_VENV:-}" ]; then
+        _tdd_prev="$TDD_VENV"
         _tdd_venv_leave
         _tdd_debug "deactivated $_tdd_prev"
     fi
@@ -334,8 +335,8 @@ _tdd_venv_enter() {
     esac
     TDD_VENV_PS1="$_tdd_ps1"
     PS1="($_tdd_type/$_tdd_name) $_tdd_ps1"
-    TDD_VENV_ACTIVE="$_tdd_name"
-    export TDD_VENV_ACTIVE
+    TDD_VENV="$_tdd_name"
+    export TDD_VENV
     return 0
 }
 
@@ -356,7 +357,7 @@ _tdd_venv_activate() {
         return 1
     fi
     _tdd_venv_foreign_check || return 1
-    if [ "${TDD_VENV_ACTIVE:-}" = "$_tdd_name" ]; then
+    if [ "${TDD_VENV:-}" = "$_tdd_name" ]; then
         _tdd_ok "$_tdd_name ($_tdd_type) is already active" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"path\":\"$(_tdd_json_str "$_tdd_dir")\",\"already_active\":true"
         return 0
     fi
@@ -374,7 +375,7 @@ _tdd_venv_deactivate() {
         return 0
     fi
     _tdd_cmd_check || return 1
-    if [ -z "${TDD_VENV_ACTIVE:-}" ]; then
+    if [ -z "${TDD_VENV:-}" ]; then
         if [ -n "$(_tdd_venv_current)" ]; then
             _tdd_error "no managed venv is active; the active venv ($(_tdd_venv_current)) was not activated by tdd, so it is left alone"
         else
@@ -384,10 +385,10 @@ _tdd_venv_deactivate() {
     fi
     _tdd_current="$(_tdd_venv_current)"
     if [ -n "$_tdd_current" ] && [ "$_tdd_current" != "$(_tdd_venv_active_dir)" ]; then
-        _tdd_error "a venv tdd did not activate is on top of managed venv $TDD_VENV_ACTIVE ($_tdd_current); deactivate it first, or unset TDD_VENV_ACTIVE to drop the record"
+        _tdd_error "a venv tdd did not activate is on top of managed venv $TDD_VENV ($_tdd_current); deactivate it first, or unset TDD_VENV to drop the record"
         return 1
     fi
-    _tdd_name="$TDD_VENV_ACTIVE"
+    _tdd_name="$TDD_VENV"
     _tdd_type="$(cat "$(_tdd_venv_root)/$_tdd_name.env" 2>/dev/null)"
     _tdd_venv_leave
     _tdd_ok "deactivated $_tdd_name" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\""
@@ -405,7 +406,7 @@ _tdd_venv_delete() {
         return 1
     fi
     _tdd_venv_resolve || return 1
-    if [ "${TDD_VENV_ACTIVE:-}" = "$_tdd_name" ]; then
+    if [ "${TDD_VENV:-}" = "$_tdd_name" ]; then
         _tdd_error "$_tdd_name is active; run tdd venv deactivate first"
         return 1
     fi
@@ -438,11 +439,11 @@ _tdd_venv_list() {
         _tdd_type="$(cat "$_tdd_f")"
         _tdd_dir="$(_tdd_venv_root)/$_tdd_type/$_tdd_name"
         _tdd_mark=""
-        [ "${TDD_VENV_ACTIVE:-}" = "$_tdd_name" ] && _tdd_mark="  (active)"
+        [ "${TDD_VENV:-}" = "$_tdd_name" ] && _tdd_mark="  (active)"
         [ -d "$_tdd_dir" ] || _tdd_mark="$_tdd_mark  (missing directory)"
         _tdd_rows="$_tdd_rows$(printf '%-24s %-6s %s%s' "$_tdd_name" "$_tdd_type" "$_tdd_dir" "$_tdd_mark")
 "
-        _tdd_json="$_tdd_json${_tdd_json:+,}{\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"path\":\"$(_tdd_json_str "$_tdd_dir")\",\"active\":$([ "${TDD_VENV_ACTIVE:-}" = "$_tdd_name" ] && echo true || echo false),\"exists\":$([ -d "$_tdd_dir" ] && echo true || echo false)}"
+        _tdd_json="$_tdd_json${_tdd_json:+,}{\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"path\":\"$(_tdd_json_str "$_tdd_dir")\",\"active\":$([ "${TDD_VENV:-}" = "$_tdd_name" ] && echo true || echo false),\"exists\":$([ -d "$_tdd_dir" ] && echo true || echo false)}"
     done
     if [ -z "$_tdd_rows" ]; then
         _tdd_ok "no managed venvs (create one: tdd venv create --name NAME)" '"venvs":[]'

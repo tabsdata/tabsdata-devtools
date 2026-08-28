@@ -30,7 +30,7 @@ tdd-install    executable                -> the only way to build a tdd dir
 The user-facing surface: `tdd --help | --version | --reqs`, `tdd doctor`, `tdd info`,
 the tools, and on the shell side `tdd tdd-env activate|deactivate` (toolset venvs),
 `tdd venv create|activate|deactivate|delete|list` (managed pyenv/uv/conda venvs under
-`<tdd_dir>/managed-venvs/`), `tdd pycache clean`, `tdd vars unset --dev|--pypi`, and
+`<tdd_dir>/managed-venvs/`; activation exports `TDD_VENV`), `tdd pycache clean`, `tdd vars unset --dev|--pypi`, and
 `tdd env set-crypto|set-secrets` (eval `system crypto-key`/`secrets --as export` into the shell). Setup is
 `tdd-install`; regenerating the catalog is `cargo make gen`; testing is `cargo make test`. None
 of those are `tdd` words — see `.claude/DECISIONS.md`.
@@ -66,6 +66,17 @@ entry points over `tabsdata_dev.common.systems`. `domain-sf` (toolset `salesforc
 the same `domain` family running where cumulusci/snowfakery live — `domain` re-dispatches
 salesforce data-plane verbs to it. Their state lives in `<tdd_dir>/data/system` and
 `data/domain`.
+
+Launchers: `tdk`, `tdkserver` and `km` (toolset `launchers`, pins nothing) run tabsdata's own CLIs
+inside the managed venv named by `$TDD_VENV` (exported by `tdd venv activate`/`create`),
+through `common.core.launcher` + `common.core.managedvenv`: `uv run --active --no-project`,
+`conda run -p`, or the venv's `bin/` for pyenv. They have no options of their own: every argument,
+`--help`/`--format`/`--version` included, goes to the program (the one exception to the
+CLI guidelines). They fail with a "venv activated with tdd venv is required"
+error when `TDD_VENV` is unset, and refuse to run when the program is not installed in that
+venv (a manager falling back to PATH would find the launcher itself). Never run the real
+`tdk`/`tdkserver` from an agent session: `tdk` refuses under an AI agent and `tdkserver` is
+a server that never returns -- test the launchers with a fake program in a scratch venv.
 
 Demo tools: `demo-exe1` (toolset `demo-env1`), `demo-exe2` (toolset `demo-env2`), and the shell
 functions `demo-fn1`/`demo-fn2` print their own names. The two demo toolsets pin `packaging`

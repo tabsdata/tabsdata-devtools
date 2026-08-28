@@ -244,3 +244,11 @@ def test_help_adds_the_options_section_when_the_declaration_has_none():
 
 def test_common_sh_declares_awk_for_the_help_layout():
     assert "awk" in _bin_reqs(shell.scripts_dir() / "common.bin-reqs.txt")
+
+
+def test_venv_exports_tdd_venv_for_the_launchers():
+    # tdk/tdkserver (common.core.managedvenv) read the active venv from
+    # TDD_VENV; the shell side must publish exactly that name.
+    text = (shell.scripts_dir() / "venv.sh").read_text()
+    assert 'TDD_VENV="$_tdd_name"' in text and "export TDD_VENV" in text
+    assert "unset TDD_VENV TDD_VENV_PS1" in text

@@ -1,0 +1,10 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# bin-reqs.txt -- external binaries the tdk launcher needs on PATH: tdk itself,
+# which lives in the managed venv (on PATH while it is active), and the venv
+# managers it runs it through. pyenv venvs run through their own bin/.
+tdk
+uv
+conda
