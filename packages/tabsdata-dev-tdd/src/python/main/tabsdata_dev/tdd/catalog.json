@@ -1,5 +1,5 @@
 {
-  "fingerprint": "e4b4e0a189ca5aa2",
+  "fingerprint": "c50d39745d39c82e",
   "members": {
     "demo-env1": [
       "tabsdata-dev-common-core",
@@ -179,7 +179,8 @@
       "reqs": [
         "km",
         "uv",
-        "conda"
+        "conda",
+        "pyenv"
       ],
       "summary": "run tabsdata's km CLI inside the managed venv named by $TDD_VENV",
       "toolset": "launchers"
@@ -209,7 +210,8 @@
       "reqs": [
         "tdk",
         "uv",
-        "conda"
+        "conda",
+        "pyenv"
       ],
       "summary": "run tabsdata's tdk CLI inside the managed venv named by $TDD_VENV",
       "toolset": "launchers"
@@ -224,7 +226,8 @@
       "reqs": [
         "tdkserver",
         "uv",
-        "conda"
+        "conda",
+        "pyenv"
       ],
       "summary": "run tabsdata's tdkserver inside the managed venv named by $TDD_VENV",
       "toolset": "launchers"

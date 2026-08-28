@@ -184,6 +184,7 @@ def add_domain_dir(parser: argparse.ArgumentParser) -> None:
 
 def add_force(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
+        "-f",
         constants.OPT_FORCE,
         action="store_true",
         help="overwrite / drop-first if present",

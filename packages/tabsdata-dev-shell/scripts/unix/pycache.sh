@@ -43,7 +43,7 @@ tddfn_pycache() {
             _tdd_rc=1
             ;;
     esac
-    unset _tdd_prefixes _tdd_all _tdd_p _tdd_names _tdd_out _tdd_pip _tdd_cache _tdd_purged _tdd_json _tdd_pipout
+    unset _tdd_prefixes _tdd_all _tdd_before _tdd_found _tdd_swept _tdd_shards _tdd_shard _tdd_left _tdd_l _tdd_p _tdd_names _tdd_out _tdd_pip _tdd_cache _tdd_purged _tdd_json _tdd_pipout
     return "$_tdd_rc"
 }
 
@@ -51,7 +51,10 @@ _tdd_pycache_help() {
     _tdd_help_text <<'HELP'
 usage: tdd pycache clean [--package-prefixes PREFIX[,PREFIX...]] [--all]
 
-Remove packages from the uv cache and the pip cache.
+Remove packages from the uv cache and the pip cache. Package names come from
+the versioned entries the caches hold; `uv cache clean` skips editable builds
+(keyed by source path, not name) and their unpacked archives, so those are
+swept too. Entries inside cached environments are reported, not removed.
 
 commands:
   clean     purge the caches
@@ -118,13 +121,21 @@ _tdd_pycache_clean() {
     fi
 
     # uv cache clean wants exact package names, so derive them from what the
-    # cache holds: every entry whose name starts with a prefix, normalized the
-    # way uv does (lower-case, - for _, version and suffix stripped).
+    # cache holds: every versioned distribution entry (name-<version>...: a
+    # .dist-info, a wheel, an sdist, an index record) whose name starts with a
+    # prefix, normalized the way uv does (lower-case, - for _, version and
+    # suffix stripped). Requiring the version keeps a wheel's top-level import
+    # package (tabsdata_dev/) from posing as a distribution called tabsdata-dev.
     _tdd_cache="$(uv cache dir 2>/dev/null)"
     _tdd_names=""
+    _tdd_before=0
     for _tdd_p in $(printf '%s' "$_tdd_prefixes" | tr ',' ' '); do
-        _tdd_names="$_tdd_names $(find "$_tdd_cache" -maxdepth 5 -iname "$_tdd_p*" 2>/dev/null \
-            | awk -F/ '{print $NF}' \
+        # Not what sits inside a cached environment (archive-v*/<id>/lib/...):
+        # uv cache clean cannot address that by name, it is reported below.
+        _tdd_found="$(find "$_tdd_cache" -iname "$_tdd_p*-[0-9]*" -not -path "*/lib/python*/*" 2>/dev/null)"
+        [ -n "$_tdd_found" ] && _tdd_before=$((_tdd_before + $(printf '%s\n' "$_tdd_found" | wc -l)))
+        _tdd_names="$_tdd_names $(printf '%s\n' "$_tdd_found" \
+            | awk -F/ 'NF {print $NF}' \
             | sed -E 's/\.dist-info$//; s/\.(rkyv|msgpack|http|rev|whl|tar\.gz|zip)$//; s/-[0-9].*$//' \
             | tr '_' '-' | tr 'A-Z' 'a-z')"
     done
@@ -134,15 +145,51 @@ _tdd_pycache_clean() {
     _tdd_names="$(printf '%s\n' $(printf '%s' "$_tdd_names") | sort -u | tr '\n' ' ')"
     _tdd_names="${_tdd_names% }"
     _tdd_purged=0
+    _tdd_swept=0
     if [ -n "$_tdd_names" ]; then
-        _tdd_info "uv cache clean ($(printf '%s\n' $(printf '%s' "$_tdd_names") | wc -l | tr -d ' ') packages)"
+        _tdd_purged="$(printf '%s\n' $(printf '%s' "$_tdd_names") | wc -l | tr -d ' ')"
+        _tdd_info "uv cache clean ($_tdd_purged packages, $_tdd_before entries)"
         # shellcheck disable=SC2086
         _tdd_out="$(uv cache clean $(printf '%s' "$_tdd_names") 2>&1)" || { _tdd_error "uv cache clean failed" "$_tdd_out"; return 1; }
         _tdd_debug "uv: $_tdd_names"
-        _tdd_debug "uv cache clean: done"
-        _tdd_purged="$(printf '%s\n' $(printf '%s' "$_tdd_names") | wc -l | tr -d ' ')"
+        _tdd_debug "uv cache clean: $(printf '%s' "$_tdd_out" | tail -1)"
+        # uv cache clean keys editable (and path) builds by the hash of their
+        # source directory, not by name, so it leaves them -- and the unpacked
+        # archive they point at -- behind, and `uv cache prune` calls them in
+        # use. Those are exactly the entries a devtools developer wants gone,
+        # so sweep them: the per-source shard under sdists-v*/<kind>/, and any
+        # archive-v*/<id> whose top level is a matching .dist-info (an unpacked
+        # wheel; an archive holding a whole environment is left alone).
+        for _tdd_p in $(printf '%s' "$_tdd_prefixes" | tr ',' ' '); do
+            _tdd_shards="$( { find "$_tdd_cache" -mindepth 4 -path "$_tdd_cache/sdists-v*/*" -iname "$_tdd_p*-[0-9]*" 2>/dev/null \
+                    | sed "s|^$_tdd_cache/||" | cut -d/ -f1-3;
+                find "$_tdd_cache" -mindepth 3 -maxdepth 3 -path "$_tdd_cache/archive-v*/*" -iname "$_tdd_p*-[0-9]*.dist-info" 2>/dev/null \
+                    | sed "s|^$_tdd_cache/||" | cut -d/ -f1-2; } | sort -u)"
+            [ -n "$_tdd_shards" ] || continue
+            while IFS= read -r _tdd_shard; do
+                [ -n "$_tdd_shard" ] || continue
+                case "$_tdd_shard" in */*) ;; *) continue ;; esac
+                rm -rf "$_tdd_cache/$_tdd_shard" && _tdd_swept=$((_tdd_swept + 1))
+                _tdd_debug "swept $_tdd_shard"
+            done <<EOF
+$_tdd_shards
+EOF
+        done
+        _tdd_debug "swept $_tdd_swept editable/path shards and archives uv cache clean skips"
     else
         _tdd_debug "uv: nothing cached under $_tdd_prefixes"
+    fi
+    # Say what is still there rather than claim a purge: entries inside cached
+    # environments (archive-v*/<id>/lib/...) are uv's to prune once unused.
+    _tdd_left=""
+    for _tdd_p in $(printf '%s' "$_tdd_prefixes" | tr ',' ' '); do
+        _tdd_left="$_tdd_left$(find "$_tdd_cache" -iname "$_tdd_p*-[0-9]*" 2>/dev/null | sed "s|^$_tdd_cache/||")
+"
+    done
+    _tdd_left="$(printf '%s' "$_tdd_left" | sed '/^$/d')"
+    if [ -n "$_tdd_left" ]; then
+        _tdd_warn "$(printf '%s\n' "$_tdd_left" | wc -l | tr -d ' ') uv cache entries still match $_tdd_prefixes; they sit inside cached environments uv still references (uv cache prune removes them once unused, --all removes everything): $(printf '%s\n' "$_tdd_left" | head -3 | tr '\n' ' ')" \
+            "\"left\":[$(printf '%s\n' "$_tdd_left" | while IFS= read -r _tdd_l; do printf '"%s",' "$(_tdd_json_str "$_tdd_l")"; done | sed 's/,$//')]"
     fi
     if [ -n "$_tdd_pip" ]; then
         # pip matches wheel file names, where - became _; try both spellings.
@@ -159,5 +206,10 @@ _tdd_pycache_clean() {
     _tdd_json="${_tdd_json%,}],\"uv_packages\":["
     for _tdd_p in $(printf '%s' "$_tdd_names"); do _tdd_json="$_tdd_json\"$_tdd_p\","; done
     _tdd_json="${_tdd_json%,}],\"pip\":$([ -n "$_tdd_pip" ] && echo true || echo false)"
-    _tdd_ok "uv: purged $_tdd_purged cached packages under $_tdd_prefixes$([ -n "$_tdd_pip" ] && echo '; pip: purged matching wheels' || echo '; pip: not found, skipped')" "$_tdd_json"
+    _tdd_json="$_tdd_json,\"uv_entries\":$_tdd_before,\"uv_swept\":$_tdd_swept"
+    if [ "$_tdd_purged" = 0 ]; then
+        _tdd_ok "uv: nothing cached under $_tdd_prefixes$([ -n "$_tdd_pip" ] && echo '; pip: purged matching wheels' || echo '; pip: not found, skipped')" "$_tdd_json"
+    else
+        _tdd_ok "uv: purged $_tdd_purged packages ($_tdd_before entries) under $_tdd_prefixes$([ -n "$_tdd_pip" ] && echo '; pip: purged matching wheels' || echo '; pip: not found, skipped')" "$_tdd_json"
+    fi
 }

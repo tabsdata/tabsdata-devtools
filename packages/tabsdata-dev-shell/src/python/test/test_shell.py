@@ -252,3 +252,29 @@ def test_venv_exports_tdd_venv_for_the_launchers():
     text = (shell.scripts_dir() / "venv.sh").read_text()
     assert 'TDD_VENV="$_tdd_name"' in text and "export TDD_VENV" in text
     assert "unset TDD_VENV TDD_VENV_PS1" in text
+
+
+def test_venv_create_has_force_and_deactivate_handles_every_kind():
+    text = (shell.scripts_dir() / "venv.sh").read_text()
+    assert "--force | -f)" in text and '"create|--force|false"' in text
+    for means in (
+        "conda deactivate",
+        "pyenv deactivate",
+        "deactivate 2>/dev/null",
+        "unset VIRTUAL_ENV",
+    ):
+        assert means in text, f"deactivate lacks {means}"
+
+
+def test_pycache_clean_sweeps_what_uv_cache_clean_skips():
+    # `uv cache clean <name>` leaves editable builds and their archives (keyed
+    # by source path); the count must come from versioned distribution entries
+    # only, and leftovers must be reported rather than claimed purged.
+    text = (shell.scripts_dir() / "pycache.sh").read_text()
+    assert '-iname "$_tdd_p*-[0-9]*"' in text
+    assert (
+        "sdists-v*" in text
+        and "archive-v*" in text
+        and 'rm -rf "$_tdd_cache/$_tdd_shard"' in text
+    )
+    assert "still match" in text

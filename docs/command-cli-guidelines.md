@@ -14,7 +14,7 @@ alike. A command that does not is a bug. Short, because each rule is absolute.
 - An option is always a long `--name`. Values as `--name value` or `--name=value`; both must
   work.
 - Short forms exist only for the common options, and only these: `-h` for `--help`, `-v` for
-  `--verbose`. Anything else stays long — a short flag is a namespace you cannot get back.
+  `--verbose`, `-f` for `--force`. Anything else stays long — a short flag is a namespace you cannot get back.
 
 ## Every command has
 

@@ -3,8 +3,9 @@
 #
 
 # bin-reqs.txt -- external binaries the km launcher needs on PATH: km itself,
-# which lives in the managed venv (on PATH while it is active), and the venv
-# managers it runs it through. pyenv venvs run through their own bin/.
+# which lives in the managed venv (on PATH while it is active), and the three
+# venv managers a managed venv can be made with.
 km
 uv
 conda
+pyenv
