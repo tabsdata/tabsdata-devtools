@@ -334,7 +334,7 @@ if [ ! -f "$DIR/catalog.json" ]; then
 fi
 
 rm -rf "$DIR"
-echo "removed $DIR"
+echo "removed $DIR (its tool envs and any managed venvs under $DIR/managed-venvs)"
 echo
 echo "tdd-source.sh is gone with it. If your shell sources it, remove this line:"
 echo

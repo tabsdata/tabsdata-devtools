@@ -1,0 +1,8 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# common.bin-reqs.txt -- external binaries EVERY shell command needs on PATH,
+# because common.sh uses them. Added to each command's own bin-reqs.txt by the
+# loader and by the catalog generator.
+jq      # builds every JSON line and escapes every string

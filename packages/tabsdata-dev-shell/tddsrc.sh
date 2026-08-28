@@ -36,13 +36,38 @@ fi
 unset _tdd_self
 export TDD_DIR
 
+# The shared helpers (options, events, colours, failure log) live in the shell
+# package, beside the command files; tdd itself uses them for its own output,
+# so they are loaded before anything else here can speak.
+_tdd_locate_common() {
+    _tdd_py="$TDD_DIR/tdd-venvs/shells/bin/python"
+    [ -x "$_tdd_py" ] || return 1
+    _tdd_scripts="$("$_tdd_py" -c \
+        'from tabsdata_dev.shell import scripts_dir; print(scripts_dir())' 2>/dev/null)"
+    [ -n "$_tdd_scripts" ] && [ -r "$_tdd_scripts/common.sh" ] || return 1
+    TDD_COMMON_SH="$_tdd_scripts/common.sh"
+    export TDD_COMMON_SH
+    # Re-sourcing tdd-source.sh must reload everything -- that is how a shell
+    # picks up a reinstall. common.sh guards against being sourced twice within
+    # one load (each command file sources it by name); this file owns the load,
+    # so it lifts the guard first.
+    unset _TDD_COMMON_LOADED
+    # shellcheck disable=SC1090
+    . "$TDD_COMMON_SH"
+}
+if ! _tdd_locate_common; then
+    echo "tdd: no shell env at $TDD_DIR/tdd-venvs/shells; run tdd-install" >&2
+fi
+unset _tdd_py _tdd_scripts
+
 # tdd-exe lives in its own venv inside the tdd dir, so nothing needs to be
 # installed globally and no venv has to be active for `tdd` to work. Wrapping
 # it as a function keeps that env's other binaries off PATH.
 tdd-exe() {
     if [ ! -x "$TDD_DIR/tdd-venvs/tdd/bin/tdd-exe" ]; then
-        echo "tdd: no tdd-exe env at $TDD_DIR/tdd-venvs/tdd; run tdd-install" >&2
-        return 2
+        _TDD_CMD=tdd
+        _tdd_error "no tdd-exe env at $TDD_DIR/tdd-venvs/tdd; run tdd-install"
+        return 1
     fi
     # The envs are relocatable but their interpreter is not inside the tree:
     # bin/python symlinks to the uv-managed Python by absolute path. If that is
@@ -50,11 +75,9 @@ tdd-exe() {
     # tdd-exe cannot even start, so no Python-side check could ever report it.
     # -e follows the symlink, so a dangling one fails here.
     if [ ! -e "$TDD_DIR/tdd-venvs/tdd/bin/python" ]; then
-        echo "tdd: the interpreter for $TDD_DIR/tdd-venvs/tdd is unreachable." >&2
-        echo "     This tdd dir was built for a different machine or its uv" >&2
-        echo "     Python was removed. Rebuild here with tdd-install," >&2
-        echo "     or restore it with: uv python install" >&2
-        return 2
+        _TDD_CMD=tdd
+        _tdd_error "the interpreter for $TDD_DIR/tdd-venvs/tdd is unreachable: this tdd dir was built for a different machine or its uv Python was removed; rebuild here with tdd-install, or restore it with: uv python install"
+        return 1
     fi
     "$TDD_DIR/tdd-venvs/tdd/bin/tdd-exe" "$@"
 }
@@ -96,22 +119,35 @@ _tdd_load_commands() {
         unset _tdd_py _tdd_scripts
         return 1
     fi
+    # common.sh was loaded at the top of this file (see _tdd_locate_common) and
+    # exported as TDD_COMMON_SH, so each command file can source it by name.
+    # What common.sh itself needs (jq); every command inherits it.
+    _tdd_common_reqs=""
+    if [ -r "$_tdd_scripts/common.bin-reqs.txt" ]; then
+        _tdd_common_reqs="$(_tdd_read_reqs "$_tdd_scripts/common.bin-reqs.txt")"
+    fi
     for _tdd_f in "$_tdd_scripts"/*.sh; do
         [ -r "$_tdd_f" ] || continue
+        [ "$(basename "$_tdd_f")" != common.sh ] || continue
         # External binaries a command needs are declared in <file>.bin-reqs.txt
         # beside it, one bare name per line, # comments allowed -- the same
         # contract as a Python tool's bin-reqs.txt. They are checked when the
         # command is run, not here: sourcing must stay cheap and never fail.
-        _TDD_FN_REQS=""
+        _TDD_FN_REQS="$_tdd_common_reqs"
         _tdd_r="${_tdd_f%.sh}.bin-reqs.txt"
         if [ -r "$_tdd_r" ]; then
-            _TDD_FN_REQS="$(sed -e 's/#.*//' "$_tdd_r" | tr -s '[:space:]' ' ' \
-                | sed -e 's/^ //' -e 's/ $//')"
+            _TDD_FN_REQS="$_TDD_FN_REQS $(_tdd_read_reqs "$_tdd_r")"
         fi
+        _TDD_FN_REQS="${_TDD_FN_REQS# }"
         # shellcheck disable=SC1090
         . "$_tdd_f"
     done
-    unset _tdd_py _tdd_scripts _tdd_f _tdd_r _TDD_FN_REQS
+    unset _tdd_py _tdd_scripts _tdd_f _tdd_r _tdd_common_reqs _TDD_FN_REQS
+}
+
+# The bare names in a bin-reqs.txt, space-separated.
+_tdd_read_reqs() {
+    sed -e 's/#.*//' "$1" | tr -s '[:space:]' ' ' | sed -e 's/^ //' -e 's/ $//'
 }
 
 _tdd_fn_has() {
@@ -127,10 +163,11 @@ _tdd_fn_check_reqs() {
         command -v "$_tdd_b" >/dev/null 2>&1 || _tdd_missing="$_tdd_missing $_tdd_b"
     done
     if [ -n "$_tdd_missing" ]; then
-        echo "tdd $1: missing required binaries:$_tdd_missing" >&2
-        echo "  (declared in the shell command's bin-reqs.txt; see tdd --reqs)" >&2
+        _tdd_cmd_reset
+        _TDD_CMD="$1"
+        _tdd_error "missing required binaries:$_tdd_missing (declared in the command's bin-reqs.txt; see tdd --reqs)"
         unset _tdd_missing _tdd_b
-        return 127
+        return 1
     fi
     unset _tdd_missing _tdd_b
     return 0
@@ -138,44 +175,72 @@ _tdd_fn_check_reqs() {
 
 # ---------------------------------------------------------------- help
 
-# Commands from both halves, merged and sorted alphabetically. Shell ones are
-# marked with * because they behave differently: they can change this shell.
+# Commands from both halves, merged and sorted alphabetically, as one ok event.
+# view: the usage plus a listing, shell commands marked with * because they
+# behave differently -- they can change this shell. json: a "commands" array.
 # Pass --demo to include the demo commands; both halves filter on the same
 # flag, tdd-exe on its catalog entry and this side on the registry's kind.
 _tdd_help() {
-    _tdd_show="${1:-}"
-    echo "usage: tdd [--dir TDD_PATH] <command> [args...]"
-    echo
-    if [ "$_tdd_show" = "--demo" ]; then
-        echo "commands, demo included (* runs in this shell):"
+    _TDD_CMD=tdd
+    _tdd_rows="$(_tdd_help_rows "${1:-}")"
+    if [ "$_TDD_FORMAT" = json ]; then
+        _tdd_ok "$(printf '%s\n' "$_tdd_rows" | grep -c .) commands" \
+            "\"tdd_dir\":\"$(_tdd_json_str "$TDD_DIR")\",\"commands\":$(_tdd_rows_json "$_tdd_rows"),\"default_opts\":{\"dir\":\"$(_tdd_json_str "$TDD_DIR/default-opts")\",\"files\":[\"<command>.txt\",\"<command>_<action>.txt\"],\"syntax\":\"one option per line: --name value | --name=value | --flag; # comments; typed options win\"}"
     else
-        echo "commands (* runs in this shell; --demo includes the demo commands):"
+        if [ "${1:-}" = --demo ]; then
+            _tdd_head="commands, demo included (* runs in this shell):"
+        else
+            _tdd_head="commands (* runs in this shell; --demo includes the demo commands):"
+        fi
+        _tdd_ok "usage: tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
+
+$_tdd_head
+$(printf '%s\n' "$_tdd_rows" | awk -F'\t' '{ printf "  %s %-13s %s\n", $2, $1, $3 }')
+
+default options: $TDD_DIR/default-opts/<command>.txt or <command>_<action>.txt (venv_create.txt)
+  one option per line: --name value | --name=value | --flag   (# comments)
+  typed options win; \`tdd defaults --command <name>\` shows what applies
+
+TDD_DIR=$TDD_DIR"
     fi
+    unset _tdd_rows _tdd_head
+}
+
+# Rows as name<TAB>marker<TAB>summary<TAB>kind, sorted; shell rows first pass
+# the demo filter, tdd-exe's rows arrive already filtered.
+_tdd_help_rows() {
     {
         printf '%s\n' "$TDD_FN_COMMANDS" | while IFS='|' read -r _n _s _k _r; do
             [ -n "$_n" ] || continue
-            [ "$_k" = "demo" ] && [ "$_tdd_show" != "--demo" ] && continue
-            printf '%s\t*\t%s\n' "$_n" "$_s"
+            [ "$_k" = "demo" ] && [ "${1:-}" != "--demo" ] && continue
+            printf '%s\t*\t%s\tshell\n' "$_n" "$_s"
         done
         # shellcheck disable=SC2086
-        tdd-exe list --porcelain $_tdd_show 2>/dev/null | while IFS='|' read -r _n _k _s; do
-            [ -n "$_n" ] && printf '%s\t \t%s\n' "$_n" "$_s"
+        tdd-exe --porcelain ${1:-} 2>/dev/null | while IFS='|' read -r _n _k _s; do
+            [ -n "$_n" ] && printf '%s\t \t%s\t%s\n' "$_n" "$_s" "$_k"
         done
-    } | sort -f | awk -F'\t' '{ printf "  %s %-13s %s\n", $2, $1, $3 }'
-    echo
-    echo "TDD_DIR=$TDD_DIR"
-    unset _tdd_show
+    } | sort -f
+}
+
+_tdd_rows_json() {
+    printf '%s\n' "$1" | jq -Rsc 'split("\n") | map(select(length > 0) | split("\t")
+        | {name: .[0], shell: (.[1] == "*"), summary: .[2], kind: .[3]})'
 }
 
 _tdd_fn_help() {
-    _tdd_show="${1:-}"
-    echo "shell commands (run in this shell):"
-    printf '%s\n' "$TDD_FN_COMMANDS" | sort -f | while IFS='|' read -r _n _s _k _r; do
+    _TDD_CMD=tdd-fn
+    _tdd_rows="$(printf '%s\n' "$TDD_FN_COMMANDS" | while IFS='|' read -r _n _s _k _r; do
         [ -n "$_n" ] || continue
-        [ "$_k" = "demo" ] && [ "$_tdd_show" != "--demo" ] && continue
-        printf '  %-14s %s\n' "$_n" "$_s"
-    done
-    unset _tdd_show
+        [ "$_k" = "demo" ] && [ "${1:-}" != "--demo" ] && continue
+        printf '%s\t*\t%s\tshell\n' "$_n" "$_s"
+    done | sort -f)"
+    if [ "$_TDD_FORMAT" = json ]; then
+        _tdd_ok "$(printf '%s\n' "$_tdd_rows" | grep -c .) shell commands" "\"commands\":$(_tdd_rows_json "$_tdd_rows")"
+    else
+        _tdd_ok "shell commands (run in this shell):
+$(printf '%s\n' "$_tdd_rows" | awk -F'\t' '{ printf "  %-14s %s\n", $1, $3 }')"
+    fi
+    unset _tdd_rows
 }
 
 # "--demo" if it appears among the arguments, else empty.
@@ -191,16 +256,58 @@ _tdd_demo_flag() {
     return 0
 }
 
+# ---------------------------------------------------------------- defaults
+
+# Per-command default options, $TDD_DIR/default-opts/<command>.txt (and
+# <command>_<action>.txt). The merge itself -- typed options win, the
+# action's file wins over the command's -- is tdd-exe's job, so it is one
+# testable piece of Python; this side only rebuilds the argument list and says
+# what it resolved to. Sets _TDD_RESOLVED (one argument per line) and
+# _TDD_DEFAULTS_SRC. Returns 0 when defaults applied, 1 when none exist, 2 on
+# an invalid file (already reported).
+_tdd_apply_defaults() {
+    _tdd_dd="$TDD_DIR/default-opts"
+    [ -d "$_tdd_dd" ] || return 1
+    if [ ! -f "$_tdd_dd/$1.txt" ] && { [ $# -lt 2 ] || [ ! -f "$_tdd_dd/$1_$2.txt" ]; }; then
+        return 1
+    fi
+    _tdd_derr="$(mktemp)"
+    _tdd_dout="$(tdd-exe --defaults "$@" 2>"$_tdd_derr")"
+    if [ $? -ne 0 ]; then
+        _tdd_cmd_reset
+        _TDD_CMD="$1"
+        _tdd_error "invalid default options for $1 in $_tdd_dd" "$(cat "$_tdd_derr")"
+        rm -f "$_tdd_derr"
+        unset _tdd_dd _tdd_derr _tdd_dout
+        return 2
+    fi
+    rm -f "$_tdd_derr"
+    if [ -z "$_tdd_dout" ]; then
+        unset _tdd_dd _tdd_derr _tdd_dout
+        return 1
+    fi
+    _tdd_nl='
+'
+    _TDD_DEFAULTS_SRC="${_tdd_dout%%$_tdd_nl*}"
+    _TDD_DEFAULTS_SRC="${_TDD_DEFAULTS_SRC#\# }"
+    _TDD_RESOLVED="${_tdd_dout#*$_tdd_nl}"
+    unset _tdd_dd _tdd_derr _tdd_dout _tdd_nl
+    return 0
+}
+
 # ---------------------------------------------------------------- dispatch
 
 # The shell half of the pair: the same role as tdd-exe, for sourced functions.
 tdd-fn() {
     if [ $# -eq 0 ]; then
+        _tdd_cmd_reset
         _tdd_fn_help
         return 0
     fi
     case "$1" in
         -h | --help | help | list)
+            _tdd_cmd_reset
+            _tdd_scan_common "$@"
             _tdd_fn_help "$(_tdd_demo_flag "$@")"
             return 0
             ;;
@@ -209,17 +316,45 @@ tdd-fn() {
         _tdd_cmd="$1"
         shift
         _tdd_fn_check_reqs "$_tdd_cmd" || return $?
+        # For every event and the failure log: the command word, and the
+        # command line as typed. A group refines _TDD_CMD to its subcommand.
+        _TDD_CMD="$_tdd_cmd"
+        _TDD_ARGV="$_tdd_cmd $*"
         "tddfn_$_tdd_cmd" "$@"
         return $?
     fi
-    echo "tdd-fn: unknown shell command: $1" >&2
-    return 2
+    _tdd_cmd_reset
+    _TDD_CMD=tdd-fn
+    _tdd_error "unknown shell command: $1 (see tdd-fn help)"
+    return 1
+}
+
+# --format/--verbose wherever they appear among the arguments, into the
+# renderer state; for the listings, whose options are not positional.
+_tdd_scan_common() {
+    _tdd_prev=""
+    for _tdd_a in "$@"; do
+        case "$_tdd_a" in
+            --format=json) _TDD_FORMAT=json ;;
+            --format=view) _TDD_FORMAT=view ;;
+            --verbose | -v) _TDD_VERBOSE=1 ;;
+            json | view) [ "$_tdd_prev" = --format ] && _TDD_FORMAT="$_tdd_a" ;;
+        esac
+        _tdd_prev="$_tdd_a"
+    done
+    unset _tdd_prev _tdd_a
 }
 
 # The front door. Routes to tdd-fn when the command is a sourced one, and to
 # tdd-exe otherwise, so a caller never has to know which half owns a command.
 tdd() {
+    _tdd_cmd_reset
+    _TDD_CMD=tdd
     _tdd_dir_args=""
+    # Leading options are tdd's own; --format/--verbose also travel on to the
+    # command that runs, appended after its word, so `tdd --format json venv
+    # list` and `tdd venv list --format json` are the same request.
+    _tdd_pass=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --dir)
@@ -235,28 +370,98 @@ tdd() {
                 _tdd_dir_args="$1"
                 shift
                 ;;
+            --format | --format=* | --verbose | -v)
+                _tdd_common_opt "$@" || break
+                _tdd_pass="$_tdd_pass --format=$_TDD_FORMAT"
+                [ "$_TDD_VERBOSE" = 1 ] && _tdd_pass="$_tdd_pass --verbose"
+                shift "$_TDD_CONSUMED"
+                ;;
             *) break ;;
         esac
     done
+    if [ -n "$_TDD_BAD_FORMAT" ]; then
+        _tdd_error "--format must be json or view, got $_TDD_BAD_FORMAT"
+        unset _tdd_pass
+        return 1
+    fi
+    # Deduplicate what accumulated across repeated options.
+    if [ -n "$_tdd_pass" ]; then
+        _tdd_pass="--format=$_TDD_FORMAT"
+        [ "$_TDD_VERBOSE" = 1 ] && _tdd_pass="$_tdd_pass --verbose"
+    fi
 
     if [ $# -eq 0 ]; then
         _tdd_help
+        unset _tdd_pass
         return 0
     fi
     case "$1" in
         -h | --help | help)
+            _tdd_scan_common "$@"
             _tdd_help "$(_tdd_demo_flag "$@")"
+            unset _tdd_pass
             return 0
+            ;;
+        --version | --reqs)
+            # shellcheck disable=SC2086
+            tdd-exe $_tdd_dir_args $_tdd_pass "$@"
+            unset _tdd_pass
+            return $?
             ;;
     esac
 
+    _tdd_apply_defaults "$@"
+    _tdd_drc=$?
+    if [ "$_tdd_drc" -eq 2 ]; then
+        unset _tdd_drc
+        return 1
+    fi
+    if [ "$_tdd_drc" -eq 0 ]; then
+        _tdd_word="$1"
+        # Rebuild the argument list from the resolved lines: split on newline
+        # only, and with globbing off so a value like *.py stays literal.
+        _tdd_ifs="$IFS"
+        IFS='
+'
+        _tdd_glob=1
+        case $- in *f*) _tdd_glob=0 ;; esac
+        set -f
+        # The resolved lines are the arguments after the command word, so put
+        # the word back in front.
+        # shellcheck disable=SC2046
+        set -- "$_tdd_word" $(printf '%s\n' "$_TDD_RESOLVED")
+        [ "$_tdd_glob" = 1 ] && set +f
+        IFS="$_tdd_ifs"
+        # Say what will run, as an info event of the command about to run, in
+        # the format it will use.
+        _tdd_cmd_reset
+        _TDD_CMD="$_tdd_word"
+        case "${2:-}" in -* | "") ;; *) _TDD_CMD="$_tdd_word-$2" ;; esac
+        _tdd_prev=""
+        for _tdd_a in "$@"; do
+            case "$_tdd_a" in
+                --format=json) _TDD_FORMAT=json ;;
+                json) [ "$_tdd_prev" = --format ] && _TDD_FORMAT=json ;;
+            esac
+            _tdd_prev="$_tdd_a"
+        done
+        _tdd_info "resolved: tdd $*" "\"defaults\":\"$(_tdd_json_str "$_TDD_DEFAULTS_SRC")\""
+        unset _tdd_word _tdd_ifs _tdd_glob _tdd_prev _tdd_a _TDD_RESOLVED _TDD_DEFAULTS_SRC
+    fi
+    unset _tdd_drc
+
     if _tdd_fn_has "$1"; then
-        tdd-fn "$@"
-        return $?
+        # shellcheck disable=SC2086
+        tdd-fn "$@" $_tdd_pass
+        _tdd_rc=$?
+        unset _tdd_pass
+        return "$_tdd_rc"
     fi
     # shellcheck disable=SC2086
-    tdd-exe $_tdd_dir_args "$@"
-    return $?
+    tdd-exe $_tdd_dir_args "$@" $_tdd_pass
+    _tdd_rc=$?
+    unset _tdd_pass
+    return "$_tdd_rc"
 }
 
 _tdd_load_commands

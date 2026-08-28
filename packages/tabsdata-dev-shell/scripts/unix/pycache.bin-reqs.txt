@@ -1,0 +1,7 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# bin-reqs.txt -- external binaries pycache needs on PATH. pip is optional and
+# is looked for at run time, so it is not declared here.
+uv

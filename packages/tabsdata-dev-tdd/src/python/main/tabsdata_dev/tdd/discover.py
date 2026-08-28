@@ -24,6 +24,7 @@ TOOLSET_PREFIX = "tabsdata-dev-toolset-"
 COMMON_PREFIX = "tabsdata-dev-common-"
 SHELL_DIST = "tabsdata-dev-shell"
 SHELL_SCRIPTS = "scripts/unix"
+SHELL_COMMON = "common.sh"  # the shared helpers, not a command file
 BIN_REQS = "bin-reqs.txt"
 
 # `tdd_fn_register [--demo] <name> "<summary>"`, as the shell files write it.
@@ -62,12 +63,17 @@ def shell_commands(root: pathlib.Path) -> dict[str, dict]:
     tool can be given a name the shell function would answer to first.
 
     A `<file>.bin-reqs.txt` beside `<file>.sh` applies to every command that
-    file registers.
+    file registers; `common.bin-reqs.txt` -- what common.sh itself needs --
+    applies to all of them.
     """
     scripts = root / "packages" / SHELL_DIST / SHELL_SCRIPTS
+    common_reqs = parse_bin_reqs(scripts / f"{SHELL_COMMON[:-3]}.{BIN_REQS}")
     found: dict[str, dict] = {}
     for script in sorted(scripts.glob("*.sh")):
-        reqs = parse_bin_reqs(script.with_name(f"{script.stem}.{BIN_REQS}"))
+        if script.name == SHELL_COMMON:
+            continue
+        own = parse_bin_reqs(script.with_name(f"{script.stem}.{BIN_REQS}"))
+        reqs = common_reqs + [r for r in own if r not in common_reqs]
         registered = 0
         for raw in script.read_text().splitlines():
             match = _REGISTER.match(raw)
@@ -112,7 +118,7 @@ def discover(root: pathlib.Path) -> dict:
         deps = data.get("dependencies", [])
         # `[tool.tdd] demo = true` marks a tool that exists to show the shape of
         # one and exercise the machinery. It stays dispatchable but is left
-        # out of `tdd help` and `tdd list` unless asked for with --demo.
+        # out of `tdd help` unless asked for with --demo.
         demo = bool(doc.get("tool", {}).get("tdd", {}).get("demo", False))
 
         bundles = [d for d in deps if d.startswith(DEPS_PREFIX)]

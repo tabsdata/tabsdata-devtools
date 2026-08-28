@@ -36,6 +36,15 @@ echo 'source ~/.tdd/tdd-source.sh' >> ~/.zshrc
 tdd --help        # everything there is; add --demo to see the sample commands
 tdd info          # what this install is and where it lives
 tdd --reqs        # external binaries the tools expect on your PATH
+tdd venv --help   # managed pyenv/uv/conda venvs; also: tdd pycache --help, tdd vars --help
+tdd defaults --command venv   # a command's option defaults: built-in vs your default-opts
+```
+
+Preset a command's options in `~/.tdd/default-opts/<command>.txt` or `<command>_<action>.txt`
+(one `--name value` per line); `tdd` merges them in — what you type wins — and prints the resolved command line. Every
+command takes `--help`, `--verbose` and `--format json|view`; `tdd --format json …` works too.
+
+```bash
 cargo make help   # every build task, with its options
 ```
 

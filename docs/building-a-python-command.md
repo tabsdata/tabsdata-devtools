@@ -68,7 +68,7 @@ packages/tabsdata-dev-tool-audit/
 [project]
 name = "tabsdata-dev-tool-audit"
 dynamic = ["version"]                           # every package reads the repo-root VERSION
-description = "audit dependency pins"           # becomes the `tdd list` summary
+description = "audit dependency pins"           # becomes the `tdd help` summary
 requires-python = ">=3.11"
 dependencies = ["tabsdata-dev-deps-legacy", "tabsdata-dev-common-core"]
 
@@ -96,14 +96,44 @@ tabsdata-dev-deps-legacy = { path = "../tabsdata-dev-deps-legacy", editable = tr
 ```
 
 Rules the generator enforces: exactly one `deps-*` dependency; at least one
-`[project.scripts]` entry; a name that is not already a tool, a `tdd` builtin (`list`,
-`doctor`, `info`, `help`), or a shell command. No `__init__.py` at `tabsdata_dev/` or
+`[project.scripts]` entry; a name that is not already a tool, a `tdd` builtin (`doctor`,
+`info`, `help`), or a shell command. No `__init__.py` at `tabsdata_dev/` or
 `tabsdata_dev/tool/` — they are namespace packages, and one stray file breaks every other
 distribution's contribution. Every file starts with the house copyright header.
 
-`main()` returns an exit code. Parse your own arguments: everything after the tool name reaches
-you verbatim. `common-core` gives you `cli.parser()`, `Report` for uniform `[ok]`/`[fail]`
-output, `parallel.map_bounded()`, and `proc.run()` — use the last one for every subprocess.
+`main()` returns an exit code, and [command-cli-guidelines.md](command-cli-guidelines.md)
+says what it must accept and print. `common-core` implements that once — write only the body:
+
+```python
+from tabsdata_dev.common.core import cli, render
+
+def body(args, out: render.Renderer) -> int:
+    out.info("scanning")                     # shown always; json line or stderr
+    out.debug(f"paths: {args.paths}")        # only with --verbose
+    if not args.paths:
+        return out.error("nothing to audit") # writes the /tmp log, returns 1
+    return out.ok("3 pins checked", pins=3)  # the one result, returns 0
+
+def configure(parser):                       # your own options; the common ones exist already
+    parser.add_argument("paths", nargs="*")
+
+def main() -> int:
+    return cli.run("audit", "audit dependency pins", body, configure=configure)
+```
+
+`cli.run()` adds `--help`, `--verbose`/`-v` and `--format json|view`, renders argument errors
+and uncaught exceptions as `error` events (traceback in the log), and maps everything onto
+exit 0 or 1. `render.Renderer` is the model: every event carries the command name, its kind and
+message, plus your fields; json is one line per event, view puts `ok` on stdout and the rest on
+stderr, both coloured by kind on a terminal. Do not `print`. For subprocesses use
+`proc.run()`; `parallel.map_bounded()` is there for fan-out.
+
+**User defaults: nothing to do.** A user can preset any of your options in
+`$TDD_DIR/default-opts/<name>.txt`. `tdd` merges those into the command line *before* dispatch
+and prints the resolved invocation, so `sys.argv` already contains them when your tool starts,
+with typed options having won. Parse as if the user had typed everything; no file to read, no
+flag to check. Keep option names long and `-`-separated so they can be preset at all. (`tdd
+defaults --command <name>` cannot yet show argparse built-ins, only the user's file.)
 
 ## 3. Declare external binaries
 
@@ -145,7 +175,7 @@ are complete. Only `tdd <tool>` dispatch checks them.
 
 ```bash
 cargo make install -- --editable   # rebuild every env, linked to this checkout
-tdd list && tdd audit
+tdd help && tdd audit
 ```
 
 No reinstall of `tdd-exe` is needed for a new tool: the generator derives the toolset package,
@@ -165,7 +195,7 @@ the reproducibility record for that env. Never edit it by hand; `cargo make gen`
 - **Calling another tool** goes through the dispatcher, never an import — a tool in one
   toolset cannot import one in another: `proc.run_tool("other", *args)`. No `--dir` is needed;
   `tdd` exports `TDD_DIR` before exec.
-- **Hide it while it is a sample**: `[tool.tdd] demo = true` keeps it out of `tdd help` and
-  `tdd list` unless `--demo` is passed; it still dispatches, tests and reports reqs.
+- **Hide it while it is a sample**: `[tool.tdd] demo = true` keeps it out of `tdd help` unless
+  `--demo` is passed; it still dispatches, tests and reports reqs.
 - **Moving or renaming the checkout** breaks every editable env (`.pth` files hold absolute
   paths). `tdd doctor` says so; `cargo make install -- -e` fixes it.

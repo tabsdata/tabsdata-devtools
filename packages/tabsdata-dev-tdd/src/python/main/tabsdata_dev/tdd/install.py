@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         if arg == "--dir":
             if i + 1 >= len(argv):
                 print("tdd-install: --dir needs a path", file=sys.stderr)
-                return 2
+                return 1
             dir_ = argv[i + 1]
             i += 2
             continue
@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"tdd-install: unexpected argument {arg!r}", file=sys.stderr)
             print(USAGE, end="", file=sys.stderr)
-            return 2
+            return 1
         i += 1
     try:
         return initialize_mod.initialize(
@@ -68,4 +68,4 @@ def main(argv: list[str] | None = None) -> int:
         )
     except paths.UvMissing as exc:
         print(f"tdd-install: {exc}", file=sys.stderr)
-        return 2
+        return 1

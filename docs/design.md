@@ -74,28 +74,86 @@ testpaths = ["src/python/test"]
 ## The CLI
 
 ```
-tdd [--dir TDD_PATH] <command> [args...]
+tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
 ```
 
 `--dir` defaults to `$TDD_DIR`, then `~/.tdd`. `<command>` is a shell command, a `tdd-exe`
-builtin, or a tool name; everything after it reaches the tool verbatim.
+builtin, or a tool name; everything after it reaches the tool verbatim. `--format` and
+`--verbose` before the word apply to `tdd`'s own output *and* travel on to the command
+(appended after its word), so `tdd --format json venv list` and `tdd venv list --format json`
+are the same request. `tdd` itself speaks the event model too: `help`, `--version`, `info` are
+one `ok` event each (`help` in json carries a `commands` array and a `default_opts` object);
+`doctor` and `--reqs` emit an `info`/`warn` line per check and end in `ok` or `error`; every
+failure — unknown command, bad `--format`, uninitialized dir, missing binary — is an `error`
+with a log, exit 1.
 
 The whole surface, deliberately small:
 
 | | |
 |---|---|
 | `tdd --help` / `--version` / `--reqs [tool]` | options handled before any command word |
-| `tdd list [--demo]` | the tools in the catalog |
 | `tdd doctor` | validate the tdd dir against the shipped catalog |
 | `tdd info` | what the dir is: wheels or source install (and where the checkout is), version, envs |
-| `tdd tdd-env activate --toolset <ts>` / `tdd tdd-env deactivate` | `*` shell — enter or leave a toolset venv |
+| `tdd tdd-env activate --toolset <ts>` / `tdd tdd-env deactivate` | `*` shell — enter or leave a *toolset* venv |
+| `tdd venv create\|activate\|deactivate\|delete\|list` | `*` shell — *managed* venvs (pyenv, uv or conda) under `managed-venvs/`; create ends in activation; prompt shows `(<type>/<name>)`; activate switches; a venv tdd did not activate blocks both |
+| `tdd pycache clean [--package-prefixes …] [--all]` | `*` shell — purge uv and pip caches by package prefix |
+| `tdd vars unset --dev\|--pypi` | `*` shell — unset `TD_*` / index variables in this shell |
+| `tdd defaults --command <name>` | `*` shell — a command's option defaults: built-in (white) vs customized (blue) |
 | `tdd <tool> [args…]` | dispatch |
+
+Every shell command follows [command-cli-guidelines.md](command-cli-guidelines.md) through
+`scripts/unix/common.sh` (options, the event model, colours, the failure log); every Python
+tool through `common.core.cli.run()` and `common.core.render`. The same model on both sides:
+`command` + `event` (`ok`, `error`, `warn`, `info`, `debug`) + `message` + fields, one line
+each, green/red/yellow/plain/white on a terminal. `tdd-exe` cannot import `common-core`, so
+`tabsdata_dev.tdd.render` is a byte-identical twin of `common.core.render`, kept identical by a
+test.
 
 What is *not* a `tdd` word, and why: **setup** is `tdd-install` (above); **regenerating the
 catalog** is `cargo make gen`, a build step that must run before wheels are built and never
 from a finished install; **testing** is `cargo make test`, which reads each tool's toolset out
 of the catalog itself. All three exist as code inside `tabsdata-dev-tdd`; none needs to be
 reachable from a user's prompt.
+
+### Default options
+
+`<tdd_dir>/default-opts/<command>.txt` — and, for a group, `<command>_<action>.txt` — holds
+options `tdd` adds to every invocation of that command. The separator is `_` because command
+names use `-` (`tdd-env_activate.txt` is unambiguous; a hyphen would not be):
+
+```
+# default-opts/venv_create.txt
+--type uv
+--python=3.12
+```
+
+**One option per line** — `--name value`, `--name=value` or `--flag`; `#` comments; two options
+on one line are rejected. What is typed
+wins: an option named on the command line (in either spelling, `-v` counting as `--verbose`)
+drops the default entirely rather than appearing twice; the action's file wins over the
+command's. Whenever a file applied, `tdd` first emits an `info` event, in the format the
+command will use, saying what will run:
+
+```
+$ tdd venv create --name scratch
+resolved: tdd venv create --name scratch --type uv --python=3.12
+create scratch (uv)
+created scratch (uv) at ~/.tdd/managed-venvs/uv/scratch
+```
+
+The merge is `tdd-exe --defaults <command> [args…]` — stdlib Python, unit-tested, one place —
+and the `tdd` function only rebuilds its argument list from the result and prints the line.
+Both halves get defaults this way without knowing they exist. A malformed file is an error
+(exit 1, with the log) rather than a silently ignored line. `tdd help` ends with the dir, file
+names and syntax, and `tdd defaults --command <name>` shows what applies to a command, grouped
+by action — its built-in values in white, the customized ones in blue with the file they came
+from; an unknown `<name>` is an error. Every `tdd defaults` run also audits the directory and
+warns about what would otherwise silently do nothing: no `default-opts/` at all (every default
+is then built-in), a file without `.txt`, a
+file naming no command or no action of that command, a line carrying two options. Without
+`--command` it lists the commands that have customizations. Shell
+commands declare their built-ins with a `tdd_defaults_<name>` function (`sub|--option|value`
+lines); a Python tool's built-ins live in argparse, so only its customized file is shown.
 
 `tdd help` merges both halves into one alphabetical listing, marking shell commands with `*`
 because they behave differently — they can change the current shell:
@@ -108,7 +166,7 @@ commands (* runs in this shell; --demo includes the demo commands):
   * tdd-env       activate --toolset <toolset>, or deactivate, a toolset venv in this shell
 ```
 
-The merge works off `tdd-exe list --porcelain`, which emits `name|kind|summary`, plus the
+The merge works off `tdd-exe --porcelain [--demo]`, which emits `name|kind|summary`, plus the
 shell registry the sourced files build up. `tdd-fn` on its own lists only the shell half.
 
 ### Demo tools
@@ -121,11 +179,10 @@ detail fetched through two external binaries (`whoami`/`hostname`, `uname`/`date
 and to run every piece of machinery — two toolsets with conflicting pins, `common-*` in each,
 a shell half, declared binaries — without pretending to be useful.
 
-Because they are not useful, they stay out of `tdd help` and `tdd list` unless asked for:
+Because they are not useful, they stay out of `tdd help` unless asked for:
 
 ```
 tdd help --demo        # or: tdd --help --demo
-tdd list --demo
 tdd-fn help --demo
 ```
 
@@ -177,15 +234,22 @@ tabsdata-devtools/
     │       │   ├── discover.py            #   scan packages/ and the shell scripts, parse bin-reqs.txt
     │       │   ├── generate.py            #   emit toolset-*/pyproject.toml + catalog
     │       │   ├── initialize.py           #   build every env; copy catalog; write source.sh
+    │       │   ├── defaults.py            #   default-opts/<command>.txt merge (typed options win)
     │       │   ├── dispatch.py            #   execve into the toolset venv
     │       │   ├── reqs.py                #   [ok]/[missing] binary report
     │       │   └── version.py             #   VERSION: shipped copy vs. the tdd dir's stamp
-    │       └── test/{test_discover.py, test_version.py}
+    │       └── test/{test_discover, test_defaults, test_main, test_render_twin, test_version}.py
     ├── tabsdata-dev-shell/                # the sourced half
     │   ├── pyproject.toml
     │   ├── tddsrc.sh                      #   template for <tdd_dir>/tdd-source.sh
-    │   ├── scripts/unix/                  #   one file per shell command
+    │   ├── scripts/unix/                  #   one file per shell command, plus
+    │   │   ├── common.sh                  #     options, events, colours, failure log -- sourced by all
+    │   │   ├── common.bin-reqs.txt        #       jq: what common.sh needs; folded into every command
     │   │   ├── tdd-env.sh                 #     tdd-env activate --toolset <ts> / tdd-env deactivate
+    │   │   ├── venv.sh                    #     venv create/activate/deactivate/delete/list (managed)
+    │   │   ├── pycache.sh                 #     pycache clean; pycache.bin-reqs.txt declares uv
+    │   │   ├── vars.sh                    #     vars unset --dev / --pypi
+    │   │   ├── defaults.sh                #     defaults --command <name>: built-in vs customized
     │   │   ├── demo-fn1.sh                #     demo-fn1, registered --demo
     │   │   ├── demo-fn1.bin-reqs.txt      #       whoami, hostname
     │   │   ├── demo-fn2.sh                #     demo-fn2, registered --demo
@@ -194,12 +258,12 @@ tabsdata-devtools/
     │       ├── main/tabsdata_dev/shell/__init__.py   # locates the assets above
     │       └── test/test_shell.py
     ├── tabsdata-dev-common-core/          # in every toolset
-    │   ├── pyproject.toml                 #   deps = ["rich>=13", "pyyaml>=6"]  ← RANGES
+    │   ├── pyproject.toml                 #   deps = ["rich>=13"]  ← a RANGE, not a pin
     │   └── src/python/
     │       ├── main/tabsdata_dev/common/core/
-    │       │   ├── cli.py                 #   shared argparse base
+    │       │   ├── cli.py                 #   parser with the mandatory options; run() wrapper
+    │       │   ├── render.py              #   Event model + Renderer: json/view, colours, failure log
     │       │   ├── proc.py                #   process launching + req enforcement
-    │       │   ├── report.py              #   uniform [ok]/[fail] output
     │       │   └── parallel.py            #   bounded map
     │       └── test/test_common.py
     ├── tabsdata-dev-deps-demo-env1/       # NO logic, PINS only
@@ -225,6 +289,10 @@ A tdd dir, created by `tdd-install`:
 ├── config.toml                            # reserved for per-tool config; NOT a locator
 ├── tdd-source.sh                          # tddsrc.sh with this dir baked in
 ├── wheels/                                # wheels + locks (wheels mode only)
+├── default-opts/                          # <command>.txt / <command>_<action>.txt: options tdd adds
+├── managed-venvs/                         # `tdd venv`: <name>.env markers + <type>/<name>/ envs
+│   ├── scratch.env                        #   content: uv | pyenv | conda
+│   └── uv/scratch/
 └── tdd-venvs/
     ├── tdd/                               # tdd-exe itself
     ├── shells/                            # tabsdata-dev-shell, sourced from here
@@ -368,7 +436,9 @@ reached `tdd-exe` as one argument there.
 ## External binary requirements
 
 Both halves declare the binaries they need in a `bin-reqs.txt` — a Python tool at its package
-root, a shell command beside its script as `<file>.bin-reqs.txt`. One bare name per line,
+root, a shell command beside its script as `<file>.bin-reqs.txt`; `common.bin-reqs.txt` holds
+what `common.sh` itself needs (`jq`) and is folded into every shell command's list, by the
+loader and by the generator alike. One bare name per line,
 blank lines and `#` comments ignored; a line carrying a path or a version specifier is rejected
 as a mistake. That is the entire format, and it is why the file is `.txt`: no parser, no
 dependency, no schema to version. **The file is owned by the command's author** — nothing
@@ -404,7 +474,7 @@ else's. Each half enforces it the way its shape allows:
   evidence the declarations are complete.
 - **Shell: a pre-check.** A function has no single place its external calls go through, so
   `tdd-fn` runs `command -v` on every declared name *before* calling `tddfn_<name>` and refuses
-  with the full list (exit 127). Sourcing never checks anything: it must stay cheap and must
+  with the full list (an `error` event, exit 1). Sourcing never checks anything: it must stay cheap and must
   not fail, or one missing binary would break every shell that sources `tdd-source.sh`.
 
 ## What the build requires
@@ -561,7 +631,7 @@ different name at a different path, then run:
 
 ```
 TDD_DIR resolved to: .../moved/tdd        (built at .../reloc)
-tdd list --demo                      -> demo-exe1, demo-exe2
+tdd help --demo                      -> demo-exe1, demo-exe2, ...
 tdd demo-exe2                        -> demo-exe2
 tdd tdd-env activate --toolset demo-env2 -> prefix: .../moved/tdd/tdd-venvs/demo-env2
 ```
@@ -691,7 +761,7 @@ Enforced by `cargo make gen` / `tdd-install`:
 - exactly one `tabsdata-dev-deps-*` per tool — zero or two is an error
 - every tool declares at least one `[project.scripts]` entry point
 - no duplicate tool names across toolsets
-- no tool name that is a builtin (`list`, `doctor`, `info`, `help`) or a shell command — they
+- no tool name that is a builtin (`doctor`, `info`, `help`) or a shell command — they
   share one argument position, and the shell function checks its own registry first, so a
   collision would shadow the tool silently
 - every shell script registers at least one command; no two register the same name

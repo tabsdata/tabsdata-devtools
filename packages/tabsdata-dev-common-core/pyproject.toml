@@ -5,9 +5,11 @@
 [project]
 name = "tabsdata-dev-common-core"
 dynamic = ["version"]
-description = "shared building blocks for every tool: cli, proc, report, parallel"
+description = "shared building blocks for every tool: cli, render, proc, parallel"
 requires-python = ">=3.11"
-dependencies = ["rich>=13", "pyyaml>=6"]
+# Ranges, not pins: every toolset resolves these independently against its own
+# deps-* bundle, and `cargo make gen` warns when the toolsets drift apart.
+dependencies = ["rich>=13"]
 
 [tool.hatch.version]
 path = "../../VERSION"

@@ -65,7 +65,7 @@ def _from_source(dir_: pathlib.Path, relock: bool) -> int:
             "from source. Use `tdd-install --from-wheels`.",
             file=sys.stderr,
         )
-        return 2
+        return 1
 
     catalog = generate_mod.generate(root)
     envs = paths.venvs_dir(dir_)
@@ -123,7 +123,7 @@ def _from_wheels(dir_: pathlib.Path) -> int:
             f"(or `cargo make install -- --dir {dir_}`) first",
             file=sys.stderr,
         )
-        return 2
+        return 1
 
     # The shipped catalog is the source of truth here -- there is no repo to
     # discover from, which is the whole point of this mode.
@@ -179,7 +179,7 @@ def _install_locked(
             f"rebuild with `cargo make wheels`",
             file=sys.stderr,
         )
-        return 2
+        return 1
 
     print(f"  installing {label} -> {target}")
     code = _make_venv(target)

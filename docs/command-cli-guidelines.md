@@ -27,6 +27,14 @@ alike. A command that does not is a bug. Short, because each rule is absolute.
 Everything after the command word belongs to the command: `tdd <command> --help` is the
 command's help, not `tdd`'s.
 
+Because every option is a long `--name`, a user can preset it: `tdd` merges
+`<tdd_dir>/default-opts/<command>.txt` or `<command>_<action>.txt` (one `--name value` per line)
+into the invocation, with
+typed options taking precedence, and announces the resolved command line as an `info` event.
+**Commands do nothing for this** — the defaults are already in the arguments they receive — it
+is one more reason options must follow the naming rules. `tdd defaults --command <name>` shows
+what applies; a shell command declares its built-ins for it (see the shell guide).
+
 ## Exit codes
 
 - `0`: the command did what was asked.
@@ -49,40 +57,75 @@ In `view` format the last line on stderr is `details: /tmp/tdd-…log`; in `json
 path is the `log` field of the `error` line. The terminal keeps one line of *what* went wrong;
 the file has the *why*.
 
+## Events
+
+Everything a command says is an **event**: which command, what kind, a message, and optional
+fields. Commands never print; they emit events through the renderer, which decides how each
+looks in each format.
+
+| `event` | when | shown |
+|---|---|---|
+| `ok` | the outcome; exactly one, last, then exit 0 | always |
+| `error` | the failure; exactly one, last, then exit 1; carries `log` | always |
+| `warn` | something the user should notice while the command works | always |
+| `info` | progress: what is happening now | always |
+| `debug` | detail for diagnosing | only with `--verbose` |
+
+Every event has `command` — the command's qualified name, `-`-joined, the same one the log
+file uses (`venv-create`, `demo-exe1`) — `event`, and `message`. Progress is emitted as
+`info` lines *as it happens*, one per step, not summarised at the end: the reader may be a pipe
+drawing a spinner. Never mix formats: in `json` mode a subprocess's output goes into the log
+or a field, never to the terminal.
+
 ## Output formats
 
-**`view`** is for a person at a terminal: results on stdout, diagnostics and `--verbose` detail
-on stderr, colour only if stdout is a tty.
-
-**`json`** is JSON Lines — one JSON object per line, nothing else on stdout. Every object has an
-`event` field:
-
-| `event` | when | required fields |
-|---|---|---|
-| `progress` | something started, advanced or finished mid-run | `step`, plus `status` (`start`/`done`) or `current`/`total` |
-| `log` | what `--verbose` would have said | `level`, `message` |
-| `result` | the outcome; exactly one, last, on exit 0 | whatever the command produces |
-| `error` | the failure; exactly one, last, on exit 1 | `message`, `log` |
-
-A command that reports progress emits one `progress` line per step as it happens, not a
-summary at the end — the reader may be a pipe that shows a spinner. Never mix formats: in
-`json` mode a subprocess's output goes to the log file or into a field, not to the terminal.
+**`json`** is JSON Lines: one object per event on stdout, nothing else on stdout.
 
 ```
-{"event": "progress", "step": "sync demo-env1", "status": "start"}
-{"event": "progress", "step": "sync demo-env1", "status": "done"}
-{"event": "result", "toolsets": 2, "tools": 2}
+{"command": "venv-create", "event": "info", "message": "create scratch (uv)"}
+{"command": "venv-create", "event": "debug", "message": "python: 3.12"}
+{"command": "venv-create", "event": "ok", "message": "created scratch (uv) at …", "name": "scratch", "type": "uv"}
 ```
 
 ```
-{"event": "error", "message": "no such toolset: nope", "log": "/tmp/tdd-tdd-env-20260828-171502-4242.log"}
+{"command": "venv-activate", "event": "error", "message": "no managed venv named nope", "log": "/tmp/tdd-venv-activate-20260828-171502-4242.log"}
 ```
+
+**`view`** is for a person at a terminal: the `ok` message on stdout, every other event on
+stderr, so `$(tdd …)` captures the result and nothing else. An `error` is followed by
+`details: <log path>` on stderr.
+
+## Colours
+
+By event kind, the same in both formats — a JSON line on a terminal is still read by a person:
+
+| kind | colour |
+|---|---|
+| `ok` | green |
+| `error` | red |
+| `warn` | yellow |
+| `info` | plain |
+| `debug` | white |
+
+Only when the stream being written is a terminal, and never when `NO_COLOR` is set; a pipe
+never sees an escape code. Two further paints exist for rows *inside* a message, not for event
+kinds: white for a built-in value and blue for a customized one (`tdd defaults`). That blue is a
+256-colour entry (`38;5;33`), not palette blue: terminal themes remap the 16 palette colours —
+plain blue turns near-black on dark themes, bright blue grey-white under "minimum contrast" —
+but leave the colour cube alone.
 
 ## Applying it
 
-- **Python tools**: take the parser from `common.core.cli` and report through
-  `common.core.report`; they are where the mandatory options, the exit-code mapping, the log
-  file and both formats are meant to be implemented once. Do not hand-roll a `--format`.
-- **Shell commands**: same options, same codes, same log path; `--format json` prints JSON
-  Lines with `printf`. A sourced function `return`s the code — never `exit`.
-- **`tdd-exe` builtins**: no exceptions for being built in.
+- **Python tools**: `common.core.render` is the model (`Event`) and the renderer (`Renderer`:
+  `ok`/`error`/`warn`/`info`/`debug`); `common.core.cli.run()` wraps the command body so the
+  mandatory options, the exit-code mapping, argument errors, exceptions and the failure log are
+  handled once. Do not hand-roll a `--format` or print directly.
+- **Shell commands**: source `common.sh` (`${TDD_COMMON_SH}`) and use its helpers —
+  `_tdd_cmd_reset`, `_tdd_common_opt`, `_tdd_optval`, `_tdd_cmd_check`, then `_tdd_ok`,
+  `_tdd_error`, `_tdd_warn`, `_tdd_info`, `_tdd_debug`. `common.sh` builds every JSON line
+  with **jq**, so jq is a requirement of every shell command (`common.bin-reqs.txt`); a command
+  never touches JSON itself. A sourced function `return`s the code — never `exit`. The tests
+  reject a command file that prints on its own.
+- **`tdd` itself**: no exception for being the front door. The shell function uses `common.sh`;
+  `tdd-exe` uses `tabsdata_dev.tdd.render`, a byte-identical twin of `common.core.render` (it
+  cannot import `common-core`), kept identical by a test.

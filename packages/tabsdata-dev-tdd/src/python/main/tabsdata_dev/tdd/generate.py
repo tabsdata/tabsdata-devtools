@@ -146,7 +146,7 @@ def main() -> int:
     root = paths.repo_root()
     if root is None:
         print("tdd: no source repo; nothing to generate", file=sys.stderr)
-        return 2
+        return 1
     catalog = generate(root)
     print(
         f"  generated {len(catalog['tools'])} tools "

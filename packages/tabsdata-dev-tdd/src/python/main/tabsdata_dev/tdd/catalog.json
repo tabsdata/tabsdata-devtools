@@ -1,5 +1,5 @@
 {
-  "fingerprint": "51761d386445961d",
+  "fingerprint": "598b4ce7bbb5a0e0",
   "members": {
     "demo-env1": [
       "tabsdata-dev-common-core",
@@ -14,10 +14,19 @@
   },
   "schema": 1,
   "shell": {
+    "defaults": {
+      "demo": false,
+      "file": "defaults.sh",
+      "reqs": [
+        "jq"
+      ],
+      "summary": "show a command's option defaults: built-in in white, customized in blue"
+    },
     "demo-fn1": {
       "demo": true,
       "file": "demo-fn1.sh",
       "reqs": [
+        "jq",
         "whoami",
         "hostname"
       ],
@@ -27,16 +36,44 @@
       "demo": true,
       "file": "demo-fn2.sh",
       "reqs": [
+        "jq",
         "uname",
         "date"
       ],
       "summary": "demo shell command: prints its name, then the OS and the date"
     },
+    "pycache": {
+      "demo": false,
+      "file": "pycache.sh",
+      "reqs": [
+        "jq",
+        "uv"
+      ],
+      "summary": "clean the uv and pip caches, by package prefix (default tabsdata) or all of it"
+    },
     "tdd-env": {
       "demo": false,
       "file": "tdd-env.sh",
-      "reqs": [],
+      "reqs": [
+        "jq"
+      ],
       "summary": "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
+    },
+    "vars": {
+      "demo": false,
+      "file": "vars.sh",
+      "reqs": [
+        "jq"
+      ],
+      "summary": "unset groups of environment variables in this shell: --dev (TD_*), --pypi (UV/PIP index)"
+    },
+    "venv": {
+      "demo": false,
+      "file": "venv.sh",
+      "reqs": [
+        "jq"
+      ],
+      "summary": "create, activate, deactivate, delete or list managed venvs (pyenv, uv or conda)"
     }
   },
   "tools": {

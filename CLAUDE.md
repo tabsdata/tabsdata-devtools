@@ -27,10 +27,25 @@ tdd-fn         shell function            -> commands that change the current she
 tdd-install    executable                -> the only way to build a tdd dir
 ```
 
-The user-facing surface is deliberately small: `tdd --help | --version | --reqs`, `tdd list`,
-`tdd doctor`, `tdd info`, `tdd tdd-env activate --toolset <ts>`, `tdd tdd-env deactivate`, and the
-tools. Setup is `tdd-install`; regenerating the catalog is `cargo make gen`; testing is
-`cargo make test`. None of those are `tdd` words — see `.claude/DECISIONS.md`.
+The user-facing surface: `tdd --help | --version | --reqs`, `tdd doctor`, `tdd info`,
+the tools, and on the shell side `tdd tdd-env activate|deactivate` (toolset venvs),
+`tdd venv create|activate|deactivate|delete|list` (managed pyenv/uv/conda venvs under
+`<tdd_dir>/managed-venvs/`), `tdd pycache clean`, and `tdd vars unset --dev|--pypi`. Setup is
+`tdd-install`; regenerating the catalog is `cargo make gen`; testing is `cargo make test`. None
+of those are `tdd` words — see `.claude/DECISIONS.md`.
+
+`<tdd_dir>/default-opts/<command>.txt` or `<command>_<action>.txt` presets options;
+`tdd-exe --defaults` merges (typed wins, action file wins), the `tdd` function rebuilds argv and
+emits the resolved line as `info`. Logic lives in `tabsdata_dev.tdd.defaults`, stdlib, unit-tested.
+
+Every command meets `docs/command-cli-guidelines.md` through one shared layer per side:
+shell commands source `scripts/unix/common.sh` (`_tdd_cmd_reset`, `_tdd_common_opt`,
+`_tdd_optval`, `_tdd_cmd_check`, `_tdd_ok`, `_tdd_error`, `_tdd_warn`, `_tdd_info`,
+`_tdd_debug`); Python tools go through `common.core.cli.run()` and `common.core.render`
+(`Event`, `Renderer`); `tdd-exe` through `tabsdata_dev.tdd.render`, a byte-identical twin of
+the latter (stdlib-only, cannot import `common-core`) — a test fails if they diverge; edit both.
+Commands never print on their own; the tests check it. A shell command with options declares
+their built-in defaults in `tdd_defaults_<name>()` for `tdd defaults --command <name>`.
 
 Packages, all prefixed `tabsdata-dev-`, all under the `tabsdata_dev` PEP 420 namespace:
 
@@ -46,7 +61,7 @@ Packages, all prefixed `tabsdata-dev-`, all under the `tabsdata_dev` PEP 420 nam
 The repo ships only **demo** tools, which print their own names and nothing else: `demo-exe1`
 (toolset `demo-env1`), `demo-exe2` (toolset `demo-env2`), and the shell functions `demo-fn1`
 and `demo-fn2`. The two toolsets pin `packaging` differently on purpose — that conflict is the
-reason toolsets exist. Demo commands are hidden from `tdd help` and `tdd list` unless `--demo`
+reason toolsets exist. Demo commands are hidden from `tdd help` unless `--demo`
 is given; they dispatch, test and report reqs like any other tool.
 
 ## Invariants — do not break these
@@ -80,7 +95,7 @@ is given; they dispatch, test and report reqs like any other tool.
 11. **Demo status is an explicit marker, never a name convention.** A Python tool sets
     `[tool.tdd] demo = true` in its `pyproject.toml` (the generator carries it into the catalog
     as `"demo": true`); a shell command registers with `tdd_fn_register --demo`. Hiding is a
-    listing concern only — nothing but `tdd help`/`tdd list` consults the flag.
+    listing concern only — nothing but `tdd help` consults the flag.
 
 ## Commands
 
