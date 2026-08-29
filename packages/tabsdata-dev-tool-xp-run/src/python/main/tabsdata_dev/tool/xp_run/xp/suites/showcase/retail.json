@@ -1,0 +1,27 @@
+{
+  "_comment": "SHOWCASE suite 'retail' — a self-contained synthetic pipeline landing in the cloud. INGEST: retail_src generates small customers/orders frames in-process via the dev DataGenSrc (no external system to seed; domain dev). MARTS: retail_marts is a connection-less @transformer collection (group 'marts') enriching/filtering into orders_enriched and paid_orders via the Tabsdata TableFrame API (join/filter/select/sort — row-preserving; no polars, DataGenSrc's literal pl.DataFrame inputs are the only polars use). SERVE: retail_out writes each mart to S3 as parquet (domain s3out, system s3). Only the publisher is triggered; the rest cascade by @NEW. WAREHOUSE SINK: retail_clickhouse mirrors the same two marts into ClickHouse (ClickHouseDest, domain ch, staged through the S3 bucket of the ch_stage domain D1), alongside the S3 sink. Functions in functions/retail.py.",
+  "domains": [
+    { "name": "dev", "system": "dev" },
+    { "name": "s3out", "system": "s3" },
+    { "name": "ch", "system": "clickhouse" },
+    { "name": "ch_stage", "system": "s3" }
+  ],
+  "collections": [
+    { "name": "retail_src", "type": "datagen_in", "connection_template": "connection-file:connections/datagen_in.yaml", "group": "sources", "domains": { "D0": "dev" } },
+    { "name": "retail_marts", "type": "transform", "group": "marts" },
+    { "name": "retail_out", "type": "s3_file_out", "connection_template": "connection-file:connections/s3_file_out.yaml", "group": "destinations", "domains": { "D0": "s3out" } },
+    { "name": "retail_clickhouse", "type": "clickhouse_bulk_out", "connection_template": "connection-file:connections/clickhouse_bulk_out_s3.yaml", "group": "destinations", "domains": { "D0": "ch", "D1": "ch_stage" } }
+  ],
+  "functions": [
+    { "collection": "retail_src", "functionpath": "functions/retail.py::pub_retail" },
+    { "collection": "retail_marts", "functionpath": "functions/retail.py::tfr_orders_enriched" },
+    { "collection": "retail_marts", "functionpath": "functions/retail.py::tfr_paid_orders" },
+    { "collection": "retail_out", "functionpath": "functions/retail.py::sink_orders_enriched" },
+    { "collection": "retail_out", "functionpath": "functions/retail.py::sink_paid_orders" },
+    { "collection": "retail_clickhouse", "functionpath": "functions/retail.py::ch_orders_enriched" },
+    { "collection": "retail_clickhouse", "functionpath": "functions/retail.py::ch_paid_orders" }
+  ],
+  "triggers": [
+    { "collection": "retail_src", "function": "pub_retail", "detached": true }
+  ]
+}

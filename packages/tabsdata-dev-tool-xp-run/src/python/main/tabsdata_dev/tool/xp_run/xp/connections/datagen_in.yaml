@@ -1,0 +1,12 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: datagen-in (src) -- development DataGenSrc connector.
+# DataGenSrc generates its dataframes in-line (see functions/datagen_in.py) and is
+# backed by NO external system, so this connection carries no configuration.
+# Its backing domain D0 (system 'dev') is a no-op and exposes no keys.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.dev:DataGenSrcConn
+spec: {}

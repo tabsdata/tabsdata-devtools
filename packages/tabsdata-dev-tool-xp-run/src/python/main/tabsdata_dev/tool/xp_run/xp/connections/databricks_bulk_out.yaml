@@ -1,0 +1,26 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: databricks-bulk-out (dest)
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.databricks:DatabricksDestConn
+spec:
+
+  host_url: '$secret:D0__HOST'
+  token: '$secret:D0__TOKEN'
+  volume: '$secret:D0__VOLUME'
+  # warehouse  (optional, default: none) -- no matching seeded env var (only DATABRICKS__WAREHOUSE_ID is seeded)
+  # warehouse: '<value> or secret:<value>'
+  warehouse_id: '$secret:D0__WAREHOUSE_ID'
+  catalog: '$secret:D0__CATALOG'
+  # schema resolved from the backing domain's export (SCHEMA) so writes land in
+  # the right schema.
+  schema: '$secret:D0__SCHEMA'
+  # entity_whitelist  (optional, default: none) -- a list
+  # entity_whitelist: []
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

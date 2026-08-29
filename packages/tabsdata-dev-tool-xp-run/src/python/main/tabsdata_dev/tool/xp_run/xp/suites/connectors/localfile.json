@@ -1,0 +1,176 @@
+{
+  "_comment": "CAPABILITY suite for the local-file connector (all data formats + source selection modes), via `--type connectors/localfile.json`. Functions in functions/caps_localfile.py. FLOW: `caps_input` (dev datagen) publishes cap_rows; the `localfile_out` subscribers write it to the `fs` domain root in every format (CSV/JSON/AVRO/PARQUET + a CSV with custom format_cfg). The `localfile_in` publishers exercise wildcard/last-modified/multi/none over the seeded world parquet in `fs_world_xs`. TWO-PHASE: after the first `run` commits (files written), trigger the `localfile_rt` round-trip readers (they read each written file back with the matching format; not auto-triggered because the files must exist first). `fs` (writers+round-trip) and `fs_world_xs` (seed readers) are distinct domains; dev backs the datagen input. SRC METADATA: localfile_meta_keep and localfile_meta_drop (localfile_in) read the same staged country parquet with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection localfile_meta (group ops) asserts that side: localfile_meta_keep_check that the `@td.file.path` metadata column is there plus exactly the expected data columns, localfile_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing).",
+  "domains": [
+    {
+      "name": "dev",
+      "system": "dev",
+      "model": null,
+      "data": null
+    },
+    {
+      "name": "fs",
+      "system": "fs",
+      "model": null,
+      "data": null
+    },
+    {
+      "name": "fs_world_xs",
+      "system": "fs",
+      "model": "world",
+      "data": "xs"
+    }
+  ],
+  "collections": [
+    {
+      "name": "caps_input",
+      "type": "datagen_in",
+      "connection_template": "connection-file:connections/datagen_in.yaml",
+      "group": "sources",
+      "domains": {
+        "D0": "dev"
+      }
+    },
+    {
+      "name": "localfile_out",
+      "type": "local_file_out",
+      "connection_template": "connection-file:connections/local_file_out.yaml",
+      "group": "destinations",
+      "domains": {
+        "D0": "fs"
+      }
+    },
+    {
+      "name": "localfile_rt",
+      "type": "local_file_in",
+      "connection_template": "connection-file:connections/local_file_in.yaml",
+      "group": "sources",
+      "domains": {
+        "D0": "fs"
+      }
+    },
+    {
+      "name": "localfile_in",
+      "type": "local_file_in",
+      "connection_template": "connection-file:connections/local_file_in.yaml",
+      "group": "sources",
+      "domains": {
+        "D0": "fs_world_xs"
+      }
+    },
+    {
+      "name": "localfile_meta",
+      "type": "transform",
+      "group": "ops"
+    }
+  ],
+  "functions": [
+    {
+      "collection": "caps_input",
+      "functionpath": "functions/caps_datagen.py::caps_rows"
+    },
+    {
+      "collection": "localfile_out",
+      "functionpath": "functions/caps_localfile.py::localfile_out_csv"
+    },
+    {
+      "collection": "localfile_out",
+      "functionpath": "functions/caps_localfile.py::localfile_out_json"
+    },
+    {
+      "collection": "localfile_out",
+      "functionpath": "functions/caps_localfile.py::localfile_out_avro"
+    },
+    {
+      "collection": "localfile_out",
+      "functionpath": "functions/caps_localfile.py::localfile_out_parquet"
+    },
+    {
+      "collection": "localfile_out",
+      "functionpath": "functions/caps_localfile.py::localfile_out_csvopts"
+    },
+    {
+      "collection": "localfile_out",
+      "functionpath": "functions/caps_localfile.py::localfile_out_none"
+    },
+    {
+      "collection": "localfile_rt",
+      "functionpath": "functions/caps_localfile.py::localfile_rt_csv"
+    },
+    {
+      "collection": "localfile_rt",
+      "functionpath": "functions/caps_localfile.py::localfile_rt_json"
+    },
+    {
+      "collection": "localfile_rt",
+      "functionpath": "functions/caps_localfile.py::localfile_rt_avro"
+    },
+    {
+      "collection": "localfile_rt",
+      "functionpath": "functions/caps_localfile.py::localfile_rt_parquet"
+    },
+    {
+      "collection": "localfile_in",
+      "functionpath": "functions/caps_localfile.py::localfile_in_glob"
+    },
+    {
+      "collection": "localfile_in",
+      "functionpath": "functions/caps_localfile.py::localfile_in_since"
+    },
+    {
+      "collection": "localfile_in",
+      "functionpath": "functions/caps_localfile.py::localfile_in_multi"
+    },
+    {
+      "collection": "localfile_in",
+      "functionpath": "functions/caps_localfile.py::localfile_in_none"
+    },
+    {
+      "collection": "localfile_in",
+      "functionpath": "functions/caps_localfile.py::localfile_meta_keep"
+    },
+    {
+      "collection": "localfile_in",
+      "functionpath": "functions/caps_localfile.py::localfile_meta_drop"
+    },
+    {
+      "collection": "localfile_meta",
+      "functionpath": "functions/caps_localfile.py::localfile_meta_keep_check"
+    },
+    {
+      "collection": "localfile_meta",
+      "functionpath": "functions/caps_localfile.py::localfile_meta_drop_check"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "caps_input",
+      "function": "caps_rows",
+      "detached": true
+    },
+    {
+      "collection": "localfile_in",
+      "function": "localfile_in_glob",
+      "detached": true
+    },
+    {
+      "collection": "localfile_in",
+      "function": "localfile_in_since",
+      "detached": true
+    },
+    {
+      "collection": "localfile_in",
+      "function": "localfile_in_multi",
+      "detached": true
+    },
+    {
+      "collection": "localfile_in",
+      "function": "localfile_meta_keep",
+      "detached": true
+    },
+    {
+      "collection": "localfile_in",
+      "function": "localfile_meta_drop",
+      "detached": true
+    }
+  ]
+}

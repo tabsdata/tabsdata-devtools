@@ -1,0 +1,142 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+"""caps_db2cdc — exercise the Db2 CDC stream source (``@stream_publisher``).
+
+Unlike every other source in this dir these are STREAM publishers, not batch ones:
+each is a long-lived consumer of Db2 SQL Replication's CD (change-data) tables, which
+the ASN capture program (``asncap``) fills in the background. Each stays running and
+closes a batch whenever the source's buffer/trigger thresholds fire (or
+``flush_interval_mins`` rolls the window over). One input slot per tracked table
+(``cardinality = len(tables)``), each slot an ARRAY of the frames that flush carried,
+and NO ``ctx`` parameter (a stream publisher runs in the runtime's stream loop, not
+per transaction).
+
+``tables`` lists the CD TABLES, not the source tables — the ingester resolves the
+source through ``ASN.IBMSNAP_REGISTER``. The db2cdc system registers every model table
+at DDL-install time and stages it as ``ASN.TD_T__<TABLE>`` (uppercased, since Db2 folds
+unquoted identifiers), which is why the names below are fixed rather than derived from
+the domain: the ASN schema is shared, only the source schema is per-domain.
+
+CAVEAT (system-level): because the staging name is ``TD_T__<TABLE>`` with no domain
+qualifier, TWO db2cdc domains carrying the SAME model collide on the CD table. Run one
+db2cdc domain at a time.
+
+The suite tracks the ``employees`` model's two mutable tables (``employees`` supports
+INSERT/UPDATE/DELETE, ``departments`` UPDATE), so ``tdx-domain modify-data`` on the
+backing domain produces the full change-op mix for asncap to stage and the stream to
+capture.
+
+NO TRIGGER IS INVOLVED: registering a stream publisher STARTS it. The worker comes up
+seconds after ``create-project`` and runs until the function is disabled or deleted, so
+every variant below is live the moment the suite is created (``tdk worker list`` shows
+them; they carry no execution plan or transaction). Each variant sits in its own
+collection; Db2 needs no per-stream id — a consumer just reads the CD table and tracks
+its own offset, so the four coexist on one set of CD tables.
+
+Variants (see the suite's _comment for how to drive them):
+- ``db2cdc_in``        : base — ``start_from="tail"`` (each CD table's current
+                         watermark), ``columns_format="columns"`` +
+                         ``flatten_columns=True`` -> ordinary tabular change rows.
+- ``db2cdc_in_head``   : ``start_from="head"`` — replays each CD table from the origin.
+                         Registration happens before ``create-data``, so the seed load
+                         is still staged and arrives as inserts.
+- ``db2cdc_in_struct`` : ``columns_format="struct"`` + ``flatten_columns=False`` — new
+                         and old column payloads arrive as nested structs. Db2
+                         registrations are created with ``image both``, so old values
+                         are present (prefixed ``_``).
+- ``db2cdc_in_map``    : ``columns_format="map"`` with the new columns still inlined, so
+                         only the old-values payload becomes a map.
+
+Db2 change rows carry the ASN bookkeeping columns (``IBMSNAP_COMMITSEQ`` /
+``IBMSNAP_OPERATION`` / the ``IBMSNAP_LOGMARKER`` the system adds) alongside the
+captured ones.
+"""
+from __future__ import annotations
+
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, stream_publisher
+from tabsdatak.conn.db2 import Db2CdcStreamSrc
+from tabsdatak.tableframe.functions import concat
+
+# CD (staging) tables, not the source tables: ASN schema + the TD_T__ prefix the
+# db2cdc system uses, uppercased the way Db2 stores unquoted identifiers.
+_TABLES = ["ASN.TD_T__EMPLOYEES", "ASN.TD_T__DEPARTMENTS"]
+
+# Small thresholds so a handful of `modify-data` changes flush promptly instead of
+# sitting in the buffer; poll every second so the loop reacts quickly. `fetch_size`
+# caps the server-side fetch when draining a CD table.
+_CFG = {
+    "tabsdata.cdc.buffer.max_rows": 100,
+    "tabsdata.cdc.buffer.max_secs": 5,
+    "tabsdata.cdc.trigger.max_rows": 10,
+    "tabsdata.cdc.trigger.max_secs": 10,
+    "tabsdata.cdc.poll_interval_seconds": 1,
+    "db2.cdc.blocking_timeout_seconds": 5,
+    "db2.cdc.fetch_size": 500,
+}
+
+
+# `concat` drops None entries and returns None for an empty/None list, so it doubles as
+# the "this flush carried nothing for this slot" guard. Vertical (strict) on purpose: a
+# mid-stream schema change should surface here rather than be absorbed silently.
+@stream_publisher(
+    source=Db2CdcStreamSrc(tables=_TABLES, start_from="tail", src_cfg=_CFG),
+    flush_interval_mins=1,
+    output_tables=["emp_changes", "dept_changes"],
+)
+def db2cdc_in(
+    employees: TableFramesSpec,
+    departments: TableFramesSpec,
+) -> tuple[TableFrameSpec, TableFrameSpec]:
+    return (concat(employees), concat(departments))
+
+
+@stream_publisher(
+    source=Db2CdcStreamSrc(tables=_TABLES, start_from="head", src_cfg=_CFG),
+    flush_interval_mins=1,
+    output_tables=["emp_changes", "dept_changes"],
+)
+def db2cdc_in_head(
+    employees: TableFramesSpec,
+    departments: TableFramesSpec,
+) -> tuple[TableFrameSpec, TableFrameSpec]:
+    # Each CD table from its origin -> the create-data seed arrives as inserts.
+    return (concat(employees), concat(departments))
+
+
+@stream_publisher(
+    source=Db2CdcStreamSrc(
+        tables=_TABLES,
+        start_from="tail",
+        columns_format="struct",
+        flatten_columns=False,
+        src_cfg=_CFG,
+    ),
+    flush_interval_mins=1,
+    output_tables=["emp_changes", "dept_changes"],
+)
+def db2cdc_in_struct(
+    employees: TableFramesSpec,
+    departments: TableFramesSpec,
+) -> tuple[TableFrameSpec, TableFrameSpec]:
+    # Not flattened: the row's new/old values stay nested under struct columns.
+    return (concat(employees), concat(departments))
+
+
+@stream_publisher(
+    source=Db2CdcStreamSrc(
+        tables=_TABLES,
+        start_from="tail",
+        columns_format="map",
+        src_cfg=_CFG,
+    ),
+    flush_interval_mins=1,
+    output_tables=["emp_changes", "dept_changes"],
+)
+def db2cdc_in_map(
+    employees: TableFramesSpec,
+    departments: TableFramesSpec,
+) -> tuple[TableFrameSpec, TableFrameSpec]:
+    # flatten_columns defaults to True, so the format only shapes the OLD values.
+    return (concat(employees), concat(departments))

@@ -1,0 +1,139 @@
+{
+  "_comment": "CAPABILITY suite for the PostgreSQL connector, via `--type connectors/oracle.json`. Functions in functions/caps_oracle.py. SOURCE (`oracle_in`, reads existing oracle_world_xs seed): base (3 queries), _inc (watermark paging — re-run to walk 10 rows/trigger), _none (WHERE 1=0), _multiquery (2 queries, transactional=False). DEST (`oracle_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate; row count stays) writing to distinct tables cap_append/cap_replace; re-run `suite.py run` to observe append-grows vs replace-stays. PostgreSQL has no schema evolution. Domains: dev (datagen), oracle_world_xs (source), oracle (dest). SRC METADATA: oracle_meta_keep and oracle_meta_drop (oracle_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection oracle_meta (group ops) asserts that side: oracle_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, oracle_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing).",
+  "domains": [
+    {
+      "name": "dev",
+      "system": "dev",
+      "model": null,
+      "data": null
+    },
+    {
+      "name": "oracle_world_xs",
+      "system": "oracle",
+      "model": "world",
+      "data": "xs"
+    },
+    {
+      "name": "oracle",
+      "system": "oracle",
+      "model": null,
+      "data": null
+    }
+  ],
+  "collections": [
+    {
+      "name": "caps_input",
+      "type": "datagen_in",
+      "connection_template": "connection-file:connections/datagen_in.yaml",
+      "group": "sources",
+      "domains": {
+        "D0": "dev"
+      }
+    },
+    {
+      "name": "oracle_in",
+      "type": "oracle_sql_in",
+      "connection_template": "connection-file:connections/oracle_sql_in.yaml",
+      "group": "sources",
+      "domains": {
+        "D0": "oracle_world_xs"
+      }
+    },
+    {
+      "name": "oracle_out",
+      "type": "oracle_sql_out",
+      "connection_template": "connection-file:connections/oracle_sql_out.yaml",
+      "group": "destinations",
+      "domains": {
+        "D0": "oracle"
+      }
+    },
+    {
+      "name": "oracle_meta",
+      "type": "transform",
+      "group": "ops"
+    }
+  ],
+  "functions": [
+    {
+      "collection": "caps_input",
+      "functionpath": "functions/caps_datagen.py::caps_rows"
+    },
+    {
+      "collection": "oracle_in",
+      "functionpath": "functions/caps_oracle.py::oracle_in"
+    },
+    {
+      "collection": "oracle_in",
+      "functionpath": "functions/caps_oracle.py::oracle_in_inc"
+    },
+    {
+      "collection": "oracle_in",
+      "functionpath": "functions/caps_oracle.py::oracle_in_none"
+    },
+    {
+      "collection": "oracle_in",
+      "functionpath": "functions/caps_oracle.py::oracle_in_multiquery"
+    },
+    {
+      "collection": "oracle_out",
+      "functionpath": "functions/caps_oracle.py::oracle_out_append"
+    },
+    {
+      "collection": "oracle_out",
+      "functionpath": "functions/caps_oracle.py::oracle_out_replace"
+    },
+    {
+      "collection": "oracle_out",
+      "functionpath": "functions/caps_oracle.py::oracle_out_none"
+    },
+    {
+      "collection": "oracle_in",
+      "functionpath": "functions/caps_oracle.py::oracle_meta_keep"
+    },
+    {
+      "collection": "oracle_in",
+      "functionpath": "functions/caps_oracle.py::oracle_meta_drop"
+    },
+    {
+      "collection": "oracle_meta",
+      "functionpath": "functions/caps_oracle.py::oracle_meta_keep_check"
+    },
+    {
+      "collection": "oracle_meta",
+      "functionpath": "functions/caps_oracle.py::oracle_meta_drop_check"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "caps_input",
+      "function": "caps_rows",
+      "detached": true
+    },
+    {
+      "collection": "oracle_in",
+      "function": "oracle_in",
+      "detached": true
+    },
+    {
+      "collection": "oracle_in",
+      "function": "oracle_in_inc",
+      "detached": true
+    },
+    {
+      "collection": "oracle_in",
+      "function": "oracle_in_multiquery",
+      "detached": true
+    },
+    {
+      "collection": "oracle_in",
+      "function": "oracle_meta_keep",
+      "detached": true
+    },
+    {
+      "collection": "oracle_in",
+      "function": "oracle_meta_drop",
+      "detached": true
+    }
+  ]
+}

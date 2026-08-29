@@ -1,0 +1,12 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: trash-out (dest) -- development TrashDest connector.
+# TrashDest is a sink to nowhere: it discards every frame and is backed by NO
+# external system, so this connection carries no configuration.
+# Its backing domain D0 (system 'dev') is a no-op and exposes no keys.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.dev:TrashDestConn
+spec: {}

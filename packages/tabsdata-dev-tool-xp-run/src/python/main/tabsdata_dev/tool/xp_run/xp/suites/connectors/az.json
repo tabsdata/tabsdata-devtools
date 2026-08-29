@@ -1,0 +1,44 @@
+{
+  "_comment": "CAPABILITY suite for the Azure Blob file connector (all data formats + selection modes), via `--type connectors/s3.json`. Functions in functions/caps_az.py. `s3_out` writers (from datagen caps_input/cap_rows) write CSV/JSON/AVRO/PARQUET (+CSV format_cfg) to the `azureblob` container root; `s3_rt` readers read each back (PHASE 2 — trigger after writers commit); `s3_in` exercises glob/since/multi/none over the seeded world parquet in `azureblob_world_xs`. Domains: dev (datagen), s3 (round-trip write+read), azureblob_world_xs (seed). SRC METADATA: az_meta_keep and az_meta_drop (az_in) read the same staged country parquet with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection az_meta (group ops) asserts that side: az_meta_keep_check that the `@td.file.path` metadata column is there plus exactly the expected data columns, az_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing).",
+  "domains": [
+    { "name": "dev", "system": "dev" },
+    { "name": "azureblob", "system": "azureblob" },
+    { "name": "azureblob_world_xs", "system": "azureblob", "model": "world", "data": "xs" }
+  ],
+  "collections": [
+    { "name": "caps_input", "type": "datagen_in", "connection_template": "connection-file:connections/datagen_in.yaml", "group": "sources", "domains": { "D0": "dev" } },
+    { "name": "az_out", "type": "az_file_out", "connection_template": "connection-file:connections/az_file_out.yaml", "group": "destinations", "domains": { "D0": "azureblob" } },
+    { "name": "az_rt", "type": "az_file_in", "connection_template": "connection-file:connections/az_file_in.yaml", "group": "sources", "domains": { "D0": "azureblob" } },
+    { "name": "az_in", "type": "az_file_in", "connection_template": "connection-file:connections/az_file_in.yaml", "group": "sources", "domains": { "D0": "azureblob_world_xs" } },
+    { "name": "az_meta", "type": "transform", "group": "ops" }
+  ],
+  "functions": [
+    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_rows" },
+    { "collection": "az_out", "functionpath": "functions/caps_az.py::az_out_csv" },
+    { "collection": "az_out", "functionpath": "functions/caps_az.py::az_out_json" },
+    { "collection": "az_out", "functionpath": "functions/caps_az.py::az_out_avro" },
+    { "collection": "az_out", "functionpath": "functions/caps_az.py::az_out_parquet" },
+    { "collection": "az_out", "functionpath": "functions/caps_az.py::az_out_csvopts" },
+    { "collection": "az_out", "functionpath": "functions/caps_az.py::az_out_none" },
+    { "collection": "az_rt", "functionpath": "functions/caps_az.py::az_rt_csv" },
+    { "collection": "az_rt", "functionpath": "functions/caps_az.py::az_rt_json" },
+    { "collection": "az_rt", "functionpath": "functions/caps_az.py::az_rt_avro" },
+    { "collection": "az_rt", "functionpath": "functions/caps_az.py::az_rt_parquet" },
+    { "collection": "az_in", "functionpath": "functions/caps_az.py::az_in_glob" },
+    { "collection": "az_in", "functionpath": "functions/caps_az.py::az_in_since" },
+    { "collection": "az_in", "functionpath": "functions/caps_az.py::az_in_multi" },
+    { "collection": "az_in", "functionpath": "functions/caps_az.py::az_in_none" },
+    { "collection": "az_in", "functionpath": "functions/caps_az.py::az_meta_keep" },
+    { "collection": "az_in", "functionpath": "functions/caps_az.py::az_meta_drop" },
+    { "collection": "az_meta", "functionpath": "functions/caps_az.py::az_meta_keep_check" },
+    { "collection": "az_meta", "functionpath": "functions/caps_az.py::az_meta_drop_check" }
+  ],
+  "triggers": [
+    { "collection": "caps_input", "function": "caps_rows", "detached": true },
+    { "collection": "az_in", "function": "az_in_glob", "detached": true },
+    { "collection": "az_in", "function": "az_in_since", "detached": true },
+    { "collection": "az_in", "function": "az_in_multi", "detached": true },
+    { "collection": "az_in", "function": "az_meta_keep", "detached": true },
+    { "collection": "az_in", "function": "az_meta_drop", "detached": true }
+  ]
+}

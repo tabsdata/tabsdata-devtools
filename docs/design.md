@@ -99,7 +99,7 @@ The whole surface, deliberately small:
 | `tdd pycache clean [--package-prefixes …] [--all]` | `*` shell — purge uv and pip caches by package prefix |
 | `tdd system <verb> …` | external systems for testing: create/destroy/status/purge/restart/fetch-bin/connect, plus types/list/info/manifest/upgrade/secrets/crypto-key |
 | `tdd env set\|unset\|show …` | `*` shell — the variables tdd manages in this shell: `--crypto`/`--secrets` (eval `system crypto-key`/`secrets --as export`), `--td`, `--vars PREFIX`, `--py-idxx URL`, `--py-default-idx URL`; `show` lists them, `-` marking the unset ones |
-| `tdd xp-run <verb> …` | run tabsdata example suites (`--suite FILE|DIR`): domains via `tdd domain`, server via `tdd tdk` |
+| `tdd xp-run <verb> …` | run tabsdata example suites (bundled; `--suite <type>/<name>|<type>`, `--suites-dir DIR`, `export-suites`): domains via `tdd domain`, server via `tdd tdk` |
 | `tdd tdk ARGS…`, `tdd tdkserver ARGS…`, `tdd km ARGS…` | run tabsdata's CLIs inside the managed venv `$TDD_VENV` names, through its manager |
 | `tdd domain <verb> …` | domains inside systems: create/destroy/status/models/create-model/create-data/modify-data, plus list/info/manifest/upgrade |
 | `tdd defaults --command <name>` | `*` shell — a command's option defaults: built-in (white) vs customized (blue) |

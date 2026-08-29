@@ -1,0 +1,25 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: az-file-out (dest)
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.azureblob:AzureBlobDestConn
+spec:
+
+  container: '$secret:D0__CONTAINER'
+  credentials:
+    kind: azureAccountKeyCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.common.types:AzureAccountKey
+    spec:
+      account_name: '$secret:D0__ACCOUNT_NAME'
+      account_key: '$secret:D0__ACCOUNT_KEY'
+
+  # base path within the container (XP data root)
+  base_path: '$secret:D0__SYS_PATH'
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

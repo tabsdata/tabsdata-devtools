@@ -1,0 +1,18 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: local-file-out (dest)
+# Secret values use the 'secret:' prefix, or '$secret:<ENV_VAR>' to read the value from an environment variable.
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.localfile:LocalFileDestConn
+spec:
+
+  # optional (default: '')
+  # accepts: <value> | secret:<value>
+  #
+  base_path: ''
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

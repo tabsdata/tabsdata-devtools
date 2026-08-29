@@ -1,0 +1,48 @@
+{
+  "_comment": "CAPABILITY suite for the dev DataGenSrc source (no external system), consumed by ../suite.py via `--type connectors/datagen.json`. Exercises the source machinery: datagen_in (base, multi-slot: one frame per Data), datagen_in_none (return-None contract), datagen_in_chunk (Data(df, chunk_size=5) -> each trigger emits the next 5 rows; re-run `suite.py run` to walk all 20). Functions live in functions/caps_datagen.py; domain `dev` (no model/data).",
+  "domains": [
+    {
+      "name": "dev",
+      "system": "dev",
+      "model": null,
+      "data": null
+    }
+  ],
+  "collections": [
+    {
+      "name": "datagen",
+      "type": "datagen_in",
+      "connection_template": "connection-file:connections/datagen_in.yaml",
+      "group": "sources",
+      "domains": {
+        "D0": "dev"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "collection": "datagen",
+      "functionpath": "functions/caps_datagen.py::datagen_in"
+    },
+    {
+      "collection": "datagen",
+      "functionpath": "functions/caps_datagen.py::datagen_in_none"
+    },
+    {
+      "collection": "datagen",
+      "functionpath": "functions/caps_datagen.py::datagen_in_chunk"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "datagen",
+      "function": "datagen_in",
+      "detached": true
+    },
+    {
+      "collection": "datagen",
+      "function": "datagen_in_chunk",
+      "detached": true
+    }
+  ]
+}

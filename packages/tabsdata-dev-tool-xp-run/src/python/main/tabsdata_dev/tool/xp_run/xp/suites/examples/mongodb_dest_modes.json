@@ -1,0 +1,63 @@
+{
+  "_copyright": "Copyright 2026 Tabsdata Inc.",
+  "_comment": "EXAMPLE · MongoDB destination / write modes — the destination that does not fit the `tables` + `if_table_exists` mould. It writes DOCUMENTS, so it takes collections_with_ids (a list of (collection, id_field) PAIRS, one write slot each; id_field=None lets MongoDB generate _id) and if_collection_exists (\"append\", or \"replace\" which DROPS the collection — indexes and all, not a truncate). Four sinks: write_append (explicit id, so a re-run collides under the default update_existing=False), write_replace (generated ids), write_upsert (update_existing=True turns each write into an upsert on the id field — the only idempotent, merge-like sink in these examples, which no SQL or warehouse destination here can do), write_two_collections (note the id fields differ per entry, which is why the pair carries it). BSON converts Date/Time/Duration on the way in; Decimal round-trips exactly. One function per file under functions/mongodb_dest_modes/. Run: `tdx-xp oneshot --suite examples/mongodb_dest_modes --keep`.",
+  "domains": [
+    {
+      "name": "dev",
+      "system": "dev"
+    },
+    {
+      "name": "mongodb_out",
+      "system": "mongodb"
+    }
+  ],
+  "collections": [
+    {
+      "name": "gen",
+      "type": "datagen_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/datagen_in.yaml",
+      "domains": {
+        "D0": "dev"
+      }
+    },
+    {
+      "name": "documents",
+      "type": "mongodb_out",
+      "group": "destinations",
+      "connection_template": "connection-file:connections/mongodb_out.yaml",
+      "domains": {
+        "D0": "mongodb_out"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "collection": "gen",
+      "functionpath": "functions/mongodb_dest_modes/supporting_generate_customers.py::generate_customers"
+    },
+    {
+      "collection": "documents",
+      "functionpath": "functions/mongodb_dest_modes/write_append.py::write_append"
+    },
+    {
+      "collection": "documents",
+      "functionpath": "functions/mongodb_dest_modes/write_replace.py::write_replace"
+    },
+    {
+      "collection": "documents",
+      "functionpath": "functions/mongodb_dest_modes/write_upsert.py::write_upsert"
+    },
+    {
+      "collection": "documents",
+      "functionpath": "functions/mongodb_dest_modes/write_two_collections.py::write_two_collections"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "gen",
+      "function": "generate_customers",
+      "detached": true
+    }
+  ]
+}

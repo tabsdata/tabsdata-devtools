@@ -1,0 +1,55 @@
+{
+  "_copyright": "Copyright 2026 Tabsdata Inc.",
+  "_comment": "EXAMPLE · DATA QUALITY — declaring checks on a function's output and acting on the verdicts. A check is a DECLARATION on the decorator, on_tables=[DataQuality(table=..., classifiers=[...], operators=[...])], run by the runtime against that OUTPUT table after the function succeeds (and it works the same on @publisher / @transformer / @subscriber). CLASSIFIERS label each row (IsNotNull, IsBetween, IsIn, Matches, HasLength, ... plus categorizers that bucket rather than pass/fail); the verdict is a UInt8, not a bool — 1 true, 0 false, 255 null, 254 NaN — so 'failed' and 'could not be evaluated' stay distinguishable. OPERATORS act on the labels, one per file here: check_enrich (Enrich appends the verdict columns in place, Summary emits the tallies — the non-destructive starting pair), check_quarantine (Filter REMOVES the selected rows, redirecting them to a quarantine table WITH the verdicts that explain them), check_select (Select COPIES them out and leaves the target whole — the operator for an audit table), check_gate (Fail ABORTS the transaction at a RowCountThreshold or PercentThreshold, so nothing downstream sees the bad version; scoped by TAGS so a malformed email does not stop the pipeline while a null amount does — 25% critical failures under a 50% tolerance, so this run passes; lower it to 25 to watch it abort). Any operator that names a table REGISTERS it in the collection, so `rejected`, `clean`, `to_review` and the summaries are real, subscribable tables. Eight seeded orders of known composition (five clean, three with one problem each) feed four pass-through transformers that differ ONLY in their operators. For exhaustive per-classifier/per-operator coverage with authored expectations see suites/dataquality/; this is the tour. One function per file under functions/dataquality_checks/. Run: `tdx-xp oneshot --suite examples/dataquality_checks --keep`.",
+  "domains": [
+    {
+      "name": "dev",
+      "system": "dev"
+    }
+  ],
+  "collections": [
+    {
+      "name": "gen",
+      "type": "datagen_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/datagen_in.yaml",
+      "domains": {
+        "D0": "dev"
+      }
+    },
+    {
+      "name": "checks",
+      "type": "transform",
+      "group": "ops"
+    }
+  ],
+  "functions": [
+    {
+      "collection": "gen",
+      "functionpath": "functions/dataquality_checks/supporting_generate_orders.py::generate_orders"
+    },
+    {
+      "collection": "checks",
+      "functionpath": "functions/dataquality_checks/check_enrich.py::check_enrich"
+    },
+    {
+      "collection": "checks",
+      "functionpath": "functions/dataquality_checks/check_quarantine.py::check_quarantine"
+    },
+    {
+      "collection": "checks",
+      "functionpath": "functions/dataquality_checks/check_select.py::check_select"
+    },
+    {
+      "collection": "checks",
+      "functionpath": "functions/dataquality_checks/check_gate.py::check_gate"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "gen",
+      "function": "generate_orders",
+      "detached": true
+    }
+  ]
+}

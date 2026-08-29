@@ -1,0 +1,66 @@
+{
+  "_copyright": "Copyright 2026 Tabsdata Inc.",
+  "_comment": "EXAMPLE · StarRocks destination / write modes — the destination that CANNOT CREATE ITS TARGET. The connector only issues TRUNCATE (replace) plus INSERT INTO <t> (<cols>) SELECT * FROM FILES(...), so the targets must already exist and the frames must match their DDL: this suite writes world-shaped rows into the `city` and `country` tables the world model seeded in the backing domain. The Primary Key model then decides which mode goes where — city.id is AUTO_INCREMENT and the frame omits it, so append gets FRESH keys and the count GROWS; country's key is `code`, so appending the same codes would upsert in place, which is why replace targets that one (and truncates the 239 seeded countries away). write_nothing shows a returned None staging nothing and NOT truncating. schema_evolution=\"iceberg\" is deliberately NOT exercised: the INSERT ... SELECT FROM FILES path does not pre-ALTER the target, so a widened frame fails on column count rather than evolving. Staging is via S3 here; the _gcs and _az templates are the same connector with a different staging store. One function per file under functions/starrocks_dest_modes/. Run: `tdx-xp oneshot --suite examples/starrocks_dest_modes --keep`.",
+  "domains": [
+    {
+      "name": "dev",
+      "system": "dev"
+    },
+    {
+      "name": "starrocks_world_xs",
+      "system": "starrocks",
+      "model": "world",
+      "data": "xs"
+    },
+    {
+      "name": "stage_store",
+      "system": "s3"
+    }
+  ],
+  "collections": [
+    {
+      "name": "gen",
+      "type": "datagen_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/datagen_in.yaml",
+      "domains": {
+        "D0": "dev"
+      }
+    },
+    {
+      "name": "warehouse",
+      "type": "starrocks_bulk_out_s3",
+      "group": "destinations",
+      "connection_template": "connection-file:connections/starrocks_bulk_out_s3.yaml",
+      "domains": {
+        "D0": "starrocks_world_xs",
+        "D1": "stage_store"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "collection": "gen",
+      "functionpath": "functions/starrocks_dest_modes/supporting_generate_world_rows.py::generate_world_rows"
+    },
+    {
+      "collection": "warehouse",
+      "functionpath": "functions/starrocks_dest_modes/write_append.py::write_append"
+    },
+    {
+      "collection": "warehouse",
+      "functionpath": "functions/starrocks_dest_modes/write_replace.py::write_replace"
+    },
+    {
+      "collection": "warehouse",
+      "functionpath": "functions/starrocks_dest_modes/write_nothing.py::write_nothing"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "gen",
+      "function": "generate_world_rows",
+      "detached": true
+    }
+  ]
+}

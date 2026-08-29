@@ -1,0 +1,69 @@
+{
+  "_copyright": "Copyright 2026 Tabsdata Inc.",
+  "_comment": "EXAMPLE · MySQL CDC (@stream_publisher) — the configuration choices that decide what a change stream hands you. Registering a stream publisher STARTS it, so there are NO TRIGGERS and none are needed; there is no ctx; and there is one ARRAY slot per tracked table, folded with concat. THE CURSOR is this connector's server_id. THE ROW SHAPE comes from columns_format and flatten_columns together — metadata always under @td.cdc.meta.* (op i/u/d, tx, sq, ts, ord, sch) and the values as inlined columns, @td.cdc.data.col.new/old.<field>, @td.cdc.data.row.* structs or @td.cdc.data.map.* maps; use columns+flattened for tables you query, struct/map when the tracked schema may change mid-stream. start_from picks where to begin (tail / head / an exact position). src_cfg buffer/trigger/poll thresholds decide WHEN a batch closes. Four stream publishers, one collection each, over a mysqlcdc domain seeded with the employees model. Drive it with `tdx-domain modify-data --entity employees --ops Mix --sets 5` (--ops takes ONE of Insert/Update/Delete/Mix, not a list). One function per file under functions/mysqlcdc_stream/. Run: `tdx-xp oneshot --suite examples/mysqlcdc_stream --keep`.",
+  "domains": [
+    {
+      "name": "mysqlcdc_employees_xs",
+      "system": "mysqlcdc",
+      "model": "employees",
+      "data": "xs"
+    }
+  ],
+  "collections": [
+    {
+      "name": "cdc_tabular",
+      "type": "mysql_cdc",
+      "group": "sources",
+      "connection_template": "connection-file:connections/mysql_cdc_612.yaml",
+      "domains": {
+        "D0": "mysqlcdc_employees_xs"
+      }
+    },
+    {
+      "name": "cdc_struct",
+      "type": "mysql_cdc",
+      "group": "sources",
+      "connection_template": "connection-file:connections/mysql_cdc_613.yaml",
+      "domains": {
+        "D0": "mysqlcdc_employees_xs"
+      }
+    },
+    {
+      "name": "cdc_map",
+      "type": "mysql_cdc",
+      "group": "sources",
+      "connection_template": "connection-file:connections/mysql_cdc_614.yaml",
+      "domains": {
+        "D0": "mysqlcdc_employees_xs"
+      }
+    },
+    {
+      "name": "cdc_replay",
+      "type": "mysql_cdc",
+      "group": "sources",
+      "connection_template": "connection-file:connections/mysql_cdc_615.yaml",
+      "domains": {
+        "D0": "mysqlcdc_employees_xs"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "collection": "cdc_tabular",
+      "functionpath": "functions/mysqlcdc_stream/stream_tabular.py::stream_tabular"
+    },
+    {
+      "collection": "cdc_struct",
+      "functionpath": "functions/mysqlcdc_stream/stream_struct.py::stream_struct"
+    },
+    {
+      "collection": "cdc_map",
+      "functionpath": "functions/mysqlcdc_stream/stream_map.py::stream_map"
+    },
+    {
+      "collection": "cdc_replay",
+      "functionpath": "functions/mysqlcdc_stream/stream_replay.py::stream_replay"
+    }
+  ],
+  "triggers": []
+}

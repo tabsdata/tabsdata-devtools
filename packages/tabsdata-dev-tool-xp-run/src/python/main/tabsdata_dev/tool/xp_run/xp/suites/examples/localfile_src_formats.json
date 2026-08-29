@@ -1,0 +1,111 @@
+{
+  "_copyright": "Copyright 2026 Tabsdata Inc.",
+  "_comment": "EXAMPLE · local-file source / formats — the `format` and `format_cfg` fields. read_csv / read_ndjson / read_parquet read the SAME world-model rows three ways and differ in exactly one field, including the case that matters: `.ndjson` is newline-delimited JSON but AUTO cannot infer it, so the format must be NAMED. read_csv_dialect then reads back an intentionally awkward CSV (';' separator, 'NULL' null token, explicit date format) that a supporting subscriber wrote with the mirror-image writer options — format_cfg is side-typed, so a writer key on a source fails validation at decoration time, and a dialect MISMATCH is a silent-wrong-data bug rather than an error. Note the wildcard trap the world model exposes: `country_*` also matches `country_language_*`, so these readers use `city_*`. One function per file under functions/localfile_src_formats/. Run: `tdx-xp oneshot --suite examples/localfile_src_formats`.",
+  "domains": [
+    {
+      "name": "dev",
+      "system": "dev"
+    },
+    {
+      "name": "fs_world_xs",
+      "system": "fs",
+      "model": "world",
+      "data": "xs"
+    },
+    {
+      "name": "fs_files",
+      "system": "fs"
+    }
+  ],
+  "collections": [
+    {
+      "name": "world",
+      "type": "local_file_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/local_file_in.yaml",
+      "domains": {
+        "D0": "fs_world_xs"
+      }
+    },
+    {
+      "name": "gen",
+      "type": "datagen_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/datagen_in.yaml",
+      "domains": {
+        "D0": "dev"
+      }
+    },
+    {
+      "name": "stage",
+      "type": "local_file_out",
+      "group": "destinations",
+      "connection_template": "connection-file:connections/local_file_out.yaml",
+      "domains": {
+        "D0": "fs_files"
+      }
+    },
+    {
+      "name": "custom",
+      "type": "local_file_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/local_file_in.yaml",
+      "domains": {
+        "D0": "fs_files"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "collection": "world",
+      "functionpath": "functions/localfile_src_formats/read_csv.py::read_csv"
+    },
+    {
+      "collection": "world",
+      "functionpath": "functions/localfile_src_formats/read_ndjson.py::read_ndjson"
+    },
+    {
+      "collection": "world",
+      "functionpath": "functions/localfile_src_formats/read_parquet.py::read_parquet"
+    },
+    {
+      "collection": "gen",
+      "functionpath": "functions/localfile_src_formats/supporting_generate_products.py::generate_products"
+    },
+    {
+      "collection": "stage",
+      "functionpath": "functions/localfile_src_formats/supporting_stage_dialect_csv.py::stage_dialect_csv"
+    },
+    {
+      "collection": "custom",
+      "functionpath": "functions/localfile_src_formats/read_csv_dialect.py::read_csv_dialect"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "gen",
+      "function": "generate_products",
+      "detached": false
+    },
+    {
+      "collection": "world",
+      "function": "read_csv",
+      "detached": true
+    },
+    {
+      "collection": "world",
+      "function": "read_ndjson",
+      "detached": true
+    },
+    {
+      "collection": "world",
+      "function": "read_parquet",
+      "detached": true
+    },
+    {
+      "collection": "custom",
+      "function": "read_csv_dialect",
+      "detached": true
+    }
+  ]
+}

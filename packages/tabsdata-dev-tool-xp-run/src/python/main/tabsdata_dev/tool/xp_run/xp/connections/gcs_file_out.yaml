@@ -1,0 +1,26 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: gcs-file-out (dest)
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.gcs:GCSDestConn
+spec:
+
+  bucket: '$secret:D0__BUCKET'
+  credentials:
+    kind: gcpJsonCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.common.types:GCPJson
+    spec:
+      json: '$secret:D0__SERVICE_ACCOUNT_KEY'
+
+  # base path within the bucket (XP data root)
+  base_path: '$secret:D0__SYS_PATH'
+  # project  (optional, default: none) -- no dedicated seeded env; project_id is embedded in GCS__SERVICE_ACCOUNT_KEY
+  # project: '<value> or secret:<value>'
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

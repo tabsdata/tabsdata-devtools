@@ -1,0 +1,45 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: kafka-topic-in (stream-src) — consumer group '<prefix>_dlq'
+# One of three templates that differ ONLY in group_id: every registered stream publisher
+# joins its group_id's consumer group, and a redpanda domain's topics have ONE partition,
+# so two consumers sharing a group would leave one of them idle. Each concurrently-
+# registered kafka collection therefore needs its own group (see suites/connectors/kafka.json).
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+# '${D<n>__<KEY>}' reads the same bag but interpolates the value PLAIN and inline — for a name rather than a credential.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.kafka:KafkaStreamSrcConn
+spec:
+
+  # accepts: <value> | secret:<value>
+  # the redpanda domain's broker list (meta KAFKA_BROKERS, e.g. localhost:19092)
+  #
+  servers: '$secret:D0__KAFKA_BROKERS'
+
+  # accepts: <value> | secret:<value>
+  # A per-collection group, PREFIXED BY THE DOMAIN so it is per-run as well ('${D0__DB}'
+  # is the backing domain's in-system name): the domain also exposes a generated GROUP_ID,
+  # but there is only one of those and each variant needs a distinct group. Offsets are
+  # never committed (the plugin forces enable.auto.commit=False and
+  # auto.offset.reset=earliest), so re-running re-reads the topic from the start.
+  #
+  group_id: '${D0__DB}_dlq'
+  # credentials  (optional, default: none) -- OMITTED: the redpanda domain runs without SASL
+  # credentials:
+  #   kind: userPasswordCredentials
+  #   apiVersion: '1.0'
+  #   type: tabsdatak.conn.common.types:UserPassword
+  #   spec:
+  #     user: 'secret:<value>'
+  #     password: 'secret:<value>'
+  # schema_registry  (optional, default: none) -- the domain publishes a Confluent-
+  # compatible registry at meta SCHEMA_REGISTRY_URL. Left off: registry mode expects the
+  # Confluent wire format (magic byte + schema id) on every message, which `rpk topic
+  # produce` does not write. Fill it in when producing with a registry-aware client.
+  # schema_registry: '<FILL: schema_registry>'
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

@@ -70,24 +70,28 @@ def _run(argv):
     )
 
 
-def test_suite_paths_resolve_to_a_file_or_to_lanes(xp_root):
+def _suites_dir(xp_root):
+    return ["--suites-dir", str(xp_root / "suites")]
+
+
+def test_suite_selectors_resolve_under_a_suites_dir_or_as_paths(xp_root):
     from tabsdata_dev.tool.xp_run import suites
 
     one = xp_root / "suites" / "demo" / "one.json"
-    assert suites.resolve(str(one)) == (one, None)
+    root = xp_root / "suites"
+    assert suites.resolve("demo/one", root) == (one, None)  # a selector under the dir
+    assert suites.resolve("demo/one.json", root) == (one, None)
+    assert suites.resolve(str(one)) == (one, None)  # an explicit path still works
     assert suites.resolve(str(one.with_suffix("")))[0] == one  # .json tolerated
-    path, lanes = suites.resolve(str(xp_root / "suites" / "demo"))
-    assert path == xp_root / "suites" / "demo" and [p.stem for p in lanes] == [
-        "one",
-        "two",
-    ]
+    path, lanes = suites.resolve("demo", root)
+    assert path == root / "demo" and [p.stem for p in lanes] == ["one", "two"]
     assert suites.label(one) == "demo/one" and suites.label(path) == "demo"
     assert (
         suites.token(one) == "demo_one"
         and suites.token(one.with_name("suite.json")) == "demo"
     )
     assert suites.base_dir(one.parent) == xp_root  # the ancestor holding connections/
-    rows = suites.list_suites(xp_root / "suites")
+    rows = suites.list_suites(root)
     assert [r["suite"] for r in rows] == ["demo/one", "demo/two"] and rows[0][
         "triggers"
     ] == 4
@@ -178,9 +182,20 @@ def test_domain_manifest_entries_carry_the_keys_tdd_domain_takes(xp_root):
     assert "model" not in domains.domain_entry(inst, fs, "x")
 
 
-def test_dry_run_oneshot_prints_the_tdd_commands_and_touches_no_server(xp_root, capsys):
-    one = xp_root / "suites" / "demo" / "one.json"
-    rc = _run(["oneshot", "--suite", str(one), "--project", "p", "--dry-run"])
+def test_dry_run_one_shot_prints_the_tdd_commands_and_touches_no_server(
+    xp_root, capsys
+):
+    rc = _run(
+        [
+            "one-shot",
+            "--suite",
+            "demo/one",
+            *_suites_dir(xp_root),
+            "--project",
+            "p",
+            "--dry-run",
+        ]
+    )
     out, err = capsys.readouterr()
     assert rc == 0, err
     lines = [line for line in out.splitlines() if line.startswith("tdd ")]
@@ -212,9 +227,17 @@ def test_dry_run_oneshot_prints_the_tdd_commands_and_touches_no_server(xp_root, 
 
 
 def test_json_stream_carries_steps_and_ends_in_one_ok(xp_root, capsys):
-    one = xp_root / "suites" / "demo" / "one.json"
     rc = _run(
-        ["create-instance", "--suite", str(one), "--instance", "i2", "--format", "json"]
+        [
+            "create-instance",
+            "--suite",
+            "demo/one",
+            *_suites_dir(xp_root),
+            "--instance",
+            "i2",
+            "--format",
+            "json",
+        ]
     )
     assert rc == 0
     rc = _run(["run-project", "--project", "nope", "--dry-run", "--format", "json"])
@@ -229,15 +252,94 @@ def test_json_stream_carries_steps_and_ends_in_one_ok(xp_root, capsys):
 
 
 def test_bench_rejects_a_single_file_and_list_suites_reports(xp_root, capsys):
-    one = xp_root / "suites" / "demo" / "one.json"
-    assert _run(["bench", "--suite", str(one), "--dry-run"]) == 1
-    assert "bench needs a suite DIR" in capsys.readouterr().err
     assert (
-        _run(["list-suites", "--suite", str(xp_root / "suites"), "--format", "json"])
-        == 0
+        _run(["bench", "--suite", "demo/one", *_suites_dir(xp_root), "--dry-run"]) == 1
     )
+    assert "bench needs a suite DIR" in capsys.readouterr().err
+    assert _run(["list-suites", *_suites_dir(xp_root), "--format", "json"]) == 0
     last = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert last["event"] == "ok" and [s["suite"] for s in last["suites"]] == [
         "demo/one",
         "demo/two",
     ]
+    assert last["builtin"] is False
+
+
+def test_the_login_probe_does_not_open_an_unlabelled_reporter(
+    xp_root, monkeypatch, capsys
+):
+    # one-shot checks the session BEFORE it opens its reporter; that probe used to
+    # create a bare reporter named after the tool, and every progress line then
+    # read `xp-run -` instead of the suite, with a bare `done` instead of the
+    # summary at the end.
+    import subprocess
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp_run import shell, state
+
+    state.bind(render.Renderer("xp-run"), type("A", (), {})())
+    # Scoped: an undo() here would also drop the fixture's TDD_DIR and write the
+    # pointers below into the real store.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            subprocess,
+            "run",
+            lambda argv, **kw: subprocess.CompletedProcess(argv, 0, "ok", ""),
+        )
+        shell.require_login()
+    assert state.run.reporter is None
+    assert (
+        _run(
+            [
+                "create-instance",
+                "--suite",
+                "demo/one",
+                *_suites_dir(xp_root),
+                "--instance",
+                "lbl",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert _run(["create-domains", "--instance", "lbl", "--dry-run"]) == 0
+    out, err = capsys.readouterr()
+    assert any(
+        line.startswith("demo/one - [1/2] - create-domain") for line in err.splitlines()
+    )
+    assert out.splitlines()[-1].startswith("demo/one - summary - 2 step(s), all ok")
+
+
+def test_the_built_in_suites_ship_with_the_package_and_export(
+    tmp_path, monkeypatch, capsys
+):
+    from tabsdata_dev.tool.xp_run import suites
+
+    monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
+    root = suites.builtin_root()
+    assert (root / "suites" / "test" / "test.json").is_file() and (
+        root / "connections" / "datagen_in.yaml"
+    ).is_file()
+    path, lanes = suites.resolve("test/test")
+    assert path == root / "suites" / "test" / "test.json" and lanes is None
+    assert suites.resolve("connectors")[1]  # a type dir fans out
+    assert (
+        suites.base_dir(path.parent) == root
+    )  # connection-file: refs resolve against the shipped templates
+    assert _run(["list-suites", "--format", "json"]) == 0
+    last = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert last["builtin"] is True and len(last["suites"]) > 100
+    assert {"test/test", "connectors/localfile"} <= {s["suite"] for s in last["suites"]}
+    out = tmp_path / "xp"
+    assert _run(["export-suites", "--dir", str(out)]) == 0
+    assert (out / "suites" / "test" / "test.json").is_file() and (
+        out / "connections" / "datagen_in.yaml"
+    ).is_file()
+    assert not list(out.rglob("__pycache__"))
+    assert _run(["export-suites", "--dir", str(out)]) == 1
+    assert "--force" in capsys.readouterr().err
+    assert _run(["export-suites", "--dir", str(out), "--force"]) == 0
+    assert (
+        suites.resolve("test/test", out / "suites")[0]
+        == out / "suites" / "test" / "test.json"
+    )

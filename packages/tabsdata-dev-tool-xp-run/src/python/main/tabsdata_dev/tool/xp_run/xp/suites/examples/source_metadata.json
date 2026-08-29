@@ -1,0 +1,78 @@
+{
+  "_copyright": "Copyright 2026 Tabsdata Inc.",
+  "_comment": "EXAMPLE · SOURCE METADATA — what a source records about where each row came from, and how to turn it off. EVERY SOURCE stamps metadata under the reserved @td. prefix by default: file sources @td.file.path (the path or object URI); SQL sources @td.sql.query (the statement text) and @td.sql.initial_values (the binds, as JSON); kafka @td.kafka.topic; salesforce @td.salesforce.soql / .report_id / .last_modified; CDC the @td.cdc.meta.* family. ONE src_cfg KEY turns it off, shared by every source kind: {\"tabsdata.src_metadata.drop\": True} — all-or-nothing per source, so keep them all and project later if you want a subset. WHY IT MATTERS MOST ON A FAN-IN: a wildcard read or a multi-query read folds many origins into one table, and the stamp is the only thing that says which row came from where; on an incremental read @td.sql.initial_values records the WINDOW each batch covered, making a stalled or rewound cursor visible in the data. WHY YOU MIGHT DROP IT: @td.sql.query embeds the statement in every row (width, and a small information disclosure if the table is shared); a single-path read stamps a constant. A reasonable middle path is to keep it at ingest and project it away at the boundary. Four publishers, each pair identical but for the key: read_file_metadata / _dropped over a wildcard on the world-seeded fs domain, read_sql_metadata / _dropped over two postgres queries. One function per file under functions/source_metadata/. Run: `tdx-xp oneshot --suite examples/source_metadata --keep`.",
+  "domains": [
+    {
+      "name": "fs_world_xs",
+      "system": "fs",
+      "model": "world",
+      "data": "xs"
+    },
+    {
+      "name": "postgres_world_xs",
+      "system": "postgres",
+      "model": "world",
+      "data": "xs"
+    }
+  ],
+  "collections": [
+    {
+      "name": "files",
+      "type": "local_file_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/local_file_in.yaml",
+      "domains": {
+        "D0": "fs_world_xs"
+      }
+    },
+    {
+      "name": "db",
+      "type": "postgres_sql_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/postgres_sql_in.yaml",
+      "domains": {
+        "D0": "postgres_world_xs"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "collection": "files",
+      "functionpath": "functions/source_metadata/read_file_metadata.py::read_file_metadata"
+    },
+    {
+      "collection": "files",
+      "functionpath": "functions/source_metadata/read_file_metadata_dropped.py::read_file_metadata_dropped"
+    },
+    {
+      "collection": "db",
+      "functionpath": "functions/source_metadata/read_sql_metadata.py::read_sql_metadata"
+    },
+    {
+      "collection": "db",
+      "functionpath": "functions/source_metadata/read_sql_metadata_dropped.py::read_sql_metadata_dropped"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "files",
+      "function": "read_file_metadata",
+      "detached": true
+    },
+    {
+      "collection": "files",
+      "function": "read_file_metadata_dropped",
+      "detached": true
+    },
+    {
+      "collection": "db",
+      "function": "read_sql_metadata",
+      "detached": true
+    },
+    {
+      "collection": "db",
+      "function": "read_sql_metadata_dropped",
+      "detached": true
+    }
+  ]
+}

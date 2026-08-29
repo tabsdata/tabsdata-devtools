@@ -1,0 +1,26 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: mongodb-out (dest)
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+#
+# NOTE: the uri MUST be credentials-free (mongodb://host:port/...); the mongodb
+# plugin splices user/password in at write time. Use the domain's creds-free
+# `URI` export (NOT `SQLALCHEMY_URI`, which embeds credentials).
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.mongodb:MongoDBDestConn
+spec:
+
+  uri: '$secret:D0__URI'
+  credentials:
+    kind: userPasswordCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.common.types:UserPassword
+    spec:
+      user: '$secret:D0__USER'
+      password: '$secret:D0__PASSWORD'
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

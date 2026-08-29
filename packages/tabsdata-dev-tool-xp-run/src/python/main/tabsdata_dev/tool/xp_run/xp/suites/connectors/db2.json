@@ -1,0 +1,139 @@
+{
+  "_comment": "CAPABILITY suite for the PostgreSQL connector, via `--type connectors/db2.json`. Functions in functions/caps_db2.py. SOURCE (`db2_in`, reads existing db2_world_xs seed): base (3 queries), _inc (watermark paging — re-run to walk 10 rows/trigger), _none (WHERE 1=0), _multiquery (2 queries, transactional=False). DEST (`db2_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate; row count stays) writing to distinct tables cap_append/cap_replace; re-run `suite.py run` to observe append-grows vs replace-stays. PostgreSQL has no schema evolution. Domains: dev (datagen), db2_world_xs (source), db2 (dest). SRC METADATA: db2_meta_keep and db2_meta_drop (db2_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection db2_meta (group ops) asserts that side: db2_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, db2_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing).",
+  "domains": [
+    {
+      "name": "dev",
+      "system": "dev",
+      "model": null,
+      "data": null
+    },
+    {
+      "name": "db2_world_xs",
+      "system": "db2",
+      "model": "world",
+      "data": "xs"
+    },
+    {
+      "name": "db2",
+      "system": "db2",
+      "model": null,
+      "data": null
+    }
+  ],
+  "collections": [
+    {
+      "name": "caps_input",
+      "type": "datagen_in",
+      "connection_template": "connection-file:connections/datagen_in.yaml",
+      "group": "sources",
+      "domains": {
+        "D0": "dev"
+      }
+    },
+    {
+      "name": "db2_in",
+      "type": "db2_sql_in",
+      "connection_template": "connection-file:connections/db2_sql_in.yaml",
+      "group": "sources",
+      "domains": {
+        "D0": "db2_world_xs"
+      }
+    },
+    {
+      "name": "db2_out",
+      "type": "db2_sql_out",
+      "connection_template": "connection-file:connections/db2_sql_out.yaml",
+      "group": "destinations",
+      "domains": {
+        "D0": "db2"
+      }
+    },
+    {
+      "name": "db2_meta",
+      "type": "transform",
+      "group": "ops"
+    }
+  ],
+  "functions": [
+    {
+      "collection": "caps_input",
+      "functionpath": "functions/caps_datagen.py::caps_rows"
+    },
+    {
+      "collection": "db2_in",
+      "functionpath": "functions/caps_db2.py::db2_in"
+    },
+    {
+      "collection": "db2_in",
+      "functionpath": "functions/caps_db2.py::db2_in_inc"
+    },
+    {
+      "collection": "db2_in",
+      "functionpath": "functions/caps_db2.py::db2_in_none"
+    },
+    {
+      "collection": "db2_in",
+      "functionpath": "functions/caps_db2.py::db2_in_multiquery"
+    },
+    {
+      "collection": "db2_out",
+      "functionpath": "functions/caps_db2.py::db2_out_append"
+    },
+    {
+      "collection": "db2_out",
+      "functionpath": "functions/caps_db2.py::db2_out_replace"
+    },
+    {
+      "collection": "db2_out",
+      "functionpath": "functions/caps_db2.py::db2_out_none"
+    },
+    {
+      "collection": "db2_in",
+      "functionpath": "functions/caps_db2.py::db2_meta_keep"
+    },
+    {
+      "collection": "db2_in",
+      "functionpath": "functions/caps_db2.py::db2_meta_drop"
+    },
+    {
+      "collection": "db2_meta",
+      "functionpath": "functions/caps_db2.py::db2_meta_keep_check"
+    },
+    {
+      "collection": "db2_meta",
+      "functionpath": "functions/caps_db2.py::db2_meta_drop_check"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "caps_input",
+      "function": "caps_rows",
+      "detached": true
+    },
+    {
+      "collection": "db2_in",
+      "function": "db2_in",
+      "detached": true
+    },
+    {
+      "collection": "db2_in",
+      "function": "db2_in_inc",
+      "detached": true
+    },
+    {
+      "collection": "db2_in",
+      "function": "db2_in_multiquery",
+      "detached": true
+    },
+    {
+      "collection": "db2_in",
+      "function": "db2_meta_keep",
+      "detached": true
+    },
+    {
+      "collection": "db2_in",
+      "function": "db2_meta_drop",
+      "detached": true
+    }
+  ]
+}

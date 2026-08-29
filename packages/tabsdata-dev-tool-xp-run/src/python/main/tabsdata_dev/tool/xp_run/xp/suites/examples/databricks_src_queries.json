@@ -1,0 +1,72 @@
+{
+  "_copyright": "Copyright 2026 Tabsdata Inc.",
+  "_comment": "EXAMPLE · Databricks source / queries — what a SQL publisher runs. Unlike a file source, a SQL source is SINGLE mode: one frame per query slot, never a list, and query i feeds parameter i and lands in output_tables[i]. Five publishers over a databricks domain seeded with the world model: read_one_query, read_many_queries (three queries in ONE session, so the three tables cannot disagree — the reason to group related reads), read_without_transaction (transactional=False: a connection and an autocommit per query, no cross-query consistency), read_with_type_hints (schema_overrides: one {column: DataType} entry per query, None to leave one inferred), read_no_rows (the slot is None -> publish NO version, versus publishing an empty one). Also note table names are unique per COLLECTION, which is why read_one_query's output is `country_only`. One function per file under functions/databricks_src_queries/. Run: `tdx-xp oneshot --suite examples/databricks_src_queries`.",
+  "domains": [
+    {
+      "name": "databricks_world_xs",
+      "system": "databricks",
+      "model": "world",
+      "data": "xs"
+    }
+  ],
+  "collections": [
+    {
+      "name": "db",
+      "type": "databricks_bulk_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/databricks_bulk_in.yaml",
+      "domains": {
+        "D0": "databricks_world_xs"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "collection": "db",
+      "functionpath": "functions/databricks_src_queries/read_one_query.py::read_one_query"
+    },
+    {
+      "collection": "db",
+      "functionpath": "functions/databricks_src_queries/read_many_queries.py::read_many_queries"
+    },
+    {
+      "collection": "db",
+      "functionpath": "functions/databricks_src_queries/read_without_transaction.py::read_without_transaction"
+    },
+    {
+      "collection": "db",
+      "functionpath": "functions/databricks_src_queries/read_with_type_hints.py::read_with_type_hints"
+    },
+    {
+      "collection": "db",
+      "functionpath": "functions/databricks_src_queries/read_no_rows.py::read_no_rows"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "db",
+      "function": "read_one_query",
+      "detached": true
+    },
+    {
+      "collection": "db",
+      "function": "read_many_queries",
+      "detached": true
+    },
+    {
+      "collection": "db",
+      "function": "read_without_transaction",
+      "detached": true
+    },
+    {
+      "collection": "db",
+      "function": "read_with_type_hints",
+      "detached": true
+    },
+    {
+      "collection": "db",
+      "function": "read_no_rows",
+      "detached": true
+    }
+  ]
+}

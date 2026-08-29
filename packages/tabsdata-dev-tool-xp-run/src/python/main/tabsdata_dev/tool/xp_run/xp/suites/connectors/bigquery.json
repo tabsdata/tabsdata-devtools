@@ -1,0 +1,25 @@
+{
+  "_comment": "CAPABILITY suite for BigQuery bulk dest (full matrix incl. schema evolution `update`), via `--type connectors/bigquery.json`. Functions in functions/caps_bigquery.py; input from dev datagen caps_input. Targets are backtick-quoted (resolve project.dataset.table from the conn). append/replace on cap_append/cap_replace. SCHEMA EVOLUTION two-phase: run caps_evo_v1 -> bigquery_evolve_v1 creates cap_evolve (narrow); THEN trigger caps_evo_v2 -> bigquery_evolve_v2 appends wide with schema_evolution=update (ALLOW_FIELD_ADDITION). caps_evo_v2 not auto-triggered. Domains: dev, bigquery.",
+  "domains": [
+    { "name": "dev", "system": "dev" },
+    { "name": "bigquery", "system": "bigquery" }
+  ],
+  "collections": [
+    { "name": "caps_input", "type": "datagen_in", "connection_template": "connection-file:connections/datagen_in.yaml", "group": "sources", "domains": { "D0": "dev" } },
+    { "name": "bigquery_out", "type": "bigquery_bulk_out", "connection_template": "connection-file:connections/bigquery_bulk_out.yaml", "group": "destinations", "domains": { "D0": "bigquery" } }
+  ],
+  "functions": [
+    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_rows" },
+    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_evo_v1" },
+    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_evo_v2" },
+    { "collection": "bigquery_out", "functionpath": "functions/caps_bigquery.py::bigquery_out_append" },
+    { "collection": "bigquery_out", "functionpath": "functions/caps_bigquery.py::bigquery_out_replace" },
+    { "collection": "bigquery_out", "functionpath": "functions/caps_bigquery.py::bigquery_out_none" },
+    { "collection": "bigquery_out", "functionpath": "functions/caps_bigquery.py::bigquery_evolve_v1" },
+    { "collection": "bigquery_out", "functionpath": "functions/caps_bigquery.py::bigquery_evolve_v2" }
+  ],
+  "triggers": [
+    { "collection": "caps_input", "function": "caps_rows", "detached": true },
+    { "collection": "caps_input", "function": "caps_evo_v1", "detached": true }
+  ]
+}

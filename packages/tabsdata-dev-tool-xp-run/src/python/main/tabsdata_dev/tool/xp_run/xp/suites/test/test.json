@@ -1,0 +1,35 @@
+{
+  "_comment": "Test",
+  "domains": [
+    {
+      "name": "d_dev",
+      "system": "dev",
+      "model": null,
+      "data": null
+    }
+  ],
+  "collections": [
+    {
+      "name": "c_dev",
+      "type": "datagen_in",
+      "connection_template": "connection-file:connections/datagen_in.yaml",
+      "group": "sources",
+      "domains": {
+        "D0": "d_dev"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "collection": "c_dev",
+      "functionpath": "functions/test.py::test_pub"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "c_dev",
+      "function": "test_pub",
+      "detached": true
+    }
+  ]
+}

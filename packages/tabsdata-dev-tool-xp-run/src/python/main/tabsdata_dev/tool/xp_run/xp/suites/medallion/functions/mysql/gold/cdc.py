@@ -1,0 +1,47 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+"""mysql · gold · cdc — Type1 + Type2 CDC entity dimensions.
+
+Part of the mysql medallion pipeline (source MySQL, domain mysql_bronze_xs). Collection mysql_in_gold; tables are referenced cross-collection between layers and bare within a layer."""
+
+
+from __future__ import annotations
+
+from tabsdatak._medallion.gold.dim import build_type1_dim, build_type2_dim
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+
+
+@transformer(
+    input_tables=["mysql_in_silver/cdc_valid_silver@HEAD"],
+    output_tables=["dim_cdc_entity"],
+)
+def tfr_dim_cdc_entity_type1(current: TableFrameSpec) -> TableFrameSpec:
+    return build_type1_dim(current)
+
+
+@transformer(
+    input_tables=[
+        "dim_cdc_entity_history@HEAD",
+        "mysql_in_silver/cdc_expired_silver@NEW",
+        "mysql_in_silver/cdc_valid_silver@HEAD",
+    ],
+    output_tables=["dim_cdc_entity_history"],
+)
+def tfr_dim_cdc_entity_history_type2(
+    history: TableFrameSpec,
+    expired_new: TableFramesSpec,
+    valid: TableFrameSpec,
+) -> TableFrameSpec:
+    if valid is None:
+        return None
+    return build_type2_dim(history, expired_new, valid)
+
+
+@transformer(
+    input_tables=["mysql_in_silver/cdc_current_silver@HEAD"],
+    output_tables=["dim_cdc_entity_ref"],
+)
+def tfr_dim_cdc_entity_ref_type1(current: TableFrameSpec) -> TableFrameSpec:
+    return build_type1_dim(current)

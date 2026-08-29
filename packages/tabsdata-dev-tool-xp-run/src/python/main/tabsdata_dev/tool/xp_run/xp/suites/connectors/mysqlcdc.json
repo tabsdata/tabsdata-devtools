@@ -1,0 +1,19 @@
+{
+  "_comment": "CAPABILITY suite for the MySQL CDC stream source, via `--type connectors/mysqlcdc.json`. Functions in functions/caps_mysqlcdc.py. Four @stream_publisher variants over the binlog of the seeded mysqlcdc_employees_xs domain, each tracking the employees model's two MUTABLE tables (employees: insert/update/delete, departments: update) -> 2 slots, 2 output tables (emp_changes / dept_changes) per collection: base (tail + flattened tabular rows), _head (start_from=head, replays the retained binlog so the create-data seed arrives as inserts), _struct (columns_format=struct, flatten_columns=False), _map (columns_format=map, new values still inlined). ONE COLLECTION PER VARIANT, each with its OWN connection template, because server_id lives on the CONNECTION and MySQL admits a single replica per server id: mysql_cdc.yaml=512, _513, _514, _515. Sharing one connection makes every stream but the last die with `(1236, A replica with the same server_uuid/server_id ... has connected to the source)`. Note server ids are per MySQL SERVER, not per database, so any other mysql-cdc collection on this container needs an id outside 512-515. NO TRIGGERS, and none are needed: REGISTERING a stream publisher STARTS it — the worker comes up seconds after `create-project` and runs until you `tdk fn disable`/`fn delete` it (a stream worker has no execution plan or transaction; find it with `tdk worker list`). To exercise: (1) `tdx-xp oneshot --suite connectors/mysqlcdc --keep` (or create-project), (2) generate changes with `tdx-domain modify-data --domain <instance>_mysqlcdc_employees_xs --ops Mix --sets 5` (Insert|Update|Delete|Mix), (3) watch batches land with `tdk trx list --proj <P> --monitor` and the workers with `tdk worker list`. `oneshot` WITHOUT --keep tears the project down again, which also stops the streams.",
+  "domains": [
+    { "name": "mysqlcdc_employees_xs", "system": "mysqlcdc", "model": "employees", "data": "xs" }
+  ],
+  "collections": [
+    { "name": "mysqlcdc_in", "type": "mysql_cdc", "connection_template": "connection-file:connections/mysql_cdc.yaml", "group": "sources", "domains": { "D0": "mysqlcdc_employees_xs" } },
+    { "name": "mysqlcdc_head", "type": "mysql_cdc", "connection_template": "connection-file:connections/mysql_cdc_513.yaml", "group": "sources", "domains": { "D0": "mysqlcdc_employees_xs" } },
+    { "name": "mysqlcdc_struct", "type": "mysql_cdc", "connection_template": "connection-file:connections/mysql_cdc_514.yaml", "group": "sources", "domains": { "D0": "mysqlcdc_employees_xs" } },
+    { "name": "mysqlcdc_map", "type": "mysql_cdc", "connection_template": "connection-file:connections/mysql_cdc_515.yaml", "group": "sources", "domains": { "D0": "mysqlcdc_employees_xs" } }
+  ],
+  "functions": [
+    { "collection": "mysqlcdc_in", "functionpath": "functions/caps_mysqlcdc.py::mysqlcdc_in" },
+    { "collection": "mysqlcdc_head", "functionpath": "functions/caps_mysqlcdc.py::mysqlcdc_in_head" },
+    { "collection": "mysqlcdc_struct", "functionpath": "functions/caps_mysqlcdc.py::mysqlcdc_in_struct" },
+    { "collection": "mysqlcdc_map", "functionpath": "functions/caps_mysqlcdc.py::mysqlcdc_in_map" }
+  ],
+  "triggers": []
+}

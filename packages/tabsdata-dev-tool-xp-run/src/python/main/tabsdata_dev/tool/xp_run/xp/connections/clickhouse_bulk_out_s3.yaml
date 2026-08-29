@@ -1,0 +1,47 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: clickhouse-bulk-out (dest) -- S3 staging variant
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+#
+# NOTE: host / user / password have no seeded CLICKHOUSE__ env vars -- fill them in manually.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.clickhouse:ClickHouseDestConn
+spec:
+
+  host: '$secret:D0__HOST'
+  port: '$secret:D0__PORT'
+  credentials:
+    kind: userPasswordCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.common.types:UserPassword
+    spec:
+      user: '$secret:D0__USER'
+      password: '$secret:D0__PASSWORD'
+  staging:
+    kind: clickHouseS3Location
+    apiVersion: '1.0'
+    type: tabsdatak.conn.clickhouse:S3Location
+    spec:
+      bucket: '$secret:D1__BUCKET'
+      region: '$secret:D1__REGION'
+      credentials:
+        kind: awsAccessSecretKeyCredentials
+        apiVersion: '1.0'
+        type: tabsdatak.conn.common.types:AwsAccessSecretKey
+        spec:
+          access_key_id: '$secret:D1__ACCESS_KEY'
+          secret_access_key: '$secret:D1__SECRET_KEY'
+      base_path: '$secret:D1__SYS_PATH'
+      # cfg  (optional, default: none) -- a dict (str-keyed)
+      # cfg: {}
+
+  database: '$secret:D0__DATABASE'
+  secure: 'false'
+  # entity_whitelist  (optional, default: none) -- a list
+  # entity_whitelist: []
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

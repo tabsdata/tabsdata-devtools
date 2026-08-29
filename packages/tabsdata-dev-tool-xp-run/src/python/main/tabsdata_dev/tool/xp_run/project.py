@@ -32,30 +32,34 @@ def trx_status(s: str) -> str:
 
 # ------------------------------------------------------------ instances ----
 def cmd_list_suites(args) -> tuple[str, dict]:
-    root = (
-        pathlib.Path(
-            getattr(args, "suite", None)
-            or (pathlib.Path("suites") if pathlib.Path("suites").is_dir() else ".")
-        )
-        .expanduser()
-        .resolve()
-    )
-    if not root.is_dir():
-        state.die(f"not a directory: {root}")
+    override = getattr(args, "suites_dir", None)
+    root = suites.suites_dir(override)
     rows = suites.list_suites(root)
+    where = "built-in" if not override else str(root)
     if not rows:
         return f"no suites under {root}", {"root": str(root), "suites": []}
     width = max(len(r["suite"]) for r in rows)
     lines = [
-        f"  {r['suite']:<{width}}  domains={r['domains']:<3} collections={r['collections']:<3} functions={r['functions']:<3} triggers={r['triggers']}"
+        f"  {r['suite']:<{width}}  domains={r['domains']:<3} collections={r['collections']:<3} "
+        f"functions={r['functions']:<3} triggers={r['triggers']}"
         for r in rows
     ]
     text = (
-        f"{len(rows)} suite(s) under {root}\n"
+        f"{len(rows)} suite(s), {where} ({root})\n"
         + "\n".join(lines)
-        + "\n  --suite <dir>/<name>.json = one descriptor; --suite <dir> = every *.json in it, one instance/project per file"
+        + "\n  --suite <type>/<name> = one descriptor; --suite <type> = every *.json in it, "
+        "one instance/project per file"
     )
-    return text, {"root": str(root), "suites": rows}
+    return text, {"root": str(root), "builtin": not override, "suites": rows}
+
+
+def cmd_export_suites(args) -> tuple[str, dict]:
+    out = suites.export(pathlib.Path(args.dir), bool(getattr(args, "force", False)))
+    return (
+        f"exported the built-in suites to {out['dir']}: suites/ ({out['suites']} files), "
+        f"connections/ ({out['connections']} files); use them with --suites-dir {out['dir']}/suites",
+        out,
+    )
 
 
 def cmd_list_instances(args) -> tuple[str, dict]:
@@ -127,7 +131,9 @@ def _group_instance_members(base: str, files: list[pathlib.Path]) -> list[str]:
 
 
 def cmd_create_instance(args) -> tuple[str, dict]:
-    path, files = suites.resolve(args.suite)
+    path, files = suites.resolve(
+        args.suite, suites.suites_dir(getattr(args, "suites_dir", None))
+    )
     if files is not None:
         say(
             f"create-instance group '{args.instance}' from suite dir {path} ({len(files)} lanes)"

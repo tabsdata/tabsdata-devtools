@@ -6,7 +6,7 @@ lane"), each a normal single-lane `xp-run` child invoked with --format json so
 its event stream is aggregated live under a running total across all lanes.
 
 Failure policy: with --fail-fast the first lane to fail kills the others and
-the run stops. Without it every lane is attempted; a multi-phase run (oneshot
+the run stops. Without it every lane is attempted; a multi-phase run (one-shot
 over a dir) records the lanes that died against the phase and drops them from
 the later phases, reporting them once at the end.
 """

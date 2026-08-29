@@ -1,0 +1,72 @@
+{
+  "_copyright": "Copyright 2026 Tabsdata Inc.",
+  "_comment": "EXAMPLE · Salesforce SOQL source. SalesforceSrc.queries is a list that today takes EXACTLY ONE entry, so 'several objects' means several publishers: read_accounts and read_opportunities are one per object, independently triggered and independently failing — and, unlike a multi-query SQL source, they do NOT share a consistent snapshot, so join defensively downstream. There is no SELECT * in SOQL, which is why every query lists its fields. `$lastModified` in the SOQL is substituted with initial_last_modified (a query using the token with no cutoff is rejected before it runs) but the cutoff DOES NOT ADVANCE between runs — unlike a file source, which advances it for you, or a SQL source, where ctx does. So it is a static FLOOR (read_recent_accounts), and read_new_opportunities shows the two-layer incremental pattern that follows: a cheap floor in the SOQL plus a ctx-held watermark filtering the batch to what is new (ISO-8601 sorts lexicographically, so a string compare is a time compare). read_with_deleted covers include_deleted — queryAll, the only way a mirror learns about deletions, since an ordinary read just stops returning the row — plus api_version and src_cfg (logging_level is a NUMERIC level; the string \"INFO\" fails inside the plugin at run time). DESTRUCTIVE SETUP: create-data on a salesforce domain WIPES every Account and Opportunity in the org before bulk-loading the model — point it at a scratch org. One function per file under functions/salesforce_soql/. Run: `tdx-xp oneshot --suite examples/salesforce_soql`.",
+  "domains": [
+    {
+      "name": "sf",
+      "system": "salesforce",
+      "model": "salesforce",
+      "data": "xs"
+    }
+  ],
+  "collections": [
+    {
+      "name": "crm",
+      "type": "salesforce_soql_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/salesforce_soql_in.yaml",
+      "domains": {
+        "D0": "sf"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "collection": "crm",
+      "functionpath": "functions/salesforce_soql/read_accounts.py::read_accounts"
+    },
+    {
+      "collection": "crm",
+      "functionpath": "functions/salesforce_soql/read_opportunities.py::read_opportunities"
+    },
+    {
+      "collection": "crm",
+      "functionpath": "functions/salesforce_soql/read_recent_accounts.py::read_recent_accounts"
+    },
+    {
+      "collection": "crm",
+      "functionpath": "functions/salesforce_soql/read_new_opportunities.py::read_new_opportunities"
+    },
+    {
+      "collection": "crm",
+      "functionpath": "functions/salesforce_soql/read_with_deleted.py::read_with_deleted"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "crm",
+      "function": "read_accounts",
+      "detached": true
+    },
+    {
+      "collection": "crm",
+      "function": "read_opportunities",
+      "detached": true
+    },
+    {
+      "collection": "crm",
+      "function": "read_recent_accounts",
+      "detached": true
+    },
+    {
+      "collection": "crm",
+      "function": "read_new_opportunities",
+      "detached": true
+    },
+    {
+      "collection": "crm",
+      "function": "read_with_deleted",
+      "detached": true
+    }
+  ]
+}

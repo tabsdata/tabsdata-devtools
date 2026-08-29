@@ -1,0 +1,20 @@
+{
+  "_comment": "CAPABILITY suite for Snowflake bulk dest (create/append/replace; no schema evolution), via `--type connectors/snowflake.json`. Functions in functions/caps_snowflake.py; input from dev datagen caps_input/cap_rows. append->cap_append (grows on re-run), replace->cap_replace (stays 3). Domains: dev (datagen), snowflake (dest).",
+  "domains": [
+    { "name": "dev", "system": "dev" },
+    { "name": "snowflake", "system": "snowflake" }
+  ],
+  "collections": [
+    { "name": "caps_input", "type": "datagen_in", "connection_template": "connection-file:connections/datagen_in.yaml", "group": "sources", "domains": { "D0": "dev" } },
+    { "name": "snowflake_out", "type": "snowflake_bulk_out", "connection_template": "connection-file:connections/snowflake_bulk_out.yaml", "group": "destinations", "domains": { "D0": "snowflake" } }
+  ],
+  "functions": [
+    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_rows" },
+    { "collection": "snowflake_out", "functionpath": "functions/caps_snowflake.py::snowflake_out_append" },
+    { "collection": "snowflake_out", "functionpath": "functions/caps_snowflake.py::snowflake_out_replace" },
+    { "collection": "snowflake_out", "functionpath": "functions/caps_snowflake.py::snowflake_out_none" }
+  ],
+  "triggers": [
+    { "collection": "caps_input", "function": "caps_rows", "detached": true }
+  ]
+}

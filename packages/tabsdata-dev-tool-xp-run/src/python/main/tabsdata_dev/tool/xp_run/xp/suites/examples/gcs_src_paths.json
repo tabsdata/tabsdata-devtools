@@ -1,0 +1,100 @@
+{
+  "_copyright": "Copyright 2026 Tabsdata Inc.",
+  "_comment": "EXAMPLE · GCS source / path selection — the four ways a file publisher selects what it reads: one fixed path, one wildcard path, several paths folded into ONE table, and the same several paths kept as SEPARATE tables. Every file-source slot is an ARRAY (one frame per matched file), so every reader folds with concat(). SELF-STAGING, one run, two phases: the supporting_* functions generate three frames and write them as customers_2024.csv / customers_2025.csv / orders.parquet, then the readers read them back from the same domain. Ordering is the trigger list — generate_rows is declared `detached: false`, which makes it a GATE whose whole plan (publisher + both writers) completes before the readers fire. One function per file under functions/gcs_src_paths/. Run: `tdx-xp oneshot --suite examples/gcs_src_paths`.",
+  "domains": [
+    {
+      "name": "dev",
+      "system": "dev"
+    },
+    {
+      "name": "gcs_files",
+      "system": "gcs"
+    }
+  ],
+  "collections": [
+    {
+      "name": "gen",
+      "type": "datagen_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/datagen_in.yaml",
+      "domains": {
+        "D0": "dev"
+      }
+    },
+    {
+      "name": "stage",
+      "type": "gcs_file_out",
+      "group": "destinations",
+      "connection_template": "connection-file:connections/gcs_file_out.yaml",
+      "domains": {
+        "D0": "gcs_files"
+      }
+    },
+    {
+      "name": "files",
+      "type": "gcs_file_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/gcs_file_in.yaml",
+      "domains": {
+        "D0": "gcs_files"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "collection": "gen",
+      "functionpath": "functions/gcs_src_paths/supporting_generate_rows.py::generate_rows"
+    },
+    {
+      "collection": "stage",
+      "functionpath": "functions/gcs_src_paths/supporting_stage_csv_files.py::stage_csv_files"
+    },
+    {
+      "collection": "stage",
+      "functionpath": "functions/gcs_src_paths/supporting_stage_parquet_file.py::stage_parquet_file"
+    },
+    {
+      "collection": "files",
+      "functionpath": "functions/gcs_src_paths/read_fixed_path.py::read_fixed_path"
+    },
+    {
+      "collection": "files",
+      "functionpath": "functions/gcs_src_paths/read_wildcard.py::read_wildcard"
+    },
+    {
+      "collection": "files",
+      "functionpath": "functions/gcs_src_paths/read_multiple_paths.py::read_multiple_paths"
+    },
+    {
+      "collection": "files",
+      "functionpath": "functions/gcs_src_paths/read_multiple_paths_split.py::read_multiple_paths_split"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "gen",
+      "function": "generate_rows",
+      "detached": false
+    },
+    {
+      "collection": "files",
+      "function": "read_fixed_path",
+      "detached": true
+    },
+    {
+      "collection": "files",
+      "function": "read_wildcard",
+      "detached": true
+    },
+    {
+      "collection": "files",
+      "function": "read_multiple_paths",
+      "detached": true
+    },
+    {
+      "collection": "files",
+      "function": "read_multiple_paths_split",
+      "detached": true
+    }
+  ]
+}

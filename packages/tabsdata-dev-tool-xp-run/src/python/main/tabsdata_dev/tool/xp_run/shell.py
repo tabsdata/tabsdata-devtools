@@ -23,7 +23,6 @@ import sys
 from tabsdata_dev.common.core import proc
 
 from . import state
-from .reporter import rep
 
 # Boilerplate that carries no diagnosis: pydantic closes every validation error
 # with a docs URL, so it would otherwise always win as the "last" stderr line.
@@ -74,10 +73,14 @@ def run_cmd(
         errors="replace",
         env=env,
     )
-    rep().log(
-        f"$ {shell_line(argv)} -> exit {r.returncode}",
-        (r.stdout or "") + (r.stderr or ""),
-    )
+    # Only into an open run: a check made before the reporter opens (the login
+    # probe) must not conjure a bare, unlabelled one that the real run would
+    # then inherit -- every line would read `xp-run -` instead of the suite.
+    if state.run.reporter is not None:
+        state.run.reporter.log(
+            f"$ {shell_line(argv)} -> exit {r.returncode}",
+            (r.stdout or "") + (r.stderr or ""),
+        )
     if check and r.returncode != 0:
         state.die(f"command failed: {shell_line(argv)}\n       {err_detail(r)}")
     return r

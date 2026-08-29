@@ -1,0 +1,26 @@
+{
+  "_comment": "SHOWCASE suite 'employees' — HR analytics over the employees sample. INGEST: employees_src reads emp_departments/emp_employees/emp_dept_emp/emp_salaries parquet from a local-file source (domain emp_fs, system fs seeded with model=employees; ARRAY mode -> slot[0]). MARTS: employees_marts is a connection-less @transformer collection (group 'marts') building dept_roster and high_earners via the Tabsdata TableFrame API (join/filter/select/sort — row-preserving; no polars). SERVE: employees_out writes each mart to a local parquet file (domain out, system fs). Only the publisher is triggered; the rest cascade by @NEW. WAREHOUSE SINK: employees_bigquery mirrors the same two marts into BigQuery (BigQueryDest, domain bq, staged via GCS; target names backtick-quoted), alongside the local-file sink. Functions in functions/employees.py.",
+  "domains": [
+    { "name": "emp_fs", "system": "fs", "model": "employees", "data": "xs" },
+    { "name": "out", "system": "fs" },
+    { "name": "bq", "system": "bigquery" }
+  ],
+  "collections": [
+    { "name": "employees_src", "type": "local_file_in", "connection_template": "connection-file:connections/local_file_in.yaml", "group": "sources", "domains": { "D0": "emp_fs" } },
+    { "name": "employees_marts", "type": "transform", "group": "marts" },
+    { "name": "employees_out", "type": "local_file_out", "connection_template": "connection-file:connections/local_file_out.yaml", "group": "destinations", "domains": { "D0": "out" } },
+    { "name": "employees_bigquery", "type": "bigquery_bulk_out", "connection_template": "connection-file:connections/bigquery_bulk_out.yaml", "group": "destinations", "domains": { "D0": "bq" } }
+  ],
+  "functions": [
+    { "collection": "employees_src", "functionpath": "functions/employees.py::pub_employees" },
+    { "collection": "employees_marts", "functionpath": "functions/employees.py::tfr_dept_roster" },
+    { "collection": "employees_marts", "functionpath": "functions/employees.py::tfr_high_earners" },
+    { "collection": "employees_out", "functionpath": "functions/employees.py::sink_dept_roster" },
+    { "collection": "employees_out", "functionpath": "functions/employees.py::sink_high_earners" },
+    { "collection": "employees_bigquery", "functionpath": "functions/employees.py::bq_dept_roster" },
+    { "collection": "employees_bigquery", "functionpath": "functions/employees.py::bq_high_earners" }
+  ],
+  "triggers": [
+    { "collection": "employees_src", "function": "pub_employees", "detached": true }
+  ]
+}

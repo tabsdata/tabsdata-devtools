@@ -6,8 +6,11 @@
 
 A SUITE is a JSON definition -- domains, collections, functions, triggers --
 living in a dir with its ``functions/``; ``connections/`` templates sit at the
-XP root above. ``--suite PATH`` names a definition file (one lane) or a suite
-DIRECTORY (one lane per definition in it, run in parallel). An INSTANCE is a
+XP root above. The suites ship inside this package and are the default;
+``--suites-dir DIR`` looks them up elsewhere (``export-suites --dir DIR`` copies
+the built-in ones out). ``--suite <type>/<name>`` names one definition (one
+lane), ``--suite <type>`` a suite DIRECTORY (one lane per definition in it, run
+in parallel). An INSTANCE is a
 named use of a suite (its domains are prefixed with the instance name); a
 PROJECT is created on the server from an instance. Pointers live under
 ``<tdd_dir>/data/xp-run``; each run's manifests, logs and report land in one
@@ -17,9 +20,10 @@ tdk runs inside the managed venv `tdd venv` activated (``tdd tdk``, so
 ``TDD_VENV`` must be set); domains are provisioned by ``tdd domain`` off a
 manifest this tool writes.
 
-    tdd xp-run list-suites [--suite DIR]
+    tdd xp-run list-suites [--suites-dir DIR]
+    tdd xp-run export-suites --dir DIR [--force]
     tdd xp-run list-instances | list-projects
-    tdd xp-run create-instance  --suite PATH --instance I
+    tdd xp-run create-instance  --suite SEL --instance I [--suites-dir DIR]
     tdd xp-run create-domains   --instance I [--secret-env VAR] [--latch F] [--report F] [--dry-run]
     tdd xp-run destroy-domains  --instance I [--force] ...
     tdd xp-run create-project   --instance I --project P ...
@@ -27,8 +31,8 @@ manifest this tool writes.
     tdd xp-run destroy-instance --instance I
     tdd xp-run run-project      --project P [--monitor] ...
     tdd xp-run monitor-project  --project P ...
-    tdd xp-run oneshot          --suite PATH [--project P] [--keep] [--fail-fast] ...
-    tdd xp-run bench            --suite DIR [--name N] [--keep] [--fail-fast] ...
+    tdd xp-run one-shot         --suite SEL [--project P] [--keep] [--fail-fast] [--suites-dir DIR] ...
+    tdd xp-run bench            --suite TYPE [--name N] [--keep] [--fail-fast] [--suites-dir DIR] ...
 """
 
 from __future__ import annotations
@@ -46,7 +50,10 @@ from .reporter import render_summary
 
 NAME = state.TOOL
 DESCRIPTION = "run tabsdata example suites: instances, domains, projects, triggers, one-shot and bench"
-SUITE_HELP = "a suite definition file (.../<type>/<name>.json) or a suite DIRECTORY, which fans out to one instance/project per *.json in it"
+SUITE_HELP = (
+    "<type>/<name> (one definition) or <type> (a suite dir: one instance/project per *.json "
+    "in it), under the built-in suites or --suites-dir; a path works too"
+)
 
 
 # --------------------------------------------------------------- parser ----
@@ -121,23 +128,45 @@ def _dry_run(c):
 
 
 def _suite(c, help_: str):
-    c.add_argument("--suite", required=True, metavar="PATH", help=help_)
+    c.add_argument("--suite", required=True, metavar="SELECTOR", help=help_)
+    _suites_dir(c)
+
+
+def _suites_dir(c):
+    c.add_argument(
+        "--suites-dir",
+        metavar="DIR",
+        default=None,
+        help="look --suite up under DIR instead of the built-in suites (export-suites writes a copy)",
+    )
 
 
 def configure(p: argparse.ArgumentParser) -> None:
     sub = p.add_subparsers(dest="cmd", required=True, metavar="<command>")
 
     c = sub.add_parser(
-        "list-suites", help="list the suite definitions under a directory"
+        "list-suites",
+        help="list the suite definitions (built-in, or under --suites-dir)",
     )
-    c.add_argument(
-        "--suite",
-        metavar="DIR",
-        default=None,
-        help="directory to scan recursively (default: ./suites if present, else .)",
-    )
+    _suites_dir(c)
     _common(c)
     c.set_defaults(func=project.cmd_list_suites)
+
+    c = sub.add_parser(
+        "export-suites",
+        help="copy the built-in suites/ and connections/ into a directory",
+    )
+    c.add_argument(
+        "--dir",
+        required=True,
+        metavar="DIR",
+        help="destination; gets DIR/suites and DIR/connections",
+    )
+    c.add_argument(
+        "-f", "--force", action="store_true", help="overwrite an existing copy"
+    )
+    _common(c)
+    c.set_defaults(func=project.cmd_export_suites)
 
     c = sub.add_parser(
         "list-instances", help="list the instances recorded in the pointer store"
@@ -221,7 +250,7 @@ def configure(p: argparse.ArgumentParser) -> None:
     c.set_defaults(func=project.cmd_monitor_project)
 
     c = sub.add_parser(
-        "oneshot",
+        "one-shot",
         help="create-instance + domains + project + run --monitor, then tear down (--keep preserves)",
     )
     _suite(c, SUITE_HELP)
@@ -237,7 +266,7 @@ def configure(p: argparse.ArgumentParser) -> None:
     )
     for add in (_fail_fast, _secret_env, _latch, _report, _dry_run, _common):
         add(c)
-    c.set_defaults(func=cycle.cmd_oneshot)
+    c.set_defaults(func=cycle.cmd_one_shot)
 
     c = sub.add_parser(
         "bench",
@@ -245,7 +274,7 @@ def configure(p: argparse.ArgumentParser) -> None:
     )
     _suite(
         c,
-        "a suite DIRECTORY (each *.json in it is a swim lane); a single file is rejected -- use oneshot",
+        "a suite dir <type> (each *.json in it is a swim lane); a single definition is rejected -- use one-shot",
     )
     c.add_argument(
         "--name",

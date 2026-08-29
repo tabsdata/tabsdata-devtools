@@ -1,0 +1,32 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: snowflake-bulk-out (dest)
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.snowflake:SnowflakeDestConn
+spec:
+
+  account: '$secret:D0__ACCOUNT'
+  credentials:
+    kind: userPasswordCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.common.types:UserPassword
+    spec:
+      user: '$secret:D0__USERNAME'
+      # UserPassword accepts a password or a PAT; the seeded secret is a PAT
+      password: '$secret:D0__PAT'
+  # role  (optional, default: none) -- no matching seeded env var
+  # role: '<value> or secret:<value>'
+  database: '$secret:D0__DATABASE'
+  # schema resolved from the backing domain's SCHEMA export; Snowflake needs a
+  # current schema to CREATE TEMPSTAGE during a bulk write.
+  schema: '$secret:D0__SCHEMA'
+  warehouse: '$secret:D0__WAREHOUSE'
+  # stage  (optional, default: none) -- no matching seeded env var
+  # stage: '<value> or secret:<value>'
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

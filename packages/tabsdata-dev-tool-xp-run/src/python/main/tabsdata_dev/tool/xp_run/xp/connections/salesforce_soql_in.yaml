@@ -1,0 +1,23 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: salesforce-sosql-in (src)
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# The salesforce domain (system type 'salesforce') exports USERNAME / PASSWORD / TOKEN / URL
+# (from the SALESFORCE__* env the system is configured with).
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.salesforce:SalesforceSrcConn
+spec:
+  credentials:
+    kind: salesforceTokenCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.salesforce:SalesforceTokenCredentials
+    spec:
+      username: '$secret:D0__USERNAME'
+      password: '$secret:D0__PASSWORD'
+      security_token: '$secret:D0__TOKEN'
+  instance_url: '$secret:D0__URL'
+  # objects / entity_whitelist / conn_cfg are optional and unused here (the SOQL
+  # query on the SalesforceSrc names its own object).

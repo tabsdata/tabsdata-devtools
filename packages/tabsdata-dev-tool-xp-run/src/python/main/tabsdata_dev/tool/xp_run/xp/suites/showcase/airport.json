@@ -1,0 +1,29 @@
+{
+  "_comment": "SHOWCASE suite 'airport' — airline operations over the airportdb sample. INGEST: airport_src reads ap_flight/ap_booking/ap_passenger/ap_airline parquet from a local-file source (domain ap_fs, system fs seeded with model=airportdb; file sources are ARRAY mode -> slot[0]). MARTS: airport_marts is a connection-less @transformer collection (group 'marts') enriching/filtering into bookings_enriched, high_value_bookings and flight_roster via the Tabsdata TableFrame API (join/filter/select/sort — row-preserving; no polars). SERVE: airport_out writes each mart to a local parquet file (domain out, system fs). Only the publisher is triggered; the rest cascade by @NEW. WAREHOUSE SINK: airport_databricks mirrors the same three marts into Databricks (DatabricksDest, domain dbx, staged via its Unity Catalog Volume, one @subscriber per mart), alongside the local-file sink. Functions in functions/airport.py.",
+  "domains": [
+    { "name": "ap_fs", "system": "fs", "model": "airportdb", "data": "xs" },
+    { "name": "out", "system": "fs" },
+    { "name": "dbx", "system": "databricks" }
+  ],
+  "collections": [
+    { "name": "airport_src", "type": "local_file_in", "connection_template": "connection-file:connections/local_file_in.yaml", "group": "sources", "domains": { "D0": "ap_fs" } },
+    { "name": "airport_marts", "type": "transform", "group": "marts" },
+    { "name": "airport_out", "type": "local_file_out", "connection_template": "connection-file:connections/local_file_out.yaml", "group": "destinations", "domains": { "D0": "out" } },
+    { "name": "airport_databricks", "type": "databricks_bulk_out", "connection_template": "connection-file:connections/databricks_bulk_out.yaml", "group": "destinations", "domains": { "D0": "dbx" } }
+  ],
+  "functions": [
+    { "collection": "airport_src", "functionpath": "functions/airport.py::pub_airport" },
+    { "collection": "airport_marts", "functionpath": "functions/airport.py::tfr_bookings_enriched" },
+    { "collection": "airport_marts", "functionpath": "functions/airport.py::tfr_high_value_bookings" },
+    { "collection": "airport_marts", "functionpath": "functions/airport.py::tfr_flight_roster" },
+    { "collection": "airport_out", "functionpath": "functions/airport.py::sink_bookings_enriched" },
+    { "collection": "airport_out", "functionpath": "functions/airport.py::sink_high_value_bookings" },
+    { "collection": "airport_out", "functionpath": "functions/airport.py::sink_flight_roster" },
+    { "collection": "airport_databricks", "functionpath": "functions/airport.py::dbx_bookings_enriched" },
+    { "collection": "airport_databricks", "functionpath": "functions/airport.py::dbx_high_value_bookings" },
+    { "collection": "airport_databricks", "functionpath": "functions/airport.py::dbx_flight_roster" }
+  ],
+  "triggers": [
+    { "collection": "airport_src", "function": "pub_airport", "detached": true }
+  ]
+}

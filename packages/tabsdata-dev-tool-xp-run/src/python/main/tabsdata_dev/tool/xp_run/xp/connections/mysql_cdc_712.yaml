@@ -1,0 +1,41 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: mysql-cdc (stream-src) — server_id 712
+# The demo suite's own replica id (suites/demo/finance.json). MySQL admits a single
+# replica per server id and every registered CDC stream publisher attaches its own
+# replica, so a suite that may run alongside the others needs an id nothing else
+# uses: 512-515 are the connectors capability suite's, 612-615 the examples suite's.
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.mysql:MySQLCdcStreamSrcConn
+spec:
+
+  # accepts: <value> | secret:<value>
+  # replace <value> with the actual uri
+  #
+  uri: '$secret:D0__URI'
+  credentials:
+    kind: userPasswordCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.common.types:UserPassword
+    spec:
+
+      # replace <value> with the actual user
+      #
+      user: '$secret:D0__USER'
+
+      # replace <value> with the actual password
+      #
+      password: '$secret:D0__PASSWORD'
+
+  # optional (default: 512)
+  #
+  server_id: 712
+  # entity_whitelist  (optional, default: none) -- a list
+  # entity_whitelist: []
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

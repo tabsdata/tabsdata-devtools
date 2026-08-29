@@ -1,0 +1,55 @@
+{
+  "_copyright": "Copyright 2026 Tabsdata Inc.",
+  "_comment": "EXAMPLE · Kafka source (@stream_publisher) — payload FORMATS, ROLLOVER axes and the dead-letter topic. data_format and schema are BOTH always required (\"json\" + a JSON Schema, \"avro\" + an Avro schema, Protobuf(message_name=...) + the .proto source) and the schema is ENFORCED, not documentation. Three independent rollover axes in src_cfg decide when a batch closes, whichever fires first: messages_rollover (count — read_json), time_rollover_seconds (latency — read_timed), size_rollover_mb (file size — read_avro); flush_interval_mins rolls a partial batch over so nothing sticks. dlq_topic (read_dlq) keeps one bad message from stopping ingestion — put it under the domain prefix so it dies with the domain. Five stream publishers over a redpanda domain seeded with the employees model, whose data plane produces one JSON message per row to <prefix>.<entity>. read_timed needs its OWN collection because it reads the same topic as read_json and a second consumer in the same group on a single-partition topic would sit idle; publishers on different topics share a group happily. The avro/protobuf topics have no producer here on purpose — an unknown topic is not fatal, the poll loop waits — so the configuration is documented without an encoder in the harness. Topics are ${D0__DB} references, not literals, so two instances can run at once. NO TRIGGERS AND NONE NEEDED: registering a stream publisher STARTS it. One function per file under functions/kafka_src/. Run: `tdx-xp oneshot --suite examples/kafka_src --keep`.",
+  "domains": [
+    {
+      "name": "redpanda",
+      "system": "redpanda",
+      "model": "employees",
+      "data": "xs"
+    }
+  ],
+  "collections": [
+    {
+      "name": "stream",
+      "type": "kafka_topic_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/kafka_topic_in.yaml",
+      "domains": {
+        "D0": "redpanda"
+      }
+    },
+    {
+      "name": "stream_timed",
+      "type": "kafka_topic_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/kafka_topic_in_time.yaml",
+      "domains": {
+        "D0": "redpanda"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "collection": "stream",
+      "functionpath": "functions/kafka_src/read_json.py::read_json"
+    },
+    {
+      "collection": "stream",
+      "functionpath": "functions/kafka_src/read_dlq.py::read_dlq"
+    },
+    {
+      "collection": "stream",
+      "functionpath": "functions/kafka_src/read_avro.py::read_avro"
+    },
+    {
+      "collection": "stream",
+      "functionpath": "functions/kafka_src/read_protobuf.py::read_protobuf"
+    },
+    {
+      "collection": "stream_timed",
+      "functionpath": "functions/kafka_src/read_timed.py::read_timed"
+    }
+  ],
+  "triggers": []
+}

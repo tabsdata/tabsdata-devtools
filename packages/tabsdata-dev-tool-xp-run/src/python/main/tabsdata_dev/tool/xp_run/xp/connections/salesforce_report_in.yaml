@@ -1,0 +1,28 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: salesforce-report-in (src)
+# Secret values use the 'secret:' prefix, or '$secret:<ENV_VAR>' to read the value from an environment variable.
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.salesforce:SalesforceSrcConn
+spec:
+  credentials:
+    kind: salesforceTokenCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.salesforce:SalesforceTokenCredentials
+    spec:
+      username: '$secret:SALESFORCE__USERNAME'
+      password: '$secret:SALESFORCE__PASSWORD'
+      security_token: '$secret:SALESFORCE__TOKEN'
+  instance_url: '$secret:SALESFORCE__URL'
+  # category  (optional, default: none)
+  # category: '<value>'
+  # objects  (optional, default: none) -- a list
+  # objects: []
+  # entity_whitelist  (optional, default: none) -- a list
+  # entity_whitelist: []
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

@@ -1,0 +1,27 @@
+{
+  "_copyright": "Copyright 2026 Tabsdata Inc.",
+  "_comment": "DEMO suite 'airportdb' — airline operations over the airportdb sample held in PostgreSQL, served to S3. DOMAINS: airportdb (system postgres, model airportdb, data l = `tdx-domain create-data --size 1000`, ~100k bookings) and s3 (system s3, no model — the serving bucket prefix). INGEST: airport_src reads flight/booking/passenger/airline/airport/airport_geo with one transactional PostgresSrc publisher (six queries, LIMIT 100 each, one consistent snapshot), SCHEDULED by trigger_by=CronTrigger every 5 minutes at minute 0 (UTC) — the suite's manual trigger coexists with it for the first batch. MARTS: airport_marts is a connection-less @transformer collection (group 'marts') building bookings_enriched, high_value_bookings, flight_roster and airport_directory with the Tabsdata TableFrame API only (join/filter/select/sort/rename — row-preserving; no polars). SERVE: airport_s3 writes each mart to a parquet object under airportdb/ in the s3 domain. Only the publisher is triggered; the rest cascade by @NEW. Functions in functions/airportdb.py. Run: `tdx-xp oneshot --suite demo/airportdb`.",
+  "domains": [
+    { "name": "airportdb", "system": "postgres", "model": "airportdb", "data": "l" },
+    { "name": "s3", "system": "s3" }
+  ],
+  "collections": [
+    { "name": "airport_src", "type": "postgres_sql_in", "connection_template": "connection-file:connections/postgres_sql_in.yaml", "group": "sources", "domains": { "D0": "airportdb" } },
+    { "name": "airport_marts", "type": "transform", "group": "marts" },
+    { "name": "airport_s3", "type": "s3_file_out", "connection_template": "connection-file:connections/s3_file_out.yaml", "group": "destinations", "domains": { "D0": "s3" } }
+  ],
+  "functions": [
+    { "collection": "airport_src", "functionpath": "functions/airportdb.py::pub_airportdb" },
+    { "collection": "airport_marts", "functionpath": "functions/airportdb.py::tfr_bookings_enriched" },
+    { "collection": "airport_marts", "functionpath": "functions/airportdb.py::tfr_high_value_bookings" },
+    { "collection": "airport_marts", "functionpath": "functions/airportdb.py::tfr_flight_roster" },
+    { "collection": "airport_marts", "functionpath": "functions/airportdb.py::tfr_airport_directory" },
+    { "collection": "airport_s3", "functionpath": "functions/airportdb.py::sink_bookings_enriched" },
+    { "collection": "airport_s3", "functionpath": "functions/airportdb.py::sink_high_value_bookings" },
+    { "collection": "airport_s3", "functionpath": "functions/airportdb.py::sink_flight_roster" },
+    { "collection": "airport_s3", "functionpath": "functions/airportdb.py::sink_airport_directory" }
+  ],
+  "triggers": [
+    { "collection": "airport_src", "function": "pub_airportdb", "detached": true }
+  ]
+}

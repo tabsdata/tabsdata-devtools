@@ -1,0 +1,177 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+"""caps_postgres — exercise the PostgreSQL connector's config surface.
+
+SOURCE (`@publisher`, collection ``postgres_in``, reads the seeded ``postgres_world_xs``
+domain — existing data, no generation):
+- ``postgres_in``            : base, three ``SELECT *`` queries -> three slots.
+- ``postgres_in_inc``        : incremental watermark (``id > :wm`` + ``ctx.set_attr``).
+- ``postgres_in_none``       : ``WHERE 1=0`` -> empty single-mode slot -> publish None.
+- ``postgres_in_multiquery`` : two queries -> two slots, ``transactional=False`` (each
+                               query autocommits independently instead of one session).
+
+DEST (`@subscriber`, collection ``postgres_out``, input from the datagen
+``caps_input/cap_rows`` frame):
+- ``postgres_out_append``  : ``if_table_exists="append"`` — first run CREATES the table,
+                             re-running ACCUMULATES rows.
+- ``postgres_out_replace`` : ``if_table_exists="replace"`` — first run creates, re-running
+                             DROP+recreates (row count stays constant). ("truncate" mode.)
+- ``postgres_out_none``    : return-None contract (write_out not invoked).
+
+PostgreSQL has no ``schema_evolution`` (append/replace only). Append and replace target
+DIFFERENT tables so both can fire off the same ``cap_rows`` publish.
+
+SRC METADATA — the ``tabsdata.src_metadata.drop`` contract: ``postgres_meta_keep`` and
+``postgres_meta_drop`` (collection ``postgres_in``) read the same one-query ``SELECT``
+with and without that ``src_cfg`` key, and one ``@transformer`` each in collection
+``postgres_meta`` asserts that side: ``postgres_meta_keep_check`` that ``@td.sql.query``
+and ``@td.sql.initial_values`` are there (none null, and the data columns are exactly
+the ones asked for), ``postgres_meta_drop_check`` that no ``@td.`` column is left and
+the data columns are unchanged. See functions/_srcmeta.py, which also explains why one
+transformer over both tables cannot work.
+"""
+from __future__ import annotations
+
+from tabsdatak.api import TableFrameSpec, TrxCtx, publisher, subscriber, transformer
+from tabsdatak.conn.postgres import PostgresDest, PostgresSrc
+
+try:
+    from ._srcmeta import (
+        DROP_METADATA, NO_BINDS, QUERY_COLUMNS, SQL_META,
+        SQL_META_INITIAL_VALUES, SQL_META_QUERY, check_drop, check_keep,
+    )
+except ImportError:
+    from _srcmeta import (
+        DROP_METADATA, NO_BINDS, QUERY_COLUMNS, SQL_META,
+        SQL_META_INITIAL_VALUES, SQL_META_QUERY, check_drop, check_keep,
+    )
+
+
+# --- SOURCE variants (existing postgres_world_xs data) -----------------------
+@publisher(
+    source=PostgresSrc(
+        queries=[
+            "SELECT * FROM country",
+            "SELECT * FROM city",
+            "SELECT * FROM country_language",
+        ],
+    ),
+    output_tables=["pg_country", "pg_city", "pg_language"],
+)
+def postgres_in(
+    country: TableFrameSpec,
+    city: TableFrameSpec,
+    language: TableFrameSpec,
+) -> tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec]:
+    return (country, city, language)
+
+
+@publisher(
+    source=PostgresSrc(
+        queries=["SELECT * FROM city WHERE id > :wm ORDER BY id LIMIT 10"],
+        initial_values={"wm": 0},
+    ),
+    output_tables=["pg_city_inc"],
+)
+def postgres_in_inc(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+    # Watermark paging: advance :wm to the batch's max id so each trigger reads the
+    # next 10 rows. Empty batch -> leave the watermark put (stalls, never rewinds).
+    if city is not None:
+        # max_for("id") returns the top row's columns as {col: value}, None if empty.
+        row = city.max_for("id")
+        if row is not None and row["id"] is not None:
+            ctx.set_attr("wm", int(row["id"]))
+    return city
+
+
+@publisher(
+    source=PostgresSrc(queries=["SELECT * FROM city WHERE 1 = 0"]),
+    output_tables=["pg_none"],
+)
+def postgres_in_none(city: TableFrameSpec) -> TableFrameSpec:
+    # Zero rows -> single-mode slot is None -> publish nothing.
+    return None if city is None else city
+
+
+@publisher(
+    source=PostgresSrc(
+        queries=[
+            "SELECT code, name FROM country",
+            "SELECT id, name FROM city",
+        ],
+        # Non-default: each query autocommits on its own connection rather than
+        # sharing one transactional session.
+        transactional=False,
+    ),
+    output_tables=["pg_country_slim", "pg_city_slim"],
+)
+def postgres_in_multiquery(
+    country: TableFrameSpec,
+    city: TableFrameSpec,
+) -> tuple[TableFrameSpec, TableFrameSpec]:
+    return (country, city)
+
+
+# --- DEST variants (input from datagen caps_input/cap_rows) -------------------
+@subscriber(
+    destination=PostgresDest(tables=["cap_append"], if_table_exists="append"),
+    input_tables=["caps_input/cap_rows"],
+)
+def postgres_out_append(rows: TableFrameSpec) -> TableFrameSpec:
+    # First run CREATES cap_append; each re-run APPENDS the 3 rows again (count grows).
+    return rows
+
+
+@subscriber(
+    destination=PostgresDest(tables=["cap_replace"], if_table_exists="replace"),
+    input_tables=["caps_input/cap_rows"],
+)
+def postgres_out_replace(rows: TableFrameSpec) -> TableFrameSpec:
+    # First run creates cap_replace; each re-run DROP+recreates it (count stays at 3).
+    return rows
+
+
+@subscriber(
+    destination=PostgresDest(tables=["cap_append"], if_table_exists="append"),
+    input_tables=["caps_input/cap_rows"],
+)
+def postgres_out_none(rows: TableFrameSpec) -> TableFrameSpec:
+    # Return-None contract: write_out is NOT invoked.
+    return None
+
+
+# --- src metadata: the `tabsdata.src_metadata.drop` contract ------------------
+# TWO READS OF THE SAME QUERY differing only in that src_cfg key, each with its OWN
+# assertion transformer — functions/_srcmeta.py holds the assertions and the reasoning,
+# including why one transformer reading both tables cannot work. A SQL source reports
+# `@td.sql.query` — the text it ran — and `@td.sql.initial_values` — the binds it ran
+# with, `{}` here — unless the key drops them. The query is a module constant so the
+# assertion can pin the recorded text to the text this suite asked for.
+_META_QUERY = "SELECT code, name FROM country"
+
+
+@publisher(source=PostgresSrc(queries=[_META_QUERY]), output_tables=["meta_keep"])
+def postgres_meta_keep(country: TableFrameSpec) -> TableFrameSpec:
+    return country
+
+
+@publisher(
+    source=PostgresSrc(queries=[_META_QUERY], src_cfg=DROP_METADATA),
+    output_tables=["meta_drop"],
+)
+def postgres_meta_drop(country: TableFrameSpec) -> TableFrameSpec:
+    return country
+
+
+@transformer(input_tables=["postgres_in/meta_keep@NEW"], output_tables=["meta_keep_ok"])
+def postgres_meta_keep_check(keep: TableFrameSpec) -> TableFrameSpec:
+    return check_keep(keep, SQL_META, QUERY_COLUMNS,
+                      exact={SQL_META_QUERY: _META_QUERY,
+                             SQL_META_INITIAL_VALUES: NO_BINDS})
+
+
+@transformer(input_tables=["postgres_in/meta_drop@NEW"], output_tables=["meta_drop_ok"])
+def postgres_meta_drop_check(drop: TableFrameSpec) -> TableFrameSpec:
+    return check_drop(drop, QUERY_COLUMNS)

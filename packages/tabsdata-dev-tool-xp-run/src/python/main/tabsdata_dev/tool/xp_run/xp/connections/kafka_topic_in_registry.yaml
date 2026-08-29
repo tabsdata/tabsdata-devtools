@@ -1,0 +1,69 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: kafka-topic-in (stream-src) — SCHEMA REGISTRY variant,
+# consumer group '<prefix>_registry'.
+# The difference from kafka_topic_in.yaml is the `schema_registry` block: with it set,
+# the consumer runs SR-aware serdes and expects the CONFLUENT WIRE FORMAT on every
+# message (magic byte 0x00 + a 4-byte schema id + the payload). A plain message — what
+# `rpk topic produce` writes, and what the redpanda domain's data plane produces —
+# fails to deserialize under this connection and goes to the DLQ if one is set. Use it
+# only for topics written by a registry-aware producer.
+#
+# A schema_registry is a PLAIN nested mapping (no kind/apiVersion/type envelope); the
+# field is a discriminated union, resolved by the keys present:
+#   - Confluent : url [+ credentials: {user, password}] [+ configs: {}]
+#   - AWS Glue  : region_name, registry_name, schema_name, credentials:
+#                 {access_key_id, secret_access_key} [+ configs: {}]
+#
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+# '${D<n>__<KEY>}' reads the same bag but interpolates the value PLAIN and inline — for a name rather than a credential.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.kafka:KafkaStreamSrcConn
+spec:
+
+  # accepts: <value> | secret:<value>
+  # the redpanda domain's broker list (meta KAFKA_BROKERS, e.g. localhost:19092)
+  #
+  servers: '$secret:D0__KAFKA_BROKERS'
+
+  # accepts: <value> | secret:<value>
+  # Per-collection consumer group, prefixed by the domain so it is per-run too.
+  #
+  group_id: '${D0__DB}_registry'
+
+  # The redpanda domain publishes a Confluent-compatible registry and exports its URL
+  # as meta SCHEMA_REGISTRY_URL. Interpolated PLAIN: an endpoint is a name, not a
+  # credential, and a `secret:`-wrapped one would reach the client with the prefix
+  # still attached.
+  schema_registry:
+    url: '${D0__SCHEMA_REGISTRY_URL}'
+    # credentials  (optional) -- basic auth on the registry
+    # credentials:
+    #   user: 'secret:<value>'
+    #   password: 'secret:<value>'
+    # configs  (optional) -- forwarded to SchemaRegistryClient
+    # configs: {}
+
+  # The AWS Glue alternative, for reference:
+  # schema_registry:
+  #   region_name: 'us-east-1'
+  #   registry_name: '<registry>'
+  #   schema_name: '<schema>'
+  #   credentials:
+  #     access_key_id: 'secret:<value>'
+  #     secret_access_key: 'secret:<value>'
+
+  # credentials  (optional, default: none) -- OMITTED: the redpanda domain runs without SASL
+  # credentials:
+  #   kind: userPasswordCredentials
+  #   apiVersion: '1.0'
+  #   type: tabsdatak.conn.common.types:UserPassword
+  #   spec:
+  #     user: 'secret:<value>'
+  #     password: 'secret:<value>'
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

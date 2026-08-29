@@ -1,0 +1,44 @@
+{
+  "_comment": "CAPABILITY suite for the S3 file connector (all data formats + selection modes), via `--type connectors/gcs.json`. Functions in functions/caps_gcs.py. `gcs_out` writers (from datagen caps_input/cap_rows) write CSV/JSON/AVRO/PARQUET (+CSV format_cfg) to the `gcs` bucket root; `gcs_rt` readers read each back (PHASE 2 — trigger after writers commit); `gcs_in` exercises glob/since/multi/none over the seeded world parquet in `gcs_world_xs`. Domains: dev (datagen), gcs (round-trip write+read), gcs_world_xs (seed). SRC METADATA: gcs_meta_keep and gcs_meta_drop (gcs_in) read the same staged country parquet with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection gcs_meta (group ops) asserts that side: gcs_meta_keep_check that the `@td.file.path` metadata column is there plus exactly the expected data columns, gcs_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing).",
+  "domains": [
+    { "name": "dev", "system": "dev" },
+    { "name": "gcs", "system": "gcs" },
+    { "name": "gcs_world_xs", "system": "gcs", "model": "world", "data": "xs" }
+  ],
+  "collections": [
+    { "name": "caps_input", "type": "datagen_in", "connection_template": "connection-file:connections/datagen_in.yaml", "group": "sources", "domains": { "D0": "dev" } },
+    { "name": "gcs_out", "type": "gcs_file_out", "connection_template": "connection-file:connections/gcs_file_out.yaml", "group": "destinations", "domains": { "D0": "gcs" } },
+    { "name": "gcs_rt", "type": "gcs_file_in", "connection_template": "connection-file:connections/gcs_file_in.yaml", "group": "sources", "domains": { "D0": "gcs" } },
+    { "name": "gcs_in", "type": "gcs_file_in", "connection_template": "connection-file:connections/gcs_file_in.yaml", "group": "sources", "domains": { "D0": "gcs_world_xs" } },
+    { "name": "gcs_meta", "type": "transform", "group": "ops" }
+  ],
+  "functions": [
+    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_rows" },
+    { "collection": "gcs_out", "functionpath": "functions/caps_gcs.py::gcs_out_csv" },
+    { "collection": "gcs_out", "functionpath": "functions/caps_gcs.py::gcs_out_json" },
+    { "collection": "gcs_out", "functionpath": "functions/caps_gcs.py::gcs_out_avro" },
+    { "collection": "gcs_out", "functionpath": "functions/caps_gcs.py::gcs_out_parquet" },
+    { "collection": "gcs_out", "functionpath": "functions/caps_gcs.py::gcs_out_csvopts" },
+    { "collection": "gcs_out", "functionpath": "functions/caps_gcs.py::gcs_out_none" },
+    { "collection": "gcs_rt", "functionpath": "functions/caps_gcs.py::gcs_rt_csv" },
+    { "collection": "gcs_rt", "functionpath": "functions/caps_gcs.py::gcs_rt_json" },
+    { "collection": "gcs_rt", "functionpath": "functions/caps_gcs.py::gcs_rt_avro" },
+    { "collection": "gcs_rt", "functionpath": "functions/caps_gcs.py::gcs_rt_parquet" },
+    { "collection": "gcs_in", "functionpath": "functions/caps_gcs.py::gcs_in_glob" },
+    { "collection": "gcs_in", "functionpath": "functions/caps_gcs.py::gcs_in_since" },
+    { "collection": "gcs_in", "functionpath": "functions/caps_gcs.py::gcs_in_multi" },
+    { "collection": "gcs_in", "functionpath": "functions/caps_gcs.py::gcs_in_none" },
+    { "collection": "gcs_in", "functionpath": "functions/caps_gcs.py::gcs_meta_keep" },
+    { "collection": "gcs_in", "functionpath": "functions/caps_gcs.py::gcs_meta_drop" },
+    { "collection": "gcs_meta", "functionpath": "functions/caps_gcs.py::gcs_meta_keep_check" },
+    { "collection": "gcs_meta", "functionpath": "functions/caps_gcs.py::gcs_meta_drop_check" }
+  ],
+  "triggers": [
+    { "collection": "caps_input", "function": "caps_rows", "detached": true },
+    { "collection": "gcs_in", "function": "gcs_in_glob", "detached": true },
+    { "collection": "gcs_in", "function": "gcs_in_since", "detached": true },
+    { "collection": "gcs_in", "function": "gcs_in_multi", "detached": true },
+    { "collection": "gcs_in", "function": "gcs_meta_keep", "detached": true },
+    { "collection": "gcs_in", "function": "gcs_meta_drop", "detached": true }
+  ]
+}

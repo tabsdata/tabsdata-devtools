@@ -1,7 +1,7 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""The whole-cycle verbs: ``oneshot`` (create-instance -> domains -> project ->
+"""The whole-cycle verbs: ``one-shot`` (create-instance -> domains -> project ->
 run --monitor, then tear down unless --keep or something failed) and ``bench``
 (a suite DIR, phased and timed across all lanes).
 """
@@ -22,18 +22,21 @@ from .project import ns
 from .reporter import rep, reporting, scratch
 
 
-def cmd_oneshot(args) -> None:
+def cmd_one_shot(args) -> None:
     """Pick a name (--project, else xp_<ts>_<suite>) and run the whole cycle
     under it for both the instance and the project. A FAILED run stops before
     teardown, leaving the setup in place for debugging."""
     shell.require_login()  # fail fast before creating any pointer or domains
-    path, files = suites.resolve(args.suite)
+    suites_dir = getattr(args, "suites_dir", None)
+    path, files = suites.resolve(args.suite, suites.suites_dir(suites_dir))
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     name = args.project or f"xp_{ts}_{suites.token(path)}"
     senv = state.run.secret_env
-    with reporting(args, "oneshot", name, suite=suites.label(path)):
-        rep().note(f"oneshot: suite {path} -> instance/project '{name}'")
-        project.cmd_create_instance(ns(suite=args.suite, instance=name))
+    with reporting(args, "one-shot", name, suite=suites.label(path)):
+        rep().note(f"one-shot: suite {path} -> instance/project '{name}'")
+        project.cmd_create_instance(
+            ns(suite=args.suite, instance=name, suites_dir=suites_dir)
+        )
         # A suite dir fanned out: track the lanes across the phases so a broken
         # suite file costs only its own lane.
         if files is not None:
@@ -48,7 +51,7 @@ def cmd_oneshot(args) -> None:
             for lane, phase in sorted(dead.items()):
                 rep().note(f"{lane} failed in phase '{phase}'")
             rep().note(
-                f"oneshot: keeping '{name}' for debugging -- tear down with "
+                f"one-shot: keeping '{name}' for debugging -- tear down with "
                 f"`tdd xp-run destroy-project --project {name} --force`, "
                 f"`tdd xp-run destroy-domains --instance {name} --force`, "
                 f"`tdd xp-run destroy-instance --instance {name}`"
@@ -56,10 +59,10 @@ def cmd_oneshot(args) -> None:
             state.die(f"{len(dead)} lane(s) failed")
         if args.keep:
             rep().note(
-                f"oneshot: keeping instance/project '{name}' -- re-run with `tdd xp-run run-project --project {name} --monitor`"
+                f"one-shot: keeping instance/project '{name}' -- re-run with `tdd xp-run run-project --project {name} --monitor`"
             )
             return
-        rep().note(f"oneshot: tearing down '{name}' (use --keep to preserve)")
+        rep().note(f"one-shot: tearing down '{name}' (use --keep to preserve)")
         project.cmd_destroy_project(ns(project=name, force=True))
         domains.cmd_destroy_domains(ns(instance=name, secret_env=senv, force=True))
         project.cmd_destroy_instance(ns(instance=name))
@@ -94,10 +97,12 @@ def cmd_bench(args) -> None:
     at once, (4) await all transactions -- each phase's wall time reported as it
     closes. --report FILE writes the metrics as JSON. An all-green bench tears
     the group down unless --keep; a failed lane keeps everything standing."""
-    path, files = suites.resolve(args.suite)
+    path, files = suites.resolve(
+        args.suite, suites.suites_dir(getattr(args, "suites_dir", None))
+    )
     if files is None:
         state.die(
-            f"bench needs a suite DIR with one or more descriptors; {args.suite!r} is a single descriptor -- use `oneshot --suite {args.suite}`"
+            f"bench needs a suite DIR with one or more descriptors; {args.suite!r} is a single descriptor -- use `one-shot --suite {args.suite}`"
         )
     shell.require_login()
     domains.require_crypto_key()

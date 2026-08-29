@@ -1,0 +1,33 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: postgres-sql-in (src)
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.postgres:PostgresSrcConn
+spec:
+
+  # accepts: <value> | secret:<value>
+  # replace <value> with the actual uri
+  #
+  uri: '$secret:D0__URI'
+  credentials:
+    kind: userPasswordCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.common.types:UserPassword
+    spec:
+
+      # replace <value> with the actual user
+      #
+      user: '$secret:D0__USER'
+
+      # replace <value> with the actual password
+      #
+      password: '$secret:D0__PASSWORD'
+  # entity_whitelist  (optional, default: none) -- a list
+  # entity_whitelist: []
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

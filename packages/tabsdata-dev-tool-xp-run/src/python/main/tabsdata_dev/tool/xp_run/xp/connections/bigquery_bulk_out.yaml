@@ -1,0 +1,42 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: bigquery-bulk-out (dest)
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.bigquery:BigQueryDestConn
+spec:
+  staging:
+    kind: bigQueryGCSLocation
+    apiVersion: '1.0'
+    type: tabsdatak.conn.bigquery:GCSLocation
+    spec:
+      bucket: '$secret:D0__BUCKET'
+      credentials:
+        kind: gcpJsonCredentials
+        apiVersion: '1.0'
+        type: tabsdatak.conn.common.types:GCPJson
+        spec:
+          json: '$secret:D0__SERVICE_ACCOUNT_KEY'
+
+      # base path within the staging bucket (XP data root)
+      base_path: '$secret:D0__SYS_PATH'
+      # cfg  (optional, default: none) -- a dict (str-keyed)
+      # cfg: {}
+  credentials:
+    kind: gcpJsonCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.common.types:GCPJson
+    spec:
+      json: '$secret:D0__SERVICE_ACCOUNT_KEY'
+  project: '$secret:D0__PROJECT'
+  # dataset resolved from the backing domain's DATASET export; without it the
+  # connector cannot build the fully-qualified project.dataset.table id.
+  dataset: '$secret:D0__DATASET'
+  # entity_whitelist  (optional, default: none) -- a list
+  # entity_whitelist: []
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

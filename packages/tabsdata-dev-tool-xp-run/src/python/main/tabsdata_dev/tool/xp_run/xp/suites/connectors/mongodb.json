@@ -1,0 +1,21 @@
+{
+  "_comment": "CAPABILITY suite for MongoDB dest (append/replace collection + upsert-by-id), via `--type connectors/mongodb.json`. Functions in functions/caps_mongodb.py; input from dev datagen caps_input/cap_rows (code = natural key). append->cap_append grows; replace->cap_replace drops each run; upsert->cap_upsert (id=code, update_existing) stays 3 on re-run. Domains: dev (datagen), mongodb (dest).",
+  "domains": [
+    { "name": "dev", "system": "dev" },
+    { "name": "mongodb", "system": "mongodb" }
+  ],
+  "collections": [
+    { "name": "caps_input", "type": "datagen_in", "connection_template": "connection-file:connections/datagen_in.yaml", "group": "sources", "domains": { "D0": "dev" } },
+    { "name": "mongodb_out", "type": "mongodb_out", "connection_template": "connection-file:connections/mongodb_out.yaml", "group": "destinations", "domains": { "D0": "mongodb" } }
+  ],
+  "functions": [
+    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_rows" },
+    { "collection": "mongodb_out", "functionpath": "functions/caps_mongodb.py::mongodb_out_append" },
+    { "collection": "mongodb_out", "functionpath": "functions/caps_mongodb.py::mongodb_out_replace" },
+    { "collection": "mongodb_out", "functionpath": "functions/caps_mongodb.py::mongodb_out_upsert" },
+    { "collection": "mongodb_out", "functionpath": "functions/caps_mongodb.py::mongodb_out_none" }
+  ],
+  "triggers": [
+    { "collection": "caps_input", "function": "caps_rows", "detached": true }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "_copyright": "Copyright 2026 Tabsdata Inc.",
+  "_comment": "EXAMPLE · Databricks destination / SCHEMA EVOLUTION — what happens when the frame no longer matches the table. A target is created from a NARROW frame (sku, name) and then appended to with a WIDER one (sku, name, price, category), twice: with evolution ALLOWED (schema_evolution=\"update\", which forwards `mergeSchema=true` to `COPY INTO`) the new columns are added and the earlier rows read back NULL there; with it REFUSED (\"strict\") the write would fail, so write_wider_conformed CONFORMS the frame with a .select() — the real answer at a strict boundary, and what keeps this suite green (delete the select and re-run to see the refusal). THE VALUES AND DEFAULTS DIFFER PER CONNECTOR (Databricks/BigQuery \"update\" by default, ClickHouse/StarRocks \"strict\"; Snowflake and the plain databases have no such field), and on Databricks the default is \"update\" — so every sink here spells the value out. Evolution is ADDITIVE ONLY: a dropped, renamed or retyped column is a migration, not evolution. v1 uses `replace` so the example is repeatable and v2 uses `append` so there is something to evolve; ordering comes from TWO supporting publishers with the narrow trigger declared `detached: false` as a GATE. One function per file under functions/databricks_dest_evolution/. Run: `tdx-xp oneshot --suite examples/databricks_dest_evolution --keep`.",
+  "domains": [
+    {
+      "name": "dev",
+      "system": "dev"
+    },
+    {
+      "name": "databricks_out",
+      "system": "databricks"
+    }
+  ],
+  "collections": [
+    {
+      "name": "gen",
+      "type": "datagen_in",
+      "group": "sources",
+      "connection_template": "connection-file:connections/datagen_in.yaml",
+      "domains": {
+        "D0": "dev"
+      }
+    },
+    {
+      "name": "warehouse",
+      "type": "databricks_bulk_out",
+      "group": "destinations",
+      "connection_template": "connection-file:connections/databricks_bulk_out.yaml",
+      "domains": {
+        "D0": "databricks_out"
+      }
+    }
+  ],
+  "functions": [
+    {
+      "collection": "gen",
+      "functionpath": "functions/databricks_dest_evolution/supporting_generate_narrow.py::generate_narrow"
+    },
+    {
+      "collection": "gen",
+      "functionpath": "functions/databricks_dest_evolution/supporting_generate_wide.py::generate_wide"
+    },
+    {
+      "collection": "warehouse",
+      "functionpath": "functions/databricks_dest_evolution/write_narrow_first.py::write_narrow_first"
+    },
+    {
+      "collection": "warehouse",
+      "functionpath": "functions/databricks_dest_evolution/write_wider_evolving.py::write_wider_evolving"
+    },
+    {
+      "collection": "warehouse",
+      "functionpath": "functions/databricks_dest_evolution/write_narrow_locked.py::write_narrow_locked"
+    },
+    {
+      "collection": "warehouse",
+      "functionpath": "functions/databricks_dest_evolution/write_wider_conformed.py::write_wider_conformed"
+    }
+  ],
+  "triggers": [
+    {
+      "collection": "gen",
+      "function": "generate_narrow",
+      "detached": false
+    },
+    {
+      "collection": "gen",
+      "function": "generate_wide",
+      "detached": true
+    }
+  ]
+}

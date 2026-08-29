@@ -1,0 +1,37 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+"""oracle · bronze · update_stream — update-stream bronze (build_upd_cdc_bronze).
+
+Part of the oracle medallion pipeline (source Oracle, domain oracle_bronze_xs). Collection oracle_in_bronze; tables are referenced cross-collection between layers and bare within a layer."""
+
+
+from __future__ import annotations
+
+import tabsdatak.tableframe.datatypes as td_types
+from tabsdatak._medallion.bronze.upd_cdc import build_upd_cdc_bronze
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+
+
+@transformer(
+    input_tables=[
+        "oracle_in_src/update_full_raw@NEW",
+        "oracle_in_src/update_raw@NEW",
+        "update_bronze@HEAD",
+    ],
+    output_tables=["update_bronze"],
+)
+def tfr_upd_bronze(
+    full_commits: TableFramesSpec,
+    upd_commits: TableFramesSpec,
+    prior_bronze: TableFrameSpec,
+) -> TableFrameSpec:
+    return build_upd_cdc_bronze(
+        full_commits=full_commits,
+        upd_commits=upd_commits,
+        prior_bronze=prior_bronze,
+        pk=[{"tenant_id": td_types.String}, {"entity_id": td_types.Int64}],
+        updated_ts_col="data_ts",
+        is_delete_col="deleted",
+    )

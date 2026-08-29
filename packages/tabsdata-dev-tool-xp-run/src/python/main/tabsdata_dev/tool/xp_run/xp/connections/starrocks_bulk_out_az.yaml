@@ -1,0 +1,45 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: starrocks-bulk-out (dest) -- Azure Blob staging variant
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+#
+# NOTE: host / user / password have no seeded STARROCKS__ env vars -- fill them in manually.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.starrocks:StarRocksDestConn
+spec:
+
+  host: '$secret:D0__HOST'
+  port: '$secret:D0__PORT'
+  credentials:
+    kind: userPasswordCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.common.types:UserPassword
+    spec:
+      user: '$secret:D0__USER'
+      password: '$secret:D0__PASSWORD'
+  staging:
+    kind: starRocksAzBlobLocation
+    apiVersion: '1.0'
+    type: tabsdatak.conn.starrocks:AzBlobLocation
+    spec:
+      container: '$secret:D1__CONTAINER'
+      credentials:
+        kind: azureAccountKeyCredentials
+        apiVersion: '1.0'
+        type: tabsdatak.conn.common.types:AzureAccountKey
+        spec:
+          account_name: '$secret:D1__ACCOUNT_NAME'
+          account_key: '$secret:D1__ACCOUNT_KEY'
+      base_path: '$secret:D1__SYS_PATH'
+      # cfg  (optional, default: none) -- a dict (str-keyed)
+      # cfg: {}
+
+  database: '$secret:D0__DATABASE'
+  # entity_whitelist  (optional, default: none) -- a list
+  # entity_whitelist: []
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}
