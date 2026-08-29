@@ -223,3 +223,17 @@ def test_managedvenv_resolves_the_marker_and_composes_each_manager(
     assert argv == [str(root / "pyenv" / "v-pyenv" / "bin" / "tdkserver"), "a"]
     assert env["VIRTUAL_ENV"] == str(root / "pyenv" / "v-pyenv")
     assert env["PATH"].startswith(str(root / "pyenv" / "v-pyenv" / "bin") + os.pathsep)
+
+
+def test_tool_argv_goes_through_the_tdd_dir_dispatcher(monkeypatch, tmp_path):
+    from tabsdata_dev.common.core import proc
+
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    argv = proc.tool_argv("tdk", "status")
+    assert argv == [
+        str(tmp_path / "tdd-venvs" / "tdd" / "bin" / "tdd-exe"),
+        "--dir",
+        str(tmp_path),
+        "tdk",
+        "status",
+    ]

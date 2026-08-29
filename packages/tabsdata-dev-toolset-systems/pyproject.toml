@@ -13,11 +13,13 @@ dependencies = [
     "tabsdata-dev-deps-systems",
     "tabsdata-dev-tool-domain",
     "tabsdata-dev-tool-system",
+    "tabsdata-dev-tool-xp-run",
 ]
 
 [tool.uv.sources]
 tabsdata-dev-deps-systems = { path = "../tabsdata-dev-deps-systems", editable = true }
 tabsdata-dev-tool-domain = { path = "../tabsdata-dev-tool-domain", editable = true }
 tabsdata-dev-tool-system = { path = "../tabsdata-dev-tool-system", editable = true }
+tabsdata-dev-tool-xp-run = { path = "../tabsdata-dev-tool-xp-run", editable = true }
 tabsdata-dev-common-core = { path = "../tabsdata-dev-common-core", editable = true }
 tabsdata-dev-common-systems = { path = "../tabsdata-dev-common-systems", editable = true }

@@ -76,23 +76,29 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(argv, **kwargs)
 
 
-def run_tool(name: str, *args: str, **kwargs) -> subprocess.CompletedProcess:
-    """Invoke a sibling tool in its own environment, through the dispatcher.
+def tool_argv(name: str, *args: str) -> list[str]:
+    """The argv that invokes sibling tool `name` through the dispatcher.
 
     `tdd` itself is a shell function and cannot be exec'd, so this goes to the
     `tdd-exe` inside the tdd dir the dispatcher exported as TDD_DIR -- which
     also routes the sibling into *its* toolset, whatever this one is. Outside a
     dispatch (a direct development run) it falls back to a `tdd-exe` on PATH.
+    Exposed on its own for callers that stream the child (Popen) rather than
+    wait for it.
     """
     import shutil
 
     dir_ = os.environ.get("TDD_DIR")
     if dir_:
         exe = str(pathlib.Path(dir_) / "tdd-venvs" / "tdd" / "bin" / "tdd-exe")
-        argv = [exe, "--dir", dir_, name, *args]
-    else:
-        exe = shutil.which("tdd-exe")
-        if exe is None:
-            raise RuntimeError("no tdd dir (TDD_DIR unset) and no tdd-exe on PATH")
-        argv = [exe, name, *args]
-    return subprocess.run(argv, **kwargs)
+        return [exe, "--dir", dir_, name, *args]
+    exe = shutil.which("tdd-exe")
+    if exe is None:
+        raise RuntimeError("no tdd dir (TDD_DIR unset) and no tdd-exe on PATH")
+    return [exe, name, *args]
+
+
+def run_tool(name: str, *args: str, **kwargs) -> subprocess.CompletedProcess:
+    """Invoke a sibling tool in its own environment, through the dispatcher
+    (see `tool_argv`)."""
+    return subprocess.run(tool_argv(name, *args), **kwargs)
