@@ -296,3 +296,7 @@ def test_env_routes_set_unset_show_and_owns_every_managed_variable():
     # unset --secrets works off TD_BACKENDS_SYSTEMS, never off 1Password
     assert "for _tdd_p in $(printf '%s' \"$TD_BACKENDS_SYSTEMS\")" in text
     assert not (shell.scripts_dir() / "vars.sh").exists(), "vars was folded into env"
+    # the extra index only counts with the matching uv strategy; show has 3 groups
+    assert 'UV_INDEX_STRATEGY' in text and "unsafe-best-match" in text
+    for group in ("_tdd_vars_show_group TD td", "_tdd_vars_show_group PyPi pypi", "_tdd_vars_show_group Secrets secrets"):
+        assert group in text

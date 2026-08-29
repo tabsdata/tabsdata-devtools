@@ -13,10 +13,13 @@
 #                                                  the prefixes, which is how unset knows what to remove
 #     td         TD_*                              (unset only)
 #     vars       <PREFIX>*                         (unset only)
-#     py-idxx    UV_INDEX, PIP_EXTRA_INDEX_URL     the extra Python package index (+ legacy UV_EXTRA_INDEX_URL on unset)
+#     py-idxx    UV_INDEX, PIP_EXTRA_INDEX_URL     the extra Python package index, with UV_INDEX_STRATEGY=
+#                                                  unsafe-best-match so uv considers it (+ legacy UV_EXTRA_INDEX_URL on unset)
 #     py-default-idx  UV_DEFAULT_INDEX, PIP_INDEX_URL  the default index (+ legacy UV_INDEX_URL on unset)
 #
-# `set` exports, `unset` removes, `show` lists them all with a +/- prefix.
+# `set` exports, `unset` removes, `show` lists them all (`-` marks unset) in
+# three sorted groups: TD (everything starting with TD that is set, the two
+# above always), PyPi (the index variables), Secrets.
 
 tdd_fn_register env "set, unset or show this shell's crypto key, 1Password secrets, TD_ and Python index variables"
 
@@ -30,6 +33,10 @@ _TDD_VARS_CRYPTO="TD_BACKENDS_CRYPTO_KEY"
 _TDD_VARS_SYSTEMS="TD_BACKENDS_SYSTEMS"
 _TDD_VARS_PY_EXTRA="UV_INDEX PIP_EXTRA_INDEX_URL"
 _TDD_VARS_PY_EXTRA_LEGACY="UV_EXTRA_INDEX_URL"
+# An extra index only matters if uv may pick a package from it over the
+# default one; the default strategy never does.
+_TDD_VARS_PY_STRATEGY="UV_INDEX_STRATEGY"
+_TDD_VARS_PY_STRATEGY_VALUE="unsafe-best-match"
 _TDD_VARS_PY_DEFAULT="UV_DEFAULT_INDEX PIP_INDEX_URL"
 _TDD_VARS_PY_DEFAULT_LEGACY="UV_INDEX_URL"
 
@@ -78,8 +85,9 @@ commands:
              from 1Password through `tdd system crypto-key` and `tdd system
              secrets` (--as export, eval'd here; nothing is written to disk)
   unset      remove the selected variables
-  show       every variable these commands handle: +NAME=value when set, -NAME
-             when not
+  show       every variable these commands handle, NAME=value when set, -NAME
+             when not, in three sorted groups: TD (every variable starting with
+             TD), PyPi (the index variables) and Secrets
 
 options:
   --crypto             TD_BACKENDS_CRYPTO_KEY, the key that encrypts the system
@@ -97,7 +105,8 @@ options:
   --td                 unset: every variable starting with TD_
   --vars PREFIX        unset: every variable starting with PREFIX (repeatable)
   --py-idxx [URL]      the extra Python package index: UV_INDEX and
-                       PIP_EXTRA_INDEX_URL (set needs URL; unset also clears the
+                       PIP_EXTRA_INDEX_URL, plus UV_INDEX_STRATEGY=unsafe-best-match
+                       so uv considers it (set needs URL; unset also clears the
                        legacy UV_EXTRA_INDEX_URL)
   --py-default-idx [URL]
                        the default Python package index: UV_DEFAULT_INDEX and
@@ -205,6 +214,8 @@ _tdd_vars_set() {
             export "$_tdd_v=$_tdd_py_extra"
             _tdd_set_names="$_tdd_set_names $_tdd_v"
         done
+        export "$_TDD_VARS_PY_STRATEGY=$_TDD_VARS_PY_STRATEGY_VALUE"
+        _tdd_set_names="$_tdd_set_names $_TDD_VARS_PY_STRATEGY"
     fi
     if [ -n "$_tdd_py_default" ]; then
         for _tdd_v in $(printf '%s' "$_TDD_VARS_PY_DEFAULT"); do
@@ -265,7 +276,7 @@ _tdd_vars_unset() {
     for _tdd_p in $(printf '%s' "$_tdd_prefixes"); do
         _tdd_unset_names="$_tdd_unset_names $(_tdd_vars_names "^${_tdd_p}" | tr '\n' ' ')"
     done
-    [ "$_tdd_py_extra" = 1 ] && _tdd_unset_names="$_tdd_unset_names $_TDD_VARS_PY_EXTRA $_TDD_VARS_PY_EXTRA_LEGACY"
+    [ "$_tdd_py_extra" = 1 ] && _tdd_unset_names="$_tdd_unset_names $_TDD_VARS_PY_EXTRA $_TDD_VARS_PY_EXTRA_LEGACY $_TDD_VARS_PY_STRATEGY"
     [ "$_tdd_py_default" = 1 ] && _tdd_unset_names="$_tdd_unset_names $_TDD_VARS_PY_DEFAULT $_TDD_VARS_PY_DEFAULT_LEGACY"
     # Only what is actually set counts as unset; dedupe (--td covers --crypto).
     _tdd_names=""
@@ -285,11 +296,12 @@ _tdd_vars_unset() {
     fi
 }
 
-# One `show` line: +NAME=value when set, -NAME when not. Credentials -- the
-# crypto key and any secret whose name says so -- are masked unless --reveal.
+# One `show` line: `NAME=value` when set, `- NAME` when not, indented under its
+# group heading -- the `-` is the marker, a set variable gets spaces instead. Credentials -- the crypto key and any secret whose name says so
+# (PASSWORD, SECRET, TOKEN, KEY, PASS, _PAT) -- are masked unless --reveal.
 _tdd_vars_show_row() {
     if [ -z "$(eval "printf '%s' \"\${$1+x}\"")" ]; then
-        _tdd_rows="$_tdd_rows-$1
+        _tdd_rows="$_tdd_rows  - $1
 "
         _tdd_json="$_tdd_json${_tdd_json:+,}{\"name\":\"$1\",\"group\":\"$2\",\"set\":false}"
         return 0
@@ -298,13 +310,31 @@ _tdd_vars_show_row() {
     _tdd_shown="$_tdd_val"
     if [ "$_tdd_reveal" != 1 ]; then
         case "$2:$1" in
-            crypto:* | secrets:*PASSWORD* | secrets:*SECRET* | secrets:*TOKEN* | secrets:*KEY* | secrets:*PASS*)
+            *:"$_TDD_VARS_CRYPTO" | secrets:*PASSWORD* | secrets:*SECRET* | secrets:*TOKEN* | secrets:*KEY* | secrets:*PASS* | secrets:*_PAT | secrets:*_PAT_*)
                 _tdd_shown="$(printf '%s' "$_tdd_val" | cut -c1-2)****" ;;
         esac
     fi
-    _tdd_rows="$_tdd_rows+$1=$_tdd_shown
+    _tdd_rows="$_tdd_rows    $1=$_tdd_shown
 "
     _tdd_json="$_tdd_json${_tdd_json:+,}{\"name\":\"$1\",\"group\":\"$2\",\"set\":true,\"value\":\"$(_tdd_json_str "$_tdd_shown")\"}"
+}
+
+# A group: its heading, then one row per name, names sorted and deduplicated.
+# $1 heading, $2 group id, the rest the names (a name may repeat).
+_tdd_vars_show_group() {
+    _tdd_rows="$_tdd_rows$1:
+"
+    _tdd_p="$1"
+    _tdd_v="$2"
+    shift 2
+    if [ $# -eq 0 ]; then
+        _tdd_rows="$_tdd_rows  (none)
+"
+        return 0
+    fi
+    for _tdd_n in $(printf '%s\n' "$@" | sort -u); do
+        _tdd_vars_show_row "$_tdd_n" "$_tdd_v"
+    done
 }
 
 _tdd_vars_show() {
@@ -324,13 +354,18 @@ _tdd_vars_show() {
     _tdd_cmd_check || return 1
     _tdd_rows=""
     _tdd_json=""
-    _tdd_vars_show_row "$_TDD_VARS_CRYPTO" crypto
-    _tdd_vars_show_row "$_TDD_VARS_SYSTEMS" secrets
+    # TD: everything starting with TD (TD_, TDD_, TDX_, ...) that is set, and
+    # the two tdd always manages.
+    # shellcheck disable=SC2046
+    _tdd_vars_show_group TD td "$_TDD_VARS_CRYPTO" "$_TDD_VARS_SYSTEMS" $(_tdd_vars_names '^TD')
+    # shellcheck disable=SC2046
+    _tdd_vars_show_group PyPi pypi $(printf '%s' "$_TDD_VARS_PY_EXTRA $_TDD_VARS_PY_EXTRA_LEGACY $_TDD_VARS_PY_STRATEGY $_TDD_VARS_PY_DEFAULT $_TDD_VARS_PY_DEFAULT_LEGACY")
+    _tdd_names=""
     for _tdd_p in $(printf '%s' "${TD_BACKENDS_SYSTEMS:-}"); do
-        for _tdd_v in $(_tdd_vars_names "^${_tdd_p}__"); do _tdd_vars_show_row "$_tdd_v" secrets; done
+        _tdd_names="$_tdd_names $(_tdd_vars_names "^${_tdd_p}__" | tr '\n' ' ')"
     done
-    for _tdd_v in $(printf '%s' "$_TDD_VARS_PY_EXTRA $_TDD_VARS_PY_EXTRA_LEGACY"); do _tdd_vars_show_row "$_tdd_v" py-idxx; done
-    for _tdd_v in $(printf '%s' "$_TDD_VARS_PY_DEFAULT $_TDD_VARS_PY_DEFAULT_LEGACY"); do _tdd_vars_show_row "$_tdd_v" py-default-idx; done
+    # shellcheck disable=SC2046
+    _tdd_vars_show_group Secrets secrets $(printf '%s' "$_tdd_names")
     _tdd_ok "${_tdd_rows%
 }" "\"vars\":[$_tdd_json],\"revealed\":$([ "$_tdd_reveal" = 1 ] && echo true || echo false)"
 }
