@@ -30,8 +30,9 @@ tdd-install    executable                -> the only way to build a tdd dir
 The user-facing surface: `tdd --help | --version | --reqs`, `tdd doctor`, `tdd info`,
 the tools, and on the shell side `tdd tdd-env activate|deactivate` (toolset venvs),
 `tdd venv create|activate|deactivate|delete|list` (managed pyenv/uv/conda venvs under
-`<tdd_dir>/managed-venvs/`; activation exports `TDD_VENV`), `tdd pycache clean`, `tdd vars unset --dev|--pypi`, and
-`tdd env set-crypto|set-secrets` (eval `system crypto-key`/`secrets --as export` into the shell). Setup is
+`<tdd_dir>/managed-venvs/`; activation exports `TDD_VENV`), `tdd pycache clean`, and `tdd env set|unset|show`
+(`--crypto`/`--secrets` eval `system crypto-key`/`secrets --as export` into the shell; `--td`, `--vars PREFIX`,
+`--py-idxx URL`, `--py-default-idx URL` for the TD_ and Python index variables; `show` lists them +/-). Setup is
 `tdd-install`; regenerating the catalog is `cargo make gen`; testing is `cargo make test`. None
 of those are `tdd` words — see `.claude/DECISIONS.md`.
 

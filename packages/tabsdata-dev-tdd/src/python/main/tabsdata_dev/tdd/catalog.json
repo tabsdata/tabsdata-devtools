@@ -1,5 +1,5 @@
 {
-  "fingerprint": "31f79174e1e4e848",
+  "fingerprint": "f45050ae68569536",
   "members": {
     "demo-env1": [
       "tabsdata-dev-common-core",
@@ -77,7 +77,7 @@
         "jq",
         "awk"
       ],
-      "summary": "set-crypto or set-secrets: fetch from 1Password and export into this shell"
+      "summary": "set, unset or show this shell's crypto key, 1Password secrets, TD_ and Python index variables"
     },
     "pycache": {
       "demo": false,
@@ -97,15 +97,6 @@
         "awk"
       ],
       "summary": "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
-    },
-    "vars": {
-      "demo": false,
-      "file": "vars.sh",
-      "reqs": [
-        "jq",
-        "awk"
-      ],
-      "summary": "unset groups of environment variables in this shell: --dev (TD_*), --pypi (UV/PIP index)"
     },
     "venv": {
       "demo": false,

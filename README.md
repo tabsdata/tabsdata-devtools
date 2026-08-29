@@ -39,7 +39,7 @@ tdd --reqs        # external binaries the tools expect on your PATH
 tdd venv --help   # managed pyenv/uv/conda venvs; also: tdd pycache --help, tdd vars --help
 tdd system --help # external systems for testing (databases in docker, object stores, services)
 tdd domain --help # domains inside those systems: schemas, generated data, change sets
-tdd env set-crypto  # fetch TD_BACKENDS_CRYPTO_KEY from 1Password into this shell (needs `op`)
+tdd env set --crypto  # TD_BACKENDS_CRYPTO_KEY from 1Password into this shell (needs `op`); env show lists what is set
 tdd tdk --help      # run tabsdata's tdk (also tdd tdkserver, tdd km) inside the managed venv $TDD_VENV names
 tdd xp-run --help   # run tabsdata example suites (tdx-xp): --suite <file.json|dir>, oneshot, bench, --dry-run
 tdd defaults --command venv   # a command's option defaults: built-in vs your default-opts

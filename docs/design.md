@@ -97,9 +97,8 @@ The whole surface, deliberately small:
 | `tdd tdd-env activate --toolset <ts>` / `tdd tdd-env deactivate` | `*` shell — enter or leave a *toolset* venv |
 | `tdd venv create\|activate\|deactivate\|delete\|list` | `*` shell — *managed* venvs (pyenv, uv or conda) under `managed-venvs/`; create ends in activation; prompt shows `(<type>/<name>)`; activate switches; a venv tdd did not activate blocks both |
 | `tdd pycache clean [--package-prefixes …] [--all]` | `*` shell — purge uv and pip caches by package prefix |
-| `tdd vars unset --dev\|--pypi` | `*` shell — unset `TD_*` / index variables in this shell |
 | `tdd system <verb> …` | external systems for testing: create/destroy/status/purge/restart/fetch-bin/connect, plus types/list/info/manifest/upgrade/secrets/crypto-key |
-| `tdd env set-crypto\|set-secrets` | `*` shell — run `system crypto-key` / `system secrets` with `--as export` and eval the result into this shell |
+| `tdd env set\|unset\|show …` | `*` shell — the variables tdd manages in this shell: `--crypto`/`--secrets` (eval `system crypto-key`/`secrets --as export`), `--td`, `--vars PREFIX`, `--py-idxx URL`, `--py-default-idx URL`; `show` lists them with +/- |
 | `tdd xp-run <verb> …` | run tabsdata example suites (`--suite FILE|DIR`): domains via `tdd domain`, server via `tdd tdk` |
 | `tdd tdk ARGS…`, `tdd tdkserver ARGS…`, `tdd km ARGS…` | run tabsdata's CLIs inside the managed venv `$TDD_VENV` names, through its manager |
 | `tdd domain <verb> …` | domains inside systems: create/destroy/status/models/create-model/create-data/modify-data, plus list/info/manifest/upgrade |
@@ -255,8 +254,7 @@ tabsdata-devtools/
     │   │   ├── tdd-env.sh                 #     tdd-env activate --toolset <ts> / tdd-env deactivate
     │   │   ├── venv.sh                    #     venv create/activate/deactivate/delete/list (managed)
     │   │   ├── pycache.sh                 #     pycache clean; pycache.bin-reqs.txt declares uv
-    │   │   ├── vars.sh                    #     vars unset --dev / --pypi
-    │   │   ├── env.sh                     #     env set-crypto / set-secrets (eval `system …` exports)
+    │   │   ├── env.sh                     #     env set|unset|show: crypto key, secrets, TD_*, Python index vars
     │   │   ├── defaults.sh                #     defaults --command <name>: built-in vs customized
     │   │   ├── demo-fn1.sh                #     demo-fn1, registered --demo
     │   │   ├── demo-fn1.bin-reqs.txt      #       whoami, hostname
@@ -444,9 +442,10 @@ data generation with per-system DDL. What changed in the port, and why:
 - **`system crypto-key`** is new: what `envx set-crypto` did — `op read
   op://$ONE_PASSWORD_EMPLOYEE_VAULT/DevSecrets/TD_BACKENDS_CRYPTO_KEY`, at least 12
   characters — as a verb next to `secrets`, so the key that every other verb needs is
-  fetched the same way as the rest. The shell command **`tdd env set-crypto` /
-  `set-secrets`** runs the Python verb with `--as export` and `eval`s the lines into the
-  current shell (`set-secrets` defaults `--set` to `1p:$ONE_PASSWORD_DEV_XP_VAULT`).
+  fetched the same way as the rest. The shell command **`tdd env set --crypto` /
+  `--secrets`** runs the Python verb with `--as export` and `eval`s the lines into the
+  current shell (`--secrets` defaults its `--vault` to `1p:$ONE_PASSWORD_DEV_XP_VAULT`);
+  `tdd env unset --secrets` reads `TD_BACKENDS_SYSTEMS` for the prefixes to remove.
 - **Option changes forced by the guidelines**, otherwise names are as they were: `-f` is gone
   (`--force`); `--out json` is gone (`--format json`); `info`'s and `secrets`' own
   `--format`/`--out json|export|unset` became `--as`; `clear-venvs` is gone; the parallelism

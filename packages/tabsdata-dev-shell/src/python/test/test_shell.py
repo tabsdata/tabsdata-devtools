@@ -278,3 +278,21 @@ def test_pycache_clean_sweeps_what_uv_cache_clean_skips():
         and 'rm -rf "$_tdd_cache/$_tdd_shard"' in text
     )
     assert "still match" in text
+
+
+def test_env_routes_set_unset_show_and_owns_every_managed_variable():
+    text = (shell.scripts_dir() / "env.sh").read_text()
+    assert "set | unset | show)" in text
+    for opt in (
+        "--crypto)",
+        "--secrets)",
+        "--td)",
+        "--vars | --vars=*)",
+        "--py-idxx | --py-idxx=*)",
+        "--py-default-idx | --py-default-idx=*)",
+        "--reveal)",
+    ):
+        assert opt in text, f"env.sh lacks {opt}"
+    # unset --secrets works off TD_BACKENDS_SYSTEMS, never off 1Password
+    assert "for _tdd_p in $(printf '%s' \"$TD_BACKENDS_SYSTEMS\")" in text
+    assert not (shell.scripts_dir() / "vars.sh").exists(), "vars was folded into env"
