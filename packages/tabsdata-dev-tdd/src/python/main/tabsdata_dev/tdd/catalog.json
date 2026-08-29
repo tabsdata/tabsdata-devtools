@@ -1,5 +1,5 @@
 {
-  "fingerprint": "f45050ae68569536",
+  "fingerprint": "430255be7955bb9e",
   "members": {
     "demo-env1": [
       "tabsdata-dev-common-core",
@@ -231,7 +231,10 @@
       "demo": false,
       "hidden": false,
       "package": "tabsdata-dev-tool-xp-run",
-      "reqs": [],
+      "reqs": [
+        "tdk",
+        "tdkserver"
+      ],
       "summary": "run tabsdata example suites: instances, domains, projects, triggers, one-shot and bench",
       "toolset": "systems"
     }

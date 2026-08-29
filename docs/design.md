@@ -290,7 +290,7 @@ tabsdata-devtools/
     ├── tabsdata-dev-tool-tdk/             # `tdk`       -> common.core.launcher.run("tdk"); bin-reqs: tdk, uv, conda
     ├── tabsdata-dev-tool-tdkserver/       # `tdkserver` -> same, for tdkserver
     ├── tabsdata-dev-tool-km/              # `km`        -> same, for km
-    ├── tabsdata-dev-tool-xp-run/          # `xp-run`    -> tabsdata_dev.tool.xp_run (tdx-xp ported; systems toolset)
+    ├── tabsdata-dev-tool-xp-run/          # `xp-run`    -> tabsdata_dev.tool.xp_run (tdx-xp ported; systems toolset); bin-reqs: tdk, tdkserver
     ├── tabsdata-dev-tool-domain-sf/       # `domain-sf` (hidden), toolset salesforce
     │       └── test/test_common.py
     ├── tabsdata-dev-deps-demo-env1/       # NO logic, PINS only
