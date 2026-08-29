@@ -160,13 +160,26 @@ _tdd_fn_has() {
 _tdd_fn_check_reqs() {
     _tdd_missing=""
     for _tdd_b in $(printf '%s\n' "$TDD_FN_COMMANDS" | grep "^$1|" | cut -d'|' -f4); do
-        command -v "$_tdd_b" >/dev/null 2>&1 || _tdd_missing="$_tdd_missing $_tdd_b"
+        _tdd_p="$(command -v "$_tdd_b" 2>/dev/null)" || { _tdd_missing="$_tdd_missing $_tdd_b"; continue; }
+        # A pyenv shim stands in for every program any pyenv version ever had;
+        # only `pyenv which` says whether the CURRENT one provides it.
+        case "$_tdd_p" in
+            */shims/*)
+                if grep -q pyenv "$_tdd_p" 2>/dev/null && command -v pyenv >/dev/null 2>&1; then
+                    _tdd_real="$(pyenv which "$_tdd_b" 2>/dev/null)"
+                    # wired = a real program, not the shim itself or another shim
+                    case "$_tdd_real" in
+                        "" | "$_tdd_p" | */shims/*) _tdd_missing="$_tdd_missing $_tdd_b(pyenv shim not wired)" ;;
+                    esac
+                fi
+                ;;
+        esac
     done
     if [ -n "$_tdd_missing" ]; then
         _tdd_cmd_reset
         _TDD_CMD="$1"
         _tdd_error "missing required binaries:$_tdd_missing (declared in the command's bin-reqs.txt; see tdd --reqs)"
-        unset _tdd_missing _tdd_b
+        unset _tdd_missing _tdd_b _tdd_p _tdd_real
         return 1
     fi
     unset _tdd_missing _tdd_b

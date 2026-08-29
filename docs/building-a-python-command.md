@@ -160,7 +160,8 @@ A binary is legitimate in exactly two ways: **pinned** by your `deps-*` (it then
 toolset's `bin/`, which `tdd` puts first on `PATH` — a pinned `ruff` needs no entry), or
 **declared** here. `common.core.proc.run()` refuses anything else with `UndeclaredRequirement`,
 so the file cannot quietly go stale. `tdd --reqs` reports every declaration as `[ok]` or
-`[missing]` against the ambient `PATH`, and `cargo make check` fails on a missing one.
+`[missing]` against the ambient `PATH` (a pyenv/asdf/mise shim counts only when its manager
+wires it -- `pyenv which` -- since the shim exists for every program any version ever had), and `cargo make check` fails on a missing one.
 
 Everything else the tool needs — templates, schemas, sample data — ships **inside the
 package** and is read with `importlib.resources.files("tabsdata_dev.tool.audit")`. Never a
@@ -181,7 +182,8 @@ library like `common-systems` only where its tools live) — that is its compati
 
 Enforcement of `bin-reqs.txt` is skipped when `$TDD_TOOL` is unset, so tests can import the
 tool freely — which also means a clean test run says nothing about whether the declarations
-are complete. Only `tdd <tool>` dispatch checks them.
+are complete. `tdd <tool>` refuses to dispatch, naming the missing binaries, when any
+declaration is not on PATH; `proc.run()` then enforces the declarations at the point of use.
 
 ## 5. Build and run
 

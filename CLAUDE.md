@@ -109,7 +109,8 @@ given; they dispatch, test and report reqs like any other tool.
    never an assumed OS location, never cwd, never `__file__` arithmetic that assumes a
    checkout. External binaries are the one exception and need a `bin-reqs.txt` entry — for a
    Python tool at the package root, for a shell command beside its script as
-   `<file>.bin-reqs.txt`. Both halves are reported by `tdd --reqs` and enforced at run time.
+   `<file>.bin-reqs.txt`. Both halves are reported by `tdd --reqs` and enforced before a
+   command runs: `tdd-fn` and `tdd-exe` refuse with the list of missing binaries.
 6. **All envs are relocatable.** Created via `_make_venv()` with `--relocatable` and
    `UV_LINK_MODE=copy`. `tdd-source.sh` locates itself; never bake an absolute `TDD_DIR`.
 7. **A tool depends on exactly one `-deps-*`.** That dependency is what assigns it to a

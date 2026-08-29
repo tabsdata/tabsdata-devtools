@@ -304,3 +304,8 @@ def test_env_routes_set_unset_show_and_owns_every_managed_variable():
         "_tdd_vars_show_group Secrets secrets",
     ):
         assert group in text
+
+
+def test_the_loader_checks_that_a_pyenv_shim_is_wired():
+    text = shell.source_template()
+    assert 'pyenv which "$_tdd_b"' in text and "*/shims/*)" in text

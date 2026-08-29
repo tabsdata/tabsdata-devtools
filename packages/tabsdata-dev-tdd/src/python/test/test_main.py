@@ -6,6 +6,8 @@ import json
 
 from tabsdata_dev.tdd import __main__ as main_mod
 from tabsdata_dev.tdd import render
+import os
+import pytest
 
 
 def _events(capsys):
@@ -80,3 +82,85 @@ def test_generate_entry_point_reports_as_events(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(render, "LOG_DIR", tmp_path)
     assert generate.main(["--bogus"]) == 1
     assert generate.main(["--help"]) == 0
+
+
+def test_dispatch_refuses_when_a_declared_binary_is_missing(
+    tmp_path, monkeypatch, capsys
+):
+    # The shell side always refused a command whose bin-reqs were missing; the
+    # dispatcher must do the same for a Python tool, before exec, naming them.
+    from tabsdata_dev.tdd import catalog as catalog_mod
+    from tabsdata_dev.tdd import dispatch as dispatch_mod
+
+    monkeypatch.setattr(render, "LOG_DIR", tmp_path)
+    exe = tmp_path / "tdd-venvs" / "t" / "bin" / "demo"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    entry = {"toolset": "t", "package": "p", "reqs": ["surely-not-a-binary-xyz", "sh"]}
+    monkeypatch.setattr(catalog_mod, "installed", lambda d: {"tools": {"demo": entry}})
+    monkeypatch.setattr(catalog_mod, "is_stale", lambda d: False)
+    monkeypatch.setattr(
+        os, "execve", lambda *a, **k: pytest.fail("execve must not be reached")
+    )
+    out = render.Renderer("tdd", fmt="json")
+    assert dispatch_mod.dispatch(tmp_path, "demo", [], out) == 1
+    event = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert event["event"] == "error" and event["missing"] == ["surely-not-a-binary-xyz"]
+    assert "tdd --reqs demo" in event["message"]
+
+
+def test_a_shim_counts_only_when_its_manager_wires_it(tmp_path, monkeypatch):
+    import subprocess
+
+    from tabsdata_dev.tdd import reqs
+
+    shims = tmp_path / "shims"
+    shims.mkdir()
+    shim = shims / "foo"
+    shim.write_text(
+        '#!/usr/bin/env bash\nprogram="${0##*/}"\nexec "/x/pyenv" exec "$program" "$@"\n'
+    )
+    shim.chmod(0o755)
+    pyenv = shims / "pyenv"  # the manager itself must be findable to be asked
+    pyenv.write_text("#!/bin/sh\n")
+    pyenv.chmod(0o755)
+    monkeypatch.setenv("PATH", str(shims))
+    assert (
+        reqs.shim_manager(str(shim)) == "pyenv"
+        and reqs.shim_manager(str(pyenv)) is None
+    )
+
+    def unwired(argv, **kw):
+        assert argv == ["pyenv", "which", "foo"]
+        return subprocess.CompletedProcess(
+            argv, 127, "", "pyenv: foo: command not found\n"
+        )
+
+    monkeypatch.setattr(subprocess, "run", unwired)
+    path, note = reqs.resolve("foo")
+    assert path is None and "not wired" in note and "command not found" in note
+    assert reqs.missing(["foo"]) == [f"foo ({note})"]
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda argv, **kw: subprocess.CompletedProcess(argv, 0, "/real/bin/foo\n", ""),
+    )
+    assert (
+        reqs.resolve("foo") == ("/real/bin/foo", "pyenv shim")
+        and reqs.missing(["foo"]) == []
+    )
+    # the manager answering with the shim itself is not wiring either
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda argv, **kw: subprocess.CompletedProcess(argv, 0, f"{shim}\n", ""),
+    )
+    path, note = reqs.resolve("foo")
+    assert path is None and "resolves to a shim" in note
+    # a launcher script that execs the manager (Homebrew's pyenv) is NOT a shim
+    launcher = shims / "brewpyenv"
+    launcher.write_text('#!/bin/bash\nexec "/opt/x/libexec/pyenv" "$@"\n')
+    assert reqs.shim_manager(str(launcher)) is None
+    # a plain binary needs no manager
+    assert reqs.resolve("pyenv") == (str(pyenv), "")
