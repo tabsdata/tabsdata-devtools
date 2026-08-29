@@ -1,5 +1,5 @@
 {
-  "fingerprint": "430255be7955bb9e",
+  "fingerprint": "8a62fc5cbbf5b5a1",
   "members": {
     "demo-env1": [
       "tabsdata-dev-common-core",
@@ -30,7 +30,7 @@
       "tabsdata-dev-deps-systems",
       "tabsdata-dev-tool-domain",
       "tabsdata-dev-tool-system",
-      "tabsdata-dev-tool-xp-run"
+      "tabsdata-dev-tool-xp"
     ]
   },
   "python": {
@@ -224,13 +224,13 @@
       "summary": "run tabsdata's tdkserver inside the managed venv named by $TDD_VENV",
       "toolset": "launchers"
     },
-    "xp-run": {
+    "xp": {
       "commons": [
         "tabsdata-dev-common-core"
       ],
       "demo": false,
       "hidden": false,
-      "package": "tabsdata-dev-tool-xp-run",
+      "package": "tabsdata-dev-tool-xp",
       "reqs": [
         "tdk",
         "tdkserver"

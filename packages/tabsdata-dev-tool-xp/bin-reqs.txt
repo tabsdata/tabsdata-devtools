@@ -2,7 +2,7 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-# bin-reqs.txt -- external binaries xp-run needs on PATH: the tabsdata CLI it
+# bin-reqs.txt -- external binaries xp needs on PATH: the tabsdata CLI it
 # drives (through `tdd tdk`, so it lives in the active managed venv) and the
 # server it talks to. `domain` is a sibling tool, reached through tdd-exe.
 tdk

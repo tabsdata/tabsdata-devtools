@@ -42,7 +42,7 @@ def lane_files(directory: pathlib.Path) -> list[pathlib.Path]:
 
 def builtin_root() -> pathlib.Path:
     """The XP tree this package ships: ``suites/`` and ``connections/``."""
-    return pathlib.Path(str(files("tabsdata_dev.tool.xp_run").joinpath("xp")))
+    return pathlib.Path(str(files("tabsdata_dev.tool.xp").joinpath("xp")))
 
 
 def suites_dir(override: str | None) -> pathlib.Path:

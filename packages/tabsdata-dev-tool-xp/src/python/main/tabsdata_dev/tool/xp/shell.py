@@ -5,7 +5,7 @@
 ``tdd domain``), with --dry-run echoing instead of running.
 
 tdk lives in the user's managed venv and is reached through the `tdk` launcher
-(``proc.tool_argv("tdk", …)`` -> ``tdd-exe … tdk``), so xp-run needs neither tdk
+(``proc.tool_argv("tdk", …)`` -> ``tdd-exe … tdk``), so xp needs neither tdk
 on its PATH nor tabsdata in its own toolset -- it needs ``TDD_VENV`` to name a
 venv with tabsdata installed, which the launcher checks. `domain` is the
 sibling tool in this toolset, reached the same way.
@@ -75,7 +75,7 @@ def run_cmd(
     )
     # Only into an open run: a check made before the reporter opens (the login
     # probe) must not conjure a bare, unlabelled one that the real run would
-    # then inherit -- every line would read `xp-run -` instead of the suite.
+    # then inherit -- every line would read `xp -` instead of the suite.
     if state.run.reporter is not None:
         state.run.reporter.log(
             f"$ {shell_line(argv)} -> exit {r.returncode}",

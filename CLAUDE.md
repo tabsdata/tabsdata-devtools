@@ -68,13 +68,13 @@ the same `domain` family running where cumulusci/snowfakery live — `domain` re
 salesforce data-plane verbs to it. Their state lives in `<tdd_dir>/data/system` and
 `data/domain`.
 
-`xp-run` (toolset `systems`, pydantic/pyyaml) is tabsdata-xp's `tdx-xp` ported: the tabsdata-xp `suites/` and
+`xp` (toolset `systems`, pydantic/pyyaml) is tabsdata-xp's `tdx-xp` ported: the tabsdata-xp `suites/` and
 `connections/` trees ship inside the package (`xp/`, excluded from ruff via `ruff.toml`) and are the
 default; `--suite <type>/<name>|<type>` is a selector under them or under `--suites-dir DIR`
 (`export-suites --dir DIR` copies them out); a suite dir fans out one lane per file; it provisions domains through
 `tdd domain create|destroy --manifest` (events parsed), talks to the server through `tdd tdk`
 (`proc.tool_argv`, so `TDD_VENV` must name a venv with tabsdata), keeps pointers under
-`<tdd_dir>/data/xp-run` and a scratch dir per run under `/tmp/tdd-xp-run/`. `--dry-run` prints
+`<tdd_dir>/data/xp` and a scratch dir per run under `/tmp/tdd-xp/`. `--dry-run` prints
 the `tdd tdk`/`tdd domain` lines it would run. tdk refuses to run under an agent (it checks `CLAUDECODE`);
 only when the user asks, run it with that variable unset (`env -u CLAUDECODE`), never `tdkserver`.
 

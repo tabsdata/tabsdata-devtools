@@ -1,7 +1,7 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""The local pointer store: ``<tdd_dir>/data/xp-run/``.
+"""The local pointer store: ``<tdd_dir>/data/xp/``.
 
 ``create-instance --suite S --instance I`` records ``i-<I>``: for a definition
 file ``{"file": "/abs/path.json"}`` (re-read live on load); for a suite dir one

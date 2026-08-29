@@ -1287,8 +1287,8 @@ requires-dist = [
 ]
 
 [[package]]
-name = "tabsdata-dev-tool-xp-run"
-source = { editable = "../tabsdata-dev-tool-xp-run" }
+name = "tabsdata-dev-tool-xp"
+source = { editable = "../tabsdata-dev-tool-xp" }
 dependencies = [
     { name = "tabsdata-dev-common-core" },
     { name = "tabsdata-dev-deps-systems" },
@@ -1308,7 +1308,7 @@ dependencies = [
     { name = "tabsdata-dev-deps-systems" },
     { name = "tabsdata-dev-tool-domain" },
     { name = "tabsdata-dev-tool-system" },
-    { name = "tabsdata-dev-tool-xp-run" },
+    { name = "tabsdata-dev-tool-xp" },
 ]
 
 [package.metadata]
@@ -1316,7 +1316,7 @@ requires-dist = [
     { name = "tabsdata-dev-deps-systems", editable = "../tabsdata-dev-deps-systems" },
     { name = "tabsdata-dev-tool-domain", editable = "../tabsdata-dev-tool-domain" },
     { name = "tabsdata-dev-tool-system", editable = "../tabsdata-dev-tool-system" },
-    { name = "tabsdata-dev-tool-xp-run", editable = "../tabsdata-dev-tool-xp-run" },
+    { name = "tabsdata-dev-tool-xp", editable = "../tabsdata-dev-tool-xp" },
 ]
 
 [[package]]

@@ -2,7 +2,7 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""xp-run -- run tabsdata example suites (the tabsdata-xp repo's tdx-xp, ported).
+"""xp -- run tabsdata example suites (the tabsdata-xp repo's tdx-xp, ported).
 
 A SUITE is a JSON definition -- domains, collections, functions, triggers --
 living in a dir with its ``functions/``; ``connections/`` templates sit at the
@@ -13,26 +13,26 @@ lane), ``--suite <type>`` a suite DIRECTORY (one lane per definition in it, run
 in parallel). An INSTANCE is a
 named use of a suite (its domains are prefixed with the instance name); a
 PROJECT is created on the server from an instance. Pointers live under
-``<tdd_dir>/data/xp-run``; each run's manifests, logs and report land in one
-scratch dir under ``/tmp/tdd-xp-run/``, announced at startup.
+``<tdd_dir>/data/xp``; each run's manifests, logs and report land in one
+scratch dir under ``/tmp/tdd-xp/``, announced at startup.
 
 tdk runs inside the managed venv `tdd venv` activated (``tdd tdk``, so
 ``TDD_VENV`` must be set); domains are provisioned by ``tdd domain`` off a
 manifest this tool writes.
 
-    tdd xp-run list-suites [--suites-dir DIR]
-    tdd xp-run export-suites --dir DIR [--force]
-    tdd xp-run list-instances | list-projects
-    tdd xp-run create-instance  --suite SEL --instance I [--suites-dir DIR]
-    tdd xp-run create-domains   --instance I [--secret-env VAR] [--latch F] [--report F] [--dry-run]
-    tdd xp-run destroy-domains  --instance I [--force] ...
-    tdd xp-run create-project   --instance I --project P ...
-    tdd xp-run destroy-project  --project P [--force] ...
-    tdd xp-run destroy-instance --instance I
-    tdd xp-run run-project      --project P [--monitor] ...
-    tdd xp-run monitor-project  --project P ...
-    tdd xp-run one-shot         --suite SEL [--project P] [--keep] [--fail-fast] [--suites-dir DIR] ...
-    tdd xp-run bench            --suite TYPE [--name N] [--keep] [--fail-fast] [--suites-dir DIR] ...
+    tdd xp list-suites [--suites-dir DIR]
+    tdd xp export-suites --dir DIR [--force]
+    tdd xp list-instances | list-projects
+    tdd xp create-instance  --suite SEL --instance I [--suites-dir DIR]
+    tdd xp create-domains   --instance I [--secret-env VAR] [--latch F] [--report F] [--dry-run]
+    tdd xp destroy-domains  --instance I [--force] ...
+    tdd xp create-project   --instance I --project P ...
+    tdd xp destroy-project  --project P [--force] ...
+    tdd xp destroy-instance --instance I
+    tdd xp run-project      --project P [--monitor] ...
+    tdd xp monitor-project  --project P ...
+    tdd xp one-shot         --suite SEL [--project P] [--keep] [--fail-fast] [--suites-dir DIR] ...
+    tdd xp bench            --suite TYPE [--name N] [--keep] [--fail-fast] [--suites-dir DIR] ...
 """
 
 from __future__ import annotations

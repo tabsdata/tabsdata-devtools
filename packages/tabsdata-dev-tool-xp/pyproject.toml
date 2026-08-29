@@ -2,7 +2,7 @@
 # Copyright 2026 Tabsdata Inc.
 #
 [project]
-name = "tabsdata-dev-tool-xp-run"
+name = "tabsdata-dev-tool-xp"
 dynamic = ["version"]
 description = "run tabsdata example suites: instances, domains, projects, triggers, one-shot and bench"
 requires-python = ">=3.11"
@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 dependencies = ["tabsdata-dev-deps-systems", "tabsdata-dev-common-core"]
 
 [project.scripts]
-xp-run = "tabsdata_dev.tool.xp_run:main"
+xp = "tabsdata_dev.tool.xp:main"
 
 [tool.hatch.version]
 path = "../../VERSION"

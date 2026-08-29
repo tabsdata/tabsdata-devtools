@@ -21,7 +21,7 @@ the first failure, so its existence answers "did this run go wrong"); the whole
 run is written to ``<scratch>/report.json`` at the end and becomes the fields
 of the run's final ``ok``/``error``.
 
-Every run gets ONE scratch directory under ``/tmp/tdd-xp-run/``, announced at
+Every run gets ONE scratch directory under ``/tmp/tdd-xp/``, announced at
 startup and not deleted: the domain manifests it authors, the logs, the report,
 and -- for a fanned-out run -- one subdir per lane all land there.
 """
@@ -46,7 +46,7 @@ from . import state
 # Stamped ONCE at process start and reused for every name this run derives, so
 # all domains a single invocation creates share one timestamp.
 RUN_TS = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-SCRATCH_ROOT = render.LOG_DIR / "tdd-xp-run"
+SCRATCH_ROOT = render.LOG_DIR / "tdd-xp"
 
 # Progress-line column widths (view format).
 _W_ACTION = 18
@@ -61,7 +61,7 @@ def fs_token(value: str) -> str:
 def scratch_init(label: str) -> pathlib.Path:
     """Create (once) and return this run's scratch dir. Under $TDD_XP_SCRATCH --
     i.e. in a fan-out child -- it is a `<label>` subdir of the parent's tree;
-    standalone it is a fresh `/tmp/tdd-xp-run/<ts>_<label>_<uniq>`."""
+    standalone it is a fresh `/tmp/tdd-xp/<ts>_<label>_<uniq>`."""
     if state.run.scratch is not None:
         return state.run.scratch
     inherited = os.environ.get(state.SCRATCH_ENV)
@@ -99,7 +99,7 @@ def exc_text(exc: BaseException) -> str:
 
 
 class Reporter:
-    """Incremental progress + detail log for one xp-run run (one suite)."""
+    """Incremental progress + detail log for one xp run (one suite)."""
 
     def __init__(
         self, suite: str, command: str, target: str | None, dest: pathlib.Path

@@ -1,7 +1,7 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""What one xp-run process knows about the run it is in.
+"""What one xp process knows about the run it is in.
 
 The original tdx-xp kept these as module globals; they are gathered here so
 every module reads the same renderer, dry-run flag, secret-env name, lane
@@ -18,7 +18,7 @@ from typing import Any
 from tabsdata_dev.common.core import render
 from tabsdata_dev.common.core.errors import ToolError
 
-TOOL = "xp-run"
+TOOL = "xp"
 DEFAULT_SECRET_ENV = "TD_BACKENDS_CRYPTO_KEY"
 # A fan-out child inherits the parent's scratch root through this variable and
 # takes a subdir of it named after its lane, so one group run leaves one tree.

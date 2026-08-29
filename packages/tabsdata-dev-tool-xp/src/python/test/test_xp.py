@@ -59,14 +59,14 @@ def xp_root(tmp_path, monkeypatch):
 
 
 def _run(argv):
-    from tabsdata_dev.tool import xp_run
+    from tabsdata_dev.tool import xp
 
-    return xp_run.cli.run(
-        xp_run.NAME,
-        xp_run.DESCRIPTION,
-        xp_run.body,
+    return xp.cli.run(
+        xp.NAME,
+        xp.DESCRIPTION,
+        xp.body,
         argv=argv,
-        configure=xp_run.configure,
+        configure=xp.configure,
     )
 
 
@@ -75,7 +75,7 @@ def _suites_dir(xp_root):
 
 
 def test_suite_selectors_resolve_under_a_suites_dir_or_as_paths(xp_root):
-    from tabsdata_dev.tool.xp_run import suites
+    from tabsdata_dev.tool.xp import suites
 
     one = xp_root / "suites" / "demo" / "one.json"
     root = xp_root / "suites"
@@ -98,11 +98,11 @@ def test_suite_selectors_resolve_under_a_suites_dir_or_as_paths(xp_root):
 
 
 def test_pointers_live_under_the_tdd_data_dir(xp_root, tmp_path):
-    from tabsdata_dev.tool.xp_run import pointers, suites
+    from tabsdata_dev.tool.xp import pointers, suites
 
     one = xp_root / "suites" / "demo" / "one.json"
     pointers.write_instance("i1", one)
-    assert pointers.store() == tmp_path / "tdd" / "data" / "xp-run"
+    assert pointers.store() == tmp_path / "tdd" / "data" / "xp"
     inst = pointers.load_instance("i1")
     assert (
         inst.suite_file == str(one)
@@ -129,8 +129,8 @@ def test_pointers_live_under_the_tdd_data_dir(xp_root, tmp_path):
 
 
 def test_trigger_batches_gate_on_attached_triggers(xp_root):
-    from tabsdata_dev.tool.xp_run import project
-    from tabsdata_dev.tool.xp_run.models import build_instance
+    from tabsdata_dev.tool.xp import project
+    from tabsdata_dev.tool.xp.models import build_instance
 
     inst = build_instance("i", xp_root / "suites" / "demo" / "one.json")
     batches = [[t.function for t in b] for b in project.trigger_batches(inst.triggers)]
@@ -138,7 +138,7 @@ def test_trigger_batches_gate_on_attached_triggers(xp_root):
 
 
 def test_connection_prep_resolves_secrets_and_interpolates(xp_root, monkeypatch):
-    from tabsdata_dev.tool.xp_run import conn, state
+    from tabsdata_dev.tool.xp import conn, state
 
     monkeypatch.delenv("D0__TOKEN", raising=False)
     doc = conn.prepare_conn(
@@ -159,8 +159,8 @@ def test_connection_prep_resolves_secrets_and_interpolates(xp_root, monkeypatch)
 
 
 def test_domain_manifest_entries_carry_the_keys_tdd_domain_takes(xp_root):
-    from tabsdata_dev.tool.xp_run import domains
-    from tabsdata_dev.tool.xp_run.models import build_instance
+    from tabsdata_dev.tool.xp import domains
+    from tabsdata_dev.tool.xp.models import build_instance
 
     inst = build_instance("i1", xp_root / "suites" / "demo" / "one.json")
     fs, world = inst.domains
@@ -243,7 +243,7 @@ def test_json_stream_carries_steps_and_ends_in_one_ok(xp_root, capsys):
     rc = _run(["run-project", "--project", "nope", "--dry-run", "--format", "json"])
     out, _ = capsys.readouterr()
     events = [json.loads(line) for line in out.splitlines()]
-    assert all(e["command"] == "xp-run" for e in events)
+    assert all(e["command"] == "xp" for e in events)
     assert (
         events[-1]["event"] == "error"
         and "project 'nope' not found" in events[-1]["message"]
@@ -270,14 +270,14 @@ def test_the_login_probe_does_not_open_an_unlabelled_reporter(
 ):
     # one-shot checks the session BEFORE it opens its reporter; that probe used to
     # create a bare reporter named after the tool, and every progress line then
-    # read `xp-run -` instead of the suite, with a bare `done` instead of the
+    # read `xp -` instead of the suite, with a bare `done` instead of the
     # summary at the end.
     import subprocess
 
     from tabsdata_dev.common.core import render
-    from tabsdata_dev.tool.xp_run import shell, state
+    from tabsdata_dev.tool.xp import shell, state
 
-    state.bind(render.Renderer("xp-run"), type("A", (), {})())
+    state.bind(render.Renderer("xp"), type("A", (), {})())
     # Scoped: an undo() here would also drop the fixture's TDD_DIR and write the
     # pointers below into the real store.
     with pytest.MonkeyPatch.context() as mp:
@@ -313,7 +313,7 @@ def test_the_login_probe_does_not_open_an_unlabelled_reporter(
 def test_the_built_in_suites_ship_with_the_package_and_export(
     tmp_path, monkeypatch, capsys
 ):
-    from tabsdata_dev.tool.xp_run import suites
+    from tabsdata_dev.tool.xp import suites
 
     monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
     root = suites.builtin_root()

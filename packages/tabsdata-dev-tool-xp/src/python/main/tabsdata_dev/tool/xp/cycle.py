@@ -52,14 +52,14 @@ def cmd_one_shot(args) -> None:
                 rep().note(f"{lane} failed in phase '{phase}'")
             rep().note(
                 f"one-shot: keeping '{name}' for debugging -- tear down with "
-                f"`tdd xp-run destroy-project --project {name} --force`, "
-                f"`tdd xp-run destroy-domains --instance {name} --force`, "
-                f"`tdd xp-run destroy-instance --instance {name}`"
+                f"`tdd xp destroy-project --project {name} --force`, "
+                f"`tdd xp destroy-domains --instance {name} --force`, "
+                f"`tdd xp destroy-instance --instance {name}`"
             )
             state.die(f"{len(dead)} lane(s) failed")
         if args.keep:
             rep().note(
-                f"one-shot: keeping instance/project '{name}' -- re-run with `tdd xp-run run-project --project {name} --monitor`"
+                f"one-shot: keeping instance/project '{name}' -- re-run with `tdd xp run-project --project {name} --monitor`"
             )
             return
         rep().note(f"one-shot: tearing down '{name}' (use --keep to preserve)")
@@ -244,14 +244,14 @@ def cmd_bench(args) -> None:
         if bad:
             rep().note(
                 f"bench: keeping '{base}' -- {len(bad)} lane(s) failed; tear down with "
-                f"`tdd xp-run destroy-project --project {base} --force`, "
-                f"`tdd xp-run destroy-domains --instance {base} --force`, "
-                f"`tdd xp-run destroy-instance --instance {base}`"
+                f"`tdd xp destroy-project --project {base} --force`, "
+                f"`tdd xp destroy-domains --instance {base} --force`, "
+                f"`tdd xp destroy-instance --instance {base}`"
             )
             state.die(f"{len(bad)} of {len(lane_docs)} lane(s) failed")
         if args.keep:
             rep().note(
-                f"bench: keeping '{base}' -- re-run with `tdd xp-run run-project --project {base} --monitor`"
+                f"bench: keeping '{base}' -- re-run with `tdd xp run-project --project {base} --monitor`"
             )
             return
         rep().note(f"bench: tearing down '{base}' (use --keep to preserve)")

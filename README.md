@@ -41,7 +41,7 @@ tdd system --help # external systems for testing (databases in docker, object st
 tdd domain --help # domains inside those systems: schemas, generated data, change sets
 tdd env set --crypto  # TD_BACKENDS_CRYPTO_KEY from 1Password into this shell (needs `op`); env show lists what is set
 tdd tdk --help      # run tabsdata's tdk (also tdd tdkserver, tdd km) inside the managed venv $TDD_VENV names
-tdd xp-run --help   # run the bundled tabsdata example suites (tdx-xp): list-suites, one-shot --suite <type>/<name>, bench, --dry-run
+tdd xp --help   # run the bundled tabsdata example suites (tdx-xp): list-suites, one-shot --suite <type>/<name>, bench, --dry-run
 tdd defaults --command venv   # a command's option defaults: built-in vs your default-opts
 ```
 

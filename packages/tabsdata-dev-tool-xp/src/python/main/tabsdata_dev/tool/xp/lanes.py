@@ -2,7 +2,7 @@
 # Copyright 2026 Tabsdata Inc.
 #
 """Fan-out: a suite DIR is one instance/project per definition file (a "swim
-lane"), each a normal single-lane `xp-run` child invoked with --format json so
+lane"), each a normal single-lane `xp` child invoked with --format json so
 its event stream is aggregated live under a running total across all lanes.
 
 Failure policy: with --fail-fast the first lane to fail kills the others and
@@ -29,7 +29,7 @@ from .shell import dry_echo
 
 
 def child_argv(*words: str) -> list[str]:
-    """`tdd xp-run <words>`, through the dispatcher."""
+    """`tdd xp <words>`, through the dispatcher."""
     return proc.tool_argv(state.TOOL, *words)
 
 
