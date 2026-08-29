@@ -26,7 +26,7 @@ tdd_fn_register env "set, unset or show this shell's crypto key, 1Password secre
 # Built-in option defaults, for `tdd defaults --command env`.
 tdd_defaults_env() {
     printf '%s\n' "set|--vault|crypto: \${ONE_PASSWORD_EMPLOYEE_VAULT:-Employee}; secrets: 1p:\${ONE_PASSWORD_DEV_XP_VAULT}" \
-        "set|--item|DevSecrets" "set|--field|TD_BACKENDS_CRYPTO_KEY" "show|--reveal|false"
+        "set|--item|DevSecrets" "set|--field|TD_BACKENDS_CRYPTO_KEY" "set|--force|false" "show|--reveal|false"
 }
 
 _TDD_VARS_CRYPTO="TD_BACKENDS_CRYPTO_KEY"
@@ -64,14 +64,14 @@ tddfn_env() {
             ;;
     esac
     unset _tdd_sub _tdd_crypto _tdd_secrets _tdd_td _tdd_prefixes _tdd_py_extra _tdd_py_default _tdd_vault _tdd_item _tdd_field _tdd_reveal \
-        _tdd_args _tdd_lines _tdd_err _tdd_names _tdd_n _tdd_json _tdd_v _tdd_p _tdd_rows _tdd_set_names _tdd_unset_names _tdd_row _tdd_val _tdd_shown
+        _tdd_force _tdd_kept _tdd_args _tdd_lines _tdd_err _tdd_names _tdd_n _tdd_json _tdd_v _tdd_p _tdd_rows _tdd_set_names _tdd_unset_names _tdd_row _tdd_val _tdd_shown
     return "$_tdd_rc"
 }
 
 _tdd_vars_help() {
     _tdd_help_text <<'HELP'
 usage: tdd env set (--crypto | --secrets | --py-idxx URL | --py-default-idx URL)...
-                   [--vault VAULT] [--item ITEM] [--field FIELD]
+                   [--vault VAULT] [--item ITEM] [--field FIELD] [--force]
        tdd env unset (--crypto | --secrets | --td | --vars PREFIX | --py-idxx
                      | --py-default-idx)...
        tdd env show [--reveal]
@@ -91,7 +91,8 @@ commands:
 
 options:
   --crypto             TD_BACKENDS_CRYPTO_KEY, the key that encrypts the system
-                       and domain descriptors; set reads op://VAULT/ITEM/FIELD
+                       and domain descriptors; set reads op://VAULT/ITEM/FIELD --
+                       only when the variable is not already set, unless --force
   --secrets            every <PREFIX>__<KEY> secret of a shared vault plus
                        TD_BACKENDS_SYSTEMS, the list of prefixes -- which is what
                        unset reads to know what to remove
@@ -102,6 +103,8 @@ options:
   --item ITEM          set --crypto: item in the vault (default: DevSecrets)
   --field FIELD        set --crypto: field of the item (default:
                        TD_BACKENDS_CRYPTO_KEY)
+  -f, --force          set --crypto: fetch from 1Password even if
+                       TD_BACKENDS_CRYPTO_KEY is already set
   --td                 unset: every variable starting with TD_
   --vars PREFIX        unset: every variable starting with PREFIX (repeatable)
   --py-idxx [URL]      the extra Python package index: UV_INDEX and
@@ -153,11 +156,13 @@ _tdd_vars_set() {
     _tdd_vault=""
     _tdd_item=""
     _tdd_field=""
+    _tdd_force=0
     _tdd_set_names=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --crypto) _tdd_crypto=1; shift ;;
             --secrets) _tdd_secrets=1; shift ;;
+            --force | -f) _tdd_force=1; shift ;;
             --vault | --vault=*)
                 _tdd_optval "$@" || { _tdd_error "--vault needs a value"; return 1; }
                 _tdd_vault="$_TDD_OPTVAL"; shift "$_TDD_CONSUMED" ;;
@@ -187,9 +192,22 @@ _tdd_vars_set() {
         _tdd_error "nothing selected: --crypto, --secrets, --py-idxx URL and/or --py-default-idx URL (see --help)"
         return 1
     fi
+    _tdd_kept=""
+    if [ "$_tdd_crypto" = 1 ] && [ -n "${TD_BACKENDS_CRYPTO_KEY:-}" ] && [ "$_tdd_force" != 1 ]; then
+        _tdd_kept="$_TDD_VARS_CRYPTO"
+    fi
     if [ -n "$_tdd_vault" ] && [ "$_tdd_crypto" = 1 ] && [ "$_tdd_secrets" = 1 ]; then
         _tdd_error "--vault means different things to --crypto and --secrets; set them in two calls"
         return 1
+    fi
+    if [ "$_tdd_crypto" = 1 ] && [ -n "${TD_BACKENDS_CRYPTO_KEY:-}" ] && [ "$_tdd_force" != 1 ]; then
+        # Already there: no trip to 1Password (a signed-in `op` is not a given
+        # in every shell); --force refetches.
+        # The ok says it when the key was the only selection; otherwise say it here.
+        if [ "$_tdd_secrets" = 1 ] || [ -n "$_tdd_py_extra" ] || [ -n "$_tdd_py_default" ]; then
+            _tdd_info "$_TDD_VARS_CRYPTO is already set; not fetched (use --force to refetch)"
+        fi
+        _tdd_crypto=0
     fi
     if [ "$_tdd_crypto" = 1 ]; then
         _tdd_args=""
@@ -226,7 +244,11 @@ _tdd_vars_set() {
     _tdd_names="$(printf '%s\n' $(printf '%s' "$_tdd_set_names") | grep -c .)"
     _tdd_json=""
     for _tdd_v in $(printf '%s' "$_tdd_set_names"); do _tdd_json="$_tdd_json${_tdd_json:+,}\"$_tdd_v\""; done
-    _tdd_ok "set $_tdd_names variable(s) in this shell: $(printf '%s' "$_tdd_set_names" | sed 's/^ *//; s/ *$//')" "\"set\":[$_tdd_json]"
+    if [ "$_tdd_names" = 0 ] && [ -n "$_tdd_kept" ]; then
+        _tdd_ok "$_tdd_kept already set; nothing fetched" "\"set\":[],\"kept\":[\"$_tdd_kept\"]"
+    else
+        _tdd_ok "set $_tdd_names variable(s) in this shell: $(printf '%s' "$_tdd_set_names" | sed 's/^ *//; s/ *$//')${_tdd_kept:+ ($_tdd_kept already set, kept)}" "\"set\":[$_tdd_json],\"kept\":[${_tdd_kept:+\"$_tdd_kept\"}]"
+    fi
 }
 
 _tdd_vars_unset() {
