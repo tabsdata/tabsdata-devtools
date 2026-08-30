@@ -11,6 +11,7 @@
 #   common_stage [--continue] NAME "what" open a stage (closes the previous one as ok)
 #   common_run CMD...                     echo CMD (credentials masked) and run it in
 #                                         THIS shell; a failure fails the stage
+#   common_run_shown TEXT CMD...          same, echoing and recording TEXT instead of CMD
 #   common_run_retry N PAUSE CMD...       same, retried up to N times PAUSE seconds apart
 #   common_note TEXT                      a line under the stage, collapsed with the rest
 #   common_checkpoint NAME                --stop-after: exit 0 after NAME with a report
@@ -23,9 +24,10 @@
 #   common_instance_gone NAME             no km process and no folder left after a delete
 #   common_tdkserver_pods_running NAME SERVICE...
 #                                         every SERVICE has a Running, Ready pod in `tdkserver status`
-#   common_portforward_start KUBECONFIG NAMESPACE SERVICE PORT
-#                                         `kubectl port-forward` in the background, waited for
-#   common_portforward_stop               end it (also on exit: the script traps EXIT to it)
+#   common_kubeportforward_start KUBECONFIG NAMESPACE SERVICE PORT
+#                                         `kubectl port-forward` in the background, waited for;
+#                                         a stage command on its own, no common_run in front
+#   common_kubeportforward_stop           end it (also on exit: the script traps EXIT to it)
 #   common_fill_placeholder FILE... -- PLACEHOLDER VALUE
 #                                         replace a `${{kind:name}}` placeholder in config files
 #   common_placeholders_left DIR          fail while a required placeholder remains in DIR/*.yaml
@@ -301,18 +303,26 @@ common_stage_failed() {
 # Run CMD in THIS shell (tdd venv/env change the environment). Returns 0, or
 # 1 after a --continue stage swallowed the failure; a fatal failure exits.
 common_run() {
-    local rc
-    STAGE_CMDS[${#STAGE_CMDS[@]}]="$(common_display "$@")"
+    common_run_shown "$(common_display "$@")" "$@"
+}
+
+# common_run_shown TEXT CMD... -- common_run, but the stage records and echoes TEXT
+# in place of CMD: for a helper that stands for a real command (the port-forward
+# shows its kubectl line, not the function that babysits it).
+common_run_shown() {
+    local shown="$1" rc
+    shift
+    STAGE_CMDS[${#STAGE_CMDS[@]}]="$shown"
     STAGE_CMD_STATUS[${#STAGE_CMD_STATUS[@]}]="running"
-    common_note "${DIM}\$${RESET} $(common_display "$@")"
-    echo "\$ $(common_display "$@")"
+    common_note "${DIM}\$${RESET} $shown"
+    echo "\$ $shown"
     common_window_start
     "$@"
     rc=$?
     common_window_stop
     if [ $rc -ne 0 ]; then
         STAGE_CMD_STATUS[$((${#STAGE_CMD_STATUS[@]} - 1))]="failed"
-        common_stage_failed "$(common_display "$@") exited $rc" "$rc"
+        common_stage_failed "$shown exited $rc" "$rc"
         return 1
     fi
     STAGE_CMD_STATUS[$((${#STAGE_CMD_STATUS[@]} - 1))]="ok"
@@ -460,16 +470,25 @@ common_tdkserver_pods_running() {
 }
 
 # ---------------------------------------------------------------- kubectl / configs
-# common_portforward_start KUBECONFIG NAMESPACE SERVICE PORT -- `kubectl
+# common_kubeportforward_start KUBECONFIG NAMESPACE SERVICE PORT -- `kubectl
 # port-forward service/SERVICE PORT:PORT` in the background, its output in the
 # log, kept in PORTFORWARD_PID; returns once the local port answers (or fails
-# after ~60s). One at a time: a running forward is stopped first. The forward
-# dies with the pods it points at, so it is re-established after every
-# tdkserver start/restart, and stopped on exit (`trap common_portforward_stop EXIT`).
-common_portforward_start() {
+# after ~60s, or when kubectl exits early). One at a time: a running forward is
+# stopped first. A stage command by itself, shown as its kubectl line -- call it
+# bare, like the stop. The forward dies with the pods it points at, so it is
+# re-established after every tdkserver start/restart, and ended before a stop,
+# restart or config/env change, and on exit (`trap common_kubeportforward_stop EXIT`).
+common_kubeportforward_start() {
+    local kubeconfig="$1" namespace="$2" service="$3" port="$4"
+    common_run_shown \
+        "kubectl port-forward --kubeconfig $kubeconfig --namespace $namespace service/$service $port:$port   (background)" \
+        common_kubeportforward_launch "$kubeconfig" "$namespace" "$service" "$port"
+}
+
+# The body of the start: what common_run_shown runs and judges.
+common_kubeportforward_launch() {
     local kubeconfig="$1" namespace="$2" service="$3" port="$4" waited=0
-    common_portforward_stop
-    echo "\$ kubectl port-forward --kubeconfig $kubeconfig --namespace $namespace service/$service $port:$port   (background)"
+    common_kubeportforward_stop
     kubectl port-forward --kubeconfig "$kubeconfig" --namespace "$namespace" "service/$service" "$port:$port" >>"$LOG" 2>&1 &
     PORTFORWARD_PID=$!
     while ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; do
@@ -489,7 +508,9 @@ common_portforward_start() {
     return 0
 }
 
-common_portforward_stop() {
+# common_kubeportforward_stop -- end the forward, if one is up. Bare, in a stage or
+# from the EXIT trap; a no-op otherwise, so it is safe anywhere.
+common_kubeportforward_stop() {
     [ -n "${PORTFORWARD_PID:-}" ] || return 0
     kill "$PORTFORWARD_PID" 2>/dev/null
     wait "$PORTFORWARD_PID" 2>/dev/null

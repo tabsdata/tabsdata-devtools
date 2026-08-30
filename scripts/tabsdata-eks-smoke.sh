@@ -180,7 +180,7 @@ if [ -z "$FORCE" ]; then
 fi
 
 common_init "$LOG" "$VERBOSE"
-trap common_portforward_stop EXIT      # the forward never outlives the script
+trap common_kubeportforward_stop EXIT      # the forward never outlives the script
 
 # the generic failure block plus the EKS pieces
 common_on_stage_failed() {
@@ -380,7 +380,7 @@ common_run_retry 30 10 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIS
 common_checkpoint pods-1
 
 common_stage forward-1 "kubectl port-forward service/net-apiserver $PORT:$PORT (background)"
-common_run common_portforward_start "$KUBECONFIG_OPT" "$NAMESPACE" net-apiserver "$PORT"
+common_kubeportforward_start "$KUBECONFIG_OPT" "$NAMESPACE" net-apiserver "$PORT"
 common_checkpoint forward-1
 
 common_stage login-1 "tdk login as admin on $SERVER"
@@ -388,7 +388,9 @@ common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password t
 common_checkpoint login-1
 
 common_stage stop-1 "tdkserver stop (the port-forward dies with the pods)"
-common_portforward_stop
+# rule: end the port-forward before tabsdata stops, restarts, or takes a tdkserver
+# config or env change -- it holds the pods' connections and dies with them
+common_kubeportforward_stop
 common_run tdd tdkserver stop --instance "$INSTANCE" "${TDK_OPTS[@]}"
 common_run common_tdkserver_expect "$INSTANCE" stopped
 common_checkpoint stop-1
@@ -412,7 +414,7 @@ common_run_retry 30 10 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIS
 common_checkpoint pods-2
 
 common_stage forward-2 "kubectl port-forward service/net-apiserver $PORT:$PORT (re-established after start)"
-common_run common_portforward_start "$KUBECONFIG_OPT" "$NAMESPACE" net-apiserver "$PORT"
+common_kubeportforward_start "$KUBECONFIG_OPT" "$NAMESPACE" net-apiserver "$PORT"
 common_checkpoint forward-2
 
 common_stage login-2 "tdk login as admin on $SERVER"
@@ -430,14 +432,14 @@ done
 
 if [ -n "$KEEP" ]; then
     common_stage cleanup "keeping the whole setup as it is (--keep; the port-forward is stopped)"
-    common_portforward_stop
+    common_kubeportforward_stop
     common_note "re-establish: kubectl port-forward --kubeconfig $KUBECONFIG_OPT --namespace $NAMESPACE service/net-apiserver $PORT:$PORT &"
     common_note "then: export TDD_VENV=$VENV; tdd tdk login --server $SERVER --user admin --password ***"
     common_note "the kubeconfig's current context still points at $NAMESPACE (was: ${PREV_NAMESPACE:-none})"
     common_tabsdata_setup_info common_note
 else
     common_stage cleanup "destroy the domains, delete the instance, the namespace $NAMESPACE and the venv"
-    common_portforward_stop
+    common_kubeportforward_stop
     # xp (no --keep) destroyed its own domains; ours go youngest first -- the RDS
     # database and the bucket prefix disappear with them
     [ -z "$LLM_DOMAIN" ] || common_run tdd domain destroy --domain "$LLM_DOMAIN" --force
