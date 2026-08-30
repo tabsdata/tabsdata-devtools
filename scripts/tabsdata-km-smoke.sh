@@ -8,12 +8,14 @@
 #
 #    1  unset the TD_* variables (the crypto key is spared)   tdd env unset --td
 #    2  unset the Python index variables         tdd env unset --py-idxx --py-default-idx
-#    3  purge tabsdata from the uv and pip caches   tdd pycache clean
-#    4  stop the instance if a previous common_run still runs it, delete ~/.tabsdata
-#    5  set the descriptor crypto key            tdd env set --crypto
-#    6  create a managed venv                    tdd venv create --name V --type T --python P --force
-#    7  install tabsdata[EXTRAS] in it           uv pip install (extras default: all)
-#    8  create `dev` and `fs`, check every system the suites (and --llm) need exists   tdd system create, tdd xp list-systems
+#    3  set the descriptor crypto key            tdd env set --crypto
+#    4  create `dev` and `fs`, check every system the suites (and --llm) need
+#       exists -- UPFRONT: a run missing one must fail here, not after the
+#       cache purge, the venv and the install    tdd system create, tdd xp list-systems
+#    5  purge tabsdata from the uv and pip caches   tdd pycache clean
+#    6  stop the instance if a previous run still runs it, delete ~/.tabsdata
+#    7  create a managed venv                    tdd venv create --name V --type T --python P --force
+#    8  install tabsdata[EXTRAS] in it           uv pip install (extras default: all)
 #   8b  (--llm) create the LLM domain and read its API key   tdd domain create, tdd domain info --as export
 #    9  tdkserver quickstart (the LLM key when --llm)   tdd tdkserver quickstart --instance I --provider kminus [--<llm>-key K]
 #   9b  every expected service pod is Running    tdd tdkserver status (retried)
@@ -96,8 +98,8 @@ options:
                       delete tearing it down and trashing its folder, and the venv
                       deleted; a failed run always leaves everything standing)
   --stop-after STAGE  stop (exit 0, everything left standing) after the named
-                      stage: unset-td unset-pypi pycache delete-tabsdata
-                      set-crypto create-venv install systems [llm-domain] quickstart
+                      stage: unset-td unset-pypi set-crypto systems pycache
+                      delete-tabsdata create-venv install [llm-domain] quickstart
                       pods-1 login-1 stop-1 venv-update start pods-2 login-2 xp-<suite> (one per --suites entry,
                       / replaced by _) cleanup
   --log FILE          log file (default: /tmp/smoke-<instance>-<start time>.log)
@@ -181,7 +183,7 @@ if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
     echo "tabsdata-km-smoke: --suites needs at least one selector" >&2
     exit 1
 fi
-STAGE_NAMES=(unset-td unset-pypi pycache delete-tabsdata set-crypto create-venv install systems)
+STAGE_NAMES=(unset-td unset-pypi set-crypto systems pycache delete-tabsdata create-venv install)
 [ -n "$LLM" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="llm-domain"
 for stage in quickstart pods-1 login-1 stop-1 venv-update start pods-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
 for suite in "${SUITE_LIST[@]}"; do STAGE_NAMES[${#STAGE_NAMES[@]}]="xp-$(printf '%s' "$suite" | tr '/' '_')"; done
@@ -231,41 +233,11 @@ common_stage unset-pypi "unset the Python package index variables"
 common_run tdd env unset --py-idxx --py-default-idx
 common_checkpoint unset-pypi
 
-common_stage pycache "purge tabsdata from the uv and pip caches"
-# A republished wheel of the same version, or one from --uv-index, must not be
-# served from a stale cache entry into the venv created below.
-common_run tdd pycache clean
-common_checkpoint pycache
-
-common_stage delete-tabsdata "stop a previous $INSTANCE if still running, delete ~/.tabsdata"
-# Both from _common.sh: the instance's km processes are found by name and
-# waited out before the delete (a km winding down would otherwise SIGKILL the
-# new cluster through reused pid files), and the rm is retried.
-common_run common_instance_stop "$INSTANCE" "$TDD_DIR_OPT" "${TDK_OPTS[@]}"
-common_run common_tabsdata_home_delete
-common_checkpoint delete-tabsdata
-
 common_stage set-crypto "set _TDD_CRYPTO_KEY"
 # 1Password is asked only when the key is not set: `tdd env set --crypto`
 # skips it otherwise, and `unset --td` above left it alone.
 common_run tdd env set --crypto
 common_checkpoint set-crypto
-
-common_stage create-venv "create and activate the managed venv $VENV ($VENV_TYPE, python $PYTHON)"
-common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" --force
-common_checkpoint create-venv
-
-common_stage install "uv pip install $TABSDATA_SPEC into $VENV"
-# The venv is active in this shell from here on: uv installs into it, and the
-# programs the later stages run resolve inside it.
-# shellcheck disable=SC2086
-common_run uv pip install ${UV_INDEX_URI:+--index "$UV_INDEX_URI" --index-strategy unsafe-best-match} "$TABSDATA_SPEC"
-# uv only WARNS about an extra the package does not have, and the venv would
-# then hold an empty shell; the programs the later stages run must be there.
-for program in tdkserver tdk; do
-    common_run test -x "$(dirname "$(command -v python)")/$program"
-done
-common_checkpoint install
 
 common_stage systems "the dev and fs systems, then every system the suites need must be in the tdd store"
 # Every suite provisions on `dev`, which a fresh tdd dir lacks (--force also
@@ -285,6 +257,36 @@ done
 # there and carries its key, without printing the key.
 [ -z "$LLM" ] || common_run tdd system status --sys "$LLM"
 common_checkpoint systems
+
+common_stage pycache "purge tabsdata from the uv and pip caches"
+# A republished wheel of the same version, or one from --uv-index, must not be
+# served from a stale cache entry into the venv created below.
+common_run tdd pycache clean
+common_checkpoint pycache
+
+common_stage delete-tabsdata "stop a previous $INSTANCE if still running, delete ~/.tabsdata"
+# Both from _common.sh: the instance's km processes are found by name and
+# waited out before the delete (a km winding down would otherwise SIGKILL the
+# new cluster through reused pid files), and the rm is retried.
+common_run common_instance_stop "$INSTANCE" "$TDD_DIR_OPT" "${TDK_OPTS[@]}"
+common_run common_tabsdata_home_delete
+common_checkpoint delete-tabsdata
+
+common_stage create-venv "create and activate the managed venv $VENV ($VENV_TYPE, python $PYTHON)"
+common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" --force
+common_checkpoint create-venv
+
+common_stage install "uv pip install $TABSDATA_SPEC into $VENV"
+# The venv is active in this shell from here on: uv installs into it, and the
+# programs the later stages run resolve inside it.
+# shellcheck disable=SC2086
+common_run uv pip install ${UV_INDEX_URI:+--index "$UV_INDEX_URI" --index-strategy unsafe-best-match} "$TABSDATA_SPEC"
+# uv only WARNS about an extra the package does not have, and the venv would
+# then hold an empty shell; the programs the later stages run must be there.
+for program in tdkserver tdk; do
+    common_run test -x "$(dirname "$(command -v python)")/$program"
+done
+common_checkpoint install
 
 if [ -n "$LLM" ]; then
     common_stage llm-domain "domain $LLM_DOMAIN on $LLM, its API key for quickstart"

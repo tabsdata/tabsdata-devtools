@@ -46,8 +46,9 @@ usage: tabsdata-eks-smoke.sh --name NAME --tabsdata-version VERSION [--tabsdata-
                    [--stop-after STAGE] [--log FILE] [--tdd-dir DIR] [--verbose]
 
 A fresh tabsdata install on an EKS cluster, end to end with the tdd tools:
-unset the TD_/PyPI variables, purge tabsdata from the uv/pip caches, remove a
-previous run of the same name, set the crypto key, create a venv and install
+unset the TD_/PyPI variables, set the crypto key, CHECK THE SYSTEMS UPFRONT (a
+run missing one must fail before anything is built), purge tabsdata from the
+uv/pip caches, remove a previous run of the same name, create a venv and install
 tabsdata[EXTRAS], create the rds/s3 (and --llm) domains, create the namespace,
 tdkserver init --provider eks, fill the config files from the domains, create,
 start, port-forward to the apiserver, login, stop, update the fn/ag venvs,
@@ -93,9 +94,9 @@ options:
                       namespace deleted, venv deleted; a failed run always
                       leaves everything standing)
   --stop-after STAGE  stop (exit 0, everything left standing) after the named
-                      stage: unset-td unset-pypi pycache clean-previous set-crypto
-                      create-venv install systems domains namespace init configure
-                      create start-1 pods-1 forward-1 login-1 stop-1 venv-update
+                      stage: unset-td unset-pypi set-crypto systems pycache
+                      clean-previous create-venv install domains namespace init
+                      configure create start-1 pods-1 forward-1 login-1 stop-1 venv-update
                       start-2 pods-2 forward-2 login-2 xp-<suite> cleanup
   --log FILE          log file (default: /tmp/smoke-sm_NAME-<start time>.log)
   --tdd-dir DIR       the tdd dir to source (default: $TDD_DIR, else ~/.tdd)
@@ -188,7 +189,7 @@ if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
     echo "tabsdata-eks-smoke: --suites needs at least one selector" >&2
     exit 1
 fi
-STAGE_NAMES=(unset-td unset-pypi pycache clean-previous set-crypto create-venv install systems domains namespace init configure create start-1 pods-1 forward-1 login-1 stop-1 venv-update start-2 pods-2 forward-2 login-2)
+STAGE_NAMES=(unset-td unset-pypi set-crypto systems pycache clean-previous create-venv install domains namespace init configure create start-1 pods-1 forward-1 login-1 stop-1 venv-update start-2 pods-2 forward-2 login-2)
 for suite in "${SUITE_LIST[@]}"; do STAGE_NAMES[${#STAGE_NAMES[@]}]="xp-$(printf '%s' "$suite" | tr '/' '_')"; done
 STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
 
@@ -273,6 +274,25 @@ common_stage unset-pypi "unset the Python package index variables"
 common_run tdd env unset --py-idxx --py-default-idx
 common_checkpoint unset-pypi
 
+common_stage set-crypto "set _TDD_CRYPTO_KEY"
+common_run tdd env set --crypto
+common_checkpoint set-crypto
+
+common_stage systems "dev and fs, rdspostgres, s3 (and --llm) plus every system the suites need must be in the tdd store"
+common_run tdd system create --type dev --sys dev --force
+# fs is local plumbing like dev (grok, localfile and friends stage files on it).
+# The root must be explicit and absolute: the backend's default is
+# target/backends/<name> resolved against the CWD, which once landed inside a
+# checkout. Destroy leaves the root dir itself in place.
+common_run tdd system create --type fs --sys fs --sys-path "$TDD_DIR_OPT/data/fs-root" --force
+for suite in "${SUITE_LIST[@]}"; do
+    common_run tdd xp list-systems --suite "$suite"
+done
+common_run tdd system status --sys rdspostgres
+common_run tdd system status --sys s3
+[ -z "$LLM" ] || common_run tdd system status --sys "$LLM"
+common_checkpoint systems
+
 common_stage pycache "purge tabsdata from the uv and pip caches"
 common_run tdd pycache clean
 common_checkpoint pycache
@@ -291,10 +311,6 @@ if "${KUBECTL[@]}" get namespace "$NAMESPACE" >/dev/null 2>&1; then
 fi
 common_checkpoint clean-previous
 
-common_stage set-crypto "set _TDD_CRYPTO_KEY"
-common_run tdd env set --crypto
-common_checkpoint set-crypto
-
 common_stage create-venv "create and activate the managed venv $VENV ($VENV_TYPE, python $PYTHON)"
 common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" --force
 common_checkpoint create-venv
@@ -306,21 +322,6 @@ for program in tdkserver tdk; do
     common_run test -x "$(dirname "$(command -v python)")/$program"
 done
 common_checkpoint install
-
-common_stage systems "dev and fs, rdspostgres, s3 (and --llm) plus every system the suites need must be in the tdd store"
-common_run tdd system create --type dev --sys dev --force
-# fs is local plumbing like dev (grok, localfile and friends stage files on it).
-# The root must be explicit and absolute: the backend's default is
-# target/backends/<name> resolved against the CWD, which once landed inside a
-# checkout. Destroy leaves the root dir itself in place.
-common_run tdd system create --type fs --sys fs --sys-path "$TDD_DIR_OPT/data/fs-root" --force
-for suite in "${SUITE_LIST[@]}"; do
-    common_run tdd xp list-systems --suite "$suite"
-done
-common_run tdd system status --sys rdspostgres
-common_run tdd system status --sys s3
-[ -z "$LLM" ] || common_run tdd system status --sys "$LLM"
-common_checkpoint systems
 
 common_stage domains "domains $RDS_DOMAIN, $S3_DOMAIN${LLM:+, $LLM_DOMAIN} -- the instance's database, storage${LLM:+ and LLM key}"
 # Each domain is this run's slice of the shared system: an own database/user on
