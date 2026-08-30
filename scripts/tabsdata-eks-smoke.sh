@@ -3,27 +3,11 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-# tabsdata-eks-smoke.sh -- a fresh tabsdata install on an EKS cluster somebody
-# else runs, end to end with the tdd tools; the kminus flavour of this run is
-# tabsdata-km-smoke.sh. --help says what and in which order; each stage
-# announces itself as it runs. The EKS-specific facts:
+# Tabsdata EKS smoke test.
 #
-#   - the cluster is reached through --kubeconfig (default ~/.kube/config,
-#     exported as KUBECONFIG); `aws login` must have happened
-#   - tdkserver takes the namespace from the kubeconfig's CURRENT CONTEXT, not
-#     from a flag: the run creates sm-<name>, points the context at it, and
-#     restores the previous namespace at the end
-#   - the database and the storage are this run's domains on the shared
-#     rdspostgres and s3 systems; their values fill the `tdkserver init
-#     --provider eks` config files (dbmanager/apiserver.storage/aiagent/tabsdata)
-#   - the apiserver is not exposed: `kubectl port-forward service/net-apiserver`
-#     runs in the background, dies with the pods (so it is re-established after
-#     every start) and never outlives the script
-#   - container-connectors stays out of the default suites: its docker systems
-#     are unreachable from function pods running in EKS
-#
-# Output model, masking, stages, report, what a failure leaves standing:
-# scripts/_common.sh. The script runs in bash, not sourced.
+# Every name this run creates starts with sm_<NAME> (--name): the instance and
+# the venv ARE sm_<NAME>; domains and xp instances/projects are sm_<NAME>__<what>;
+# the k8s namespace is sm-<name>. The kminus flavour is tabsdata-km-smoke.sh.
 
 set -o pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -33,23 +17,10 @@ usage() {
 usage: tabsdata-eks-smoke.sh --name NAME --tabsdata-version VERSION [--tabsdata-extras EXTRAS]
                    [--venv-type pyenv|uv|conda] [--python-version VERSION]
                    [--kubeconfig FILE] [--uv-index URI] [--suites LIST]
-                   [--llm anthropic|openai] [--expect-pods LIST] [--keep]
+                   [--llm anthropic|openai] [--expect-pods LIST] [--force] [--keep]
                    [--stop-after STAGE] [--log FILE] [--tdd-dir DIR] [--verbose]
 
-A fresh tabsdata install on an EKS cluster, end to end with the tdd tools:
-unset the TD_/PyPI variables, set the crypto key, CHECK THE SYSTEMS UPFRONT (a
-run missing one must fail before anything is built), purge tabsdata from the
-uv/pip caches, remove a previous run of the same name, create a venv and install
-tabsdata[EXTRAS], create the rds/s3 (and --llm) domains, create the namespace,
-tdkserver init --provider eks, fill the config files from the domains, create,
-start, port-forward to the apiserver, login, stop, update the fn/ag venvs,
-start and port-forward again, login, xp one-shot per suite (failures reported,
-not fatal), then destroy the domains, delete the instance and the namespace --
-or, with --keep, leave everything running.
-
-Assumes: the kubeconfig reaches the cluster (aws login done), the namespace may
-be created by you, and the tdd store has the `rdspostgres` and `s3` systems
-(plus every system the suites need, and the --llm one).
+Tabsdata EKS smoke test.
 
 options:
   --name NAME         REQUIRED: the run's name, alphanumeric. Everything created
@@ -69,14 +40,18 @@ options:
   --uv-index URI      Python package index (default: none): used by the tabsdata
                       install and written into tabsdata.yaml (UV_INDEX) for the pods
   --suites LIST       comma-separated xp suite selectors, one stage each
-                      (default: test,tableframe_api,dataquality,grok,cloud-connectors
-                      -- container-connectors stays out: its docker systems are
-                      unreachable from function pods running in EKS)
+                      (default: test,tableframe_api,dataquality,grok/s3_examples,
+                      grok/s3_world_csv,cloud-connectors -- container-connectors and
+                      the fs-backed grok suites stay out: docker systems and local
+                      paths are unreachable from function pods running in EKS)
   --llm anthropic|openai
                       create a domain on that system (sm_NAME__llm_<llm>), read its
                       API key and write it into aiagent.yaml (default: no LLM)
   --expect-pods LIST  service names whose pods must be Running and Ready after
                       every start, per `tdkserver status` (default: srv-apiserver)
+  -f, --force         a venv, instance or namespace of this name already existing
+                      is an error unless this is given: then they are removed and
+                      recreated (default: fail)
   --keep              on success, leave everything as it is: instance running,
                       namespace, domains, venv, xp setups (xp one-shot --keep);
                       the port-forward is still stopped -- the closing report
@@ -108,7 +83,10 @@ TABSDATA_EXTRAS="all"
 KUBECONFIG_OPT="$HOME/.kube/config"
 PORT="2457"              # tdkserver's apiserver port; the port-forward mirrors it locally
 UV_INDEX_URI=""
-SUITES="test,tableframe_api,dataquality,grok,cloud-connectors"
+# grok only through its s3 sub-suites: the fs-backed ones stage files on a local
+# path the EKS function pods cannot see.
+SUITES="test,tableframe_api,dataquality,grok/s3_examples,grok/s3_world_csv,cloud-connectors"
+FORCE=""                 # 1 with --force; empty otherwise
 KEEP=""                  # 1 with --keep; empty otherwise (so ${KEEP:+--keep} works)
 STOP_AFTER=""
 LOG=""
@@ -130,6 +108,7 @@ while [ $# -gt 0 ]; do
         --kubeconfig) KUBECONFIG_OPT="$2"; shift 2 ;;
         --uv-index) UV_INDEX_URI="$2"; shift 2 ;;
         --suites) SUITES="$2"; shift 2 ;;
+        --force | -f) FORCE=1; shift ;;
         --keep) KEEP=1; shift ;;
         --stop-after) STOP_AFTER="$2"; shift 2 ;;
         --log) LOG="$2"; shift 2 ;;
@@ -183,6 +162,23 @@ STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
 
 # shellcheck disable=SC1091
 . "$HERE/_common.sh"
+
+# What this run would create must not already exist -- someone's setup could be
+# behind those names. --force says they are ours to replace.
+if [ -z "$FORCE" ]; then
+    EXISTING=""
+    for d in "$TDD_DIR_OPT"/managed-venvs/*/"$VENV"; do
+        [ -e "$d" ] && EXISTING="$EXISTING venv:$d"
+    done
+    [ -e "$HOME/.tabsdata/instances/$INSTANCE" ] && EXISTING="$EXISTING instance:$HOME/.tabsdata/instances/$INSTANCE"
+    "${KUBECTL[@]}" get namespace "$NAMESPACE" >/dev/null 2>&1 && EXISTING="$EXISTING namespace:$NAMESPACE"
+    if [ -n "$EXISTING" ]; then
+        echo "tabsdata-eks-smoke: already exists:$EXISTING" >&2
+        echo "tabsdata-eks-smoke: pass --force to delete and recreate them, or pick another --name" >&2
+        exit 1
+    fi
+fi
+
 common_init "$LOG" "$VERBOSE"
 trap common_portforward_stop EXIT      # the forward never outlives the script
 
@@ -237,6 +233,7 @@ common_screen "  --uv-index          $(common_display "${UV_INDEX_URI:-(none)}")
 common_screen "  --suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
 common_screen "  --llm               ${LLM:-(none)}${LLM:+   -> domain $LLM_DOMAIN}"
 common_screen "  --expect-pods       $EXPECT_PODS"
+common_screen "  --force             $([ -n "$FORCE" ] && echo "yes (replace an existing venv/instance/namespace)" || echo "no (an existing one is an error)")"
 common_screen "  --keep              $([ -n "$KEEP" ] && echo "yes (also: xp one-shot --keep)" || echo "no (domains, instance, namespace and venv deleted at the end)")"
 common_screen "  --stop-after        ${STOP_AFTER:-(run everything)}"
 common_screen "  --log               $LOG"
@@ -283,7 +280,7 @@ common_stage pycache "purge tabsdata from the uv and pip caches"
 common_run tdd pycache clean
 common_checkpoint pycache
 
-common_stage clean-previous "remove what a previous $INSTANCE run left: instance folder, namespace"
+common_stage clean-previous "remove what a previous $INSTANCE left (--force; nothing exists otherwise)"
 # scoped to THIS run's names; the namespace delete waits -- a create over a
 # Terminating namespace fails confusingly
 if [ -d "$HOME/.tabsdata/instances/$INSTANCE" ]; then
@@ -297,7 +294,8 @@ fi
 common_checkpoint clean-previous
 
 common_stage create-venv "create and activate the managed venv $VENV ($VENV_TYPE, python $PYTHON)"
-common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" --force
+# shellcheck disable=SC2086
+common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" ${FORCE:+--force}
 common_checkpoint create-venv
 
 common_stage install "uv pip install $TABSDATA_SPEC into $VENV"

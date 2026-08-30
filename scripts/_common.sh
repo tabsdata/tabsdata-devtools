@@ -19,7 +19,6 @@
 #   common_instance_pids NAME             pids of the km processes of a tdkserver instance
 #   common_instance_stop NAME TDD_DIR [OPTS...]
 #                                         stop an instance a previous run left, wait it out
-#   common_tabsdata_home_delete           rm -rf ~/.tabsdata, retried
 #   common_tdkserver_expect NAME running|stopped
 #   common_instance_gone NAME             no km process and no folder left after a delete
 #   common_tdkserver_pods_running NAME SERVICE...
@@ -417,18 +416,6 @@ common_instance_stop() {
     fi
     echo "instance $instance gone after ${waited}s"
     return 0
-}
-
-# rm -rf ~/.tabsdata, retried: a process winding down may still write into it
-# ("Directory not empty"). Meant for `common_run`.
-common_tabsdata_home_delete() {
-    local attempt
-    for attempt in 1 2 3; do
-        echo "\$ rm -rf $HOME/.tabsdata   (attempt $attempt)"
-        rm -rf "$HOME/.tabsdata" 2>/dev/null && break
-        sleep 3
-    done
-    [ ! -e "$HOME/.tabsdata" ]
 }
 
 # common_tdkserver_pods_running NAME SERVICE... -- the Pods table of

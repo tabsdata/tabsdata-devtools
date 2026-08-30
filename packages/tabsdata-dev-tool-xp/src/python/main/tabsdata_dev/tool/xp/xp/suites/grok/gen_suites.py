@@ -149,6 +149,28 @@ S3_EXAMPLE_LAYOUT = Layout(
     ),
 )
 
+# The S3 TESTS: world_csv with the source swapped -- gk_s3wc imports each case's
+# transformer and subscriber and redefines only the publisher on S3Src.
+S3_TEST_LAYOUT = Layout(
+    src="gk_src", ops="gk_ops", sink="gk_sink",
+    domains=[S3_WORLD_DOMAIN, DEV_DOMAIN],
+    collections=[
+        {"name": "gk_src", "type": "s3_file_in",
+         "connection_template": "connection-file:connections/s3_file_in.yaml",
+         "group": "sources", "domains": {"D0": "s3_world_xs"}},
+        {"name": "gk_ops", "type": "transform", "group": "ops"},
+        {"name": "gk_sink", "type": "trash_out",
+         "connection_template": "connection-file:connections/trash_out.yaml",
+         "group": "destinations", "domains": {"D0": "dev"}},
+    ],
+    chain=(
+        "Every test is a pub->tfr->sub chain over gk_src (S3Src with "
+        "SrcFileFormat.LOG, globbing the staged world CSVs out of the S3 domain's "
+        "bucket prefix) / gk_ops and gk_sink (the SAME transformer and subscriber "
+        "objects as world_csv, imported by gk_s3wc.py -- both are connection-less)."
+    ),
+)
+
 # category -> (comment, [file stems], layout)
 CATEGORIES: dict[str, tuple[str, list[str], Layout]] = {
     "world_csv": (
@@ -176,6 +198,13 @@ CATEGORIES: dict[str, tuple[str, list[str], Layout]] = {
         "ONLY the publisher's source and the subscriber's destination.",
         ["gk_s3ex"],
         S3_EXAMPLE_LAYOUT,
+    ),
+    "s3_world_csv": (
+        "The world_csv tests with the storage swapped to S3: the same grok calls and "
+        "the same assertions, reading the staged world CSVs from an S3 domain instead "
+        "of a local fs one. Only the publishers differ.",
+        ["gk_s3wc"],
+        S3_TEST_LAYOUT,
     ),
 }
 

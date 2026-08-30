@@ -3,17 +3,10 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-# tabsdata-km-smoke.sh -- a fresh tabsdata (kubernetes flavour) install
-# exercised end to end with the tdd tools: venv, install, tdkserver quickstart,
-# login, fn/ag venv update, the xp suites, teardown. --help says what and in
-# which order; each stage announces itself as it runs.
+# Tabsdata Kminus smoke test.
 #
 # Every name this run creates starts with sm_<NAME> (--name): the instance and
 # the venv ARE sm_<NAME>; domains and xp instances/projects are sm_<NAME>__<what>.
-#
-# Output model, masking, stages, report, what a failure leaves standing:
-# scripts/_common.sh. The script runs in bash, not sourced: `tdd venv`/`tdd env`
-# change THIS process's environment, and the venv stays active across stages.
 
 set -o pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -23,16 +16,10 @@ usage() {
 usage: tabsdata-km-smoke.sh --name NAME --tabsdata-version VERSION [--tabsdata-extras EXTRAS]
                    [--venv-type pyenv|uv|conda] [--python-version VERSION] [--port PORT]
                    [--uv-index URI] [--suites LIST] [--llm anthropic|openai]
-                   [--expect-pods LIST] [--keep] [--stop-after STAGE] [--log FILE]
+                   [--expect-pods LIST] [--force] [--keep] [--stop-after STAGE] [--log FILE]
                    [--tdd-dir DIR] [--verbose]
 
-A fresh tabsdata install exercised end to end with the tdd tools: unset the
-TD_/PyPI variables, purge tabsdata from the uv/pip caches, stop a previous
-instance and delete ~/.tabsdata, set the crypto key, create a venv and
-install tabsdata[EXTRAS], tdkserver quickstart, login, stop, update the fn/ag
-venvs with the DB drivers, start, login, xp one-shot for every suite in --suites
-(a suite failure is reported but does not stop the run), then delete the running
-instance and the venv -- or, with --keep, leave everything running.
+Tabsdata Kminus smoke test.
 
 options:
   --name NAME         REQUIRED: the run's name, alphanumeric. Everything created is
@@ -64,6 +51,9 @@ options:
   --expect-pods LIST  comma-separated service names whose pods must be Running
                       and Ready after quickstart and after start, per
                       `tdkserver status` (default: srv-apiserver,srv-database)
+  -f, --force         a venv or instance named sm_NAME already existing is an
+                      error unless this is given: then the venv is recreated and
+                      the previous instance stopped and removed first (default: fail)
   --keep              on success, leave the whole setup as it is at the end:
                       the instance running and logged in, the venv in place, the
                       LLM domain, and -- passed on as `xp one-shot --keep` -- every
@@ -96,6 +86,7 @@ TABSDATA_EXTRAS="all"
 PORT="10000"
 UV_INDEX_URI=""
 SUITES="test,tableframe_api,dataquality,grok,container-connectors,cloud-connectors"
+FORCE=""                 # 1 with --force; empty otherwise
 KEEP=""                  # 1 with --keep; empty otherwise (so ${KEEP:+--keep} works)
 STOP_AFTER=""
 LOG=""
@@ -117,6 +108,7 @@ while [ $# -gt 0 ]; do
         --port) PORT="$2"; shift 2 ;;
         --uv-index) UV_INDEX_URI="$2"; shift 2 ;;
         --suites) SUITES="$2"; shift 2 ;;
+        --force | -f) FORCE=1; shift ;;
         --keep) KEEP=1; shift ;;
         --stop-after) STOP_AFTER="$2"; shift 2 ;;
         --log) LOG="$2"; shift 2 ;;
@@ -153,7 +145,7 @@ if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
     echo "tabsdata-km-smoke: --suites needs at least one selector" >&2
     exit 1
 fi
-STAGE_NAMES=(unset-td unset-pypi set-crypto systems pycache delete-tabsdata create-venv install)
+STAGE_NAMES=(unset-td unset-pypi set-crypto systems pycache clean-previous create-venv install)
 [ -n "$LLM" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="llm-domain"
 for stage in quickstart pods-1 login-1 stop-1 venv-update start pods-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
 for suite in "${SUITE_LIST[@]}"; do STAGE_NAMES[${#STAGE_NAMES[@]}]="xp-$(printf '%s' "$suite" | tr '/' '_')"; done
@@ -161,6 +153,23 @@ STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
 
 # shellcheck disable=SC1091
 . "$HERE/_common.sh"
+
+# What this run would create must not already exist -- someone's setup could be
+# behind those names. --force says they are ours to replace.
+if [ -z "$FORCE" ]; then
+    EXISTING=""
+    for d in "$TDD_DIR_OPT"/managed-venvs/*/"$VENV"; do
+        [ -e "$d" ] && EXISTING="$EXISTING venv:$d"
+    done
+    [ -e "$HOME/.tabsdata/instances/$INSTANCE" ] && EXISTING="$EXISTING instance:$HOME/.tabsdata/instances/$INSTANCE"
+    pgrep -f "instances/$INSTANCE/" >/dev/null 2>&1 && EXISTING="$EXISTING running-instance:$INSTANCE"
+    if [ -n "$EXISTING" ]; then
+        echo "tabsdata-km-smoke: already exists:$EXISTING" >&2
+        echo "tabsdata-km-smoke: pass --force to stop/delete and recreate them, or pick another --name" >&2
+        exit 1
+    fi
+fi
+
 common_init "$LOG" "$VERBOSE"
 
 common_screen "tabsdata-km-smoke: effective options"
@@ -174,6 +183,7 @@ common_screen "  --uv-index          $(common_display "${UV_INDEX_URI:-(none)}")
 common_screen "  --suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
 common_screen "  --llm               ${LLM:-(none)}${LLM:+   -> domain $LLM_DOMAIN}"
 common_screen "  --expect-pods       $EXPECT_PODS"
+common_screen "  --force             $([ -n "$FORCE" ] && echo "yes (replace an existing venv/instance)" || echo "no (an existing venv/instance is an error)")"
 common_screen "  --keep              $([ -n "$KEEP" ] && echo "yes (also: xp one-shot --keep)" || echo "no (domains, instance and venv deleted at the end)")"
 common_screen "  --stop-after        ${STOP_AFTER:-(run everything)}"
 common_screen "  --log               $LOG"
@@ -222,15 +232,19 @@ common_stage pycache "purge tabsdata from the uv and pip caches"
 common_run tdd pycache clean
 common_checkpoint pycache
 
-common_stage delete-tabsdata "stop a previous $INSTANCE if still running, delete ~/.tabsdata"
+common_stage clean-previous "stop and remove a previous $INSTANCE (--force; nothing exists otherwise)"
 # The old instance's processes are waited out first: a km winding down would
-# SIGKILL the new cluster through reused pid files.
+# SIGKILL the new cluster through reused pid files. Scoped to THIS instance --
+# other instances under ~/.tabsdata are not this run's to touch.
 common_run common_instance_stop "$INSTANCE" "$TDD_DIR_OPT" "${TDK_OPTS[@]}"
-common_run common_tabsdata_home_delete
-common_checkpoint delete-tabsdata
+if [ -e "$HOME/.tabsdata/instances/$INSTANCE" ]; then
+    common_run rm -rf "$HOME/.tabsdata/instances/$INSTANCE"
+fi
+common_checkpoint clean-previous
 
 common_stage create-venv "create and activate the managed venv $VENV ($VENV_TYPE, python $PYTHON)"
-common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" --force
+# shellcheck disable=SC2086
+common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" ${FORCE:+--force}
 common_checkpoint create-venv
 
 common_stage install "uv pip install $TABSDATA_SPEC into $VENV"
