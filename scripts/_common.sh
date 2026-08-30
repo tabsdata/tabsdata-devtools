@@ -14,6 +14,7 @@
 #   common_run_shown TEXT CMD...          same, echoing and recording TEXT instead of CMD
 #   common_run_retry N PAUSE CMD...       same, retried up to N times PAUSE seconds apart
 #   common_note TEXT                      a line under the stage, collapsed with the rest
+#   common_remark TEXT                    a yellow line after the stage that stays (closes it as ok)
 #   common_checkpoint NAME                --stop-after: exit 0 after NAME with a report
 #   common_finish                         report + final verdict; the exit status
 #   common_display CMD...                 CMD as text with credentials masked
@@ -142,6 +143,15 @@ common_fit() {
 common_note() {
     common_screen "    $(common_fit "$1")"
     STAGE_LINES=$((STAGE_LINES + 1))
+}
+
+# A yellow line that STAYS on the screen: a note under a stage collapses with
+# it when the stage passes, so this closes the running stage as ok first and
+# prints outside any stage -- for a workaround or a caveat the reader should
+# still see once the run has gone green.
+common_remark() {
+    common_stage_ok
+    common_screen "    ${YELLOW}$1${RESET}"
 }
 
 # ---------------------------------------------------------------- window

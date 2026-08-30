@@ -156,7 +156,9 @@ if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
     echo "tabsdata-eks-smoke: --suites needs at least one selector" >&2
     exit 1
 fi
-STAGE_NAMES=(unset-td unset-pypi set-crypto systems pycache clean-previous create-venv install domains namespace init configure create start-1 pods-1 forward-1 login-1 stop-1 venv-update start-2 pods-2 forward-2 login-2)
+STAGE_NAMES=(unset-td unset-pypi set-crypto systems pycache clean-previous create-venv install)
+[ "$TABSDATA_VERSION" = "2.0.2" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="cdc-driver"
+for stage in domains namespace init configure create start-1 pods-1 forward-1 login-1 stop-1 venv-update start-2 pods-2 forward-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
 for suite in "${SUITE_LIST[@]}"; do STAGE_NAMES[${#STAGE_NAMES[@]}]="xp-$(printf '%s' "$suite" | tr '/' '_')"; done
 STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
 
@@ -305,6 +307,18 @@ for program in tdkserver tdk; do
     common_run test -x "$(dirname "$(command -v python)")/$program"
 done
 common_checkpoint install
+
+# tabsdata 2.0.2 ships no psycopg2 with its Postgres connector (it sits in the
+# `test` extra), yet the CDC plugin imports it when tdk loads the connectors, so
+# every postgrescdc collection create fails. Until tabsdata ships it, put it in
+# the client venv for that version -- and say so, since it is not tabsdata's own.
+if [ "$TABSDATA_VERSION" = "2.0.2" ]; then
+    common_stage cdc-driver "tabsdata 2.0.2 workaround: psycopg2-binary into $VENV for the Postgres CDC plugin"
+    # shellcheck disable=SC2086
+    common_run uv pip install ${UV_INDEX_URI:+--index "$UV_INDEX_URI" --index-strategy unsafe-best-match} psycopg2-binary==2.9.11
+    common_checkpoint cdc-driver
+    common_remark "workaround: tabsdata 2.0.2 ships no psycopg2 with its Postgres connector; psycopg2-binary was installed into $VENV so the CDC plugin loads"
+fi
 
 common_stage domains "domains $RDS_DOMAIN, $S3_DOMAIN${LLM:+, $LLM_DOMAIN} -- the instance's database, storage${LLM:+ and LLM key}"
 # Each domain is this run's slice of the shared system. Values are eval'd into
