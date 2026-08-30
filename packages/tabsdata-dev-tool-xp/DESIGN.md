@@ -18,7 +18,9 @@ provision domains, create the project, register functions and triggers, run, che
   `container-connectors` (docker/local systems) and `cloud-connectors` (lanes needing a cloud
   store or warehouse: az, bigquery, clickhouse, databricks, gcs, s3, snowflake, starrocks); `--suite <type>/<name>|<type>` selects under them or under
   `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
-- `bin-reqs`: `tdk`, `tdkserver`. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run
+- No `bin-reqs`: xp reaches tdk and tdkserver only through `tdd tdk`/`tdd tdkserver`,
+  and those launchers declare the binaries themselves -- the requirement belongs to the
+  command that runs the program. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run
   under `/tmp/tdd-xp/`.
 
 ## How it works
