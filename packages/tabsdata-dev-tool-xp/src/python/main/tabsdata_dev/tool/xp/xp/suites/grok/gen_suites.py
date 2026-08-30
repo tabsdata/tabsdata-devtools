@@ -49,6 +49,9 @@ WORLD_DOMAIN = {"name": "fs_world_xs", "system": "fs", "model": "world", "data":
 # plain file domain the examples write their parquet output into.
 DEV_DOMAIN = {"name": "dev", "system": "dev", "model": None, "data": None}
 OUT_DOMAIN = {"name": "fs_out", "system": "fs", "model": None, "data": None}
+# The S3 twins: the same world staging, in a bucket prefix instead of a directory.
+S3_WORLD_DOMAIN = {"name": "s3_world_xs", "system": "s3", "model": "world", "data": "xs"}
+S3_OUT_DOMAIN = {"name": "s3_out", "system": "s3", "model": None, "data": None}
 
 
 @dataclass(frozen=True)
@@ -121,6 +124,31 @@ EXAMPLE_LAYOUT = Layout(
     ),
 )
 
+# The S3 EXAMPLES: the examples suite with the storage swapped -- the transformers are
+# the SAME objects (gk_s3ex imports them); only the publisher's source and the
+# subscriber's destination change, which is the point.
+S3_EXAMPLE_LAYOUT = Layout(
+    src="gk_logs", ops="gk_marts", sink="gk_out",
+    domains=[S3_WORLD_DOMAIN, S3_OUT_DOMAIN],
+    collections=[
+        {"name": "gk_logs", "type": "s3_file_in",
+         "connection_template": "connection-file:connections/s3_file_in.yaml",
+         "group": "sources", "domains": {"D0": "s3_world_xs"}},
+        {"name": "gk_marts", "type": "transform", "group": "marts"},
+        {"name": "gk_out", "type": "s3_file_out",
+         "connection_template": "connection-file:connections/s3_file_out.yaml",
+         "group": "destinations", "domains": {"D0": "s3_out"}},
+    ],
+    chain=(
+        "Each example is a pub->tfr->sub chain over gk_logs (S3Src with "
+        "SrcFileFormat.LOG, globbing the staged world CSVs out of the S3 domain's "
+        "bucket prefix) / gk_marts (the SAME transformer objects as the examples "
+        "suite, imported by gk_s3ex.py, since a transform collection has no "
+        "connection) / gk_out (S3Dest, landing the same parquet names in the S3 out "
+        "domain)."
+    ),
+)
+
 # category -> (comment, [file stems], layout)
 CATEGORIES: dict[str, tuple[str, list[str], Layout]] = {
     "world_csv": (
@@ -140,6 +168,14 @@ CATEGORIES: dict[str, tuple[str, list[str], Layout]] = {
         "join between two separately parsed logs.",
         ["gk_ex_cities", "gk_ex_langs", "gk_ex_join"],
         EXAMPLE_LAYOUT,
+    ),
+    "s3_examples": (
+        "The examples suite with the storage swapped to S3: the same TableFrame.grok "
+        "transformers, but the log lines are read from an S3 domain and the parquet "
+        "marts land in one. What changes between local files and an object store is "
+        "ONLY the publisher's source and the subscriber's destination.",
+        ["gk_s3ex"],
+        S3_EXAMPLE_LAYOUT,
     ),
 }
 
