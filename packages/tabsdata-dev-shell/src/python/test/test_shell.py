@@ -254,6 +254,18 @@ def test_venv_exports_tdd_venv_for_the_launchers():
     assert "unset _TDD_VENV _TDD_VENV_PS1" in text
 
 
+def test_venv_delete_all_shares_the_removal_and_refuses_an_active_venv():
+    text = (shell.scripts_dir() / "venv.sh").read_text()
+    assert "_tdd_venv_remove() {" in text
+    assert (
+        text.count('_tdd_venv_remove "$_tdd_name"') == 3
+    )  # delete, --all, create --force
+    body = text.split("_tdd_venv_delete() {", 1)[1].split("\n}\n", 1)[0]
+    assert "--all)" in body and '"--all and --name are exclusive"' in body
+    assert '"$_TDD_VENV is active; run tdd venv deactivate first"' in body
+    assert '"delete|--all|false"' in text
+
+
 def test_venv_adopts_a_managed_venv_active_without_the_record():
     # The twin of common.core.managedvenv.adopted(): a venv under
     # managed-venvs/<type>/<name> whose marker agrees is ours however it was

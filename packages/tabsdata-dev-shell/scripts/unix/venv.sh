@@ -13,7 +13,7 @@
 #     tdd venv create --name NAME [--type pyenv|uv|conda] [--python VERSION]
 #     tdd venv activate --name NAME
 #     tdd venv deactivate
-#     tdd venv delete --name NAME
+#     tdd venv delete (--name NAME | --all)
 #     tdd venv list
 #
 # Activating and deactivating change this shell, which is why the whole group
@@ -35,7 +35,7 @@ tdd_fn_register venv "create, activate, deactivate, delete or list managed venvs
 # Built-in option defaults, for `tdd defaults --command venv`.
 tdd_defaults_venv() {
     printf '%s\n' "create|--type|pyenv" "create|--python|" "create|--name|" \
-        "create|--force|false" "activate|--name|" "delete|--name|"
+        "create|--force|false" "activate|--name|" "delete|--name|" "delete|--all|false"
 }
 
 tddfn_venv() {
@@ -61,7 +61,7 @@ tddfn_venv() {
             _tdd_rc=1
             ;;
     esac
-    unset _tdd_sub _tdd_name _tdd_type _tdd_python _tdd_dir _tdd_envf _tdd_out _tdd_prefix _tdd_py _tdd_f _tdd_rows _tdd_json _tdd_mark _tdd_current _tdd_prev _tdd_ps1 _tdd_prev_type _tdd_force _tdd_recreated _tdd_kind _tdd_p _tdd_star _tdd_aname _tdd_atype _tdd_adir
+    unset _tdd_sub _tdd_name _tdd_type _tdd_python _tdd_dir _tdd_envf _tdd_out _tdd_prefix _tdd_py _tdd_f _tdd_rows _tdd_json _tdd_mark _tdd_current _tdd_prev _tdd_ps1 _tdd_prev_type _tdd_force _tdd_recreated _tdd_kind _tdd_p _tdd_star _tdd_aname _tdd_atype _tdd_adir _tdd_all
     return "$_tdd_rc"
 }
 
@@ -75,7 +75,7 @@ usage: tdd venv create --name NAME [--type {pyenv,uv,conda}]
                        [--python VERSION] [--force]
        tdd venv activate --name NAME
        tdd venv deactivate
-       tdd venv delete --name NAME
+       tdd venv delete (--name NAME | --all)
        tdd venv list
 
 Managed virtualenvs, all under $TDD_DIR/managed-venvs/<type>/<name>. A
@@ -96,11 +96,13 @@ commands:
                 one tdd did not activate: venv/uv through its deactivate,
                 pyenv-virtualenv through pyenv deactivate, conda through
                 conda deactivate
-  delete        remove it and its marker; refuses while it is active
+  delete        remove it and its marker; refuses while it is active. --all
+                removes every managed venv, none of which may be active
   list          every managed venv with its type and path
 
 options:
   --name NAME              the venv
+  --all                    delete: every managed venv instead of one
   -f, --force              create: delete NAME first if it exists (leaving it
                            if it is the active one)
   --type {pyenv,uv,conda}  the tool that creates it (default: pyenv)
@@ -129,6 +131,19 @@ _tdd_venv_parse_name() {
                 ;;
         esac
     done
+    return 0
+}
+
+# Remove the managed venv NAME of TYPE: conda forgets the prefix first (the rm
+# covers a partial env), then the directory and the marker go. Shared by
+# delete, delete --all and create --force.
+_tdd_venv_remove() {
+    if [ "$2" = conda ] && [ -d "$(_tdd_venv_root)/conda/$1" ]; then
+        conda env remove -y -q --prefix "$(_tdd_venv_root)/conda/$1" >/dev/null 2>&1
+    fi
+    rm -rf "$(_tdd_venv_root)/$2/$1" || { _tdd_error "could not remove $(_tdd_venv_root)/$2/$1"; return 1; }
+    rm -f "$(_tdd_venv_root)/$1.env"
+    _tdd_debug "removed $1 ($2)"
     return 0
 }
 
@@ -214,11 +229,7 @@ _tdd_venv_create() {
             _tdd_venv_leave
             _tdd_debug "deactivated $_tdd_name"
         fi
-        if [ "$_tdd_prev_type" = conda ] && [ -d "$(_tdd_venv_root)/conda/$_tdd_name" ]; then
-            conda env remove -y -q --prefix "$(_tdd_venv_root)/conda/$_tdd_name" >/dev/null 2>&1
-        fi
-        rm -rf "$(_tdd_venv_root)/$_tdd_prev_type/$_tdd_name" || { _tdd_error "could not remove the old $_tdd_name"; return 1; }
-        rm -f "$_tdd_envf"
+        _tdd_venv_remove "$_tdd_name" "$_tdd_prev_type" || return 1
         _tdd_recreated="re"
         unset _tdd_prev_type
     fi
@@ -559,14 +570,61 @@ PYENV_VIRTUAL_ENV=${PYENV_VIRTUAL_ENV:-}"
 }
 
 _tdd_venv_delete() {
-    _tdd_venv_parse_name "$@" || return 1
+    _tdd_name=""
+    _tdd_all=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --all)
+                _tdd_all=1
+                shift
+                ;;
+            --name | --name=*)
+                _tdd_optval "$@" || { _tdd_error "--name needs a value"; return 1; }
+                _tdd_name="$_TDD_OPTVAL"
+                shift "$_TDD_CONSUMED"
+                ;;
+            *)
+                _tdd_common_opt "$@" || { _tdd_error "unknown option: $1 (see --help)"; return 1; }
+                shift "$_TDD_CONSUMED"
+                ;;
+        esac
+    done
     if [ "$_TDD_HELP" = 1 ]; then
         _tdd_venv_help
         return 0
     fi
     _tdd_cmd_check || return 1
+    _tdd_venv_adopt
+    if [ -n "$_tdd_all" ]; then
+        if [ -n "$_tdd_name" ]; then
+            _tdd_error "--all and --name are exclusive"
+            return 1
+        fi
+        # None may be active: the same rule as for one, and it keeps this from
+        # pulling the venv the shell stands in out from under it.
+        if [ -n "${_TDD_VENV:-}" ]; then
+            _tdd_error "$_TDD_VENV is active; run tdd venv deactivate first"
+            return 1
+        fi
+        _tdd_rows=""
+        _tdd_json=""
+        for _tdd_f in $(find "$(_tdd_venv_root)" -maxdepth 1 -name '*.env' 2>/dev/null | sort); do
+            _tdd_name="$(basename "$_tdd_f" .env)"
+            _tdd_type="$(cat "$_tdd_f")"
+            _tdd_info "delete $_tdd_name ($_tdd_type)"
+            _tdd_venv_remove "$_tdd_name" "$_tdd_type" || return 1
+            _tdd_rows="$_tdd_rows${_tdd_rows:+, }$_tdd_name ($_tdd_type)"
+            _tdd_json="$_tdd_json${_tdd_json:+,}{\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\"}"
+        done
+        if [ -z "$_tdd_rows" ]; then
+            _tdd_ok "no managed venvs to delete" '"deleted":[]'
+        else
+            _tdd_ok "deleted $_tdd_rows" "\"deleted\":[$_tdd_json]"
+        fi
+        return 0
+    fi
     if [ -z "$_tdd_name" ]; then
-        _tdd_error "--name is required"
+        _tdd_error "--name NAME or --all is required"
         return 1
     fi
     _tdd_venv_resolve || return 1
@@ -575,13 +633,7 @@ _tdd_venv_delete() {
         return 1
     fi
     _tdd_info "delete $_tdd_name ($_tdd_type)"
-    if [ "$_tdd_type" = conda ] && [ -d "$_tdd_dir" ]; then
-        # Lets conda forget the prefix too; the rm below covers a partial env.
-        conda env remove -y -q --prefix "$_tdd_dir" >/dev/null 2>&1
-    fi
-    rm -rf "$_tdd_dir" || { _tdd_error "could not remove $_tdd_dir"; return 1; }
-    rm -f "$_tdd_envf"
-    _tdd_debug "delete $_tdd_name ($_tdd_type): done"
+    _tdd_venv_remove "$_tdd_name" "$_tdd_type" || return 1
     _tdd_ok "deleted $_tdd_name ($_tdd_type)" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\""
 }
 
