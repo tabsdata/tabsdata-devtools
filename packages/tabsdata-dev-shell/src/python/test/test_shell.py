@@ -318,7 +318,7 @@ def test_env_routes_set_unset_show_and_owns_every_managed_variable():
         # the tdd dir itself survives any prefix
         "TDD_DIR kept (tdd needs it; never unset)",
         "--vars | --vars=*)",
-        "--py-idxx | --py-idxx=*)",
+        "--py-idx | --py-idx=*)",
         "--py-default-idx | --py-default-idx=*)",
         "--reveal)",
     ):

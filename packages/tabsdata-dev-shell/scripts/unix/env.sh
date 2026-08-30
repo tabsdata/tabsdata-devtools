@@ -13,7 +13,7 @@
 #                                                  the prefixes, which is how unset knows what to remove
 #     td         TD_*                              (unset only)
 #     vars       <PREFIX>*                         (unset only)
-#     py-idxx    UV_INDEX, PIP_EXTRA_INDEX_URL     the extra Python package index, with UV_INDEX_STRATEGY=
+#     py-idx     UV_INDEX, PIP_EXTRA_INDEX_URL     the extra Python package index, with UV_INDEX_STRATEGY=
 #                                                  unsafe-best-match so uv considers it (+ legacy UV_EXTRA_INDEX_URL on unset)
 #     py-default-idx  UV_DEFAULT_INDEX, PIP_INDEX_URL  the default index (+ legacy UV_INDEX_URL on unset)
 #
@@ -70,9 +70,9 @@ tddfn_env() {
 
 _tdd_vars_help() {
     _tdd_help_text <<'HELP'
-usage: tdd env set (--crypto | --secrets | --py-idxx URL | --py-default-idx URL)...
+usage: tdd env set (--crypto | --secrets | --py-idx URL | --py-default-idx URL)...
                    [--vault VAULT] [--item ITEM] [--field FIELD] [--force]
-       tdd env unset (--crypto | --secrets | --td | --vars PREFIX | --py-idxx
+       tdd env unset (--crypto | --secrets | --td | --vars PREFIX | --py-idx
                      | --py-default-idx)...
        tdd env show [--reveal]
 
@@ -110,7 +110,7 @@ options:
                        among them -- --secrets and --crypto remove those
   --vars PREFIX        unset: every variable starting with PREFIX (repeatable).
                        TDD_DIR, the tdd dir itself, is never unset
-  --py-idxx [URL]      the extra Python package index: UV_INDEX and
+  --py-idx [URL]       the extra Python package index: UV_INDEX and
                        PIP_EXTRA_INDEX_URL, plus UV_INDEX_STRATEGY=unsafe-best-match
                        so uv considers it (set needs URL; unset also clears the
                        legacy UV_EXTRA_INDEX_URL)
@@ -175,8 +175,8 @@ _tdd_vars_set() {
             --field | --field=*)
                 _tdd_optval "$@" || { _tdd_error "--field needs a value"; return 1; }
                 _tdd_field="$_TDD_OPTVAL"; shift "$_TDD_CONSUMED" ;;
-            --py-idxx | --py-idxx=*)
-                _tdd_optval "$@" || { _tdd_error "--py-idxx needs a URL"; return 1; }
+            --py-idx | --py-idx=*)
+                _tdd_optval "$@" || { _tdd_error "--py-idx needs a URL"; return 1; }
                 _tdd_py_extra="$_TDD_OPTVAL"; shift "$_TDD_CONSUMED" ;;
             --py-default-idx | --py-default-idx=*)
                 _tdd_optval "$@" || { _tdd_error "--py-default-idx needs a URL"; return 1; }
@@ -192,7 +192,7 @@ _tdd_vars_set() {
     fi
     _tdd_cmd_check || return 1
     if [ "$_tdd_crypto" = 0 ] && [ "$_tdd_secrets" = 0 ] && [ -z "$_tdd_py_extra" ] && [ -z "$_tdd_py_default" ]; then
-        _tdd_error "nothing selected: --crypto, --secrets, --py-idxx URL and/or --py-default-idx URL (see --help)"
+        _tdd_error "nothing selected: --crypto, --secrets, --py-idx URL and/or --py-default-idx URL (see --help)"
         return 1
     fi
     _tdd_kept=""
@@ -269,7 +269,7 @@ _tdd_vars_unset() {
             --vars | --vars=*)
                 _tdd_optval "$@" || { _tdd_error "--vars needs a PREFIX"; return 1; }
                 _tdd_prefixes="$_tdd_prefixes $_TDD_OPTVAL"; shift "$_TDD_CONSUMED" ;;
-            --py-idxx | --py-idxx=*) _tdd_py_extra=1; shift ;;
+            --py-idx | --py-idx=*) _tdd_py_extra=1; shift ;;
             --py-default-idx | --py-default-idx=*) _tdd_py_default=1; shift ;;
             *)
                 _tdd_common_opt "$@" || { _tdd_error "unknown option: $1 (see --help)"; return 1; }
@@ -282,7 +282,7 @@ _tdd_vars_unset() {
     fi
     _tdd_cmd_check || return 1
     if [ "$_tdd_crypto" = 0 ] && [ "$_tdd_secrets" = 0 ] && [ "$_tdd_td" = 0 ] && [ -z "$_tdd_prefixes" ] && [ "$_tdd_py_extra" = 0 ] && [ "$_tdd_py_default" = 0 ]; then
-        _tdd_error "nothing selected: --crypto, --secrets, --td, --vars PREFIX, --py-idxx and/or --py-default-idx (see --help)"
+        _tdd_error "nothing selected: --crypto, --secrets, --td, --vars PREFIX, --py-idx and/or --py-default-idx (see --help)"
         return 1
     fi
     _tdd_unset_names=""

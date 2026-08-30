@@ -255,7 +255,7 @@ common_run tdd env unset --td
 common_checkpoint unset-td
 
 common_stage unset-pypi "unset the Python package index variables"
-common_run tdd env unset --py-idxx --py-default-idx
+common_run tdd env unset --py-idx --py-default-idx
 common_checkpoint unset-pypi
 
 common_stage set-crypto "set _TDD_CRYPTO_KEY"
