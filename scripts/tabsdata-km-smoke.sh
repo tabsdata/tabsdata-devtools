@@ -4,33 +4,33 @@
 #
 
 # tabsdata-km-smoke.sh -- a fresh tabsdata (kubernetes flavour) install exercised
-# end to end with the tdd tools:
+# end to end with the tdd tools. The stages, named as the screen and --stop-after
+# name them (numbers rot; the screen counts what actually runs):
 #
-#    1  unset the TD_* variables (the crypto key is spared)   tdd env unset --td
-#    2  unset the Python index variables         tdd env unset --py-idxx --py-default-idx
-#    3  set the descriptor crypto key            tdd env set --crypto
-#    4  create `dev` and `fs`, check every system the suites (and --llm) need
-#       exists -- UPFRONT: a run missing one must fail here, not after the
-#       cache purge, the venv and the install    tdd system create, tdd xp list-systems
-#    5  purge tabsdata from the uv and pip caches   tdd pycache clean
-#    6  stop the instance if a previous run still runs it, delete ~/.tabsdata
-#    7  create a managed venv                    tdd venv create --name V --type T --python P --force
-#    8  install tabsdata[EXTRAS] in it           uv pip install (extras default: all)
-#   8b  (--llm) create the LLM domain and read its API key   tdd domain create, tdd domain info --as export
-#    9  tdkserver quickstart (the LLM key when --llm)   tdd tdkserver quickstart --instance I --provider kminus [--<llm>-key K]
-#   9b  every expected service pod is Running    tdd tdkserver status (retried)
-#   10  log in                                   tdd tdk login (retried until the server answers)
-#   11  stop the instance                        tdd tdkserver stop
-#   12  update the instance's fn and ag venvs with the DB drivers below   tdd tdkserver venv update
-#   13  start the instance                       tdd tdkserver start
-#  13b  every expected service pod is Running    tdd tdkserver status (retried)
-#   14  log in
-#   15  one stage per suite in --suites (default: test tableframe_api dataquality grok
-#       container-connectors cloud-connectors), continue on error   tdd xp one-shot --suite S --project P [--keep]
-#   16  destroy the domains this run created, delete the RUNNING instance
-#       (tdkserver delete needs its cluster up to tear the workloads down; the
-#       folder is trashed) and the venv -- unless --keep, which leaves everything
-#       running for a look and is passed on to xp so its setups stay too
+#   unset-td         unset every TD_* variable        tdd env unset --td (the crypto key is spared)
+#   unset-pypi       unset the Python index variables tdd env unset --py-idxx --py-default-idx
+#   set-crypto       the descriptor crypto key        tdd env set --crypto
+#   systems          create dev and fs, then check UPFRONT that every system the
+#                    suites (and --llm) need is in the store -- a run missing one
+#                    must fail here, before anything is built   tdd system create, tdd xp list-systems
+#   pycache          purge tabsdata from the uv/pip caches      tdd pycache clean
+#   delete-tabsdata  stop a previous instance still running, delete ~/.tabsdata
+#   create-venv      create + activate the managed venv         tdd venv create --force
+#   install          uv pip install tabsdata[EXTRAS]==VERSION into it
+#   llm-domain       (--llm only) the LLM domain and its API key for quickstart
+#   quickstart       tdd tdkserver quickstart --provider kminus [--<llm>-key K]
+#   pods-1           every expected service pod Running         tdd tdkserver status (retried)
+#   login-1          tdd tdk login (retried: login IS the readiness probe)
+#   stop-1           tdd tdkserver stop
+#   venv-update      the fn and ag venvs get the DB drivers     tdd tdkserver venv update
+#   start            tdd tdkserver start
+#   pods-2           as pods-1
+#   login-2          as login-1
+#   xp-<suite>       one per --suites entry, continue on error  tdd xp one-shot --project P [--keep]
+#   cleanup          destroy the run's domains, delete the RUNNING instance
+#                    (tdkserver delete needs its cluster up; the folder is trashed)
+#                    and the venv -- unless --keep, which leaves everything running
+#                    and is passed on to xp so its setups stay too
 #
 # Every name this run creates starts with sm_<NAME> (--name): the instance and
 # the venv ARE sm_<NAME>; domains and xp instances/projects are sm_<NAME>__<what>.
