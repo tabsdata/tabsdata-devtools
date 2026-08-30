@@ -10,7 +10,7 @@ requires-python = ">=3.12,<3.13"
 # A SQL system needs its SQLAlchemy *dialect*, not just its driver: the dialect
 # is what registers the name in Backend.driver (clickhousedb <- clickhouse-connect,
 # snowflake <- snowflake-sqlalchemy, databricks <- databricks-sqlalchemy).
-# ibm_db has no arm64 wheels; the db2 backends stay importable without it.
+# ibm_db builds against the IBM clidriver its install downloads -- natively on arm64 too.
 dependencies = [
     "pytest==9.1.1",
     "pydantic==2.13.5",
@@ -35,8 +35,9 @@ dependencies = [
     "clickhouse-connect==1.7.2",
     "confluent-kafka==2.15.0",
     "fastavro==1.12.2",
-    "protobuf==7.36.0",    "ibm_db==3.2.6; platform_machine != 'aarch64' and platform_machine != 'arm64'",
-    "ibm_db_sa==0.4.1; platform_machine != 'aarch64' and platform_machine != 'arm64'",
+    "protobuf==7.36.0",
+    "ibm_db==3.2.6",
+    "ibm_db_sa==0.4.1",
 ]
 
 # Several drivers ship no wheels for the newest CPython yet; this toolset's
