@@ -247,10 +247,14 @@ common_stage create-venv "create and activate the managed venv $VENV ($VENV_TYPE
 common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" ${FORCE:+--force}
 common_checkpoint create-venv
 
-common_stage install "uv pip install $TABSDATA_SPEC into $VENV"
+common_stage install "uv pip install $TABSDATA_SPEC and the drivers into $VENV"
 # the venv stays active in this shell: later stages resolve programs inside it
+# The drivers go into the client venv too, not only the instance's fn/ag venvs
+# (venv-update): a CDC connector plugin imports its driver when tdk loads the
+# connectors, and tabsdata[all] brings none (2.0.2 has psycopg2 in `test` only).
+printf '%s\n' "$REQUIREMENTS" > "$WORK/requirements.txt"
 # shellcheck disable=SC2086
-common_run uv pip install ${UV_INDEX_URI:+--index "$UV_INDEX_URI" --index-strategy unsafe-best-match} "$TABSDATA_SPEC"
+common_run uv pip install ${UV_INDEX_URI:+--index "$UV_INDEX_URI" --index-strategy unsafe-best-match} "$TABSDATA_SPEC" -r "$WORK/requirements.txt"
 # uv only WARNS about a nonexistent extra -- the programs must really be there
 for program in tdkserver tdk; do
     common_run test -x "$(dirname "$(command -v python)")/$program"
