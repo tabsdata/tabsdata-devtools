@@ -545,10 +545,13 @@ common_instance_gone() {
 
 # common_tdkserver_expect NAME running|stopped -- `tdd tdkserver status` on the
 # instance, asserting the state a stage just produced. tdkserver exits 0 either
-# way; the stopped case says `Instance 'NAME' is not running.`, the running one
-# lists the workloads. Meant for `common_run`, right after a quickstart/start/stop
-# -- those return before the state is fully settled, and a start that "worked"
-# but left nothing running is exactly what this catches.
+# way. kminus says `Instance 'NAME' is not running.` when stopped and lists the
+# workloads otherwise; eks always draws the Deployments/Pods/CronJobs/Jobs tables
+# and says nothing -- stopped is the tables being empty. So a sentence decides
+# when there is one, else the Deployments and Pods rows do: none means stopped.
+# Meant for `common_run`, right after a quickstart/start/stop -- those return
+# before the state is fully settled, and a start that "worked" but left nothing
+# running is exactly what this catches.
 common_tdkserver_expect() {
     local instance="$1" expect="$2" out rc
     out="$(tdd tdkserver status --instance "$instance" --accept-terms y 2>&1)"
@@ -561,6 +564,8 @@ common_tdkserver_expect() {
     case "$out" in
         *"does not exist"*) rc=missing ;;
         *"is not running"* | *"is stopped"* | *"was already stopped"*) rc=stopped ;;
+        *"Deployments"*"┌"*)
+            if [ "$(common_tdkserver_workload_rows "$out")" -gt 0 ]; then rc=running; else rc=stopped; fi ;;
         *) rc=running ;;
     esac
     if [ "$rc" != "$expect" ]; then
@@ -569,6 +574,20 @@ common_tdkserver_expect() {
     fi
     echo "instance $instance is $expect, as expected"
     return 0
+}
+
+# common_tdkserver_workload_rows OUTPUT -- how many data rows the Deployments and
+# Pods tables of a `tdkserver status` listing hold (the rows between a table's
+# `├` rule and its `└` bottom). Jobs and CronJobs are left out: a completed init
+# job can outlive a stop, a deployment or pod cannot.
+common_tdkserver_workload_rows() {
+    printf '%s\n' "$1" | awk '
+        /^(Deployments|Pods)[[:space:]]*$/ { keep = 1; next }
+        /^(CronJobs|Jobs)[[:space:]]*$/    { keep = 0; next }
+        /^├/ { body = 1; next }
+        /^└/ { body = 0; next }
+        keep && body && /^│/ { n++ }
+        END { print n + 0 }'
 }
 
 # common_tabsdata_setup_info common_screen|common_note -- what a smoke script's setup looks like
