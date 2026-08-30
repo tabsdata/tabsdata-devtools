@@ -624,9 +624,9 @@ common_tabsdata_setup_info() {
     fi
     "$out" "instance   $INSTANCE -- $running; folder $HOME/.tabsdata/instances/$INSTANCE"
     "$out" "venv       $VENV ($VENV_TYPE) at $TDD_DIR_OPT/managed-venvs/$VENV_TYPE/$VENV"
-    "$out" "use them   export TDD_VENV=$VENV; tdd tdk status; tdd tdkserver status --instance $INSTANCE --accept-terms y"
-    "$out" "stop       TDD_VENV=$VENV tdd tdkserver stop --instance $INSTANCE -y --accept-terms y"
-    "$out" "remove     TDD_VENV=$VENV tdd tdkserver delete --instance $INSTANCE --trash true -y --accept-terms y; tdd venv delete --name $VENV"
+    "$out" "use them   export _TDD_VENV=$VENV; tdd tdk status; tdd tdkserver status --instance $INSTANCE --accept-terms y"
+    "$out" "stop       _TDD_VENV=$VENV tdd tdkserver stop --instance $INSTANCE -y --accept-terms y"
+    "$out" "remove     _TDD_VENV=$VENV tdd tdkserver delete --instance $INSTANCE --trash true -y --accept-terms y; tdd venv delete --name $VENV"
     # Domains the script created itself (SMOKE_DOMAINS) and the xp
     # instances/projects it named (XP_PROJECTS), each with its teardown.
     for d in ${SMOKE_DOMAINS:-}; do

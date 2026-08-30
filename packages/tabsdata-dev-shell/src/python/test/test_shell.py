@@ -248,10 +248,10 @@ def test_common_sh_declares_awk_for_the_help_layout():
 
 def test_venv_exports_tdd_venv_for_the_launchers():
     # tdk/tdkserver (common.core.managedvenv) read the active venv from
-    # TDD_VENV; the shell side must publish exactly that name.
+    # _TDD_VENV; the shell side must publish exactly that name.
     text = (shell.scripts_dir() / "venv.sh").read_text()
-    assert 'TDD_VENV="$_tdd_name"' in text and "export TDD_VENV" in text
-    assert "unset TDD_VENV TDD_VENV_PS1" in text
+    assert '_TDD_VENV="$_tdd_name"' in text and "export _TDD_VENV" in text
+    assert "unset _TDD_VENV _TDD_VENV_PS1" in text
 
 
 def test_venv_create_has_force_and_deactivate_handles_every_kind():

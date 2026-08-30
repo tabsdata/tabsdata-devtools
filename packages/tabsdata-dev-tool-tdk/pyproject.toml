@@ -5,7 +5,7 @@
 [project]
 name = "tabsdata-dev-tool-tdk"
 dynamic = ["version"]
-description = "run tabsdata's tdk CLI inside the managed venv named by $TDD_VENV"
+description = "run tabsdata's tdk CLI inside the managed venv named by $_TDD_VENV"
 requires-python = ">=3.11"
 dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
 

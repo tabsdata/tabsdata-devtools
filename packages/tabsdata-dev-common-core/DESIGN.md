@@ -17,7 +17,7 @@ dependencies are declared as ranges; each toolset's lock pins them.
   import freely); `tool_argv()`/`run_tool()` reach a sibling tool through `tdd-exe`, never an import.
 - `batch` -- parallel child runs on the event model, heaviest first, bounded by `TDD_PARALLELISM`
   (default 10); `parallel.map_bounded()` for plain fan-out.
-- `managedvenv` + `launcher` -- run a program inside the `tdd venv` named by `TDD_VENV`: uv via
+- `managedvenv` + `launcher` -- run a program inside the `tdd venv` named by `_TDD_VENV`: uv via
   `VIRTUAL_ENV=DIR uv run --active --no-project`, conda via `conda run --prefix DIR`, pyenv via
   `DIR/bin/CMD` with `bin/` first on `PATH`; refuses when the program is not in that venv.
 - `secrets` (1Password: `<PREFIX>__<KEY>` variables plus `_TDD_SYSTEMS`, the prefix list),

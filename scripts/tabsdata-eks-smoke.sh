@@ -188,7 +188,7 @@ common_on_stage_failed() {
     common_screen "$(basename "$0"): left for you to look at"
     common_tabsdata_setup_info common_indented
     common_indented "namespace  $NAMESPACE on the cluster of $KUBECONFIG_OPT -- kubectl delete namespace $NAMESPACE (the context still points at it)"
-    common_indented "reach it   kubectl port-forward --kubeconfig $KUBECONFIG_OPT --namespace $NAMESPACE service/net-apiserver $PORT:$PORT &   then: TDD_VENV=$VENV tdd tdk login --server $SERVER"
+    common_indented "reach it   kubectl port-forward --kubeconfig $KUBECONFIG_OPT --namespace $NAMESPACE service/net-apiserver $PORT:$PORT &   then: _TDD_VENV=$VENV tdd tdk login --server $SERVER"
 }
 
 # fill_storage FILE -- the twelve positional ${{secret}} of apiserver.storage.yaml:
@@ -434,7 +434,7 @@ if [ -n "$KEEP" ]; then
     common_stage cleanup "keeping the whole setup as it is (--keep; the port-forward is stopped)"
     common_kubeportforward_stop
     common_note "re-establish: kubectl port-forward --kubeconfig $KUBECONFIG_OPT --namespace $NAMESPACE service/net-apiserver $PORT:$PORT &"
-    common_note "then: export TDD_VENV=$VENV; tdd tdk login --server $SERVER --user admin --password ***"
+    common_note "then: export _TDD_VENV=$VENV; tdd tdk login --server $SERVER --user admin --password ***"
     common_note "the kubeconfig's current context still points at $NAMESPACE (was: ${PREV_NAMESPACE:-none})"
     common_tabsdata_setup_info common_note
 else

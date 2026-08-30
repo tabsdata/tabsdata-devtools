@@ -6,7 +6,7 @@
 
 `tdd venv` keeps them under ``<tdd_dir>/managed-venvs/<manager>/<name>`` with a
 ``<name>.env`` marker beside the manager directories holding the manager
-(pyenv, uv or conda), and exports ``TDD_VENV=<name>`` while one is active. A
+(pyenv, uv or conda), and exports ``_TDD_VENV=<name>`` while one is active. A
 tool that must run *inside* the user's venv rather than its own toolset --
 the tdk launchers -- resolves that here and gets the argv that runs a program
 in it through the venv's manager, keeping the caller's cwd.
@@ -20,7 +20,7 @@ import pathlib
 from . import datadir
 from .errors import ToolError
 
-ENV_ACTIVE = "TDD_VENV"
+ENV_ACTIVE = "_TDD_VENV"
 MARKER_SUFFIX = ".env"
 MANAGERS = ("pyenv", "uv", "conda")
 
@@ -30,7 +30,7 @@ def root() -> pathlib.Path:
 
 
 def active() -> str:
-    """The name in $TDD_VENV, or a ToolError saying how to get one."""
+    """The name in $_TDD_VENV, or a ToolError saying how to get one."""
     name = os.environ.get(ENV_ACTIVE, "").strip()
     if not name:
         raise ToolError(

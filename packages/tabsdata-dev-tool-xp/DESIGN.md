@@ -25,7 +25,7 @@ provision domains, create the project, register functions and triggers, run, che
 
 ## How it works
 
-- Talks to the server only through `tdd tdk` (`proc.tool_argv`), so `TDD_VENV` must name a venv
+- Talks to the server only through `tdd tdk` (`proc.tool_argv`), so `_TDD_VENV` must name a venv
   with tabsdata installed; provisions through `tdd domain create|destroy --manifest --format
   json`, parsing the batch events.
 - `--secret-env` names the variable holding the domain crypto key (default `_TDD_CRYPTO_KEY`)

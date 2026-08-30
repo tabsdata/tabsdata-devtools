@@ -68,8 +68,8 @@ holds the user's system and domain descriptors.
     `tdd_fn_register --demo`), a listing concern only.
 12. **A `-deps-*` may pin its interpreter** with `[tool.tdd] python = "3.12"`.
 13. **Generic code goes in `common-core`, family code in a `common-<family>`.**
-14. **Variables**: `TDD_*` public (`TDD_DIR`, `TDD_VENV`, `TDD_PARALLELISM`), `_TDD_*` private
-    to the tool chain (`_TDD_TOOL`, `_TDD_COMMON_SH`, `_TDD_CRYPTO_KEY`, `_TDD_SYSTEMS`,
+14. **Variables**: `TDD_*` public (`TDD_DIR`, `TDD_PARALLELISM`), `_TDD_*` private
+    to the tool chain (`_TDD_TOOL`, `_TDD_VENV`, `_TDD_COMMON_SH`, `_TDD_CRYPTO_KEY`, `_TDD_SYSTEMS`,
     `_TDD_XP_*`), `TD_*` tabsdata's, `<SYSTEM>__<KEY>` a system's config.
 15. **Every command speaks events** through the shared layer of its side (`common.sh`;
     `common.core.cli.run()`/`render`; `tabsdata_dev.tdd.render`, the byte-identical twin —

@@ -10,8 +10,8 @@ shell command.
 
 - Layout: `managed-venvs/<name>.env` holds the type, `managed-venvs/<type>/<name>/` the venv.
   `create` (`--type`, `--python`, `--force` to recreate even the active one) ends in activation.
-- Activation exports `TDD_VENV` (what `tdd tdk|tdkserver|km` read), saves the prompt in
-  `TDD_VENV_PS1` and writes `(<type>/<python>/<name>)` in green after the red `* ` of
+- Activation exports `_TDD_VENV` (what `tdd tdk|tdkserver|km` read), saves the prompt in
+  `_TDD_VENV_PS1` and writes `(<type>/<python>/<name>)` in green after the red `* ` of
   `tdd-source.sh`; the managers' own prompt markers are silenced. `deactivate` leaves whatever
   is active -- managed, or best effort a venv activated by hand (uv/venv, pyenv-virtualenv,
   conda) -- and restores the prompt. A foreign active venv blocks `create`/`activate`.

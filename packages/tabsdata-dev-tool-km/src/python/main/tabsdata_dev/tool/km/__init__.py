@@ -6,7 +6,7 @@
 
 The km CLI is installed per project into a venv that `tdd venv` manages, not
 into a toolset, so this tool cannot pin it: it finds the venv through
-$TDD_VENV and runs the real km there (common.core.launcher), from the cwd
+$_TDD_VENV and runs the real km there (common.core.launcher), from the cwd
 the user is in.
 """
 
@@ -21,7 +21,7 @@ NAME = "km"
 
 def main() -> int:
     return launcher.run(
-        NAME, "run tabsdata's km CLI inside the managed venv named by $TDD_VENV"
+        NAME, "run tabsdata's km CLI inside the managed venv named by $_TDD_VENV"
     )
 
 

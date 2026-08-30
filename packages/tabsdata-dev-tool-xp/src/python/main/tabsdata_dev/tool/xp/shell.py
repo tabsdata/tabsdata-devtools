@@ -6,7 +6,7 @@
 
 tdk lives in the user's managed venv and is reached through the `tdk` launcher
 (``proc.tool_argv("tdk", …)`` -> ``tdd-exe … tdk``), so xp needs neither tdk
-on its PATH nor tabsdata in its own toolset -- it needs ``TDD_VENV`` to name a
+on its PATH nor tabsdata in its own toolset -- it needs ``_TDD_VENV`` to name a
 venv with tabsdata installed, which the launcher checks. `domain` is the
 sibling tool in this toolset, reached the same way.
 """

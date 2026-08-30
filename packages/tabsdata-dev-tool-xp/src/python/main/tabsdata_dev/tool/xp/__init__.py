@@ -17,7 +17,7 @@ PROJECT is created on the server from an instance. Pointers live under
 scratch dir under ``/tmp/tdd-xp/``, announced at startup.
 
 tdk runs inside the managed venv `tdd venv` activated (``tdd tdk``, so
-``TDD_VENV`` must be set); domains are provisioned by ``tdd domain`` off a
+``_TDD_VENV`` must be set); domains are provisioned by ``tdd domain`` off a
 manifest this tool writes.
 
     tdd xp list-suites [--suites-dir DIR]

@@ -186,10 +186,10 @@ def test_managedvenv_needs_tdd_venv_and_points_at_tdd_venv(monkeypatch):
     from tabsdata_dev.common.core import managedvenv
     from tabsdata_dev.common.core.errors import ToolError
 
-    monkeypatch.delenv("TDD_VENV", raising=False)
+    monkeypatch.delenv("_TDD_VENV", raising=False)
     with pytest.raises(ToolError, match="tdd venv"):
         managedvenv.active()
-    monkeypatch.setenv("TDD_VENV", "work")
+    monkeypatch.setenv("_TDD_VENV", "work")
     assert managedvenv.active() == "work"
 
 

@@ -512,16 +512,16 @@ _tdd_load_commands
 _tdd_star="$(_tdd_ps1_wrap red '*') "
 if [ -n "${_TDD_PROMPT_MARK:-}" ]; then
     PS1="${PS1/"$_TDD_PROMPT_MARK"/}"
-    [ -n "${TDD_VENV_PS1:-}" ] && TDD_VENV_PS1="${TDD_VENV_PS1/"$_TDD_PROMPT_MARK"/}"
+    [ -n "${_TDD_VENV_PS1:-}" ] && _TDD_VENV_PS1="${_TDD_VENV_PS1/"$_TDD_PROMPT_MARK"/}"
 else
     # Before the marker was remembered it was written without the space.
     _tdd_old="$(_tdd_ps1_wrap red '*')"
     PS1="${PS1/"$_tdd_old"/}"
-    [ -n "${TDD_VENV_PS1:-}" ] && TDD_VENV_PS1="${TDD_VENV_PS1/"$_tdd_old"/}"
+    [ -n "${_TDD_VENV_PS1:-}" ] && _TDD_VENV_PS1="${_TDD_VENV_PS1/"$_tdd_old"/}"
     unset _tdd_old
 fi
 PS1="$_tdd_star${PS1-}"
-[ -n "${TDD_VENV_PS1:-}" ] && TDD_VENV_PS1="$_tdd_star$TDD_VENV_PS1"
+[ -n "${_TDD_VENV_PS1:-}" ] && _TDD_VENV_PS1="$_tdd_star$_TDD_VENV_PS1"
 _TDD_PROMPT_MARK="$_tdd_star"
 unset _tdd_star
 

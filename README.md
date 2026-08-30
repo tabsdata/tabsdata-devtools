@@ -27,11 +27,11 @@ echo 'source ~/.tdd/tdd-source.sh' >> ~/.zshrc   # .zshrc, not .zprofile: tdd is
 
 ```bash
 tdd --help              # everything there is (--demo adds the samples); tdd info, tdd doctor, tdd --reqs
-tdd venv --help         # managed pyenv/uv/conda venvs; activation exports TDD_VENV
+tdd venv --help         # managed pyenv/uv/conda venvs; activation exports _TDD_VENV
 tdd env --help          # this shell's variables: crypto key and secrets from 1Password, TD_*, Python indexes
 tdd system --help       # external systems for testing: databases in docker, object stores, services
 tdd domain --help       # domains inside those systems: schemas, generated data, change sets
-tdd tdk --help          # run tabsdata's tdk (also tdkserver, km) inside the venv TDD_VENV names
+tdd tdk --help          # run tabsdata's tdk (also tdkserver, km) inside the venv _TDD_VENV names
 tdd xp --help           # the bundled tabsdata example suites: list-suites, one-shot --suite <type>/<name>
 tdd pycache --help      # purge tabsdata from the uv/pip caches
 tdd defaults --command venv   # a command's option defaults: built-in vs your default-opts
