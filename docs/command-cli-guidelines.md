@@ -25,7 +25,8 @@ alike. A command that does not is a bug. Short, because each rule is absolute.
 | `--format json\|view` | output format, default `view` |
 
 Everything after the command word belongs to the command: `tdd <command> --help` is the
-command's help, not `tdd`'s. The one exception to the rules below are the launchers (`tdd tdk`,
+command's help, not `tdd`'s, and it is shown even when the command's `bin-reqs` are missing --
+reading what a command does never depends on what the machine has installed. The one exception to the rules below are the launchers (`tdd tdk`,
 `tdd tdkserver`, `tdd km`): they own no options, so `--help`, `--format` and everything else reach the
 program they run; only their own failures before it runs follow this contract.
 

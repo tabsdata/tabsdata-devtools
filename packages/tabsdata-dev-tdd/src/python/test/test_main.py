@@ -108,6 +108,22 @@ def test_dispatch_refuses_when_a_declared_binary_is_missing(
     event = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert event["event"] == "error" and event["missing"] == ["surely-not-a-binary-xyz"]
     assert "tdd --reqs demo" in event["message"]
+    # one binary per line, the reason beside it
+    lines = event["message"].splitlines()
+    assert lines[0] == "demo needs 1 required binary that is not on PATH:"
+    assert lines[1].startswith("  surely-not-a-binary-xyz  ")
+    # help never depends on what is installed: the check is skipped and the
+    # tool is exec'd (our fake exec records the call instead)
+    called = []
+    monkeypatch.setattr(
+        os,
+        "execve",
+        lambda exe, argv, env: called.append(argv)
+        or (_ for _ in ()).throw(SystemExit(0)),
+    )
+    with pytest.raises(SystemExit):
+        dispatch_mod.dispatch(tmp_path, "demo", ["--help"], out)
+    assert called and called[0][1:] == ["--help"]
 
 
 def test_a_shim_counts_only_when_its_manager_wires_it(tmp_path, monkeypatch):

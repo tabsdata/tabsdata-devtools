@@ -76,6 +76,17 @@ def resolve(binary: str) -> tuple[str | None, str]:
     return None, f"{manager} shim at {found} is not wired: {why}"
 
 
+def missing_details(binaries: list[str]) -> list[tuple[str, str]]:
+    """The declared binaries not usable from the ambient PATH, each with why
+    (empty when simply absent) -- for a message that lists them one per line."""
+    out = []
+    for binary in binaries:
+        path, note = resolve(binary)
+        if path is None:
+            out.append((binary, note))
+    return out
+
+
 def missing(binaries: list[str]) -> list[str]:
     """The declared binaries not usable from the ambient PATH -- on purpose the
     ambient one: a req is something the machine must already provide, not

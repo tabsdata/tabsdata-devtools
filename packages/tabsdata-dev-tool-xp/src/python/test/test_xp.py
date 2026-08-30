@@ -343,3 +343,36 @@ def test_the_built_in_suites_ship_with_the_package_and_export(
         suites.resolve("test/test", out / "suites")[0]
         == out / "suites" / "test" / "test.json"
     )
+
+
+def test_a_lane_step_re_emitted_with_model_keys_does_not_clash(xp_root, capsys):
+    # The dispatcher hands emit_step a child's whole JSON event -- command,
+    # event and message included -- which used to collide with the renderer's
+    # own arguments (TypeError: multiple values for 'message') on every fan-out.
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import reporter, state
+
+    state.bind(render.Renderer("xp", fmt="json"), type("A", (), {})())
+    event = {
+        "command": "xp",
+        "event": "warn",
+        "message": "demo/one - [1/2] - create-domain - d - 0.10s FAILED",
+        "xp": "step",
+        "suite": "demo/one",
+        "n": 1,
+        "total": 2,
+        "action": "create-domain",
+        "path": "d",
+        "seconds": 0.1,
+        "ok": False,
+        "note": "",
+        "step_error": "boom",
+        "log": "/tmp/x.log",
+    }
+    reporter.emit_step({**event, "lane": "one"}, prefix="[1/4] ")
+    line = json.loads(capsys.readouterr().out.strip())
+    assert (
+        line["event"] == "warn"
+        and line["message"].startswith("[1/4] demo/one - [1/2]")
+        and line["lane"] == "one"
+    )

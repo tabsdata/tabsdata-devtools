@@ -309,3 +309,6 @@ def test_env_routes_set_unset_show_and_owns_every_managed_variable():
 def test_the_loader_checks_that_a_pyenv_shim_is_wired():
     text = shell.source_template()
     assert 'pyenv which "$_tdd_b"' in text and "*/shims/*)" in text
+    # help is never blocked by a missing requirement
+    assert "--help | -h) unset _tdd_a; return 0" in text
+    assert '_tdd_fn_check_reqs "$_tdd_cmd" "$@"' in text

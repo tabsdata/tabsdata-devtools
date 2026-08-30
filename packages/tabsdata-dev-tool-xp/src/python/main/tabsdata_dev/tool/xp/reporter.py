@@ -281,13 +281,22 @@ def render_step(event: dict) -> str:
 
 def emit_step(event: dict, prefix: str = "") -> None:
     """A step as an event: info when it passed, warn when it failed; the
-    rendered line is the message, the step is the fields."""
+    rendered line is the message, the step is the fields. A step re-emitted
+    from a lane arrives as the child's whole event, model keys included; those
+    are the renderer's to write, not fields."""
     text = prefix + render_step(event)
     if event.get("step_error"):
         text += "\n" + "\n".join(
             f"        {line}" for line in str(event["step_error"]).splitlines()
         )
-    (state.run.out.info if event.get("ok", True) else state.run.out.warn)(text, **event)
+    fields = {
+        k: v
+        for k, v in event.items()
+        if k not in ("command", "event", "message", "log")
+    }
+    (state.run.out.info if event.get("ok", True) else state.run.out.warn)(
+        text, **fields
+    )
 
 
 def render_summary(doc: dict) -> str:

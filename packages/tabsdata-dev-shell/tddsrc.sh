@@ -158,9 +158,15 @@ _tdd_fn_has() {
 # up front with the whole list beats failing halfway through with a bare
 # "command not found" -- and it is what makes the declaration honest.
 _tdd_fn_check_reqs() {
+    # Help never depends on what the machine has installed.
+    for _tdd_a in "$@"; do
+        case "$_tdd_a" in --help | -h) unset _tdd_a; return 0 ;; esac
+    done
+    unset _tdd_a
     _tdd_missing=""
     for _tdd_b in $(printf '%s\n' "$TDD_FN_COMMANDS" | grep "^$1|" | cut -d'|' -f4); do
-        _tdd_p="$(command -v "$_tdd_b" 2>/dev/null)" || { _tdd_missing="$_tdd_missing $_tdd_b"; continue; }
+        _tdd_p="$(command -v "$_tdd_b" 2>/dev/null)" || { _tdd_missing="$_tdd_missing
+  $_tdd_b  not found"; continue; }
         # A pyenv shim stands in for every program any pyenv version ever had;
         # only `pyenv which` says whether the CURRENT one provides it.
         case "$_tdd_p" in
@@ -169,7 +175,8 @@ _tdd_fn_check_reqs() {
                     _tdd_real="$(pyenv which "$_tdd_b" 2>/dev/null)"
                     # wired = a real program, not the shim itself or another shim
                     case "$_tdd_real" in
-                        "" | "$_tdd_p" | */shims/*) _tdd_missing="$_tdd_missing $_tdd_b(pyenv shim not wired)" ;;
+                        "" | "$_tdd_p" | */shims/*) _tdd_missing="$_tdd_missing
+  $_tdd_b  pyenv shim at $_tdd_p is not wired (pyenv which $_tdd_b finds no program)" ;;
                     esac
                 fi
                 ;;
@@ -178,8 +185,10 @@ _tdd_fn_check_reqs() {
     if [ -n "$_tdd_missing" ]; then
         _tdd_cmd_reset
         _TDD_CMD="$1"
-        _tdd_error "missing required binaries:$_tdd_missing (declared in the command's bin-reqs.txt; see tdd --reqs)"
-        unset _tdd_missing _tdd_b _tdd_p _tdd_real
+        _tdd_n="$(printf '%s\n' "$_tdd_missing" | grep -c '^  ')"
+        _tdd_error "$1 needs $_tdd_n required binar$([ "$_tdd_n" = 1 ] && echo 'y that is' || echo 'ies that are') not on PATH:$_tdd_missing
+install $([ "$_tdd_n" = 1 ] && echo it || echo them); \`tdd --reqs $1\` lists every requirement"
+        unset _tdd_missing _tdd_b _tdd_p _tdd_real _tdd_n
         return 1
     fi
     unset _tdd_missing _tdd_b
@@ -328,7 +337,7 @@ tdd-fn() {
     if _tdd_fn_has "$1"; then
         _tdd_cmd="$1"
         shift
-        _tdd_fn_check_reqs "$_tdd_cmd" || return $?
+        _tdd_fn_check_reqs "$_tdd_cmd" "$@" || return $?
         # For every event and the failure log: the command word, and the
         # command line as typed. A group refines _TDD_CMD to its subcommand.
         _TDD_CMD="$_tdd_cmd"
