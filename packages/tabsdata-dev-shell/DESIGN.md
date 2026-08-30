@@ -24,7 +24,10 @@ executable cannot do -- change the calling shell (venvs, variables, prompt).
 
 - `tdd-source.sh` locates itself (so `TDD_DIR` follows a moved dir), loads `common.sh`, sources
   every command file and builds a `name|summary|kind|reqs` registry -- a string, so bash 3.2 and
-  zsh both work; summaries may not contain `|`. Sourcing never fails and checks nothing.
+  zsh both work; summaries may not contain `|`. Sourcing never fails and checks nothing; in an
+  interactive shell it ends with `tdd <version> installed at <dir> -- tdd -h for help`, a blank
+  line either side (silent otherwise:
+  scp/rsync over ssh read the rc too).
 - The `tdd` function routes: registry hit -> `tdd-fn` (checks the command's bin-reqs first,
   `--help` excepted), else `tdd-exe` through a wrapper that keeps that env off `PATH`. It applies
   `default-opts` via `tdd-exe --defaults`, warns off and unsets a `_TDD_TOOL` found in the shell,

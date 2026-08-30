@@ -358,3 +358,13 @@ def test_prompt_marks_tdd_in_red_and_the_venv_in_green():
     # (<type>/<python>/<name>) in green, written AFTER the star so it stays first
     assert '_tdd_ps1_wrap green "($_tdd_type/${_tdd_py:-?}/$_tdd_name)"' in venv
     assert '"$_tdd_star"*) PS1="$_tdd_star$_tdd_mark${_tdd_ps1#"$_tdd_star"}"' in venv
+
+
+def test_sourcing_says_version_and_dir_in_interactive_shells_only():
+    hello = shell.source_template().split(
+        "# ---------------------------------------------------------------- hello", 1
+    )[1]
+    assert "case $- in" in hello and "*i*)" in hello  # interactive shells only
+    assert '"$TDD_DIR/VERSION"' in hello
+    assert "printf '\\ntdd %s installed at %s -- tdd -h for help\\n\\n'" in hello
+
