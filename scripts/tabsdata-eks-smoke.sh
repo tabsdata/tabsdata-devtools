@@ -148,7 +148,7 @@ SERVER="http://127.0.0.1:$PORT"
 TABSDATA_SPEC="tabsdata[$TABSDATA_EXTRAS]==$TABSDATA_VERSION"
 TDK_OPTS=(-y --accept-terms y)
 CONFIGS="$HOME/.tabsdata/instances/$INSTANCE/init/input/configs"
-export KUBECONFIG="$KUBECONFIG_OPT"   # how tdkserver's eks provider finds the cluster
+export KUBECONFIG="$KUBECONFIG_OPT"   # start/stop/create resolve the cluster from it; init wants it as --kubeconfig
 KUBECTL=(kubectl --kubeconfig "$KUBECONFIG_OPT")
 SUITE_LIST=()
 for suite in $(printf '%s' "$SUITES" | tr ',' ' '); do SUITE_LIST[${#SUITE_LIST[@]}]="$suite"; done
@@ -335,7 +335,7 @@ common_run "${KUBECTL[@]}" config set-context --current --namespace "$NAMESPACE"
 common_checkpoint namespace
 
 common_stage init "tdkserver init --provider eks --instance $INSTANCE (the editable config folder)"
-common_run tdd tdkserver init --provider eks --instance "$INSTANCE" "${TDK_OPTS[@]}"
+common_run tdd tdkserver init --provider eks --instance "$INSTANCE" --kubeconfig "$KUBECONFIG_OPT" "${TDK_OPTS[@]}"
 common_run test -d "$CONFIGS"
 common_checkpoint init
 
