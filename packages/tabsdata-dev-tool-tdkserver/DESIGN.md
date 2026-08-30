@@ -18,7 +18,9 @@ venv type and without the venv being active in the calling shell.
 
 - No options of its own: **every** argument, `--help`/`--format`/`--version` included, goes to
   the program -- the one sanctioned exception to the CLI guidelines.
-- Fails with "a venv activated with tdd venv is required" when `_TDD_VENV` is unset, and refuses
+- Fails with "a venv activated with tdd venv is required" when `_TDD_VENV` is unset and no
+  managed venv is active by path (`managedvenv.adopted()`: `VIRTUAL_ENV`/`CONDA_PREFIX` exactly
+  `managed-venvs/<manager>/<name>` with its marker), and refuses
   when the program is not installed in that venv (a manager falling back to `PATH` would find
   this launcher itself). Launch: uv `VIRTUAL_ENV=DIR uv run --active --no-project`, conda
   `conda run --prefix DIR --no-capture-output`, pyenv `DIR/bin/tdkserver` with `bin/` first on `PATH`.

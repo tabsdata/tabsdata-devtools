@@ -23,7 +23,9 @@
 # Activation rules: the prompt shows (<type>/<python>/<name>); create ends in
 # activation; activating while another managed venv is active switches to the
 # new one; a venv that tdd did not activate (VIRTUAL_ENV, or a conda env other
-# than base) blocks both. deactivate leaves whatever is active: the managed
+# than base) blocks both -- unless it lives under managed-venvs/<type>/<name>
+# with its marker, in which case it is ours however it was entered and is
+# adopted as the active one. deactivate leaves whatever is active: the managed
 # venv, or -- best effort, from what the tool left in the environment -- one
 # activated by hand (venv/uv, pyenv-virtualenv, conda). State lives in _TDD_VENV
 # (the name) and _TDD_VENV_PS1 (the prompt to restore).
@@ -59,7 +61,7 @@ tddfn_venv() {
             _tdd_rc=1
             ;;
     esac
-    unset _tdd_sub _tdd_name _tdd_type _tdd_python _tdd_dir _tdd_envf _tdd_out _tdd_prefix _tdd_py _tdd_f _tdd_rows _tdd_json _tdd_mark _tdd_current _tdd_prev _tdd_ps1 _tdd_prev_type _tdd_force _tdd_recreated _tdd_kind _tdd_p _tdd_star
+    unset _tdd_sub _tdd_name _tdd_type _tdd_python _tdd_dir _tdd_envf _tdd_out _tdd_prefix _tdd_py _tdd_f _tdd_rows _tdd_json _tdd_mark _tdd_current _tdd_prev _tdd_ps1 _tdd_prev_type _tdd_force _tdd_recreated _tdd_kind _tdd_p _tdd_star _tdd_aname _tdd_atype _tdd_adir
     return "$_tdd_rc"
 }
 
@@ -78,7 +80,9 @@ usage: tdd venv create --name NAME [--type {pyenv,uv,conda}]
 
 Managed virtualenvs, all under $TDD_DIR/managed-venvs/<type>/<name>. A
 <name>.env file beside them records the type, so every subcommand -- and the
-tdk launchers -- know which tool to use. The active one is named by _TDD_VENV.
+tdk launchers -- know which tool to use. The active one is named by _TDD_VENV;
+a managed venv found active without that record (a shell from before a
+reinstall, bin/activate sourced by hand) is adopted as the active one.
 
 commands:
   create        make a venv and enter it. Refuses while a venv tdd did not
@@ -177,6 +181,7 @@ _tdd_venv_create() {
         return 0
     fi
     _tdd_cmd_check || return 1
+    _tdd_venv_adopt
     if [ -z "$_tdd_name" ]; then
         _tdd_error "--name is required"
         return 1
@@ -303,6 +308,41 @@ _tdd_venv_active_dir() {
     unset _tdd_prev_type
 }
 
+# A managed venv active without its record -- a shell that entered it before a
+# reinstall renamed the record, `source bin/activate` by hand, a script -- is
+# still ours: its path is <root>/<type>/<name> and <name>.env says <type>. Adopt
+# it as the recorded one, so create/activate switch from it and deactivate
+# leaves it as managed instead of refusing it as foreign. The prompt to restore
+# is the current one minus any marker of ours or the tool's, best effort. Every
+# subcommand calls this first, once past --help.
+_tdd_venv_adopt() {
+    [ -z "${_TDD_VENV:-}" ] || return 0
+    _tdd_current="$(_tdd_venv_current)"
+    [ -n "$_tdd_current" ] || return 0
+    _tdd_aname="${_tdd_current##*/}"
+    _tdd_atype="${_tdd_current%/*}"
+    _tdd_atype="${_tdd_atype##*/}"
+    _tdd_adir="$(_tdd_venv_root)/$_tdd_atype/$_tdd_aname"
+    [ "$_tdd_current" = "$_tdd_adir" ] || return 0
+    [ "$(cat "$(_tdd_venv_root)/$_tdd_aname.env" 2>/dev/null)" = "$_tdd_atype" ] || return 0
+    _tdd_py="$("$_tdd_adir/bin/python" --version 2>&1)"
+    _tdd_py="${_tdd_py#Python }"
+    _tdd_mark="$(_tdd_ps1_wrap green "($_tdd_atype/${_tdd_py:-?}/$_tdd_aname)") "
+    _TDD_VENV_PS1="${PS1-}"
+    _TDD_VENV_PS1="${_TDD_VENV_PS1/"$_tdd_mark"/}"
+    # venv's own marker: "(name) " up to Python 3.12, the bare name from 3.13
+    case "${VIRTUAL_ENV_PROMPT:-}" in
+        "") ;;
+        "("*) _TDD_VENV_PS1="${_TDD_VENV_PS1/"$VIRTUAL_ENV_PROMPT"/}" ;;
+        *) _TDD_VENV_PS1="${_TDD_VENV_PS1/"($VIRTUAL_ENV_PROMPT) "/}" ;;
+    esac
+    [ -n "${CONDA_PROMPT_MODIFIER:-}" ] && _TDD_VENV_PS1="${_TDD_VENV_PS1/"$CONDA_PROMPT_MODIFIER"/}"
+    _TDD_VENV="$_tdd_aname"
+    export _TDD_VENV
+    _tdd_debug "adopted $_tdd_aname ($_tdd_atype): active in this shell without a record"
+    return 0
+}
+
 # Leave the recorded managed venv: the tool's own deactivate, then the prompt
 # and the record. Shared by deactivate and by activate when switching.
 _tdd_venv_leave() {
@@ -398,6 +438,7 @@ _tdd_venv_activate() {
         return 0
     fi
     _tdd_cmd_check || return 1
+    _tdd_venv_adopt
     if [ -z "$_tdd_name" ]; then
         _tdd_error "--name is required"
         return 1
@@ -481,6 +522,7 @@ _tdd_venv_deactivate() {
         return 0
     fi
     _tdd_cmd_check || return 1
+    _tdd_venv_adopt
     _tdd_venv_detect
     if [ -n "${_TDD_VENV:-}" ] && { [ -z "$_tdd_current" ] || [ "$_tdd_current" = "$(_tdd_venv_active_dir)" ]; }; then
         # The recorded managed venv (or a stale record with nothing active).
@@ -553,6 +595,7 @@ _tdd_venv_list() {
         return 0
     fi
     _tdd_cmd_check || return 1
+    _tdd_venv_adopt
     _tdd_rows=""
     _tdd_json=""
     # find, not a glob: an unmatched glob is an error in zsh.

@@ -14,7 +14,11 @@ shell command.
   `_TDD_VENV_PS1` and writes `(<type>/<python>/<name>)` in green after the red `* ` of
   `tdd-source.sh`; the managers' own prompt markers are silenced. `deactivate` leaves whatever
   is active -- managed, or best effort a venv activated by hand (uv/venv, pyenv-virtualenv,
-  conda) -- and restores the prompt. A foreign active venv blocks `create`/`activate`.
+  conda) -- and restores the prompt. A foreign active venv blocks `create`/`activate` -- but a
+  venv found active under `managed-venvs/<type>/<name>` with its marker is ours however it was
+  entered (a shell from before a reinstall, `bin/activate` sourced by hand) and is **adopted**
+  as the active one first (`_tdd_venv_adopt`, every subcommand; the prompt to restore is the
+  current one minus our marker and the tool's). `managedvenv.adopted()` is the launchers' twin.
 - pyenv venvs are plain `python -m venv` on a pyenv interpreter (outside `~/.pyenv/versions`);
   conda gets its shell hook installed on the fly when the rc did not.
 - `bin-reqs`: `pyenv`, `uv`, `conda`.

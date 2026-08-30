@@ -193,6 +193,45 @@ def test_managedvenv_needs_tdd_venv_and_points_at_tdd_venv(monkeypatch):
     assert managedvenv.active() == "work"
 
 
+def test_managedvenv_adopts_a_managed_venv_active_without_the_record(
+    tmp_path, monkeypatch
+):
+    from tabsdata_dev.common.core import managedvenv
+    from tabsdata_dev.common.core.errors import ToolError
+
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    monkeypatch.delenv("_TDD_VENV", raising=False)
+    for var in ("VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV"):
+        monkeypatch.delenv(var, raising=False)
+    root = tmp_path / "managed-venvs"
+    (root / "uv" / "w").mkdir(parents=True)
+    (root / "w.env").write_text("uv\n")
+    (root / "conda" / "c").mkdir(parents=True)
+    (root / "c.env").write_text("conda\n")
+    # a uv/pyenv venv: VIRTUAL_ENV is the path
+    monkeypatch.setenv("VIRTUAL_ENV", str(root / "uv" / "w"))
+    assert managedvenv.active() == "w"
+    # the record wins over the environment
+    monkeypatch.setenv("_TDD_VENV", "other")
+    assert managedvenv.active() == "other"
+    monkeypatch.delenv("_TDD_VENV")
+    # not ours: outside the root, a deeper path, or a marker that disagrees
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / "elsewhere" / "w"))
+    with pytest.raises(ToolError, match="tdd venv"):
+        managedvenv.active()
+    monkeypatch.setenv("VIRTUAL_ENV", str(root / "uv" / "w" / "deeper"))
+    assert managedvenv.adopted() is None
+    monkeypatch.setenv("VIRTUAL_ENV", str(root / "pyenv" / "w"))
+    assert managedvenv.adopted() is None
+    monkeypatch.delenv("VIRTUAL_ENV")
+    # conda: the prefix, unless it is base
+    monkeypatch.setenv("CONDA_PREFIX", str(root / "conda" / "c"))
+    monkeypatch.setenv("CONDA_DEFAULT_ENV", str(root / "conda" / "c"))
+    assert managedvenv.active() == "c"
+    monkeypatch.setenv("CONDA_DEFAULT_ENV", "base")
+    assert managedvenv.adopted() is None
+
+
 def test_managedvenv_resolves_the_marker_and_composes_each_manager(
     tmp_path, monkeypatch
 ):

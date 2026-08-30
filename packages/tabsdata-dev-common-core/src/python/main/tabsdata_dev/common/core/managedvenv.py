@@ -30,13 +30,43 @@ def root() -> pathlib.Path:
 
 
 def active() -> str:
-    """The name in $_TDD_VENV, or a ToolError saying how to get one."""
-    name = os.environ.get(ENV_ACTIVE, "").strip()
+    """The name in $_TDD_VENV, else the managed venv the environment says is
+    active (see `adopted`), else a ToolError saying how to get one."""
+    name = os.environ.get(ENV_ACTIVE, "").strip() or adopted()
     if not name:
         raise ToolError(
             f"no managed venv is active ({ENV_ACTIVE} is unset); a venv activated with "
             "`tdd venv` is required: tdd venv activate --name NAME, or tdd venv create"
         )
+    return name
+
+
+def adopted() -> str | None:
+    """The managed venv active in the environment without tdd's record -- a
+    shell that entered it before a reinstall renamed the record, `source
+    bin/activate` by hand, a script. All three managers leave a path (uv and
+    pyenv venvs in VIRTUAL_ENV, conda in CONDA_PREFIX; conda's base is not a
+    venv); it is ours when it is exactly ``<root>/<manager>/<name>`` and the
+    marker agrees. Mirrors `_tdd_venv_adopt` in venv.sh."""
+    path = os.environ.get("VIRTUAL_ENV", "").strip()
+    if not path:
+        conda = os.environ.get("CONDA_PREFIX", "").strip()
+        if conda and os.environ.get("CONDA_DEFAULT_ENV", "base") != "base":
+            path = conda
+    if not path:
+        return None
+    try:
+        rel = pathlib.Path(path).resolve().relative_to(root().resolve())
+    except (ValueError, OSError):
+        return None
+    if len(rel.parts) != 2:
+        return None
+    manager, name = rel.parts
+    marker = root() / f"{name}{MARKER_SUFFIX}"
+    if manager not in MANAGERS or not marker.is_file():
+        return None
+    if marker.read_text().strip() != manager:
+        return None
     return name
 
 

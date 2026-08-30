@@ -254,6 +254,22 @@ def test_venv_exports_tdd_venv_for_the_launchers():
     assert "unset _TDD_VENV _TDD_VENV_PS1" in text
 
 
+def test_venv_adopts_a_managed_venv_active_without_the_record():
+    # The twin of common.core.managedvenv.adopted(): a venv under
+    # managed-venvs/<type>/<name> whose marker agrees is ours however it was
+    # entered; every subcommand adopts it before doing anything else.
+    text = (shell.scripts_dir() / "venv.sh").read_text()
+    assert "_tdd_venv_adopt() {" in text
+    assert '[ "$_tdd_current" = "$_tdd_adir" ] || return 0' in text
+    assert (
+        '[ "$(cat "$(_tdd_venv_root)/$_tdd_aname.env" 2>/dev/null)" = "$_tdd_atype" ]'
+        in text
+    )
+    for sub in ("create", "activate", "deactivate", "delete", "list"):
+        body = text.split(f"_tdd_venv_{sub}() {{", 1)[1].split("\n}\n", 1)[0]
+        assert "_tdd_venv_adopt" in body, sub
+
+
 def test_venv_create_has_force_and_deactivate_handles_every_kind():
     text = (shell.scripts_dir() / "venv.sh").read_text()
     assert "--force | -f)" in text and '"create|--force|false"' in text
