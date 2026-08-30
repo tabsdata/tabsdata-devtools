@@ -90,8 +90,9 @@ cargo make test                  # every package's tests, each in the env it shi
 cargo make fmt                   # ruff format; run after editing (stale string patches fail otherwise)
 ```
 
-Requires only `uv` and `cargo-make`; all honour `TDD_DIR` and `-- --dir PATH`; `test` and
-`check` need an initialized tdd dir and, in wheels mode, a reinstall to see source changes.
+Requires only `uv` and `cargo-make`. `install`/`dev`/`uninstall` take `-- --dir PATH`; `test`,
+`check` and `reqs` read `TDD_DIR` only (default `~/.tdd`) and need an initialized tdd dir there --
+in wheels mode, a reinstall to see source changes.
 
 ## Conventions
 
