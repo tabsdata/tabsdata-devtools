@@ -8,6 +8,7 @@ backends keep importing them from here. Only ``validate_name`` is local."""
 from __future__ import annotations
 
 from tabsdata_dev.common.core.docker import (  # noqa: F401 - re-exports
+    list_containers,
     compose_container_ids,
     container_exists,
     container_id,

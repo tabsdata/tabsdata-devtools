@@ -20,6 +20,7 @@
     tdd system upgrade [--sys-dir DIR]        # convert legacy TDX2 descriptors
     tdd system secrets --set 1p:<vault> [--as json|export|unset]
     tdd system crypto-key [--vault V] [--item I] [--field F] [--as json|export|unset]
+    tdd system clean-docker [--yes]           # stop and delete every tdx2* docker container
 
     tdd domain list [--domain-dir DIR]
     tdd domain manifest [--out FILE]
@@ -76,6 +77,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType
@@ -94,6 +96,7 @@ from tabsdata_dev.common.systems import (
     systems,
 )
 from tabsdata_dev.common.systems.cli import ArgumentParser
+from tabsdata_dev.common.systems import shell
 from tabsdata_dev.common.systems.errors import TdxError
 
 # Verbs whose chatty detail is redirected to a /tmp log while the console shows
@@ -801,6 +804,71 @@ def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
     return 0
 
 
+def _cmn_clean_docker(tool: str, rest: list[str]) -> int:
+    """Stop and delete every docker container named `tdx2*` -- the ones the
+    docker-backed systems create -- whether or not a descriptor still points at
+    them. The sweep for a store that lost track of its containers, or a machine
+    to be left clean. Asks first, unless --yes."""
+    prefix = constants.DOCKER_CONTAINER_PREFIX
+    p = ArgumentParser(
+        prog=f"tdd {tool} {constants.V_CLEAN_DOCKER}",
+        description=f"stop and delete every docker container whose name starts with {prefix}",
+    )
+    p.add_argument(
+        "-y",
+        constants.OPT_YES,
+        action="store_true",
+        help="do not ask; without it the containers are listed and a confirmation is read from the terminal (an error when there is none)",
+    )
+    cli.add_format_verbose(p)
+    a = p.parse_args(rest)
+    shell.require_docker()
+    found = shell.list_containers(prefix)
+    if not found:
+        console.result({"prefix": prefix, "removed": [], "failed": []})
+        console.good(f"no docker containers named {prefix}*")
+        return 0
+    width = max(len(c["name"]) for c in found)
+    for c in found:
+        console.out(f"  {c['name']:<{width}}  {c['state']:<10} {c['image']}")
+    if not a.yes:
+        if console.json_mode() or not sys.stdin.isatty():
+            raise TdxError(
+                f"{len(found)} container(s) named {prefix}* would be stopped and deleted "
+                f"(listed above); pass {constants.OPT_YES} to proceed"
+            )
+        print(
+            f"stop and delete these {len(found)} container(s)? [y/N] ",
+            end="",
+            file=sys.stderr,
+            flush=True,
+        )
+        if sys.stdin.readline().strip().lower() not in ("y", "yes"):
+            raise TdxError("aborted, nothing removed")
+    removed: list[str] = []
+    failed: list[dict] = []
+    for c in found:
+        try:
+            if c["state"] == "running":
+                shell.docker_stop(c["name"])
+            shell.docker_rm(c["name"], force=True)
+            removed.append(c["name"])
+            console.out(f"  removed {c['name']}")
+        except Exception as exc:  # one stubborn container must not stop the sweep
+            failed.append({"name": c["name"], "error": str(exc)})
+            console.warn(f"  {c['name']}: {exc}")
+    console.result({"prefix": prefix, "removed": removed, "failed": failed})
+    if failed:
+        raise TdxError(
+            f"stopped and deleted {len(removed)} container(s), {len(failed)} could not be removed: "
+            + ", ".join(f["name"] for f in failed)
+        )
+    console.good(
+        f"stopped and deleted {len(removed)} docker container(s) named {prefix}*"
+    )
+    return 0
+
+
 _COMMON = {
     constants.SYS_TOOL: {
         constants.V_TYPES: _cmn_types,
@@ -810,6 +878,7 @@ _COMMON = {
         constants.V_UPGRADE: _cmn_sys_upgrade,
         constants.V_SECRETS: _cmn_secrets,
         constants.V_CRYPTO_KEY: _cmn_crypto_key,
+        constants.V_CLEAN_DOCKER: _cmn_clean_docker,
     },
     constants.DOM_TOOL: {
         constants.V_TYPES: _cmn_types,
@@ -1126,6 +1195,7 @@ def top_help(tool: str) -> tuple[str, dict]:
         constants.V_UPGRADE: "convert legacy TDX2 descriptors in the store to TDX3",
         constants.V_SECRETS: "fetch a provider's secrets as env vars (--set 1p:VAULT)",
         constants.V_CRYPTO_KEY: f"fetch ${constants.ENV_CRYPTO_KEY} from 1Password (--as export to source it)",
+        constants.V_CLEAN_DOCKER: f"stop and delete every {constants.DOCKER_CONTAINER_PREFIX}* docker container (--yes/-y to skip the prompt)",
     }
     summaries.update(delegated)
     lines = [

@@ -57,6 +57,7 @@ V_UPGRADE = "upgrade"
 V_SECRETS = "secrets"
 V_CRYPTO_KEY = "crypto-key"
 V_CONNECT = "connect"
+V_CLEAN_DOCKER = "clean-docker"
 
 # --- option flags ----------------------------------------------------------
 OPT_TYPE = "--type"
@@ -65,6 +66,7 @@ OPT_DOMAIN = "--domain"
 OPT_SYS_DIR = "--sys-dir"
 OPT_DOMAIN_DIR = "--domain-dir"
 OPT_FORCE = "--force"
+OPT_YES = "--yes"
 OPT_LATCH = "--latch"
 OPT_MODEL = "--model"
 OPT_SIZE = "--size"
@@ -112,6 +114,11 @@ PORTS_PER_SYSTEM = 10
 SEED_AUTO = "AUTO"
 ENTITY_ALL = "ALL"
 AS_FORMATS = ("json", "export", "unset")
+
+# Every container the docker-backed systems create -- `docker run` ones
+# (`_common/sql.py`) and compose projects (`_common/containers.py`) -- is named
+# `tdx2_...`; `clean-docker` sweeps by this prefix, descriptors or not.
+DOCKER_CONTAINER_PREFIX = "tdx2"
 
 # --- environment variables -------------------------------------------------
 # tdd's own variables carry a leading underscore when they are private to the

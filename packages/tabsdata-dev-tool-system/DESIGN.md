@@ -19,6 +19,8 @@ connection details kept as encrypted descriptors.
 
 - Verbs: `create/destroy/status/purge/restart/fetch-bin/connect`, `types/list/info/manifest/
   upgrade`, `secrets` and `crypto-key` (`--as json|export|unset`, which `tdd env set` evals).
+  `clean-docker [--yes|-y]` stops and deletes every `tdx2*` container -- the prefix all
+  docker-backed systems use -- descriptor or not; it lists them and asks first unless `--yes`.
 - Every descriptor read or write needs `_TDD_CRYPTO_KEY`; `create --force` replaces a descriptor
   an older key left unreadable.
 - Batch verbs run children through `tdd-exe` in parallel (`TDD_PARALLELISM`), heaviest first,

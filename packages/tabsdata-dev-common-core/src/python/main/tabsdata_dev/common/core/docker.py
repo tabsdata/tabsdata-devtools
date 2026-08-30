@@ -68,6 +68,39 @@ def container_id(name: str) -> str | None:
     return cp.stdout.strip() or None
 
 
+def list_containers(name_prefix: str) -> list[dict]:
+    """Every container, running or not, whose name starts with `name_prefix`:
+    ``{"id", "name", "state", "image"}``. docker's ``name`` filter is a regex
+    matched anywhere in the name, so it is anchored here and the prefix checked
+    again in Python -- ``tdx2`` must not catch ``my_tdx2_thing``."""
+    cp = subprocess.run(
+        [
+            "docker",
+            "ps",
+            "-a",
+            "--filter",
+            f"name=^{name_prefix}",
+            "--format",
+            "{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Image}}",
+        ],
+        capture_output=True,
+        encoding="utf-8",
+    )
+    if cp.returncode != 0:
+        raise ToolError(f"docker ps failed: {cp.stderr.strip() or cp.stdout.strip()}")
+    rows: list[dict] = []
+    for line in cp.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 4:
+            continue
+        cid, names, state, image = parts[:4]
+        for name in names.split(","):
+            if name.startswith(name_prefix):
+                rows.append({"id": cid, "name": name, "state": state, "image": image})
+                break
+    return rows
+
+
 def docker_pull(image: str, platform: str = "") -> None:
     """Pull `image`, streaming docker's own download progress to stdout/stderr."""
     args = ["docker", "pull"]

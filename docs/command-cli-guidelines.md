@@ -11,8 +11,8 @@ A command that does not is a bug.
 
 Commands, subcommands and options are lower-case, `-` between words (`tdd-env`, `--from-wheels`);
 never `_`, never camelCase. An option is always a long `--name`, taking `--name value` or
-`--name=value`. Short forms exist only for `-h` (`--help`), `-v` (`--verbose`) and `-f`
-(`--force`). Long names are also what lets a user preset any option in
+`--name=value`. Short forms exist only for `-h` (`--help`), `-v` (`--verbose`), `-f`
+(`--force`) and `-y` (`--yes`, on a command that otherwise asks). Long names are also what lets a user preset any option in
 `<tdd_dir>/default-opts/<command>.txt` / `<command>_<action>.txt`; `tdd` merges those in, typed
 options winning, and announces the resolved line -- commands do nothing for it.
 
