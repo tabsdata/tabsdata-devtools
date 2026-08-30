@@ -9,7 +9,7 @@ reach a project's dependencies. This file is the working contract; the design li
 
 ## Read first
 
-- [docs/design.md](docs/design.md) — how it works and why, in a few screens, with the index of
+- [docs/design.md](docs/DESIGN.md) — how it works and why, in a few screens, with the index of
   every tool's design doc: `packages/tabsdata-dev-<pkg>/DESIGN.md`, and for shell commands
   `packages/tabsdata-dev-shell/scripts/unix/<name>.design.md`. **Read the one for the tool you
   are about to touch** — it holds the decisions the code does not show.

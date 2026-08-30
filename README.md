@@ -61,7 +61,7 @@ To run one package's tests directly, use its toolset's interpreter, e.g.
 
 | | |
 |---|---|
-| [docs/design.md](docs/design.md) | how it works and why, with an index of every tool's design doc |
+| [docs/design.md](docs/DESIGN.md) | how it works and why, with an index of every tool's design doc |
 | [docs/building-a-python-command.md](docs/building-a-python-command.md) | add a Python tool |
 | [docs/building-a-shell-command.md](docs/building-a-shell-command.md) | add a sourced shell command |
 | [docs/command-cli-guidelines.md](docs/command-cli-guidelines.md) | options, exit codes and output every command must have |

@@ -31,7 +31,7 @@ SOURCE_TEMPLATE = "tddsrc.sh"
 
 # Every env tdd creates is relocatable: uv rewrites the console-script shebangs
 # to resolve the interpreter relatively, so the whole tdd dir can be moved,
-# copied or zipped without reinstalling. See docs/design.md for what this does
+# copied or zipped without reinstalling. See docs/DESIGN.md for what this does
 # and does not buy you.
 RELOCATABLE_ENV = {"UV_VENV_RELOCATABLE": "1", "UV_LINK_MODE": "copy"}
 

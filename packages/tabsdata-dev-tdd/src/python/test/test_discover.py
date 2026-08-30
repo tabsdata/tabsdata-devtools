@@ -102,7 +102,7 @@ def test_a_stray_bin_reqs_without_a_script_is_an_error(tmp_path):
 
 def test_every_tool_and_shell_command_has_a_design_doc():
     """Each Python tool package carries DESIGN.md beside its pyproject; each shell
-    command a <name>.design.md beside its script; both with the house header and
+    command a <name>.DESIGN.md beside its script; both with the house header and
     something to say (the how-to guides make writing one a step)."""
     root = paths.repo_root()
     assert root is not None
@@ -114,7 +114,7 @@ def test_every_tool_and_shell_command_has_a_design_doc():
     ]
     scripts = root / "packages/tabsdata-dev-shell/scripts/unix"
     docs += [
-        s.with_name(s.name[: -len(".sh")] + ".design.md")
+        s.with_name(s.name[: -len(".sh")] + ".DESIGN.md")
         for s in scripts.glob("*.sh")
         if s.name != "common.sh"
     ]
