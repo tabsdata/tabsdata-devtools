@@ -47,9 +47,12 @@
 # window of the last WINDOW log lines is redrawn under the running command and
 # erased when it ends (--verbose streams it all instead). A stage that passes
 # COLLAPSES its command lines into one green `ok (Ns)`; a stage that fails
-# keeps them EXPANDED, each marked ✓ or ✗, and closes with a red `error (Ns)`
-# -- then the run stops, unless the stage was opened with --continue, in which
-# case the failure is recorded and the next stage runs. The closing report
+# keeps them EXPANDED, each marked ✓ or ✗, closes with a red `error (Ns)` and
+# lists under `look at:` the log files the failed command named (details:,
+# errors:, lane log:, "full output in") plus, when the run goes on, this log --
+# so the failure can be read while the rest runs. Then the run stops, unless the
+# stage was opened with --continue, in which case the failure is recorded and
+# the next stage runs. The closing report
 # lists every stage as ok / failed / failed, continued / not done.
 #
 # bash 3.2 (macOS) is enough: indexed arrays, no associative ones.
@@ -287,17 +290,42 @@ common_stage_failed() {
         STAGE_STATUS[$STAGE_I]="continued"
         CONTINUED=$((CONTINUED + 1))
         common_screen "    ${RED}error${RESET} (${STAGE_SECONDS[$STAGE_I]}s) -- $why"
+        common_pointers "log $LOG"
         common_screen "    ${YELLOW}continuing: this stage does not stop the run${RESET}"
         return 0
     fi
     STAGE_STATUS[$STAGE_I]="failed"
     common_screen "    ${RED}error${RESET} (${STAGE_SECONDS[$STAGE_I]}s) -- $why"
+    common_pointers
     if type common_on_stage_failed >/dev/null 2>&1; then
         common_on_stage_failed
     fi
     common_report
     common_screen "${RED}$(basename "$0"): FAILED at stage $CURRENT   (log: $LOG)${RESET}"
     exit "$rc"
+}
+
+# Where to look, printed under a failed command while the run goes on: the log
+# files the command itself named (`details: PATH`, `errors: PATH`, `lane log:`,
+# `full output in PATH` -- every tdd command writes a failure log and says so),
+# taken from what it wrote to the log since it started (CMD_LOG_FROM), the last
+# few distinct ones (a summary comes last), plus any EXTRA "label path" given.
+common_pointers() {
+    local found
+    found="$(tail -c +"$((${CMD_LOG_FROM:-0} + 1))" "$LOG" 2>/dev/null |
+        sed -E "s/${ESC}\[[0-9;?]*[A-Za-z]//g" |
+        sed -n -E 's#^[[:space:]]*(details|errors|lane log|lane errors|log):[[:space:]]+(/[^[:space:]]+).*#\1 \2#p; s#^.*full output in (/[^[:space:]]+).*#output \1#p' |
+        awk '!seen[$0]++' | tail -n 6)"
+    [ $# -gt 0 ] && found="${found:+$found
+}$*"
+    [ -n "$found" ] || return 0
+    common_screen "    ${YELLOW}look at:${RESET}"
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        common_screen "      ${DIM}${line% *}${RESET}  ${line##* }"   # label may be two words; the path has none
+    done <<POINTERS
+$found
+POINTERS
 }
 
 # Run CMD in THIS shell (tdd venv/env change the environment). Returns 0, or
@@ -316,6 +344,7 @@ common_run_shown() {
     STAGE_CMD_STATUS[${#STAGE_CMD_STATUS[@]}]="running"
     common_note "${DIM}\$${RESET} $shown"
     echo "\$ $shown"
+    CMD_LOG_FROM="$(wc -c <"$LOG" 2>/dev/null | tr -d ' ')"
     common_window_start
     "$@"
     rc=$?
@@ -338,6 +367,7 @@ common_run_retry() {
     STAGE_CMD_STATUS[${#STAGE_CMD_STATUS[@]}]="running"
     common_note "${DIM}\$${RESET} $(common_display "$@")   ${DIM}(up to $attempts attempts, ${pause}s apart)${RESET}"
     echo "\$ $(common_display "$@")   (up to $attempts attempts, ${pause}s apart)"
+    CMD_LOG_FROM="$(wc -c <"$LOG" 2>/dev/null | tr -d ' ')"
     common_window_start
     while :; do
         "$@"
