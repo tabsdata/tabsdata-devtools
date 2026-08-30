@@ -4,35 +4,26 @@
 #
 
 # tabsdata-eks-smoke.sh -- a fresh tabsdata install on an EKS cluster somebody
-# else runs, exercised end to end with the tdd tools. The kminus flavour of this
-# run is tabsdata-km-smoke.sh; what is EKS-specific here:
+# else runs, end to end with the tdd tools; the kminus flavour of this run is
+# tabsdata-km-smoke.sh. --help says what and in which order; each stage
+# announces itself as it runs. The EKS-specific facts:
 #
-#   - the cluster is reached through the kubeconfig at ~/.kube/config
-#     (--kubeconfig overrides); `aws login` must have happened
-#   - the run creates its own k8s NAMESPACE (sm-<name>) and points the
-#     kubeconfig's current context at it -- tdkserver takes the namespace from
-#     the context, not from a flag; the previous namespace is restored at the end
-#   - the database is a domain on the `rdspostgres` system and the storage a
-#     domain on the `s3` system, both created by the run as sm_<NAME>__rds and
-#     sm_<NAME>__s3, and their credentials fill the instance's config
-#   - the instance is set up with `tdkserver init --provider eks`, the config
-#     files under .../init/input/configs are filled in --
-#         dbmanager.database.yaml    host/port/db/user/password from the rds domain
-#         apiserver.storage.yaml     the 3 mounts on the s3 domain's URI + creds
-#         aiagent.yaml               the LLM key (--llm)
-#         tabsdata.yaml              the uv index (--uv-index)
-#     -- then `tdkserver create` uploads them and the plaintext input folder is
-#     deleted, as the install guide says
-#   - the apiserver is not exposed: `kubectl port-forward service/net-apiserver
-#     2457:2457` runs in the background, is re-established after every
-#     tdkserver start (it dies with the pods), and is torn down when the script
-#     exits, whatever the path out
-#   - the default suites drop container-connectors: the function pods run in
-#     EKS, where the docker-backed systems of those lanes are unreachable
+#   - the cluster is reached through --kubeconfig (default ~/.kube/config,
+#     exported as KUBECONFIG); `aws login` must have happened
+#   - tdkserver takes the namespace from the kubeconfig's CURRENT CONTEXT, not
+#     from a flag: the run creates sm-<name>, points the context at it, and
+#     restores the previous namespace at the end
+#   - the database and the storage are this run's domains on the shared
+#     rdspostgres and s3 systems; their values fill the `tdkserver init
+#     --provider eks` config files (dbmanager/apiserver.storage/aiagent/tabsdata)
+#   - the apiserver is not exposed: `kubectl port-forward service/net-apiserver`
+#     runs in the background, dies with the pods (so it is re-established after
+#     every start) and never outlives the script
+#   - container-connectors stays out of the default suites: its docker systems
+#     are unreachable from function pods running in EKS
 #
-# Everything else -- names (sm_<NAME> / sm_<NAME>__<what>), stages, output model,
-# masking, report, --keep semantics -- matches tabsdata-km-smoke.sh; the shared
-# plumbing is scripts/_common.sh. The script runs in bash, not sourced.
+# Output model, masking, stages, report, what a failure leaves standing:
+# scripts/_common.sh. The script runs in bash, not sourced.
 
 set -o pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -94,10 +85,8 @@ options:
                       namespace deleted, venv deleted; a failed run always
                       leaves everything standing)
   --stop-after STAGE  stop (exit 0, everything left standing) after the named
-                      stage: unset-td unset-pypi set-crypto systems pycache
-                      clean-previous create-venv install domains namespace init
-                      configure create start-1 pods-1 forward-1 login-1 stop-1 venv-update
-                      start-2 pods-2 forward-2 login-2 xp-<suite> cleanup
+                      stage -- any name the screen prints, e.g. systems, configure,
+                      forward-1, xp-<suite> (/ replaced by _), cleanup
   --log FILE          log file (default: /tmp/smoke-sm_NAME-<start time>.log)
   --tdd-dir DIR       the tdd dir to source (default: $TDD_DIR, else ~/.tdd)
   --verbose           show every command's output as it happens (default: a
@@ -161,10 +150,9 @@ if [ ! -r "$KUBECONFIG_OPT" ]; then
     echo "tabsdata-eks-smoke: no kubeconfig at $KUBECONFIG_OPT (pass --kubeconfig)" >&2
     exit 1
 fi
-# sm_NAME is the instance and the venv; sm_NAME__<what> everything else. The
-# k8s namespace must be RFC 1123 (lowercase, hyphens), so it is sm-<name>.
+# the k8s namespace must be RFC 1123 (lowercase, hyphens), hence sm-<name>
 BASE="sm_$NAME"
-NAMES_PREFIX="$BASE"     # what common_tabsdata_setup_info tells the reader to look for
+NAMES_PREFIX="$BASE"     # what the failure summary tells the reader to look for
 INSTANCE="$BASE"
 VENV="$BASE"
 NAMESPACE="sm-$(printf '%s' "$NAME" | tr 'A-Z' 'a-z')"
@@ -198,7 +186,7 @@ STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
 common_init "$LOG" "$VERBOSE"
 trap common_portforward_stop EXIT      # the forward never outlives the script
 
-# What a failed run leaves standing: the generic block plus the EKS pieces.
+# the generic failure block plus the EKS pieces
 common_on_stage_failed() {
     common_screen ""
     common_screen "$(basename "$0"): left for you to look at"
@@ -238,7 +226,6 @@ open(path, "w").write("".join(out))
 PYEOF
 }
 
-# The effective options, every one, so the screen and the log say exactly what ran.
 common_screen "tabsdata-eks-smoke: effective options"
 common_screen "  --name              $NAME   -> instance and venv $BASE, namespace $NAMESPACE, domains ${BASE}__<what>"
 common_screen "  --venv-type         $VENV_TYPE"
@@ -279,11 +266,10 @@ common_run tdd env set --crypto
 common_checkpoint set-crypto
 
 common_stage systems "dev and fs, rdspostgres, s3 (and --llm) plus every system the suites need must be in the tdd store"
+# checked UPFRONT: a run missing one must fail before anything is built
 common_run tdd system create --type dev --sys dev --force
-# fs is local plumbing like dev (grok, localfile and friends stage files on it).
-# The root must be explicit and absolute: the backend's default is
-# target/backends/<name> resolved against the CWD, which once landed inside a
-# checkout. Destroy leaves the root dir itself in place.
+# fs needs an explicit absolute root: its default is target/backends/<name>
+# against the CWD, which once landed inside a checkout.
 common_run tdd system create --type fs --sys fs --sys-path "$TDD_DIR_OPT/data/fs-root" --force
 for suite in "${SUITE_LIST[@]}"; do
     common_run tdd xp list-systems --suite "$suite"
@@ -298,9 +284,8 @@ common_run tdd pycache clean
 common_checkpoint pycache
 
 common_stage clean-previous "remove what a previous $INSTANCE run left: instance folder, namespace"
-# Scoped to THIS run's names -- other instances (kminus ones included) under
-# ~/.tabsdata stay. The namespace delete waits: a create over a Terminating
-# namespace fails confusingly.
+# scoped to THIS run's names; the namespace delete waits -- a create over a
+# Terminating namespace fails confusingly
 if [ -d "$HOME/.tabsdata/instances/$INSTANCE" ]; then
     common_note "a previous instance folder exists; best-effort delete, then remove it"
     tdd tdkserver delete --instance "$INSTANCE" --trash true "${TDK_OPTS[@]}" || true
@@ -324,9 +309,8 @@ done
 common_checkpoint install
 
 common_stage domains "domains $RDS_DOMAIN, $S3_DOMAIN${LLM:+, $LLM_DOMAIN} -- the instance's database, storage${LLM:+ and LLM key}"
-# Each domain is this run's slice of the shared system: an own database/user on
-# the RDS server, an own prefix in the bucket, the LLM credential. Their values
-# are eval'd into THIS shell (never echoed) and fill the config files below.
+# Each domain is this run's slice of the shared system. Values are eval'd into
+# THIS shell, never echoed; they fill the config files below.
 common_run tdd domain create --sys rdspostgres --domain "$RDS_DOMAIN" --force
 common_note "eval \$(tdd domain info --domain $RDS_DOMAIN --as export --prefix RDS)   (values not shown)"
 eval "$(tdd domain info --domain "$RDS_DOMAIN" --as export --prefix RDS 2>/dev/null)"
@@ -345,8 +329,7 @@ fi
 common_checkpoint domains
 
 common_stage namespace "create the namespace $NAMESPACE and point the kubeconfig context at it"
-# tdkserver takes the namespace from the current context, not from a flag; the
-# previous namespace is remembered and restored by cleanup.
+# tdkserver reads the namespace from the current context, not a flag
 PREV_NAMESPACE="$("${KUBECTL[@]}" config view --minify -o jsonpath='{.contexts[0].context.namespace}' 2>/dev/null)"
 common_note "current context namespace: ${PREV_NAMESPACE:-(none)} (restored at cleanup)"
 common_run "${KUBECTL[@]}" create namespace "$NAMESPACE"
@@ -359,10 +342,8 @@ common_run test -d "$CONFIGS"
 common_checkpoint init
 
 common_stage configure "fill the config files from the domains: database, storage, LLM key, uv index"
-# Named placeholders are shared across files (filling one name fills them all);
-# the twelve ${{secret}} of the storage file are positional. Values go through
-# the environment, never a command line. What must remain afterwards is only
-# tabsdata's own placeholders (system:/secretAuto:) and optional `?` ones.
+# Named placeholders are shared across files; the storage file's ${{secret}}
+# are positional. Values travel in the environment, never on a command line.
 common_note "database: \${{literal:tdk_database_*}} and \${{secret:postgres_system_*}} from $RDS_DOMAIN"
 common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_host}}' "$RDS__HOST"
 common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_port}}' "$RDS__PORT"
@@ -385,8 +366,8 @@ common_checkpoint configure
 
 common_stage create "tdkserver create (upload the config), then delete the plaintext input folder"
 common_run tdd tdkserver create --instance "$INSTANCE" --port "$PORT" "${TDK_OPTS[@]}"
-# The input folder holds the passwords and keys in plain text; create copied
-# them into the cluster's Secrets. `config get --with-secrets` fetches them back.
+# the input folder holds the secrets in plain text; create uploaded them --
+# `config get --with-secrets` fetches them back
 common_run rm -rf "$HOME/.tabsdata/instances/$INSTANCE/init"
 common_checkpoint create
 
@@ -459,8 +440,8 @@ if [ -n "$KEEP" ]; then
 else
     common_stage cleanup "destroy the domains, delete the instance, the namespace $NAMESPACE and the venv"
     common_portforward_stop
-    # xp destroyed its own domains and pointers (no --keep); ours go youngest
-    # first. The RDS database and the bucket prefix disappear with their domains.
+    # xp (no --keep) destroyed its own domains; ours go youngest first -- the RDS
+    # database and the bucket prefix disappear with them
     [ -z "$LLM_DOMAIN" ] || common_run tdd domain destroy --domain "$LLM_DOMAIN" --force
     common_run tdd domain destroy --domain "$S3_DOMAIN" --force
     common_run tdd domain destroy --domain "$RDS_DOMAIN" --force

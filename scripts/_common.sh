@@ -269,7 +269,9 @@ common_stage() {
     STAGE_CMDS=()
     STAGE_CMD_STATUS=()
     common_screen ""
-    common_screen "${BLUE}==> [$((STAGE_I + 1))/${#STAGE_NAMES[@]}] $1 -- $2${RESET}   ${DIM}$(date +%H:%M:%S)${RESET}"
+    # No "/total": stages are conditional (--llm, --keep, --suites), and a count
+    # promised upfront reads as a lie when the run legitimately skips some.
+    common_screen "${BLUE}==> [$((STAGE_I + 1))] $1 -- $2${RESET}   ${DIM}$(date +%H:%M:%S)${RESET}"
 }
 
 # A stage failed: expand its commands with their outcomes, close it in red,
