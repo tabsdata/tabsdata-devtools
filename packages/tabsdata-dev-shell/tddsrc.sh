@@ -437,7 +437,7 @@ tdd() {
             unset _tdd_pass
             return 0
             ;;
-        --version | --reqs)
+        -V | --version | --reqs)
             # shellcheck disable=SC2086
             tdd-exe $_tdd_dir_args $_tdd_pass "$@"
             unset _tdd_pass

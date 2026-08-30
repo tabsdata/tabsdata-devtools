@@ -12,7 +12,9 @@ A command that does not is a bug.
 Commands, subcommands and options are lower-case, `-` between words (`tdd-env`, `--from-wheels`);
 never `_`, never camelCase. An option is always a long `--name`, taking `--name value` or
 `--name=value`. Short forms exist only for `-h` (`--help`), `-v` (`--verbose`), `-f`
-(`--force`) and `-y` (`--yes`, on a command that otherwise asks). Long names are also what lets a user preset any option in
+(`--force`), `-y` (`--yes`, on a command that otherwise asks) and `-V` (`--version`, on `tdd`
+itself) -- every command that has the long form accepts the short one. Long names are also what
+lets a user preset any option in
 `<tdd_dir>/default-opts/<command>.txt` / `<command>_<action>.txt`; `tdd` merges those in, typed
 options winning, and announces the resolved line -- commands do nothing for it.
 
@@ -22,6 +24,7 @@ options winning, and announces the resolved line -- commands do nothing for it.
 |---|---|
 | `--help`, `-h` | usage, description, options, one example, in argparse's layout on both sides; exit 0 |
 | `--verbose`, `-v` | more detail about what is happening, never a different result |
+| `--force`, `-f` / `--yes`, `-y` | where a command has them: overwrite or drop-first / do not ask |
 | `--format json\|view` | output format, default `view` |
 
 Everything after the command word belongs to the command, and `--help` is shown even when its

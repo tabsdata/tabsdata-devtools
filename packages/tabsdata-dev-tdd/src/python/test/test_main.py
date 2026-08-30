@@ -19,6 +19,9 @@ def test_version_is_an_ok_event(capsys):
     (event,) = _events(capsys)
     assert event["command"] == "tdd" and event["event"] == "ok"
     assert event["message"] == f"tdd {event['version']}"
+    assert main_mod.main(["--format", "json", "-V"]) == 0  # the short form
+    (short,) = _events(capsys)
+    assert short == event
 
 
 def test_bad_format_is_an_error_with_exit_1(tmp_path, monkeypatch, capsys):

@@ -26,7 +26,14 @@ import pathlib
 import re
 
 DIR_NAME = "default-opts"
-ALIASES = {"-v": "--verbose", "-h": "--help"}
+# The short forms the guidelines allow, so a typed `-f` overrides a preset `--force`.
+ALIASES = {
+    "-v": "--verbose",
+    "-h": "--help",
+    "-f": "--force",
+    "-y": "--yes",
+    "-V": "--version",
+}
 
 # A `#` starts a comment at the start of a line or after whitespace, so a value
 # like --tag a#b survives.

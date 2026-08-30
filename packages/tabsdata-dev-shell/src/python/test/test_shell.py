@@ -368,3 +368,7 @@ def test_sourcing_says_version_and_dir_in_interactive_shells_only():
     assert '"$TDD_DIR/VERSION"' in hello
     assert "printf '\\ntdd %s installed at %s -- tdd -h for help\\n\\n'" in hello
 
+
+def test_tdd_routes_the_short_version_flag_to_tdd_exe():
+    text = shell.source_template()
+    assert "-V | --version | --reqs)" in text

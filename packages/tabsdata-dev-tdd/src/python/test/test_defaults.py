@@ -55,6 +55,11 @@ def test_short_forms_count_as_typed(tmp_path):
     root = _dir(tmp_path, demo="--verbose\n--format json\n")
     merged, _ = defaults.resolve(root, "demo", ["-v"])
     assert merged == ["-v", "--format", "json"]
+    # every short form the guidelines allow overrides its preset long form
+    (tmp_path / "b").mkdir()
+    root = _dir(tmp_path / "b", demo="--force\n--yes\n--version\n--help\n")
+    merged, _ = defaults.resolve(root, "demo", ["-f", "-y", "-V", "-h"])
+    assert merged == ["-f", "-y", "-V", "-h"]
 
 
 def test_a_hash_in_a_value_is_not_a_comment(tmp_path):

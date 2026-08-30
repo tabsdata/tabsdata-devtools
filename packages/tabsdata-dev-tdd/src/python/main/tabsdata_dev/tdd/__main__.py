@@ -49,7 +49,7 @@ options:
                     accept it after the word
   --verbose, -v     show debug events too
   --reqs [TOOL]     report external binaries; exit 1 if any missing
-  --version         the VERSION stamped into TDD_PATH, else the shipped one
+  --version, -V     the VERSION stamped into TDD_PATH, else the shipped one
   --porcelain [--demo]
                     machine-readable `name|kind|summary` lines: what the `tdd`
                     shell function merges into `tdd help`
@@ -110,7 +110,7 @@ def _split(argv: list[str]) -> tuple[dict, list[str]]:
         elif arg in ("-h", "--help"):
             opts["help"] = True
             i += 1
-        elif arg == "--version":
+        elif arg in ("-V", "--version"):
             opts["version"] = True
             i += 1
         else:
