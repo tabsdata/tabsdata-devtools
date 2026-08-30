@@ -1,0 +1,472 @@
+#!/usr/bin/env bash
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# tabsdata-eks-smoke.sh -- a fresh tabsdata install on an EKS cluster somebody
+# else runs, exercised end to end with the tdd tools. The kminus flavour of this
+# run is tabsdata-km-smoke.sh; what is EKS-specific here:
+#
+#   - the cluster is reached through the kubeconfig at ~/.kube/config
+#     (--kubeconfig overrides); `aws login` must have happened
+#   - the run creates its own k8s NAMESPACE (sm-<name>) and points the
+#     kubeconfig's current context at it -- tdkserver takes the namespace from
+#     the context, not from a flag; the previous namespace is restored at the end
+#   - the database is a domain on the `rdspostgres` system and the storage a
+#     domain on the `s3` system, both created by the run as sm_<NAME>__rds and
+#     sm_<NAME>__s3, and their credentials fill the instance's config
+#   - the instance is set up with `tdkserver init --provider eks`, the config
+#     files under .../init/input/configs are filled in --
+#         dbmanager.database.yaml    host/port/db/user/password from the rds domain
+#         apiserver.storage.yaml     the 3 mounts on the s3 domain's URI + creds
+#         aiagent.yaml               the LLM key (--llm)
+#         tabsdata.yaml              the uv index (--uv-index)
+#     -- then `tdkserver create` uploads them and the plaintext input folder is
+#     deleted, as the install guide says
+#   - the apiserver is not exposed: `kubectl port-forward service/net-apiserver
+#     2457:2457` runs in the background, is re-established after every
+#     tdkserver start (it dies with the pods), and is torn down when the script
+#     exits, whatever the path out
+#   - the default suites drop container-connectors: the function pods run in
+#     EKS, where the docker-backed systems of those lanes are unreachable
+#
+# Everything else -- names (sm_<NAME> / sm_<NAME>__<what>), stages, output model,
+# masking, report, --keep semantics -- matches tabsdata-km-smoke.sh; the shared
+# plumbing is scripts/_common.sh. The script runs in bash, not sourced.
+
+set -o pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+usage() {
+    cat <<'HELP'
+usage: tabsdata-eks-smoke.sh --name NAME --tabsdata-version VERSION [--tabsdata-extras EXTRAS]
+                   [--venv-type pyenv|uv|conda] [--python-version VERSION]
+                   [--kubeconfig FILE] [--uv-index URI] [--suites LIST]
+                   [--llm anthropic|openai] [--expect-pods LIST] [--keep]
+                   [--stop-after STAGE] [--log FILE] [--tdd-dir DIR] [--verbose]
+
+A fresh tabsdata install on an EKS cluster, end to end with the tdd tools:
+unset the TD_/PyPI variables, purge tabsdata from the uv/pip caches, remove a
+previous run of the same name, set the crypto key, create a venv and install
+tabsdata[EXTRAS], create the rds/s3 (and --llm) domains, create the namespace,
+tdkserver init --provider eks, fill the config files from the domains, create,
+start, port-forward to the apiserver, login, stop, update the fn/ag venvs,
+start and port-forward again, login, xp one-shot per suite (failures reported,
+not fatal), then destroy the domains, delete the instance and the namespace --
+or, with --keep, leave everything running.
+
+Assumes: the kubeconfig reaches the cluster (aws login done), the namespace may
+be created by you, and the tdd store has the `rdspostgres` and `s3` systems
+(plus every system the suites need, and the --llm one).
+
+options:
+  --name NAME         REQUIRED: the run's name, alphanumeric. Everything created
+                      is sm_NAME -- the tdkserver instance and the managed venv --
+                      or sm_NAME__<what> (domains, xp instances/projects); the
+                      k8s namespace is sm-<name> (lowercased: RFC 1123)
+  --tabsdata-version VERSION
+                      REQUIRED: the tabsdata release to install, tabsdata[EXTRAS]==VERSION
+  --tabsdata-extras EXTRAS
+                      the extras to install (default: all)
+  --venv-type TYPE    pyenv, uv or conda (default: pyenv)
+  --python-version VERSION
+                      interpreter for the venv (default: 3.12.13 -- the exact
+                      version the instance builds its own environments with)
+  --kubeconfig FILE   the EKS kubeconfig (default: ~/.kube/config); exported as
+                      KUBECONFIG for tdkserver and passed to every kubectl
+  --uv-index URI      Python package index (default: none): used by the tabsdata
+                      install and written into tabsdata.yaml (UV_INDEX) for the pods
+  --suites LIST       comma-separated xp suite selectors, one stage each
+                      (default: test,tableframe_api,dataquality,grok,cloud-connectors
+                      -- container-connectors stays out: its docker systems are
+                      unreachable from function pods running in EKS)
+  --llm anthropic|openai
+                      create a domain on that system (sm_NAME__llm_<llm>), read its
+                      API key and write it into aiagent.yaml (default: no LLM)
+  --expect-pods LIST  service names whose pods must be Running and Ready after
+                      every start, per `tdkserver status` (default: srv-apiserver)
+  --keep              on success, leave everything as it is: instance running,
+                      namespace, domains, venv, xp setups (xp one-shot --keep);
+                      the port-forward is still stopped -- the closing report
+                      prints the command to re-establish it
+                      (default: no -- domains destroyed, instance deleted,
+                      namespace deleted, venv deleted; a failed run always
+                      leaves everything standing)
+  --stop-after STAGE  stop (exit 0, everything left standing) after the named
+                      stage: unset-td unset-pypi pycache clean-previous set-crypto
+                      create-venv install systems domains namespace init configure
+                      create start-1 pods-1 forward-1 login-1 stop-1 venv-update
+                      start-2 pods-2 forward-2 login-2 xp-<suite> cleanup
+  --log FILE          log file (default: /tmp/smoke-sm_NAME-<start time>.log)
+  --tdd-dir DIR       the tdd dir to source (default: $TDD_DIR, else ~/.tdd)
+  --verbose           show every command's output as it happens (default: a
+                      rolling window of the running command's last lines)
+  -h, --help          this help
+
+The drivers added to the instance's fn and ag venvs (tdkserver venv update):
+  mysql-connector-python==9.6.0  psycopg2-binary==2.9.12  oracledb==3.2.0
+HELP
+}
+
+NAME=""                  # required; everything is sm_$NAME
+LLM=""                   # anthropic | openai | empty
+EXPECT_PODS="srv-apiserver"
+VENV_TYPE="pyenv"
+PYTHON="3.12.13"
+TABSDATA_VERSION=""      # required
+TABSDATA_EXTRAS="all"
+KUBECONFIG_OPT="$HOME/.kube/config"
+PORT="2457"              # tdkserver's apiserver port; the port-forward mirrors it locally
+UV_INDEX_URI=""
+SUITES="test,tableframe_api,dataquality,grok,cloud-connectors"
+KEEP=""                  # 1 with --keep; empty otherwise (so ${KEEP:+--keep} works)
+STOP_AFTER=""
+LOG=""
+VERBOSE=0
+TDD_DIR_OPT="${TDD_DIR:-$HOME/.tdd}"
+REQUIREMENTS="mysql-connector-python==9.6.0
+psycopg2-binary==2.9.12
+oracledb==3.2.0"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --name) NAME="$2"; shift 2 ;;
+        --llm) LLM="$2"; shift 2 ;;
+        --expect-pods) EXPECT_PODS="$2"; shift 2 ;;
+        --venv-type) VENV_TYPE="$2"; shift 2 ;;
+        --python-version) PYTHON="$2"; shift 2 ;;
+        --tabsdata-version) TABSDATA_VERSION="$2"; shift 2 ;;
+        --tabsdata-extras) TABSDATA_EXTRAS="$2"; shift 2 ;;
+        --kubeconfig) KUBECONFIG_OPT="$2"; shift 2 ;;
+        --uv-index) UV_INDEX_URI="$2"; shift 2 ;;
+        --suites) SUITES="$2"; shift 2 ;;
+        --keep) KEEP=1; shift ;;
+        --stop-after) STOP_AFTER="$2"; shift 2 ;;
+        --log) LOG="$2"; shift 2 ;;
+        --tdd-dir) TDD_DIR_OPT="$2"; shift 2 ;;
+        --verbose) VERBOSE=1; shift ;;
+        -h | --help) usage; exit 0 ;;
+        *) echo "tabsdata-eks-smoke: unknown option: $1 (see --help)" >&2; exit 1 ;;
+    esac
+done
+case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "tabsdata-eks-smoke: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
+case "$LLM" in "" | anthropic | openai) ;; *) echo "tabsdata-eks-smoke: --llm must be anthropic or openai" >&2; exit 1 ;; esac
+case "$NAME" in *[!A-Za-z0-9]*) echo "tabsdata-eks-smoke: --name must be alphanumeric (it becomes part of domain and namespace names)" >&2; exit 1 ;; "") echo "tabsdata-eks-smoke: --name NAME is required (everything created is sm_NAME)" >&2; exit 1 ;; esac
+if [ -z "$TABSDATA_VERSION" ]; then
+    echo "tabsdata-eks-smoke: --tabsdata-version VERSION is required (the tabsdata release to install)" >&2
+    exit 1
+fi
+if [ ! -r "$KUBECONFIG_OPT" ]; then
+    echo "tabsdata-eks-smoke: no kubeconfig at $KUBECONFIG_OPT (pass --kubeconfig)" >&2
+    exit 1
+fi
+# sm_NAME is the instance and the venv; sm_NAME__<what> everything else. The
+# k8s namespace must be RFC 1123 (lowercase, hyphens), so it is sm-<name>.
+BASE="sm_$NAME"
+NAMES_PREFIX="$BASE"     # what common_tabsdata_setup_info tells the reader to look for
+INSTANCE="$BASE"
+VENV="$BASE"
+NAMESPACE="sm-$(printf '%s' "$NAME" | tr 'A-Z' 'a-z')"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+RDS_DOMAIN="${BASE}__rds"
+S3_DOMAIN="${BASE}__s3"
+LLM_DOMAIN="${LLM:+${BASE}__llm_${LLM}}"
+XP_PROJECTS=""           # the xp instance/project names this run creates, for --keep and failures
+SMOKE_DOMAINS="$RDS_DOMAIN $S3_DOMAIN $LLM_DOMAIN"
+EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
+LOG="${LOG:-/tmp/smoke-$INSTANCE-$STAMP.log}"
+WORK="$(mktemp -d "/tmp/smoke-$INSTANCE-$STAMP.XXXX")"
+SERVER="http://127.0.0.1:$PORT"
+TABSDATA_SPEC="tabsdata[$TABSDATA_EXTRAS]==$TABSDATA_VERSION"
+TDK_OPTS=(-y --accept-terms y)
+CONFIGS="$HOME/.tabsdata/instances/$INSTANCE/init/input/configs"
+export KUBECONFIG="$KUBECONFIG_OPT"   # how tdkserver's eks provider finds the cluster
+KUBECTL=(kubectl --kubeconfig "$KUBECONFIG_OPT")
+SUITE_LIST=()
+for suite in $(printf '%s' "$SUITES" | tr ',' ' '); do SUITE_LIST[${#SUITE_LIST[@]}]="$suite"; done
+if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
+    echo "tabsdata-eks-smoke: --suites needs at least one selector" >&2
+    exit 1
+fi
+STAGE_NAMES=(unset-td unset-pypi pycache clean-previous set-crypto create-venv install systems domains namespace init configure create start-1 pods-1 forward-1 login-1 stop-1 venv-update start-2 pods-2 forward-2 login-2)
+for suite in "${SUITE_LIST[@]}"; do STAGE_NAMES[${#STAGE_NAMES[@]}]="xp-$(printf '%s' "$suite" | tr '/' '_')"; done
+STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
+
+# shellcheck disable=SC1091
+. "$HERE/_common.sh"
+common_init "$LOG" "$VERBOSE"
+trap common_portforward_stop EXIT      # the forward never outlives the script
+
+# What a failed run leaves standing: the generic block plus the EKS pieces.
+common_on_stage_failed() {
+    common_screen ""
+    common_screen "$(basename "$0"): left for you to look at"
+    common_tabsdata_setup_info common_indented
+    common_indented "namespace  $NAMESPACE on the cluster of $KUBECONFIG_OPT -- kubectl delete namespace $NAMESPACE (the context still points at it)"
+    common_indented "reach it   kubectl port-forward --kubeconfig $KUBECONFIG_OPT --namespace $NAMESPACE service/net-apiserver $PORT:$PORT &   then: TDD_VENV=$VENV tdd tdk login --server $SERVER"
+}
+
+# fill_storage FILE -- the twelve positional ${{secret}} of apiserver.storage.yaml:
+# per mount (ROOT/BUNDLES/IMAGES) the uri under the s3 domain's URI, and the s3
+# system's region/credentials on every mount. Values travel in the environment
+# (they are credentials); python because awk/sed would fight the &/\ a secret may hold.
+fill_storage() {
+    ST_FILE="$1" python3 - <<'PYEOF'
+import os, re
+path = os.environ["ST_FILE"]
+uri = os.environ["S3D__URI"].rstrip("/")
+sub = {"ROOT": f"{uri}/data/", "BUNDLES": f"{uri}/bundles/", "IMAGES": f"{uri}/images/"}
+fixed = {
+    "aws_region": os.environ.get("S3S__REGION", ""),
+    "aws_access_key_id": os.environ.get("S3S__ACCESS_KEY", ""),
+    "aws_secret_access_key": os.environ.get("S3S__SECRET_KEY", ""),
+}
+out, mount = [], None
+for line in open(path):
+    m = re.match(r"\s*- id: (\w+)", line)
+    if m:
+        mount = m.group(1)
+    if "${{secret}}" in line:
+        key = line.split(":", 1)[0].strip()
+        if key == "uri" and mount in sub:
+            line = line.replace("${{secret}}", sub[mount])
+        elif key in fixed:
+            line = line.replace("${{secret}}", fixed[key])
+    out.append(line)
+open(path, "w").write("".join(out))
+PYEOF
+}
+
+# The effective options, every one, so the screen and the log say exactly what ran.
+common_screen "tabsdata-eks-smoke: effective options"
+common_screen "  --name              $NAME   -> instance and venv $BASE, namespace $NAMESPACE, domains ${BASE}__<what>"
+common_screen "  --venv-type         $VENV_TYPE"
+common_screen "  --python-version    $PYTHON"
+common_screen "  --tabsdata-version  $TABSDATA_VERSION"
+common_screen "  --tabsdata-extras   $TABSDATA_EXTRAS   -> installs $TABSDATA_SPEC"
+common_screen "  --kubeconfig        $KUBECONFIG_OPT   (exported as KUBECONFIG)"
+common_screen "  --uv-index          $(common_display "${UV_INDEX_URI:-(none)}")"
+common_screen "  --suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
+common_screen "  --llm               ${LLM:-(none)}${LLM:+   -> domain $LLM_DOMAIN}"
+common_screen "  --expect-pods       $EXPECT_PODS"
+common_screen "  --keep              $([ -n "$KEEP" ] && echo "yes (also: xp one-shot --keep)" || echo "no (domains, instance, namespace and venv deleted at the end)")"
+common_screen "  --stop-after        ${STOP_AFTER:-(run everything)}"
+common_screen "  --log               $LOG"
+common_screen "  --tdd-dir           $TDD_DIR_OPT"
+common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "no (rolling window of $WINDOW log lines)")"
+common_screen "  server              $SERVER through kubectl port-forward service/net-apiserver"
+common_screen "  drivers for fn/ag   $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
+if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
+    common_screen "${RED}tabsdata-eks-smoke: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
+    exit 1
+fi
+# shellcheck disable=SC1090
+. "$TDD_DIR_OPT/tdd-source.sh"
+
+tdd venv deactivate >/dev/null 2>&1 || true
+
+common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"
+common_run tdd env unset --td
+common_checkpoint unset-td
+
+common_stage unset-pypi "unset the Python package index variables"
+common_run tdd env unset --py-idxx --py-default-idx
+common_checkpoint unset-pypi
+
+common_stage pycache "purge tabsdata from the uv and pip caches"
+common_run tdd pycache clean
+common_checkpoint pycache
+
+common_stage clean-previous "remove what a previous $INSTANCE run left: instance folder, namespace"
+# Scoped to THIS run's names -- other instances (kminus ones included) under
+# ~/.tabsdata stay. The namespace delete waits: a create over a Terminating
+# namespace fails confusingly.
+if [ -d "$HOME/.tabsdata/instances/$INSTANCE" ]; then
+    common_note "a previous instance folder exists; best-effort delete, then remove it"
+    tdd tdkserver delete --instance "$INSTANCE" --trash true "${TDK_OPTS[@]}" || true
+    common_run rm -rf "$HOME/.tabsdata/instances/$INSTANCE"
+fi
+if "${KUBECTL[@]}" get namespace "$NAMESPACE" >/dev/null 2>&1; then
+    common_run "${KUBECTL[@]}" delete namespace "$NAMESPACE" --wait=true --timeout=180s
+fi
+common_checkpoint clean-previous
+
+common_stage set-crypto "set _TDD_CRYPTO_KEY"
+common_run tdd env set --crypto
+common_checkpoint set-crypto
+
+common_stage create-venv "create and activate the managed venv $VENV ($VENV_TYPE, python $PYTHON)"
+common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" --force
+common_checkpoint create-venv
+
+common_stage install "uv pip install $TABSDATA_SPEC into $VENV"
+# shellcheck disable=SC2086
+common_run uv pip install ${UV_INDEX_URI:+--index "$UV_INDEX_URI" --index-strategy unsafe-best-match} "$TABSDATA_SPEC"
+for program in tdkserver tdk; do
+    common_run test -x "$(dirname "$(command -v python)")/$program"
+done
+common_checkpoint install
+
+common_stage systems "dev, rdspostgres, s3 (and --llm) plus every system the suites need must be in the tdd store"
+common_run tdd system create --type dev --sys dev --force
+for suite in "${SUITE_LIST[@]}"; do
+    common_run tdd xp list-systems --suite "$suite"
+done
+common_run tdd system status --sys rdspostgres
+common_run tdd system status --sys s3
+[ -z "$LLM" ] || common_run tdd system status --sys "$LLM"
+common_checkpoint systems
+
+common_stage domains "domains $RDS_DOMAIN, $S3_DOMAIN${LLM:+, $LLM_DOMAIN} -- the instance's database, storage${LLM:+ and LLM key}"
+# Each domain is this run's slice of the shared system: an own database/user on
+# the RDS server, an own prefix in the bucket, the LLM credential. Their values
+# are eval'd into THIS shell (never echoed) and fill the config files below.
+common_run tdd domain create --sys rdspostgres --domain "$RDS_DOMAIN" --force
+common_note "eval \$(tdd domain info --domain $RDS_DOMAIN --as export --prefix RDS)   (values not shown)"
+eval "$(tdd domain info --domain "$RDS_DOMAIN" --as export --prefix RDS 2>/dev/null)"
+common_run test -n "${RDS__HOST:+set}${RDS__PORT:+set}${RDS__DB:+set}${RDS__USER:+set}${RDS__PASSWORD:+set}"
+common_run tdd domain create --sys s3 --domain "$S3_DOMAIN" --force
+common_note "eval \$(tdd domain info --domain $S3_DOMAIN --as export --prefix S3D; tdd system info --sys s3 --as export --prefix S3S)"
+eval "$(tdd domain info --domain "$S3_DOMAIN" --as export --prefix S3D 2>/dev/null)"
+eval "$(tdd system info --sys s3 --as export --prefix S3S 2>/dev/null)"
+common_run test -n "${S3D__URI:+set}${S3S__REGION:+set}"
+if [ -n "$LLM" ]; then
+    common_run tdd domain create --sys "$LLM" --domain "$LLM_DOMAIN" --force
+    common_note "eval \$(tdd domain info --domain $LLM_DOMAIN --as export --prefix LLM)   (the key is not shown)"
+    eval "$(tdd domain info --domain "$LLM_DOMAIN" --as export --prefix LLM 2>/dev/null)"
+    common_run test -n "${LLM__API_KEY:+set}"
+fi
+common_checkpoint domains
+
+common_stage namespace "create the namespace $NAMESPACE and point the kubeconfig context at it"
+# tdkserver takes the namespace from the current context, not from a flag; the
+# previous namespace is remembered and restored by cleanup.
+PREV_NAMESPACE="$("${KUBECTL[@]}" config view --minify -o jsonpath='{.contexts[0].context.namespace}' 2>/dev/null)"
+common_note "current context namespace: ${PREV_NAMESPACE:-(none)} (restored at cleanup)"
+common_run "${KUBECTL[@]}" create namespace "$NAMESPACE"
+common_run "${KUBECTL[@]}" config set-context --current --namespace "$NAMESPACE"
+common_checkpoint namespace
+
+common_stage init "tdkserver init --provider eks --instance $INSTANCE (the editable config folder)"
+common_run tdd tdkserver init --provider eks --instance "$INSTANCE" "${TDK_OPTS[@]}"
+common_run test -d "$CONFIGS"
+common_checkpoint init
+
+common_stage configure "fill the config files from the domains: database, storage, LLM key, uv index"
+# Named placeholders are shared across files (filling one name fills them all);
+# the twelve ${{secret}} of the storage file are positional. Values go through
+# the environment, never a command line. What must remain afterwards is only
+# tabsdata's own placeholders (system:/secretAuto:) and optional `?` ones.
+common_note "database: \${{literal:tdk_database_*}} and \${{secret:postgres_system_*}} from $RDS_DOMAIN"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_host}}' "$RDS__HOST"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_port}}' "$RDS__PORT"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_name}}' "$RDS__DB"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_user}}' "$RDS__USER"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_password}}' "$RDS__PASSWORD"
+common_note "storage: the ROOT/BUNDLES/IMAGES mounts under ${S3D__URI%/}/ with the s3 system's credentials"
+fill_storage "$CONFIGS/apiserver.storage.yaml"
+if [ -n "$LLM" ]; then
+    common_note "aiagent: the $LLM key from $LLM_DOMAIN"
+    common_fill_placeholder "$CONFIGS/aiagent.yaml" -- "\${{secret:$LLM-key?}}" "$LLM__API_KEY"
+fi
+if [ -n "$UV_INDEX_URI" ]; then
+    common_note "tabsdata.yaml: UV_INDEX -> $(common_display "$UV_INDEX_URI")"
+    UVX="$UV_INDEX_URI" perl -pi -e 's/^(\s*UV_INDEX:).*$/$1 $ENV{UVX}/' "$CONFIGS/tabsdata.yaml"
+fi
+common_run common_placeholders_left "$CONFIGS"
+common_run tdd tdkserver config check --instance "$INSTANCE" --init --accept-terms y
+common_checkpoint configure
+
+common_stage create "tdkserver create (upload the config), then delete the plaintext input folder"
+common_run tdd tdkserver create --instance "$INSTANCE" --port "$PORT" "${TDK_OPTS[@]}"
+# The input folder holds the passwords and keys in plain text; create copied
+# them into the cluster's Secrets. `config get --with-secrets` fetches them back.
+common_run rm -rf "$HOME/.tabsdata/instances/$INSTANCE/init"
+common_checkpoint create
+
+common_stage start-1 "tdkserver start (the first start builds environments and runs the db setup)"
+common_run tdd tdkserver start --instance "$INSTANCE" "${TDK_OPTS[@]}"
+common_run common_tdkserver_expect "$INSTANCE" running
+common_checkpoint start-1
+
+common_stage pods-1 "every expected service pod is Running: $EXPECT_PODS"
+# shellcheck disable=SC2086
+common_run_retry 30 10 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIST
+common_checkpoint pods-1
+
+common_stage forward-1 "kubectl port-forward service/net-apiserver $PORT:$PORT (background)"
+common_run common_portforward_start "$KUBECONFIG_OPT" "$NAMESPACE" net-apiserver "$PORT"
+common_checkpoint forward-1
+
+common_stage login-1 "tdk login as admin on $SERVER"
+common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password tabsdata
+common_checkpoint login-1
+
+common_stage stop-1 "tdkserver stop (the port-forward dies with the pods)"
+common_portforward_stop
+common_run tdd tdkserver stop --instance "$INSTANCE" "${TDK_OPTS[@]}"
+common_run common_tdkserver_expect "$INSTANCE" stopped
+common_checkpoint stop-1
+
+common_stage venv-update "update the instance's fn and ag venvs with the DB drivers"
+printf '%s\n' "$REQUIREMENTS" > "$WORK/requirements.txt"
+common_note "requirements: $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
+for name in fn ag; do
+    common_run tdd tdkserver venv update --instance "$INSTANCE" --name "$name" --requirements "$WORK/requirements.txt" "${TDK_OPTS[@]}"
+done
+common_checkpoint venv-update
+
+common_stage start-2 "tdkserver start"
+common_run tdd tdkserver start --instance "$INSTANCE" "${TDK_OPTS[@]}"
+common_run common_tdkserver_expect "$INSTANCE" running
+common_checkpoint start-2
+
+common_stage pods-2 "every expected service pod is Running: $EXPECT_PODS"
+# shellcheck disable=SC2086
+common_run_retry 30 10 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIST
+common_checkpoint pods-2
+
+common_stage forward-2 "kubectl port-forward service/net-apiserver $PORT:$PORT (re-established after start)"
+common_run common_portforward_start "$KUBECONFIG_OPT" "$NAMESPACE" net-apiserver "$PORT"
+common_checkpoint forward-2
+
+common_stage login-2 "tdk login as admin on $SERVER"
+common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password tabsdata
+common_checkpoint login-2
+
+for suite in "${SUITE_LIST[@]}"; do
+    project="${BASE}__xp_$(date -u +%Y%m%dT%H%M%S)_$(printf '%s' "$suite" | tr -c 'A-Za-z0-9\n' '_')"
+    XP_PROJECTS="$XP_PROJECTS $project"
+    common_stage --continue "xp-$(printf '%s' "$suite" | tr '/' '_')" "xp one-shot $suite as $project (continue on error)"
+    # shellcheck disable=SC2086
+    common_run tdd xp one-shot --suite "$suite" --project "$project" ${KEEP:+--keep}
+    common_checkpoint "xp-$(printf '%s' "$suite" | tr '/' '_')"
+done
+
+if [ -n "$KEEP" ]; then
+    common_stage cleanup "keeping the whole setup as it is (--keep; the port-forward is stopped)"
+    common_portforward_stop
+    common_note "re-establish: kubectl port-forward --kubeconfig $KUBECONFIG_OPT --namespace $NAMESPACE service/net-apiserver $PORT:$PORT &"
+    common_note "then: export TDD_VENV=$VENV; tdd tdk login --server $SERVER --user admin --password ***"
+    common_note "the kubeconfig's current context still points at $NAMESPACE (was: ${PREV_NAMESPACE:-none})"
+    common_tabsdata_setup_info common_note
+else
+    common_stage cleanup "destroy the domains, delete the instance, the namespace $NAMESPACE and the venv"
+    common_portforward_stop
+    # xp destroyed its own domains and pointers (no --keep); ours go youngest
+    # first. The RDS database and the bucket prefix disappear with their domains.
+    [ -z "$LLM_DOMAIN" ] || common_run tdd domain destroy --domain "$LLM_DOMAIN" --force
+    common_run tdd domain destroy --domain "$S3_DOMAIN" --force
+    common_run tdd domain destroy --domain "$RDS_DOMAIN" --force
+    common_run tdd tdkserver delete --instance "$INSTANCE" --trash true "${TDK_OPTS[@]}"
+    common_run "${KUBECTL[@]}" delete namespace "$NAMESPACE" --wait=true --timeout=300s
+    if [ -n "$PREV_NAMESPACE" ]; then
+        common_run "${KUBECTL[@]}" config set-context --current --namespace "$PREV_NAMESPACE"
+    else
+        common_run "${KUBECTL[@]}" config unset "contexts.$("${KUBECTL[@]}" config current-context).namespace"
+    fi
+    common_run tdd venv deactivate
+    common_run tdd venv delete --name "$VENV"
+fi
+rm -rf "$WORK"
+common_finish

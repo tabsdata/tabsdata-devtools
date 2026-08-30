@@ -36,6 +36,7 @@ tdd xp --help           # the bundled tabsdata example suites: list-suites, one-
 tdd pycache --help      # purge tabsdata from the uv/pip caches
 tdd defaults --command venv   # a command's option defaults: built-in vs your default-opts
 scripts/tabsdata-km-smoke.sh --help   # fresh venv + tabsdata + tdkserver + xp suites, end to end
+scripts/tabsdata-eks-smoke.sh --help  # the same run against an EKS cluster (rds/s3 domains, port-forward)
 cargo make help         # every build task; `cargo make uninstall` removes ~/.tdd
 ```
 

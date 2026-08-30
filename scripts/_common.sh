@@ -24,6 +24,12 @@
 #   common_instance_gone NAME             no km process and no folder left after a delete
 #   common_tdkserver_pods_running NAME SERVICE...
 #                                         every SERVICE has a Running, Ready pod in `tdkserver status`
+#   common_portforward_start KUBECONFIG NAMESPACE SERVICE PORT
+#                                         `kubectl port-forward` in the background, waited for
+#   common_portforward_stop               end it (also on exit: the script traps EXIT to it)
+#   common_fill_placeholder FILE... -- PLACEHOLDER VALUE
+#                                         replace a `${{kind:name}}` placeholder in config files
+#   common_placeholders_left DIR          fail while a required placeholder remains in DIR/*.yaml
 #                                         `tdkserver status` must agree with the expected state
 #   common_tabsdata_setup_info common_screen|common_note
 #                                         the instance (running?), the venv, how to use/stop/remove them
@@ -84,6 +90,7 @@ common_init() {
     CONTINUED=0
     WINDOW_PID=""
     WINDOW_FROM=0
+    PORTFORWARD_PID=""
     RUN_T0="$(date +%s)"
 }
 
@@ -460,6 +467,73 @@ common_tdkserver_pods_running() {
         return 1
     fi
     echo "every expected service pod is Running and Ready: $*"
+    return 0
+}
+
+# ---------------------------------------------------------------- kubectl / configs
+# common_portforward_start KUBECONFIG NAMESPACE SERVICE PORT -- `kubectl
+# port-forward service/SERVICE PORT:PORT` in the background, its output in the
+# log, kept in PORTFORWARD_PID; returns once the local port answers (or fails
+# after ~60s). One at a time: a running forward is stopped first. The forward
+# dies with the pods it points at, so it is re-established after every
+# tdkserver start/restart, and stopped on exit (`trap common_portforward_stop EXIT`).
+common_portforward_start() {
+    local kubeconfig="$1" namespace="$2" service="$3" port="$4" waited=0
+    common_portforward_stop
+    echo "\$ kubectl port-forward --kubeconfig $kubeconfig --namespace $namespace service/$service $port:$port   (background)"
+    kubectl port-forward --kubeconfig "$kubeconfig" --namespace "$namespace" "service/$service" "$port:$port" >>"$LOG" 2>&1 &
+    PORTFORWARD_PID=$!
+    while ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; do
+        if ! kill -0 "$PORTFORWARD_PID" 2>/dev/null; then
+            echo "port-forward exited early (see the log above)"
+            PORTFORWARD_PID=""
+            return 1
+        fi
+        if [ "$waited" -ge 60 ]; then
+            echo "port $port not answering after ${waited}s"
+            return 1
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+    echo "port-forward up: 127.0.0.1:$port -> service/$service in $namespace (pid $PORTFORWARD_PID)"
+    return 0
+}
+
+common_portforward_stop() {
+    [ -n "${PORTFORWARD_PID:-}" ] || return 0
+    kill "$PORTFORWARD_PID" 2>/dev/null
+    wait "$PORTFORWARD_PID" 2>/dev/null
+    echo "port-forward stopped (pid $PORTFORWARD_PID)"
+    PORTFORWARD_PID=""
+}
+
+# common_fill_placeholder FILE... -- PLACEHOLDER VALUE -- replace every literal
+# occurrence of PLACEHOLDER (`${{literal:tdk_database_host}}`, `${{secret}}`,
+# ...) in the files with VALUE. perl with \Q..\E, so braces, `$`, `?` and the
+# value's own characters are never interpreted; the value travels in the
+# environment, so it is never on a command line either (it may be a password).
+common_fill_placeholder() {
+    local files=()
+    while [ $# -gt 0 ] && [ "$1" != "--" ]; do files[${#files[@]}]="$1"; shift; done
+    shift
+    PH="$1" VAL="$2" perl -pi -e 's/\Q$ENV{PH}\E/$ENV{VAL}/g' "${files[@]}"
+}
+
+# common_placeholders_left DIR -- fail, listing them, while a REQUIRED
+# placeholder remains in DIR/*.yaml: `${{literal:..}}` or `${{secret:..}}` /
+# `${{secret}}` without the optional `?`. `system:` and `secretAuto:` are
+# tabsdata's to fill; `?` ones may stay. Meant for `common_run`.
+common_placeholders_left() {
+    local left
+    # unfilled placeholder lines hold no values, so they are shown as they are
+    left="$(grep -nE '\$\{\{(literal|secret)(:[^}?]*)?\}\}' "$1"/*.yaml 2>/dev/null)"
+    if [ -n "$left" ]; then
+        echo "required placeholders still to fill:"
+        printf '%s\n' "$left" | sed 's/^/  /'
+        return 1
+    fi
+    echo "no required placeholder left in $1"
     return 0
 }
 

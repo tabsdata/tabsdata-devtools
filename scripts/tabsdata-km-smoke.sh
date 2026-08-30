@@ -30,9 +30,9 @@
 #       folder is trashed) and the venv -- unless --keep, which leaves everything
 #       running for a look and is passed on to xp so its setups stay too
 #
-# Every name this run creates -- the instance, the venv, the domains, the xp
-# instances/projects -- starts with --names-prefix (default donald), so what a
-# run left behind is one `ls`/`list` away.
+# Every name this run creates starts with sm_<NAME> (--name): the instance and
+# the venv ARE sm_<NAME>; domains and xp instances/projects are sm_<NAME>__<what>.
+# What a run left behind is one `ls`/`list` away.
 #
 # Output model, masking, stages, report, what a failure leaves standing, the
 # tdkserver state assertion after every quickstart/start/stop: scripts/_common.sh. The script runs in
@@ -44,8 +44,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 usage() {
     cat <<'HELP'
-usage: tabsdata-km-smoke.sh --tabsdata-version VERSION [--tabsdata-extras EXTRAS]
-                   [--names-prefix PREFIX] [--instance NAME] [--venv NAME]
+usage: tabsdata-km-smoke.sh --name NAME --tabsdata-version VERSION [--tabsdata-extras EXTRAS]
                    [--venv-type pyenv|uv|conda] [--python-version VERSION] [--port PORT]
                    [--uv-index URI] [--suites LIST] [--llm anthropic|openai]
                    [--expect-pods LIST] [--keep] [--stop-after STAGE] [--log FILE]
@@ -60,19 +59,15 @@ venvs with the DB drivers, start, login, xp one-shot for every suite in --suites
 instance and the venv -- or, with --keep, leave everything running.
 
 options:
+  --name NAME         REQUIRED: the run's name, alphanumeric. Everything created is
+                      sm_NAME -- the tdkserver instance and the managed venv -- or
+                      sm_NAME__<what>: the domains and the xp instances/projects
   --tabsdata-version VERSION
                       REQUIRED: the tabsdata release to install, tabsdata[EXTRAS]==VERSION
   --tabsdata-extras EXTRAS
                       the extras to install (default: all). tabsdata is a
                       meta-package: without the right extras (server, cli,
                       conn-*, ...) the venv has no working tdkserver
-  --names-prefix PREFIX
-                      prefix of every name this run creates: the instance
-                      (PREFIX_NAME), the venv, the domains and the xp
-                      instances/projects (PREFIX_...) -- so a run's leftovers are
-                      easy to find and remove (default: donald)
-  --instance NAME     tdkserver instance, prefixed (default: sm0 -> donald_sm0)
-  --venv NAME         managed venv to create (default: <prefixed instance>_xp)
   --venv-type TYPE    pyenv, uv or conda (default: pyenv)
   --python-version VERSION
                       interpreter for the venv (default: 3.12.13)
@@ -86,7 +81,7 @@ options:
                       (default: test,tableframe_api,dataquality,grok,
                       container-connectors,cloud-connectors)
   --llm anthropic|openai
-                      create a domain on that system (PREFIX_llm_<llm>; the system
+                      create a domain on that system (sm_NAME__llm_<llm>; the system
                       must be in the tdd store), read its API key and hand it to
                       quickstart as --<llm>-key, so the aiagent works; the domain
                       is destroyed at the end unless --keep (default: no LLM)
@@ -117,11 +112,9 @@ The drivers added to the instance's fn and ag venvs (tdkserver venv update):
 HELP
 }
 
-NAMES_PREFIX="donald"
-INSTANCE="sm0"           # prefixed below
+NAME=""                  # required; everything is sm_$NAME
 LLM=""                   # anthropic | openai | empty
 EXPECT_PODS="srv-apiserver,srv-database"
-VENV=""                 # <prefixed instance>_xp unless given
 VENV_TYPE="pyenv"
 PYTHON="3.12.13"
 TABSDATA_VERSION=""     # required
@@ -140,11 +133,9 @@ oracledb==3.2.0"
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --names-prefix) NAMES_PREFIX="$2"; shift 2 ;;
-        --instance) INSTANCE="$2"; shift 2 ;;
+        --name) NAME="$2"; shift 2 ;;
         --llm) LLM="$2"; shift 2 ;;
         --expect-pods) EXPECT_PODS="$2"; shift 2 ;;
-        --venv) VENV="$2"; shift 2 ;;
         --venv-type) VENV_TYPE="$2"; shift 2 ;;
         --python-version) PYTHON="$2"; shift 2 ;;
         --tabsdata-version) TABSDATA_VERSION="$2"; shift 2 ;;
@@ -163,17 +154,19 @@ while [ $# -gt 0 ]; do
 done
 case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "tabsdata-km-smoke: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
 case "$LLM" in "" | anthropic | openai) ;; *) echo "tabsdata-km-smoke: --llm must be anthropic or openai" >&2; exit 1 ;; esac
-case "$NAMES_PREFIX" in *[!A-Za-z0-9]* | "") echo "tabsdata-km-smoke: --names-prefix must be alphanumeric (it becomes part of domain names)" >&2; exit 1 ;; esac
+case "$NAME" in *[!A-Za-z0-9]*) echo "tabsdata-km-smoke: --name must be alphanumeric (it becomes part of domain names)" >&2; exit 1 ;; "") echo "tabsdata-km-smoke: --name NAME is required (everything created is sm_NAME)" >&2; exit 1 ;; esac
 if [ -z "$TABSDATA_VERSION" ]; then
     echo "tabsdata-km-smoke: --tabsdata-version VERSION is required (the tabsdata release to install)" >&2
     exit 1
 fi
-# Every created name is PREFIX_name -- one separator everywhere, and `_` is
-# what domain names allow (alphanumeric/underscore only).
-INSTANCE="${NAMES_PREFIX}_$INSTANCE"
-VENV="${VENV:-${INSTANCE}_xp}"
+# sm_NAME is the instance and the venv; sm_NAME__<what> everything else (`_` is
+# what domain names allow, `__` keeps the run's name readable in them).
+BASE="sm_$NAME"
+NAMES_PREFIX="$BASE"     # what common_tabsdata_setup_info tells the reader to look for
+INSTANCE="$BASE"
+VENV="$BASE"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-LLM_DOMAIN="${LLM:+${NAMES_PREFIX}_llm_${LLM}}"
+LLM_DOMAIN="${LLM:+${BASE}__llm_${LLM}}"
 XP_PROJECTS=""           # the xp instance/project names this run creates, for --keep and failures
 SMOKE_DOMAINS="$LLM_DOMAIN"   # domains this run creates outside xp (common_tabsdata_setup_info lists them)
 EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
@@ -203,16 +196,14 @@ common_init "$LOG" "$VERBOSE"
 
 # The effective options, every one, so the screen and the log say exactly what ran.
 common_screen "tabsdata-km-smoke: effective options"
-common_screen "  --names-prefix      $NAMES_PREFIX"
-common_screen "  --instance          $INSTANCE   (prefixed)"
-common_screen "  --venv              $VENV"
+common_screen "  --name              $NAME   -> instance and venv $BASE, domains and xp names ${BASE}__<what>"
 common_screen "  --venv-type         $VENV_TYPE"
 common_screen "  --python-version    $PYTHON"
 common_screen "  --tabsdata-version  $TABSDATA_VERSION"
 common_screen "  --tabsdata-extras   $TABSDATA_EXTRAS   -> installs $TABSDATA_SPEC"
 common_screen "  --port              $PORT   -> server $SERVER"
 common_screen "  --uv-index          $(common_display "${UV_INDEX_URI:-(none)}")"
-common_screen "  --suites            $SUITES   -> xp projects ${NAMES_PREFIX}_xp_<ts>_<suite>"
+common_screen "  --suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
 common_screen "  --llm               ${LLM:-(none)}${LLM:+   -> domain $LLM_DOMAIN}"
 common_screen "  --expect-pods       $EXPECT_PODS"
 common_screen "  --keep              $([ -n "$KEEP" ] && echo "yes (also: xp one-shot --keep)" || echo "no (domains, instance and venv deleted at the end)")"
@@ -358,7 +349,7 @@ common_checkpoint login-2
 # for the summary; --keep goes through, so xp keeps its setup exactly when the
 # script keeps its own.
 for suite in "${SUITE_LIST[@]}"; do
-    project="${NAMES_PREFIX}_xp_$(date -u +%Y%m%dT%H%M%S)_$(printf '%s' "$suite" | tr -c 'A-Za-z0-9\n' '_')"
+    project="${BASE}__xp_$(date -u +%Y%m%dT%H%M%S)_$(printf '%s' "$suite" | tr -c 'A-Za-z0-9\n' '_')"
     XP_PROJECTS="$XP_PROJECTS $project"
     common_stage --continue "xp-$(printf '%s' "$suite" | tr '/' '_')" "xp one-shot $suite as $project (continue on error)"
     # shellcheck disable=SC2086
