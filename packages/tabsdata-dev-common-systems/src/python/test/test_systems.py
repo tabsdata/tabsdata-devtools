@@ -136,6 +136,7 @@ def test_every_system_type_owns_a_disjoint_port_slot_documented_in_docs_ports_md
 def test_port_range_mixin_walks_its_slot_without_repeating_or_leaving_it():
     import socket
 
+    from tabsdata_dev.common.core.ports import find_free_port
     from tabsdata_dev.common.systems.systems._common.ports import (
         PortRangeMixin,
         system_port_range,
@@ -145,15 +146,19 @@ def test_port_range_mixin_walks_its_slot_without_repeating_or_leaving_it():
         slug = "mysql"
 
     lo, hi = system_port_range("mysql")
+    # the slot may be in use for real (a mysql container of this machine sits on
+    # its first ports): occupy the first port that is free right now instead
+    first = find_free_port((lo, hi), from_start=True)
     busy = socket.socket()
-    busy.bind(("", lo))
+    busy.bind(("", first))
     busy.listen(1)
     try:
         f = Fake()
         got = [f.next_free_port() for _ in range(3)]
-        assert lo not in got and len(set(got)) == 3 and all(lo < p <= hi for p in got)
+        assert first not in got and len(set(got)) == 3
+        assert all(first < p <= hi for p in got)  # in the slot, after the busy one
         g = Fake()
-        g.use_ports([lo + 50, lo + 51])
+        g.use_ports([lo + 50, lo + 51])  # pins are taken as given, then the slot
         assert [g.next_free_port() for _ in range(3)] == [lo + 50, lo + 51, got[0]]
     finally:
         busy.close()
