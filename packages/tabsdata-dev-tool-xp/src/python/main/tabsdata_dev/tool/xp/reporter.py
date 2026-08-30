@@ -11,7 +11,7 @@ command declares how many steps it is about to run (``plan``) and wraps each in
 (``warn`` when it failed) whose message is the progress line and whose fields
 carry the structured step (``xp: "step"``):
 
-    connectors/db2 - [ 4/17] - create-collection - xp_..._db2/db2_in -   1.42s
+    container-connectors/db2 - [ 4/17] - create-collection - xp_..._db2/db2_in -   1.42s
 
 ``--format view`` shows those lines; ``--format json`` prints the events, which
 is exactly what the lane dispatcher reads back to aggregate N lanes live. The

@@ -323,14 +323,16 @@ def test_the_built_in_suites_ship_with_the_package_and_export(
     ).is_file()
     path, lanes = suites.resolve("test/test")
     assert path == root / "suites" / "test" / "test.json" and lanes is None
-    assert suites.resolve("connectors")[1]  # a type dir fans out
+    assert suites.resolve("container-connectors")[1]  # a type dir fans out
     assert (
         suites.base_dir(path.parent) == root
     )  # connection-file: refs resolve against the shipped templates
     assert _run(["list-suites", "--format", "json"]) == 0
     last = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert last["builtin"] is True and len(last["suites"]) > 100
-    assert {"test/test", "connectors/localfile"} <= {s["suite"] for s in last["suites"]}
+    assert {"test/test", "container-connectors/localfile"} <= {
+        s["suite"] for s in last["suites"]
+    }
     out = tmp_path / "xp"
     assert _run(["export-suites", "--dir", str(out)]) == 0
     assert (out / "suites" / "test" / "test.json").is_file() and (

@@ -60,7 +60,8 @@ def resolve(
 ) -> tuple[pathlib.Path, list[pathlib.Path] | None]:
     """``(path, lanes)``: a definition file and ``None``, or a suite dir and its
     lane files. `spec` is looked up under `suites_root` (built-in by default) --
-    ``connectors/db2``, ``connectors/db2.json`` or ``connectors`` -- and, when
+    ``container-connectors/db2``, ``container-connectors/db2.json`` or
+    ``container-connectors`` -- and, when
     nothing there matches, taken as a path of its own."""
     root = suites_root if suites_root is not None else builtin_root() / "suites"
     sel = spec.strip().strip("/")

@@ -14,7 +14,9 @@ provision domains, create the project, register functions and triggers, run, che
   `state`, `reporter`, `models`, `suites`, `pointers`, `shell`, `conn`, `lanes`, `domains`,
   `project`, `cycle`.
 - The tabsdata-xp `suites/` and `connections/` trees ship inside the package (`xp/`, excluded
-  from ruff) and are the default; `--suite <type>/<name>|<type>` selects under them or under
+  from ruff) and are the default; tabsdata-xp's `connectors` dir is split here into
+  `container-connectors` (docker/local systems) and `cloud-connectors` (lanes needing a cloud
+  store or warehouse: az, bigquery, clickhouse, databricks, gcs, s3, snowflake, starrocks); `--suite <type>/<name>|<type>` selects under them or under
   `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
 - `bin-reqs`: `tdk`, `tdkserver`. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run
   under `/tmp/tdd-xp/`.

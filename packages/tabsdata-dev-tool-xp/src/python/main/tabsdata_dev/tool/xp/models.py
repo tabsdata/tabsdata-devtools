@@ -61,7 +61,7 @@ class Trigger(BaseModel):
 
 class Instance(BaseModel):
     name: str  # the instance name
-    type: str  # the suite's type dir name (e.g. 'connectors')
+    type: str  # the suite's type dir name (e.g. 'container-connectors')
     suite_file: str  # the definition, absolute
     source_dir: str  # the dir holding the definition and functions/
     base_dir: str  # the dir holding connections/
