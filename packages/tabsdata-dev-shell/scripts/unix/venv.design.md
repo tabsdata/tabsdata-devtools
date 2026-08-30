@@ -14,9 +14,10 @@ shell command.
   refuses while any is active (the shell would be left standing in a deleted venv).
 - Activation exports `_TDD_VENV` (what `tdd tdk|tdkserver|km` read), saves the prompt in
   `_TDD_VENV_PS1` and writes `(<type>/<python>/<name>)` in green after the red `* ` of
-  `tdd-source.sh`; the managers' own prompt markers are silenced. `deactivate` leaves whatever
-  is active -- managed, or best effort a venv activated by hand (uv/venv, pyenv-virtualenv,
-  conda) -- and restores the prompt. A foreign active venv blocks `create`/`activate` -- but a
+  `tdd-source.sh`; the managers' own prompt markers are silenced. `deactivate` leaves the
+  managed venv and restores the prompt; a venv tdd did not activate, or a stale record
+  (recorded, nothing active), is an error pointing at `--force`, which leaves it best effort
+  (uv/venv, pyenv-virtualenv, conda) or drops the record. A foreign active venv blocks `create`/`activate` -- but a
   venv found active under `managed-venvs/<type>/<name>` with its marker is ours however it was
   entered (a shell from before a reinstall, `bin/activate` sourced by hand) and is **adopted**
   as the active one first (`_tdd_venv_adopt`, every subcommand; the prompt to restore is the

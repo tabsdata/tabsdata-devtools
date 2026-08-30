@@ -12,7 +12,7 @@
 #
 #     tdd venv create --name NAME [--type pyenv|uv|conda] [--python VERSION]
 #     tdd venv activate --name NAME
-#     tdd venv deactivate
+#     tdd venv deactivate [--force]
 #     tdd venv delete (--name NAME | --all)
 #     tdd venv list
 #
@@ -25,9 +25,10 @@
 # new one; a venv that tdd did not activate (VIRTUAL_ENV, or a conda env other
 # than base) blocks both -- unless it lives under managed-venvs/<type>/<name>
 # with its marker, in which case it is ours however it was entered and is
-# adopted as the active one. deactivate leaves whatever is active: the managed
-# venv, or -- best effort, from what the tool left in the environment -- one
-# activated by hand (venv/uv, pyenv-virtualenv, conda). State lives in _TDD_VENV
+# adopted as the active one. deactivate leaves the managed venv; a venv tdd did
+# not activate, or a stale record, is refused with a pointer to --force, which
+# leaves it best effort from what the tool left in the environment (venv/uv,
+# pyenv-virtualenv, conda) or drops the record. State lives in _TDD_VENV
 # (the name) and _TDD_VENV_PS1 (the prompt to restore).
 
 tdd_fn_register venv "create, activate, deactivate, delete or list managed venvs (pyenv, uv or conda)"
@@ -35,7 +36,7 @@ tdd_fn_register venv "create, activate, deactivate, delete or list managed venvs
 # Built-in option defaults, for `tdd defaults --command venv`.
 tdd_defaults_venv() {
     printf '%s\n' "create|--type|pyenv" "create|--python|" "create|--name|" \
-        "create|--force|false" "activate|--name|" "delete|--name|" "delete|--all|false"
+        "create|--force|false" "deactivate|--force|false" "activate|--name|" "delete|--name|" "delete|--all|false"
 }
 
 tddfn_venv() {
@@ -74,7 +75,7 @@ _tdd_venv_help() {
 usage: tdd venv create --name NAME [--type {pyenv,uv,conda}]
                        [--python VERSION] [--force]
        tdd venv activate --name NAME
-       tdd venv deactivate
+       tdd venv deactivate [--force]
        tdd venv delete (--name NAME | --all)
        tdd venv list
 
@@ -92,10 +93,12 @@ commands:
                 _TDD_VENV=NAME is exported, which `tdd tdk` and `tdd tdkserver`
                 read. Switches if another managed venv is active; refuses if a
                 venv tdd did not activate is (deactivate that one first)
-  deactivate    leave the active venv: the managed one, or -- best effort --
-                one tdd did not activate: venv/uv through its deactivate,
-                pyenv-virtualenv through pyenv deactivate, conda through
-                conda deactivate
+  deactivate    leave the active managed venv. A venv tdd did not activate,
+                or a stale record (recorded, nothing active), is an error
+                that says so; with --force the venv is left anyway -- best
+                effort: venv/uv through its deactivate, pyenv-virtualenv
+                through pyenv deactivate, conda through conda deactivate --
+                or the stale record dropped
   delete        remove it and its marker; refuses while it is active. --all
                 removes every managed venv, none of which may be active
   list          every managed venv with its type and path
@@ -104,7 +107,8 @@ options:
   --name NAME              the venv
   --all                    delete: every managed venv instead of one
   -f, --force              create: delete NAME first if it exists (leaving it
-                           if it is the active one)
+                           if it is the active one); deactivate: leave a venv
+                           tdd did not activate, or drop a stale record
   --type {pyenv,uv,conda}  the tool that creates it (default: pyenv)
   --python VERSION         interpreter for create: pyenv needs it installed
                            already (pyenv install VERSION), uv and conda fetch
@@ -524,9 +528,18 @@ _tdd_venv_leave_foreign() {
 }
 
 _tdd_venv_deactivate() {
+    _tdd_force=""
     while [ $# -gt 0 ]; do
-        _tdd_common_opt "$@" || { _tdd_error "unknown option: $1 (see --help)"; return 1; }
-        shift "$_TDD_CONSUMED"
+        case "$1" in
+            --force | -f)
+                _tdd_force=1
+                shift
+                ;;
+            *)
+                _tdd_common_opt "$@" || { _tdd_error "unknown option: $1 (see --help)"; return 1; }
+                shift "$_TDD_CONSUMED"
+                ;;
+        esac
     done
     if [ "$_TDD_HELP" = 1 ]; then
         _tdd_venv_help
@@ -535,20 +548,35 @@ _tdd_venv_deactivate() {
     _tdd_cmd_check || return 1
     _tdd_venv_adopt
     _tdd_venv_detect
-    if [ -n "${_TDD_VENV:-}" ] && { [ -z "$_tdd_current" ] || [ "$_tdd_current" = "$(_tdd_venv_active_dir)" ]; }; then
-        # The recorded managed venv (or a stale record with nothing active).
+    if [ -n "${_TDD_VENV:-}" ] && [ -n "$_tdd_current" ] && [ "$_tdd_current" = "$(_tdd_venv_active_dir)" ]; then
+        # The recorded (or just adopted) managed venv, active: the ordinary case.
         _tdd_name="$_TDD_VENV"
         _tdd_type="$(cat "$(_tdd_venv_root)/$_tdd_name.env" 2>/dev/null)"
         _tdd_venv_leave
         _tdd_ok "deactivated $_tdd_name" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"managed\":true"
         return 0
     fi
+    if [ -n "${_TDD_VENV:-}" ] && [ -z "$_tdd_current" ]; then
+        # A stale record: the venv was left behind tdd's back (its own deactivate,
+        # a deleted directory). Only --force drops it -- the state is not what the
+        # record says, and the user should know before it is rewritten.
+        if [ "$_tdd_force" != 1 ]; then
+            _tdd_error "$_TDD_VENV is recorded as the active managed venv but no venv is active: a stale record; tdd venv deactivate --force drops it"
+            return 1
+        fi
+        _tdd_name="$_TDD_VENV"
+        _tdd_type="$(cat "$(_tdd_venv_root)/$_tdd_name.env" 2>/dev/null)"
+        _tdd_venv_leave
+        _tdd_ok "dropped the stale record of $_tdd_name (no venv was active)" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"managed\":true,\"stale\":true"
+        return 0
+    fi
     if [ -z "$_tdd_current" ]; then
         _tdd_error "no venv is active"
         return 1
     fi
-    # Something tdd did not activate -- possibly on top of the managed one,
-    # whose record then stays for the next deactivate.
+    # Something tdd did not activate -- possibly on top of the managed one, whose
+    # record then stays for the next deactivate. Left only with --force: tdd did
+    # not set it up, so it does not tear it down unasked.
     # conda names a prefix-activated env by its full path; the last component
     # is what the prompt shows.
     _tdd_name="$(basename "$_tdd_current")"
@@ -557,6 +585,10 @@ _tdd_venv_deactivate() {
             "" | */*) ;;
             *) _tdd_name="$CONDA_DEFAULT_ENV" ;;
         esac
+    fi
+    if [ "$_tdd_force" != 1 ]; then
+        _tdd_error "$_tdd_name ($_tdd_kind, $_tdd_current) is active but tdd did not activate it${_TDD_VENV:+ -- on top of the managed venv $_TDD_VENV}; tdd venv deactivate --force leaves it anyway"
+        return 1
     fi
     _tdd_info "deactivate $_tdd_name ($_tdd_kind, not managed by tdd)"
     if ! _tdd_venv_leave_foreign; then

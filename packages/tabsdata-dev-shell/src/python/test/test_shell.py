@@ -285,6 +285,10 @@ def test_venv_adopts_a_managed_venv_active_without_the_record():
 def test_venv_create_has_force_and_deactivate_handles_every_kind():
     text = (shell.scripts_dir() / "venv.sh").read_text()
     assert "--force | -f)" in text and '"create|--force|false"' in text
+    assert '"deactivate|--force|false"' in text
+    body = text.split("_tdd_venv_deactivate() {", 1)[1].split("\n}\n", 1)[0]
+    assert "tdd venv deactivate --force drops it" in body  # stale record
+    assert "tdd venv deactivate --force leaves it anyway" in body  # foreign venv
     for means in (
         "conda deactivate",
         "pyenv deactivate",
