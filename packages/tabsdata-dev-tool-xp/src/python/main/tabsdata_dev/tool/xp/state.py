@@ -19,10 +19,14 @@ from tabsdata_dev.common.core import render
 from tabsdata_dev.common.core.errors import ToolError
 
 TOOL = "xp"
-DEFAULT_SECRET_ENV = "TD_BACKENDS_CRYPTO_KEY"
+DEFAULT_SECRET_ENV = "_TDD_CRYPTO_KEY"
 # A fan-out child inherits the parent's scratch root through this variable and
 # takes a subdir of it named after its lane, so one group run leaves one tree.
-SCRATCH_ENV = "TDD_XP_SCRATCH"
+# Private to that hand-off: the parent also passes its pid, and a child honours
+# the root only when that pid is its parent's -- a value left in a shell is
+# reported and ignored, never silently written into.
+SCRATCH_ENV = "_TDD_XP_SCRATCH"
+SCRATCH_PARENT_ENV = "_TDD_XP_PARENT"
 
 
 class XpError(ToolError):

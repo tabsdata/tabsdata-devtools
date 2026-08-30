@@ -3,7 +3,7 @@
 #
 
 # shellcheck disable=SC1090
-. "${TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
+. "${_TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
 
 # Managed virtualenvs: created by pyenv, uv or conda, but all of them living
 # under $TDD_DIR/managed-venvs/<type>/<name>, each with a <name>.env marker
@@ -20,7 +20,7 @@
 # is a shell command. No bin-reqs.txt: which of pyenv, uv or conda is needed
 # depends on --type, so each is checked at the point of use.
 #
-# Activation rules: the prompt shows (<type>/<name>); create ends in
+# Activation rules: the prompt shows (<type>/<python>/<name>); create ends in
 # activation; activating while another managed venv is active switches to the
 # new one; a venv that tdd did not activate (VIRTUAL_ENV, or a conda env other
 # than base) blocks both. deactivate leaves whatever is active: the managed
@@ -59,7 +59,7 @@ tddfn_venv() {
             _tdd_rc=1
             ;;
     esac
-    unset _tdd_sub _tdd_name _tdd_type _tdd_python _tdd_dir _tdd_envf _tdd_out _tdd_prefix _tdd_py _tdd_f _tdd_rows _tdd_json _tdd_mark _tdd_current _tdd_prev _tdd_ps1 _tdd_prev_type _tdd_force _tdd_recreated _tdd_kind _tdd_p
+    unset _tdd_sub _tdd_name _tdd_type _tdd_python _tdd_dir _tdd_envf _tdd_out _tdd_prefix _tdd_py _tdd_f _tdd_rows _tdd_json _tdd_mark _tdd_current _tdd_prev _tdd_ps1 _tdd_prev_type _tdd_force _tdd_recreated _tdd_kind _tdd_p _tdd_star
     return "$_tdd_rc"
 }
 
@@ -84,7 +84,7 @@ commands:
   create        make a venv and enter it. Refuses while a venv tdd did not
                 activate is active; switches from a managed one. With --force
                 an existing NAME is deleted first, even the active one
-  activate      enter it, in this shell: the prompt shows (<type>/NAME) and
+  activate      enter it, in this shell: the prompt shows (<type>/PYTHON/NAME) in green and
                 TDD_VENV=NAME is exported, which `tdd tdk` and `tdd tdkserver`
                 read. Switches if another managed venv is active; refuses if a
                 venv tdd did not activate is (deactivate that one first)
@@ -374,7 +374,18 @@ _tdd_venv_enter() {
             ;;
     esac
     TDD_VENV_PS1="$_tdd_ps1"
-    PS1="($_tdd_type/$_tdd_name) $_tdd_ps1"
+    # The active managed venv, in green, with the interpreter it runs (asked of
+    # the venv's own python: pyenv venvs have no record of it) -- placed after
+    # the red `* ` tdd-source.sh put first, so that stays first; ahead of
+    # everything when the prompt does not start with it.
+    _tdd_py="$("$_tdd_dir/bin/python" --version 2>&1)"
+    _tdd_py="${_tdd_py#Python }"
+    _tdd_mark="$(_tdd_ps1_wrap green "($_tdd_type/${_tdd_py:-?}/$_tdd_name)") "
+    _tdd_star="$(_tdd_ps1_wrap red '*') "
+    case "$_tdd_ps1" in
+        "$_tdd_star"*) PS1="$_tdd_star$_tdd_mark${_tdd_ps1#"$_tdd_star"}" ;;
+        *) PS1="$_tdd_mark$_tdd_ps1" ;;
+    esac
     TDD_VENV="$_tdd_name"
     export TDD_VENV
     return 0

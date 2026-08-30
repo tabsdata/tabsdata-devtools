@@ -76,10 +76,10 @@ class Druid(ContainersBackend):
 
     def compose_env(self, meta: dict[str, str]) -> dict[str, str]:
         return {
-            "TDX_DRUID_COORDINATOR_PORT": self._port(meta["OVERLORD_URL"]),
-            "TDX_DRUID_ROUTER_PORT": self._port(meta["ROUTER_URL"]),
-            "TDX_DRUID_ADMIN_PASSWORD": meta.get("PASSWORD", ""),
-            "TDX_DRUID_INTERNAL_PASSWORD": meta.get("INTERNAL_PASSWORD", ""),
+            "DRUID__COORDINATOR_PORT": self._port(meta["OVERLORD_URL"]),
+            "DRUID__ROUTER_PORT": self._port(meta["ROUTER_URL"]),
+            "DRUID__ADMIN_PASSWORD": meta.get("PASSWORD", ""),
+            "DRUID__INTERNAL_PASSWORD": meta.get("INTERNAL_PASSWORD", ""),
         }
 
     def wait_ready(self, meta: dict[str, str], timeout: int) -> None:

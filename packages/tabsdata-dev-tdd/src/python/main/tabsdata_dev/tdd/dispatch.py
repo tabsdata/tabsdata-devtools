@@ -55,12 +55,12 @@ def dispatch(
         )
 
     # The toolset's own bin/ goes first so a tool shelling out finds its own
-    # pinned binaries; TDD_DIR/TDD_TOOL let it reach siblings and its own
+    # pinned binaries; TDD_DIR/_TDD_TOOL let it reach siblings and its own
     # catalog entry.
     env = dict(os.environ)
     env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
     env["TDD_DIR"] = str(dir_)
-    env["TDD_TOOL"] = tool
+    env["_TDD_TOOL"] = tool
 
     out.debug(f"exec {exe} {' '.join(argv)}", toolset=entry["toolset"], exe=str(exe))
     os.execve(str(exe), [str(exe), *argv], env)

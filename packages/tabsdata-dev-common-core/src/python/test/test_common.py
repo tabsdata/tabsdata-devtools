@@ -97,7 +97,7 @@ def test_run_maps_usage_errors_and_exceptions_to_exit_1(tmp_path, monkeypatch, c
 
 
 def test_run_allows_anything_outside_a_tdd_dispatch(monkeypatch):
-    monkeypatch.delenv("TDD_TOOL", raising=False)
+    monkeypatch.delenv("_TDD_TOOL", raising=False)
     proc._declared.cache_clear()
     proc._toolset_bin.cache_clear()
     assert proc.run(["true"]).returncode == 0
@@ -108,7 +108,7 @@ def test_run_refuses_an_undeclared_binary(monkeypatch, tmp_path):
         '{"tools": {"demo-exe1": {"toolset": "demo-env1", "reqs": ["git"]}}}'
     )
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
-    monkeypatch.setenv("TDD_TOOL", "demo-exe1")
+    monkeypatch.setenv("_TDD_TOOL", "demo-exe1")
     proc._declared.cache_clear()
     proc._toolset_bin.cache_clear()
     try:

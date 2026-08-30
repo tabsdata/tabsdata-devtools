@@ -390,7 +390,7 @@ def _needed_toolset(tool: str, verb: str, slug: str, info) -> str:
 def _reroute(tool: str, verb: str, rest: list[str], needed: str) -> int | None:
     """Hand the invocation to the sibling tool of toolset `needed` when this
     tool is not it. None when this tool is the right one."""
-    running = os.environ.get("TDD_TOOL", tool)
+    running = os.environ.get("_TDD_TOOL", tool)
     wanted = (
         constants.DOMAIN_TOOL_BY_TOOLSET.get(needed)
         if _is_domain_tool(tool)
@@ -773,9 +773,9 @@ def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
     )
     p.add_argument(
         constants.OPT_FIELD,
-        default=constants.ENV_CRYPTO_KEY,
+        default=constants.DEFAULT_CRYPTO_FIELD,
         metavar="FIELD",
-        help=f"field of the item (default: {constants.ENV_CRYPTO_KEY})",
+        help=f"field of the item (default: {constants.DEFAULT_CRYPTO_FIELD})",
     )
     p.add_argument(
         constants.OPT_AS,

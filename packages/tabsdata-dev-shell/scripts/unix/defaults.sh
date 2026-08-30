@@ -3,7 +3,7 @@
 #
 
 # shellcheck disable=SC1090
-. "${TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
+. "${_TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
 
 # What a command's options default to, and where each default comes from:
 # the command's own built-in value (white) or a line in

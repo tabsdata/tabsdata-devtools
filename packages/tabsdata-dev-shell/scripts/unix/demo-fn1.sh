@@ -3,7 +3,7 @@
 #
 
 # shellcheck disable=SC1090
-. "${TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
+. "${_TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
 
 # A demo shell command. It prints its name, then something fetched through two
 # external binaries -- which is the part it really demonstrates: the

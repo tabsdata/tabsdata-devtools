@@ -34,7 +34,7 @@ OUT_FORMATS = ("json", "export", "unset")
 # Set alongside the fetched secrets: the distinct env prefixes (the ``<PREFIX>``
 # part of each ``<PREFIX>__<KEY>`` name) that now have credentials — it names the
 # systems the secrets populate. Part of the ``TD_BACKENDS_*`` env family.
-SYSTEMS_ENV = "TD_BACKENDS_SYSTEMS"
+SYSTEMS_ENV = "_TDD_SYSTEMS"
 
 
 def _prefixes(secrets: dict[str, str]) -> list[str]:
@@ -52,7 +52,7 @@ def _prefixes(secrets: dict[str, str]) -> list[str]:
 
 
 def with_systems_var(secrets: dict[str, str]) -> dict[str, str]:
-    """`secrets` plus a synthetic ``TD_BACKENDS_SYSTEMS`` entry listing the
+    """`secrets` plus a synthetic ``_TDD_SYSTEMS`` entry listing the
     populated env prefixes (space-separated), so a consumer knows which systems
     have credentials set. Skipped when there are no prefixes; idempotent."""
     prefixes = _prefixes(secrets)

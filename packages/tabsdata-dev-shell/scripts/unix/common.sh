@@ -21,7 +21,7 @@
 # this file declares it, and the loader adds those names to each command's own.
 #
 # tdd-source.sh sources this before any command file and exports its path as
-# TDD_COMMON_SH; a command file re-sources it by that name so it is explicit
+# _TDD_COMMON_SH; a command file re-sources it by that name so it is explicit
 # about what it depends on. The guard makes that a no-op.
 #
 # Works in bash 3.2 and zsh. Every temporary is _tdd_-prefixed and unset.
@@ -88,6 +88,29 @@ _tdd_cmd_check() {
         return 1
     fi
     return 0
+}
+
+# ---------------------------------------------------------------- prompt
+
+# TEXT coloured for a PROMPT (PS1), in the zero-width form each shell wants --
+# bash `\[\e[..m\]`, zsh `%{ESC[..m%}` -- so the cursor position stays right.
+# Plain text under NO_COLOR. $1 red|green, $2 the text.
+_tdd_ps1_wrap() {
+    if [ -n "${NO_COLOR:-}" ]; then
+        printf '%s' "$2"
+        return 0
+    fi
+    case "$1" in
+        red) _tdd_c=31 ;;
+        green) _tdd_c=32 ;;
+        *) _tdd_c=0 ;;
+    esac
+    if [ -n "${ZSH_VERSION:-}" ]; then
+        printf '%%{\033[%sm%%}%s%%{\033[0m%%}' "$_tdd_c" "$2"
+    else
+        printf '\\[\\e[%sm\\]%s\\[\\e[0m\\]' "$_tdd_c" "$2"
+    fi
+    unset _tdd_c
 }
 
 # ---------------------------------------------------------------- help

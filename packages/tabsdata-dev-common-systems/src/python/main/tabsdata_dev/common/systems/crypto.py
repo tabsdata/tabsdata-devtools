@@ -2,7 +2,7 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""Encryption for descriptor files, keyed by ``$TD_BACKENDS_CRYPTO_KEY``.
+"""Encryption for descriptor files, keyed by ``$_TDD_CRYPTO_KEY``.
 
 Descriptors hold connection settings (hosts, users, passwords), so they're
 stored encrypted at rest as PEM-armored AES-256-GCM ciphertext. The key is
@@ -75,7 +75,7 @@ _secret_override: str | None = None
 
 @contextmanager
 def using_secret(secret: str, *, what: str):
-    """Read descriptors under `secret` instead of ``$TD_BACKENDS_CRYPTO_KEY`` for
+    """Read descriptors under `secret` instead of ``$_TDD_CRYPTO_KEY`` for
     the duration of the block. ``connect`` is the two-secret case: the remote
     descriptor is encrypted under the server's secret, the local one it writes
     under the client's. `what` names the secret's source in the error a too-short
@@ -95,16 +95,23 @@ def using_secret(secret: str, *, what: str):
 
 
 def require_secret() -> str:
-    """The personal secret from ``$TD_BACKENDS_CRYPTO_KEY`` (or the one
+    """The personal secret from ``$_TDD_CRYPTO_KEY`` (or the one
     :func:`using_secret` pins), or raise if unset / shorter than 12 chars. The
     gate for every descriptor read or write."""
     if _secret_override is not None:
         return _secret_override
     secret = os.environ.get(ENV_VAR, "")
     if len(secret) < MIN_SECRET_LEN:
+        # The variable used to be TD_BACKENDS_CRYPTO_KEY; a shell still carrying
+        # that one deserves to be told what to run rather than "unset".
+        hint = (
+            " TD_BACKENDS_CRYPTO_KEY is set but no longer read: run `tdd env set --crypto`."
+            if os.environ.get("TD_BACKENDS_CRYPTO_KEY")
+            else ""
+        )
         raise TdxError(
             f"{ENV_VAR} must be set and at least {MIN_SECRET_LEN} characters long "
-            f"to run the system / domain commands (it encrypts the descriptors)."
+            f"to run the system / domain commands (it encrypts the descriptors)." + hint
         )
     return secret
 

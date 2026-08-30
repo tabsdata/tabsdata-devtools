@@ -27,11 +27,11 @@ class UndeclaredRequirement(RuntimeError):
 def _declared() -> frozenset[str]:
     """Binaries declared by the tool we are running inside.
 
-    Enforcement is skipped when TDD_DIR/TDD_TOOL are absent, so tools
+    Enforcement is skipped when TDD_DIR/_TDD_TOOL are absent, so tools
     stay importable under a bare pytest run.
     """
     dir_ = os.environ.get("TDD_DIR")
-    tool = os.environ.get("TDD_TOOL")
+    tool = os.environ.get("_TDD_TOOL")
     if not dir_ or not tool:
         return frozenset()
     catalog = pathlib.Path(dir_) / "catalog.json"
@@ -45,7 +45,7 @@ def _declared() -> frozenset[str]:
 def _toolset_bin() -> pathlib.Path | None:
     """This tool's own toolset bin/, which tdd puts first on PATH."""
     dir_ = os.environ.get("TDD_DIR")
-    tool = os.environ.get("TDD_TOOL")
+    tool = os.environ.get("_TDD_TOOL")
     if not dir_ or not tool:
         return None
     catalog = pathlib.Path(dir_) / "catalog.json"
@@ -64,11 +64,11 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
     dependency on whatever happens to be installed.
     """
     binary = pathlib.Path(argv[0]).name
-    if os.environ.get("TDD_TOOL"):
+    if os.environ.get("_TDD_TOOL"):
         bin_dir = _toolset_bin()
         pinned = bool(bin_dir and (bin_dir / binary).exists())
         if not pinned and binary not in _declared():
-            tool = os.environ["TDD_TOOL"]
+            tool = os.environ["_TDD_TOOL"]
             raise UndeclaredRequirement(
                 f"{binary!r} is neither pinned by this toolset nor "
                 f"declared in tabsdata-dev-tool-{tool}/bin-reqs.txt"

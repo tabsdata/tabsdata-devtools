@@ -25,7 +25,7 @@ LOCK_SUFFIX = ".lock"
 SHELL_DIST = "tabsdata-dev-shell"
 SHELL_ENV = "shells"
 TDD_DIST = "tabsdata-dev-tdd"
-TDD_ENV = "tdd"
+_TDD_VENV = "tdd"
 SOURCE_NAME = "tdd-source.sh"
 SOURCE_TEMPLATE = "tddsrc.sh"
 
@@ -121,7 +121,7 @@ def _from_source(dir_: pathlib.Path, out: render.Renderer, relock: bool) -> dict
     # nothing has to be installed globally and no venv has to be active for
     # `tdd` to work.
     for env_name, dist, label in (
-        (TDD_ENV, TDD_DIST, "tdd-exe"),
+        (_TDD_VENV, TDD_DIST, "tdd-exe"),
         (SHELL_ENV, SHELL_DIST, "shell commands"),
     ):
         target = envs / env_name
@@ -168,7 +168,7 @@ def _from_wheels(dir_: pathlib.Path, out: render.Renderer) -> dict | None:
             python=catalog.get("python", {}).get(toolset),
         )
     for env_name, dist, label in (
-        (TDD_ENV, TDD_DIST, "tdd-exe"),
+        (_TDD_VENV, TDD_DIST, "tdd-exe"),
         (SHELL_ENV, SHELL_DIST, "shell commands"),
     ):
         _install_locked(

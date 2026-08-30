@@ -59,12 +59,20 @@ def fs_token(value: str) -> str:
 
 
 def scratch_init(label: str) -> pathlib.Path:
-    """Create (once) and return this run's scratch dir. Under $TDD_XP_SCRATCH --
+    """Create (once) and return this run's scratch dir. Under $_TDD_XP_SCRATCH --
     i.e. in a fan-out child -- it is a `<label>` subdir of the parent's tree;
     standalone it is a fresh `/tmp/tdd-xp/<ts>_<label>_<uniq>`."""
     if state.run.scratch is not None:
         return state.run.scratch
     inherited = os.environ.get(state.SCRATCH_ENV)
+    if inherited and os.environ.get(state.SCRATCH_PARENT_ENV) != str(os.getppid()):
+        # Not handed down by a running parent: a stale export in the shell.
+        state.run.out.warn(
+            f"{state.SCRATCH_ENV} is set in the environment but not by a parent xp run;"
+            " ignored (it is private to xp's fan-out)",
+            xp="note",
+        )
+        inherited = None
     if inherited:
         dest = pathlib.Path(inherited) / fs_token(label)
         dest.mkdir(parents=True, exist_ok=True)
@@ -85,8 +93,13 @@ def scratch() -> pathlib.Path:
 
 
 def child_env() -> dict:
-    """Environment for a fan-out child: this run's scratch dir as its root."""
-    return {**os.environ, state.SCRATCH_ENV: str(scratch())}
+    """Environment for a fan-out child: this run's scratch dir as its root, and
+    this pid as the proof it came from a parent."""
+    return {
+        **os.environ,
+        state.SCRATCH_ENV: str(scratch()),
+        state.SCRATCH_PARENT_ENV: str(os.getpid()),
+    }
 
 
 def strip_ansi(text: str) -> str:

@@ -3,7 +3,7 @@
 #
 
 # shellcheck disable=SC1090
-. "${TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
+. "${_TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
 
 # Entering or leaving a toolset venv changes the current shell, which is exactly
 # what an executable cannot do -- hence a shell command rather than a tdd-exe

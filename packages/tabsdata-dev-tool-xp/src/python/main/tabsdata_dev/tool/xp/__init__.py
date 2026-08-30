@@ -153,6 +153,15 @@ def configure(p: argparse.ArgumentParser) -> None:
     c.set_defaults(func=project.cmd_list_suites)
 
     c = sub.add_parser(
+        "list-systems",
+        help="the systems a suite's domains need, checked against the tdd system store; fails when one is missing",
+    )
+    _suite(c, SUITE_HELP)
+    for add in (_secret_env, _common):
+        add(c)
+    c.set_defaults(func=project.cmd_list_systems)
+
+    c = sub.add_parser(
         "export-suites",
         help="copy the built-in suites/ and connections/ into a directory",
     )

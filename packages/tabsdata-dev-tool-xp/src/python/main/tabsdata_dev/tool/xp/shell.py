@@ -143,7 +143,7 @@ def tdk(
 
 def domain_env() -> dict:
     """Environment for a `domain` child: the crypto key from the var named by
-    --secret-env mapped into the fixed TD_BACKENDS_CRYPTO_KEY (a no-op when
+    --secret-env mapped into the fixed _TDD_CRYPTO_KEY (a no-op when
     that var is the default)."""
     env = dict(os.environ)
     key = os.environ.get(state.run.secret_env)

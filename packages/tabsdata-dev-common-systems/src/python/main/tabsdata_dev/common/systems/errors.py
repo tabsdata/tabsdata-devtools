@@ -19,7 +19,7 @@ class TdxError(ToolError):
 
 class DecryptError(TdxError):
     """A descriptor is one of ours (PEM armor present) but won't decrypt with the
-    active ``$TD_BACKENDS_CRYPTO_KEY`` -- the key is wrong, or the file is corrupt,
+    active ``$_TDD_CRYPTO_KEY`` -- the key is wrong, or the file is corrupt,
     or it carries a foreign PEM label. Distinct from TdxError so enumeration can
     surface a bad key instead of skipping the file as a non-descriptor."""
 

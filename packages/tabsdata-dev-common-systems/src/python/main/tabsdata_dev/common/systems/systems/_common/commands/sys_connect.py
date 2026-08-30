@@ -13,7 +13,7 @@ remote.
 
 Two secrets are in play: the remote descriptor is encrypted under the server's
 (named by ``--remote-secret-env``), and the local one is written under this
-machine's ``$TD_BACKENDS_CRYPTO_KEY``. The server side runs nothing
+machine's ``$_TDD_CRYPTO_KEY``. The server side runs nothing
 tdx-specific — it just has to be reachable by ssh and hold a descriptor file.
 
 Container systems only. An object store, a warehouse or a credential-only

@@ -114,13 +114,16 @@ ENTITY_ALL = "ALL"
 AS_FORMATS = ("json", "export", "unset")
 
 # --- environment variables -------------------------------------------------
-ENV_CRYPTO_KEY = "TD_BACKENDS_CRYPTO_KEY"
+# tdd's own variables carry a leading underscore when they are private to the
+# tool chain; the crypto key is one -- users set it with `tdd env set --crypto`.
+ENV_CRYPTO_KEY = "_TDD_CRYPTO_KEY"
 # Where `crypto-key` reads the personal key from, unless told otherwise: the
-# 1Password Employee vault every user has, item DevSecrets, field named like
-# the variable -- the same place `envx set-crypto` read it.
+# 1Password Employee vault every user has, item DevSecrets, and the field that
+# item has always had -- the 1Password schema did not follow the variable's rename.
 ENV_EMPLOYEE_VAULT = "ONE_PASSWORD_EMPLOYEE_VAULT"
 DEFAULT_EMPLOYEE_VAULT = "Employee"
 DEFAULT_CRYPTO_ITEM = "DevSecrets"
+DEFAULT_CRYPTO_FIELD = "TD_BACKENDS_CRYPTO_KEY"
 ENV_BUILD_USER = "TD_BUILD_USER"
 ENV_BUILD_NUMBER = "TD_BUILD_NUMBER"
 ENV_MYSQL_IMAGE_VERSION = "MYSQL_IMAGE_VERSION"

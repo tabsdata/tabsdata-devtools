@@ -31,7 +31,7 @@ def _command_files():
 
 def test_every_command_file_sources_common_sh():
     for path in _command_files():
-        assert '. "${TDD_COMMON_SH' in path.read_text(), (
+        assert '. "${_TDD_COMMON_SH' in path.read_text(), (
             f"{path.name} does not source common.sh"
         )
 
@@ -287,14 +287,18 @@ def test_env_routes_set_unset_show_and_owns_every_managed_variable():
         "--crypto)",
         "--secrets)",
         "--td)",
+        # the tdd dir itself survives any prefix
+        "TDD_DIR kept (tdd needs it; never unset)",
         "--vars | --vars=*)",
         "--py-idxx | --py-idxx=*)",
         "--py-default-idx | --py-default-idx=*)",
         "--reveal)",
     ):
         assert opt in text, f"env.sh lacks {opt}"
-    # unset --secrets works off TD_BACKENDS_SYSTEMS, never off 1Password
-    assert "for _tdd_p in $(printf '%s' \"$TD_BACKENDS_SYSTEMS\")" in text
+    # show names _TDD_SYSTEMS only while it is set
+    assert '${_TDD_SYSTEMS+"$_TDD_VARS_SYSTEMS"}' in text
+    # unset --secrets works off _TDD_SYSTEMS, never off 1Password
+    assert "for _tdd_p in $(printf '%s' \"$_TDD_SYSTEMS\")" in text
     assert not (shell.scripts_dir() / "vars.sh").exists(), "vars was folded into env"
     # the extra index only counts with the matching uv strategy; show has 3 groups
     assert "UV_INDEX_STRATEGY" in text and "unsafe-best-match" in text
@@ -312,3 +316,17 @@ def test_the_loader_checks_that_a_pyenv_shim_is_wired():
     # help is never blocked by a missing requirement
     assert "--help | -h) unset _tdd_a; return 0" in text
     assert '_tdd_fn_check_reqs "$_tdd_cmd" "$@"' in text
+
+
+def test_prompt_marks_tdd_in_red_and_the_venv_in_green():
+    assert "_tdd_ps1_wrap()" in (shell.scripts_dir() / COMMON).read_text()
+    template = shell.source_template()
+    assert "_tdd_star=\"$(_tdd_ps1_wrap red '*') \"" in template
+    assert 'PS1="$_tdd_star${PS1-}"' in template
+    # re-sourced (a reinstall): the previous marker is removed, never stacked
+    assert 'PS1="${PS1/"$_TDD_PROMPT_MARK"/}"' in template
+    assert '_TDD_PROMPT_MARK="$_tdd_star"' in template
+    venv = (shell.scripts_dir() / "venv.sh").read_text()
+    # (<type>/<python>/<name>) in green, written AFTER the star so it stays first
+    assert '_tdd_ps1_wrap green "($_tdd_type/${_tdd_py:-?}/$_tdd_name)"' in venv
+    assert '"$_tdd_star"*) PS1="$_tdd_star$_tdd_mark${_tdd_ps1#"$_tdd_star"}"' in venv

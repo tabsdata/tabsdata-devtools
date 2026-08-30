@@ -3,13 +3,13 @@
 #
 
 # shellcheck disable=SC1090
-. "${TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
+. "${_TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
 
 # Setting and unsetting variables in the caller's shell is the one thing a
 # Python tool cannot do, so this one command owns every variable tdd manages:
 #
-#     crypto     TD_BACKENDS_CRYPTO_KEY            from 1Password, via `tdd system crypto-key`
-#     secrets    <PREFIX>__<KEY>..., TD_BACKENDS_SYSTEMS   via `tdd system secrets`; the latter lists
+#     crypto     _TDD_CRYPTO_KEY            from 1Password, via `tdd system crypto-key`
+#     secrets    <PREFIX>__<KEY>..., _TDD_SYSTEMS   via `tdd system secrets`; the latter lists
 #                                                  the prefixes, which is how unset knows what to remove
 #     td         TD_*                              (unset only)
 #     vars       <PREFIX>*                         (unset only)
@@ -29,8 +29,8 @@ tdd_defaults_env() {
         "set|--item|DevSecrets" "set|--field|TD_BACKENDS_CRYPTO_KEY" "set|--force|false" "show|--reveal|false"
 }
 
-_TDD_VARS_CRYPTO="TD_BACKENDS_CRYPTO_KEY"
-_TDD_VARS_SYSTEMS="TD_BACKENDS_SYSTEMS"
+_TDD_VARS_CRYPTO="_TDD_CRYPTO_KEY"
+_TDD_VARS_SYSTEMS="_TDD_SYSTEMS"
 _TDD_VARS_PY_EXTRA="UV_INDEX PIP_EXTRA_INDEX_URL"
 _TDD_VARS_PY_EXTRA_LEGACY="UV_EXTRA_INDEX_URL"
 # An extra index only matters if uv may pick a package from it over the
@@ -90,11 +90,11 @@ commands:
              TD), PyPi (the index variables) and Secrets
 
 options:
-  --crypto             TD_BACKENDS_CRYPTO_KEY, the key that encrypts the system
+  --crypto             _TDD_CRYPTO_KEY, the key that encrypts the system
                        and domain descriptors; set reads op://VAULT/ITEM/FIELD --
                        only when the variable is not already set, unless --force
   --secrets            every <PREFIX>__<KEY> secret of a shared vault plus
-                       TD_BACKENDS_SYSTEMS, the list of prefixes -- which is what
+                       _TDD_SYSTEMS, the list of prefixes -- which is what
                        unset reads to know what to remove
   --vault VAULT        set --crypto: the 1Password vault (default:
                        $ONE_PASSWORD_EMPLOYEE_VAULT, else Employee); set
@@ -102,11 +102,14 @@ options:
                        1p:$ONE_PASSWORD_DEV_XP_VAULT). Not with both at once
   --item ITEM          set --crypto: item in the vault (default: DevSecrets)
   --field FIELD        set --crypto: field of the item (default:
-                       TD_BACKENDS_CRYPTO_KEY)
+                       TD_BACKENDS_CRYPTO_KEY, the 1Password field's name)
   -f, --force          set --crypto: fetch from 1Password even if
-                       TD_BACKENDS_CRYPTO_KEY is already set
-  --td                 unset: every variable starting with TD_
-  --vars PREFIX        unset: every variable starting with PREFIX (repeatable)
+                       _TDD_CRYPTO_KEY is already set
+  --td                 unset: every variable starting with TD_ (tabsdata's);
+                       tdd's own _TDD_SYSTEMS and _TDD_CRYPTO_KEY are not
+                       among them -- --secrets and --crypto remove those
+  --vars PREFIX        unset: every variable starting with PREFIX (repeatable).
+                       TDD_DIR, the tdd dir itself, is never unset
   --py-idxx [URL]      the extra Python package index: UV_INDEX and
                        PIP_EXTRA_INDEX_URL, plus UV_INDEX_STRATEGY=unsafe-best-match
                        so uv considers it (set needs URL; unset also clears the
@@ -193,14 +196,14 @@ _tdd_vars_set() {
         return 1
     fi
     _tdd_kept=""
-    if [ "$_tdd_crypto" = 1 ] && [ -n "${TD_BACKENDS_CRYPTO_KEY:-}" ] && [ "$_tdd_force" != 1 ]; then
+    if [ "$_tdd_crypto" = 1 ] && [ -n "${_TDD_CRYPTO_KEY:-}" ] && [ "$_tdd_force" != 1 ]; then
         _tdd_kept="$_TDD_VARS_CRYPTO"
     fi
     if [ -n "$_tdd_vault" ] && [ "$_tdd_crypto" = 1 ] && [ "$_tdd_secrets" = 1 ]; then
         _tdd_error "--vault means different things to --crypto and --secrets; set them in two calls"
         return 1
     fi
-    if [ "$_tdd_crypto" = 1 ] && [ -n "${TD_BACKENDS_CRYPTO_KEY:-}" ] && [ "$_tdd_force" != 1 ]; then
+    if [ "$_tdd_crypto" = 1 ] && [ -n "${_TDD_CRYPTO_KEY:-}" ] && [ "$_tdd_force" != 1 ]; then
         # Already there: no trip to 1Password (a signed-in `op` is not a given
         # in every shell); --force refetches.
         # The ok says it when the key was the only selection; otherwise say it here.
@@ -285,10 +288,10 @@ _tdd_vars_unset() {
     _tdd_unset_names=""
     [ "$_tdd_crypto" = 1 ] && _tdd_unset_names="$_tdd_unset_names $_TDD_VARS_CRYPTO"
     if [ "$_tdd_secrets" = 1 ]; then
-        if [ -z "${TD_BACKENDS_SYSTEMS:-}" ]; then
+        if [ -z "${_TDD_SYSTEMS:-}" ]; then
             _tdd_warn "$_TDD_VARS_SYSTEMS is not set: no secrets are recorded in this shell, none removed"
         else
-            for _tdd_p in $(printf '%s' "$TD_BACKENDS_SYSTEMS"); do
+            for _tdd_p in $(printf '%s' "$_TDD_SYSTEMS"); do
                 _tdd_unset_names="$_tdd_unset_names $(_tdd_vars_names "^${_tdd_p}__" | tr '\n' ' ')"
             done
             _tdd_unset_names="$_tdd_unset_names $_TDD_VARS_SYSTEMS"
@@ -300,9 +303,15 @@ _tdd_vars_unset() {
     done
     [ "$_tdd_py_extra" = 1 ] && _tdd_unset_names="$_tdd_unset_names $_TDD_VARS_PY_EXTRA $_TDD_VARS_PY_EXTRA_LEGACY $_TDD_VARS_PY_STRATEGY"
     [ "$_tdd_py_default" = 1 ] && _tdd_unset_names="$_tdd_unset_names $_TDD_VARS_PY_DEFAULT $_TDD_VARS_PY_DEFAULT_LEGACY"
-    # Only what is actually set counts as unset; dedupe (--td covers --crypto).
+    # Only what is actually set counts as unset; dedupe (--vars TD and --td overlap).
+    # TDD_DIR is never unset: it is how `tdd` itself finds its dir in this shell,
+    # and a prefix like --vars TD would otherwise take it out.
     _tdd_names=""
     for _tdd_v in $(printf '%s\n' $(printf '%s' "$_tdd_unset_names") | sort -u); do
+        if [ "$_tdd_v" = "TDD_DIR" ]; then
+            _tdd_info "TDD_DIR kept (tdd needs it; never unset)"
+            continue
+        fi
         if [ -n "$(eval "printf '%s' \"\${$_tdd_v+x}\"")" ]; then
             unset "$_tdd_v"
             _tdd_debug "unset $_tdd_v"
@@ -376,14 +385,16 @@ _tdd_vars_show() {
     _tdd_cmd_check || return 1
     _tdd_rows=""
     _tdd_json=""
-    # TD: everything starting with TD (TD_, TDD_, TDX_, ...) that is set, and
-    # the two tdd always manages.
+    # TD: everything starting with TD (TD_, TDD_, TDX_, ...) that is set, plus
+    # tdd's own private ones below.
     # shellcheck disable=SC2046
-    _tdd_vars_show_group TD td "$_TDD_VARS_CRYPTO" "$_TDD_VARS_SYSTEMS" $(_tdd_vars_names '^TD')
+    # The crypto key is named even when unset (worth a `-` row: nothing works
+    # without it); _TDD_SYSTEMS is bookkeeping, listed only while secrets are loaded.
+    _tdd_vars_show_group TD td "$_TDD_VARS_CRYPTO" ${_TDD_SYSTEMS+"$_TDD_VARS_SYSTEMS"} $(_tdd_vars_names '^TD')
     # shellcheck disable=SC2046
     _tdd_vars_show_group PyPi pypi $(printf '%s' "$_TDD_VARS_PY_EXTRA $_TDD_VARS_PY_EXTRA_LEGACY $_TDD_VARS_PY_STRATEGY $_TDD_VARS_PY_DEFAULT $_TDD_VARS_PY_DEFAULT_LEGACY")
     _tdd_names=""
-    for _tdd_p in $(printf '%s' "${TD_BACKENDS_SYSTEMS:-}"); do
+    for _tdd_p in $(printf '%s' "${_TDD_SYSTEMS:-}"); do
         _tdd_names="$_tdd_names $(_tdd_vars_names "^${_tdd_p}__" | tr '\n' ' ')"
     done
     # shellcheck disable=SC2046

@@ -10,9 +10,13 @@ verbs.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import pathlib
+import subprocess
 from datetime import datetime, timezone
+
+from tabsdata_dev.common.core import proc
 
 from . import conn, lanes, pointers, shell, state, suites
 from .models import build_instance
@@ -51,6 +55,78 @@ def cmd_list_suites(args) -> tuple[str, dict]:
         "one instance/project per file"
     )
     return text, {"root": str(root), "builtin": not override, "suites": rows}
+
+
+def _store_systems() -> dict[str, str]:
+    """name -> type of every system in the tdd store, asked of `tdd system list`
+    (the descriptors are encrypted; only that tool reads them). Separate so a
+    test can stand in for the store."""
+    r = subprocess.run(
+        proc.tool_argv("system", "list", "--format", "json"),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=shell.domain_env(),
+    )
+    events = []
+    for line in (r.stdout or "").splitlines():
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    if r.returncode != 0:
+        why = next(
+            (e.get("message") for e in reversed(events) if e.get("event") == "error"),
+            (r.stderr or "").strip() or f"exit {r.returncode}",
+        )
+        state.die(f"tdd system list failed: {why}")
+    ok = next((e for e in reversed(events) if e.get("event") == "ok"), {})
+    return {row["name"]: row["system"] for row in ok.get("systems", [])}
+
+
+def cmd_list_systems(args) -> tuple[str, dict]:
+    """The systems a suite's domains need, each checked against the tdd system
+    store: name, type, present or MISSING, and which lane(s) need it. One
+    missing system fails the command -- this is the pre-flight a run wants
+    before spending minutes on an instance whose lanes cannot provision."""
+    root = suites.suites_dir(getattr(args, "suites_dir", None))
+    path, files = suites.resolve(args.suite, root)
+    needed: dict[str, list[str]] = {}
+    for f in files if files is not None else [path]:
+        inst = build_instance(suites.token(f), f)
+        for d in inst.domains:
+            lanes_ = needed.setdefault(d.system, [])
+            if suites.label(f) not in lanes_:
+                lanes_.append(suites.label(f))
+    store = _store_systems()
+    rows = [
+        {
+            "name": name,
+            "type": store.get(name),
+            "present": name in store,
+            "suites": lanes_,
+        }
+        for name, lanes_ in sorted(needed.items())
+    ]
+    missing = [r["name"] for r in rows if not r["present"]]
+    width = max([len(r["name"]) for r in rows] + [6])
+    lines = [
+        f"  {r['name']:<{width}}  {(r['type'] or '-'):<12}"
+        f"{'ok     ' if r['present'] else 'MISSING'}  {', '.join(r['suites'])}"
+        for r in rows
+    ]
+    head = f"{len(rows)} system(s) required by {args.suite} ({len(missing)} missing)"
+    fields = {"suite": args.suite, "systems": rows, "missing": missing}
+    if missing:
+        for line in [head, *lines]:
+            state.run.out.info(line, xp="note")
+        state.die(
+            f"{len(missing)} required system(s) not in the tdd store: {', '.join(missing)}"
+            " -- create them (tdd system create --type <type> --sys <name>) or load their"
+            " descriptors, then retry"
+        )
+    return "\n".join([head, *lines]), fields
 
 
 def cmd_export_suites(args) -> tuple[str, dict]:

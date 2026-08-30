@@ -98,3 +98,29 @@ def test_a_stray_bin_reqs_without_a_script_is_an_error(tmp_path):
         assert "ghost.sh" in str(exc)
         return
     raise AssertionError("expected LayoutError")
+
+
+def test_every_tool_and_shell_command_has_a_design_doc():
+    """Each Python tool package carries DESIGN.md beside its pyproject; each shell
+    command a <name>.design.md beside its script; both with the house header and
+    something to say (the how-to guides make writing one a step)."""
+    root = paths.repo_root()
+    assert root is not None
+    docs = [p / "DESIGN.md" for p in (root / "packages").glob("tabsdata-dev-tool-*")]
+    docs += [p / "DESIGN.md" for p in (root / "packages").glob("tabsdata-dev-common-*")]
+    docs += [
+        root / "packages/tabsdata-dev-tdd/DESIGN.md",
+        root / "packages/tabsdata-dev-shell/DESIGN.md",
+    ]
+    scripts = root / "packages/tabsdata-dev-shell/scripts/unix"
+    docs += [
+        s.with_name(s.name[: -len(".sh")] + ".design.md")
+        for s in scripts.glob("*.sh")
+        if s.name != "common.sh"
+    ]
+    missing = [str(d.relative_to(root)) for d in docs if not d.is_file()]
+    assert not missing, f"design docs missing: {missing}"
+    for d in docs:
+        text = d.read_text()
+        assert text.startswith("<!--\nCopyright 2026 Tabsdata Inc.\n-->"), d
+        assert len(text.splitlines()) >= 6, f"{d} says nothing"

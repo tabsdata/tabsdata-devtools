@@ -54,7 +54,8 @@ def xp_root(tmp_path, monkeypatch):
         "kind: connectionDef\ntype: tabsdatak.conn.localfile:LocalFileSrcConn\nspec:\n  base_path: ''\n  token: $secret:D0__TOKEN\n  label: '${D0__DB}_x'\n"
     )
     monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
-    monkeypatch.delenv("TDD_XP_SCRATCH", raising=False)
+    monkeypatch.delenv("_TDD_XP_SCRATCH", raising=False)
+    monkeypatch.delenv("_TDD_XP_PARENT", raising=False)
     return root
 
 
@@ -376,3 +377,86 @@ def test_a_lane_step_re_emitted_with_model_keys_does_not_clash(xp_root, capsys):
         and line["message"].startswith("[1/4] demo/one - [1/2]")
         and line["lane"] == "one"
     )
+
+
+def test_scratch_root_is_honoured_only_from_a_parent_xp(monkeypatch, tmp_path, capsys):
+    """_TDD_XP_SCRATCH is xp's private hand-off to its fan-out children: a
+    value in the environment counts only with the parent's pid beside it."""
+    import os
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import reporter, state
+
+    # a renderer on THIS test's streams, not one an earlier test left behind
+    state.run = state.Run(out=render.Renderer(state.TOOL))
+    stale = tmp_path / "stale"
+    monkeypatch.setenv(state.SCRATCH_ENV, str(stale))
+    monkeypatch.delenv(state.SCRATCH_PARENT_ENV, raising=False)
+    state.run.scratch = None
+    dest = reporter.scratch_init("lane")
+    assert stale not in dest.parents
+    assert state.SCRATCH_ENV in capsys.readouterr().err
+
+    monkeypatch.setenv(state.SCRATCH_PARENT_ENV, str(os.getppid()))
+    state.run.scratch = None
+    dest = reporter.scratch_init("lane")
+    assert dest == stale / "lane"
+    assert capsys.readouterr().err == ""
+    state.run.scratch = None
+
+
+def test_list_systems_reports_each_required_system_and_fails_on_a_missing_one(
+    xp_root, monkeypatch, capsys
+):
+    from tabsdata_dev.tool.xp import project
+
+    needed = sorted({d["system"] for d in SUITE["domains"]})
+    assert needed, "the fixture suite must need at least one system"
+
+    monkeypatch.setattr(
+        project, "_store_systems", lambda: {n: f"{n}-type" for n in needed}
+    )
+    rc = _run(
+        [
+            "list-systems",
+            "--suite",
+            "demo/one",
+            "--suites-dir",
+            str(xp_root / "suites"),
+            "--format",
+            "json",
+        ]
+    )
+    events = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{")
+    ]
+    ok = [e for e in events if e["event"] == "ok"][0]
+    assert rc == 0 and ok["missing"] == []
+    assert [r["name"] for r in ok["systems"]] == needed
+    assert all(r["present"] and r["type"] == f"{r['name']}-type" for r in ok["systems"])
+
+    monkeypatch.setattr(project, "_store_systems", lambda: {})
+    rc = _run(
+        [
+            "list-systems",
+            "--suite",
+            "demo",
+            "--suites-dir",
+            str(xp_root / "suites"),
+            "--format",
+            "json",
+        ]
+    )
+    events = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{")
+    ]
+    err = [e for e in events if e["event"] == "error"][0]
+    assert rc == 1
+    assert all(n in err["message"] for n in needed)
+    # the table still came out, MISSING marked, before the failure
+    notes = " ".join(e["message"] for e in events if e["event"] == "info")
+    assert "MISSING" in notes and needed[0] in notes

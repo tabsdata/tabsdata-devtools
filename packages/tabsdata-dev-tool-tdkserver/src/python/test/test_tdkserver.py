@@ -22,7 +22,7 @@ def test_every_argument_reaches_the_program(tmp_path, monkeypatch, capfd):
     exe.chmod(0o755)
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
     monkeypatch.setenv("TDD_VENV", "v1")
-    monkeypatch.delenv("TDD_TOOL", raising=False)
+    monkeypatch.delenv("_TDD_TOOL", raising=False)
     # --help, --format, --version, -- : none of them is the launcher's
     monkeypatch.setattr(
         "sys.argv", ["tdkserver", "--help", "--format", "json", "--version", "--", "-v"]

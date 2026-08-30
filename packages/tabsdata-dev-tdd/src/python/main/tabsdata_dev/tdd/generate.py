@@ -1,3 +1,7 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
 """Generating toolset packages and the catalog. Standard library only."""
 
 from __future__ import annotations

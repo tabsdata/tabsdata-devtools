@@ -45,15 +45,16 @@ _tdd_locate_common() {
     _tdd_scripts="$("$_tdd_py" -c \
         'from tabsdata_dev.shell import scripts_dir; print(scripts_dir())' 2>/dev/null)"
     [ -n "$_tdd_scripts" ] && [ -r "$_tdd_scripts/common.sh" ] || return 1
-    TDD_COMMON_SH="$_tdd_scripts/common.sh"
-    export TDD_COMMON_SH
+    _TDD_COMMON_SH="$_tdd_scripts/common.sh"
+    export _TDD_COMMON_SH
+    _TDD_COMMON_DIR="$TDD_DIR"
     # Re-sourcing tdd-source.sh must reload everything -- that is how a shell
     # picks up a reinstall. common.sh guards against being sourced twice within
     # one load (each command file sources it by name); this file owns the load,
     # so it lifts the guard first.
     unset _TDD_COMMON_LOADED
     # shellcheck disable=SC1090
-    . "$TDD_COMMON_SH"
+    . "$_TDD_COMMON_SH"
 }
 if ! _tdd_locate_common; then
     echo "tdd: no shell env at $TDD_DIR/tdd-venvs/shells; run tdd-install" >&2
@@ -120,7 +121,7 @@ _tdd_load_commands() {
         return 1
     fi
     # common.sh was loaded at the top of this file (see _tdd_locate_common) and
-    # exported as TDD_COMMON_SH, so each command file can source it by name.
+    # exported as _TDD_COMMON_SH, so each command file can source it by name.
     # What common.sh itself needs (jq); every command inherits it.
     _tdd_common_reqs=""
     if [ -r "$_tdd_scripts/common.bin-reqs.txt" ]; then
@@ -373,6 +374,12 @@ tdd() {
     _tdd_cmd_reset
     _TDD_CMD=tdd
     _tdd_dir_args=""
+    # _TDD_TOOL is tdd-exe's word to the tool it execs, never meant for a shell:
+    # one that got exported here would make every tool believe it is another.
+    if [ -n "${_TDD_TOOL+x}" ]; then
+        _tdd_warn "_TDD_TOOL was set in this shell (${_TDD_TOOL}); it is tdd's private variable and is ignored"
+        unset _TDD_TOOL
+    fi
     # Leading options are tdd's own; --format/--verbose also travel on to the
     # command that runs, appended after its word, so `tdd --format json venv
     # list` and `tdd venv list --format json` are the same request.
@@ -401,6 +408,12 @@ tdd() {
             *) break ;;
         esac
     done
+    # The helpers must come from the dir in effect -- a --dir just given, or a
+    # TDD_DIR changed since this file was sourced -- and the variable is private:
+    # a missing or stale value is simply recomputed.
+    if [ "${_TDD_COMMON_DIR:-}" != "$TDD_DIR" ] || [ ! -r "${_TDD_COMMON_SH:-}" ]; then
+        _tdd_locate_common || _tdd_warn "no shell env at $TDD_DIR/tdd-venvs/shells; run tdd-install"
+    fi
     if [ -n "$_TDD_BAD_FORMAT" ]; then
         _tdd_error "--format must be json or view, got $_TDD_BAD_FORMAT"
         unset _tdd_pass
@@ -487,3 +500,28 @@ tdd() {
 }
 
 _tdd_load_commands
+
+# ---------------------------------------------------------------- prompt
+# A red `* ` at the very start of the prompt says tdd is loaded in this shell;
+# `tdd venv` writes its marker after it. Re-sourcing (a reinstall, a new tdd
+# dir) must not stack stars, and must REPLACE the one there -- an older
+# tdd-source.sh may have written a different form -- so the marker written last
+# time is remembered and removed first, wherever a venv marker left it (also
+# from the prompt a venv activation saved to restore). A prompt theme that
+# rewrites PS1 afterwards wins; source this file after it in that case.
+_tdd_star="$(_tdd_ps1_wrap red '*') "
+if [ -n "${_TDD_PROMPT_MARK:-}" ]; then
+    PS1="${PS1/"$_TDD_PROMPT_MARK"/}"
+    [ -n "${TDD_VENV_PS1:-}" ] && TDD_VENV_PS1="${TDD_VENV_PS1/"$_TDD_PROMPT_MARK"/}"
+else
+    # Before the marker was remembered it was written without the space.
+    _tdd_old="$(_tdd_ps1_wrap red '*')"
+    PS1="${PS1/"$_tdd_old"/}"
+    [ -n "${TDD_VENV_PS1:-}" ] && TDD_VENV_PS1="${TDD_VENV_PS1/"$_tdd_old"/}"
+    unset _tdd_old
+fi
+PS1="$_tdd_star${PS1-}"
+[ -n "${TDD_VENV_PS1:-}" ] && TDD_VENV_PS1="$_tdd_star$TDD_VENV_PS1"
+_TDD_PROMPT_MARK="$_tdd_star"
+unset _tdd_star
+

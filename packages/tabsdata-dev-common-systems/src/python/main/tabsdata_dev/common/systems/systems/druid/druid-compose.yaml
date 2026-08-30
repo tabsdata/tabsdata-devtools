@@ -7,8 +7,8 @@
 # router) sharing a volume for local deep storage. Only the coordinator (8081,
 # the overlord/coordinator API) and router (8888, queries + console) are
 # published; the rest talk over the compose network. The host ports are chosen
-# at plan time and passed in via $TDX_DRUID_COORDINATOR_PORT /
-# $TDX_DRUID_ROUTER_PORT (default 0 = ephemeral, e.g. for `pull` / `down` when
+# at plan time and passed in via $DRUID__COORDINATOR_PORT /
+# $DRUID__ROUTER_PORT (default 0 = ephemeral, e.g. for `pull` / `down` when
 # no port is set) so concurrent stacks don't collide. Image tags are overridable
 # via $DRUID_IMAGE_VERSION / $ZOOKEEPER_IMAGE_VERSION. The apache/druid image is
 # amd64-only, so its services pin platform: linux/amd64 (run under emulation on
@@ -31,14 +31,14 @@ x-druid-env: &druid-env
   druid_emitter_logging_logLevel: info
   druid_indexer_runner_javaOptsArray: '["-server", "-Xmx512m", "-XX:MaxDirectMemorySize=400m"]'
   # Basic HTTP auth (druid-basic-security): a metadata-backed authenticator
-  # bootstraps the `admin` user from $TDX_DRUID_ADMIN_PASSWORD, and the escalator
+  # bootstraps the `admin` user from $DRUID__ADMIN_PASSWORD, and the escalator
   # lets the services authenticate to each other as the internal `druid_system`
-  # user ($TDX_DRUID_INTERNAL_PASSWORD). Both passwords are minted at plan time
+  # user ($DRUID__INTERNAL_PASSWORD). Both passwords are minted at plan time
   # and passed in via the environment; every API call (and SQL) then needs creds.
   druid_auth_authenticatorChain: '["tdx"]'
   druid_auth_authenticator_tdx_type: basic
-  druid_auth_authenticator_tdx_initialAdminPassword: ${TDX_DRUID_ADMIN_PASSWORD:-}
-  druid_auth_authenticator_tdx_initialInternalClientPassword: ${TDX_DRUID_INTERNAL_PASSWORD:-}
+  druid_auth_authenticator_tdx_initialAdminPassword: ${DRUID__ADMIN_PASSWORD:-}
+  druid_auth_authenticator_tdx_initialInternalClientPassword: ${DRUID__INTERNAL_PASSWORD:-}
   druid_auth_authenticator_tdx_credentialsValidator_type: metadata
   druid_auth_authenticator_tdx_skipOnFailure: "false"
   druid_auth_authenticator_tdx_authorizerName: tdx
@@ -46,7 +46,7 @@ x-druid-env: &druid-env
   druid_auth_authorizer_tdx_type: basic
   druid_escalator_type: basic
   druid_escalator_internalClientUsername: druid_system
-  druid_escalator_internalClientPassword: ${TDX_DRUID_INTERNAL_PASSWORD:-}
+  druid_escalator_internalClientPassword: ${DRUID__INTERNAL_PASSWORD:-}
   druid_escalator_authorizerName: tdx
 
 services:
@@ -65,7 +65,7 @@ services:
     platform: linux/amd64
     command: ["coordinator"]
     ports:
-      - "${TDX_DRUID_COORDINATOR_PORT:-0}:8081"
+      - "${DRUID__COORDINATOR_PORT:-0}:8081"
     environment:
       <<: *druid-env
     volumes:
@@ -121,7 +121,7 @@ services:
     platform: linux/amd64
     command: ["router"]
     ports:
-      - "${TDX_DRUID_ROUTER_PORT:-0}:8888"
+      - "${DRUID__ROUTER_PORT:-0}:8888"
     environment:
       <<: *druid-env
     volumes:

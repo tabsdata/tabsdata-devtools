@@ -3,7 +3,7 @@
 #
 
 # shellcheck disable=SC1090
-. "${TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
+. "${_TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
 
 # Purging the uv and pip caches for a set of packages -- by name prefix, so a
 # rebuilt local wheel (same version, new contents) or a republished index
