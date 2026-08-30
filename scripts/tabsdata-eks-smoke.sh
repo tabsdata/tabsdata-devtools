@@ -443,6 +443,8 @@ else
     [ -z "$LLM_DOMAIN" ] || common_run tdd domain destroy --domain "$LLM_DOMAIN" --force
     common_run tdd domain destroy --domain "$S3_DOMAIN" --force
     common_run tdd domain destroy --domain "$RDS_DOMAIN" --force
+    # delete works here: the cluster is external, so it survives the workload
+    # and configmap removal (unlike kminus, where delete stops the cluster first)
     common_run tdd tdkserver delete --instance "$INSTANCE" --trash true "${TDK_OPTS[@]}"
     common_run "${KUBECTL[@]}" delete namespace "$NAMESPACE" --wait=true --timeout=300s
     if [ -n "$PREV_NAMESPACE" ]; then

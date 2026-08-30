@@ -329,12 +329,16 @@ if [ -n "$KEEP" ]; then
     common_note "logged in as admin on $SERVER; tdd xp one-shot --suite test/test works as is"
     common_tabsdata_setup_info common_note
 else
-    common_stage cleanup "destroy the domains, delete the running instance $INSTANCE and the venv $VENV"
+    common_stage cleanup "destroy the domains, stop and trash the instance $INSTANCE, delete the venv $VENV"
     # xp (no --keep) destroyed its own domains; what is left is ours
     [ -z "$LLM_DOMAIN" ] || common_run tdd domain destroy --domain "$LLM_DOMAIN" --force
-    # Deleted while RUNNING: delete works through the instance's kube API, so a
-    # stopped cluster makes it abort with `client error (Connect)`.
-    common_run tdd tdkserver delete --instance "$INSTANCE" --trash true "${TDK_OPTS[@]}"
+    # `tdkserver delete` cannot remove a kminus instance: it stops the kminus
+    # cluster first and then tries to delete the workload remnants THROUGH the
+    # API it just stopped (`client error (Connect)`, running or not). `trash`
+    # is the kminus removal: stop it ourselves, then trash the folder.
+    common_run tdd tdkserver stop --instance "$INSTANCE" "${TDK_OPTS[@]}"
+    common_run common_tdkserver_expect "$INSTANCE" stopped
+    common_run tdd tdkserver trash --instance "$INSTANCE" "${TDK_OPTS[@]}"
     common_run common_instance_gone "$INSTANCE"
     common_run tdd venv deactivate
     common_run tdd venv delete --name "$VENV"
