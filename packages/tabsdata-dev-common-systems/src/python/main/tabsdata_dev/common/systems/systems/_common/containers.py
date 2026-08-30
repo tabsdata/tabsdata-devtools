@@ -24,12 +24,12 @@ from tabsdata_dev.common.systems.shell import (
     require_docker,
 )
 from tabsdata_dev.common.systems.systems._common.host import HostMixin
-from tabsdata_dev.common.systems.systems._common.ports import PortPoolMixin
+from tabsdata_dev.common.systems.systems._common.ports import PortRangeMixin
 
 _PROJECT_PREFIX = "tdx2_"
 
 
-class ContainersBackend(PortPoolMixin, HostMixin):
+class ContainersBackend(PortRangeMixin, HostMixin):
     is_container: bool = True
     supports_purge: bool = True
     supports_models: bool = False

@@ -47,7 +47,7 @@ from tabsdata_dev.common.systems.shell import (
 )
 from tabsdata_dev.common.systems.sql_runner import run_sql_text, run_sql_transactions
 from tabsdata_dev.common.systems.systems._common.host import DEFAULT_HOSTNAME, HostMixin
-from tabsdata_dev.common.systems.systems._common.ports import PortPoolMixin
+from tabsdata_dev.common.systems.systems._common.ports import PortRangeMixin
 
 _CONTAINER_PREFIX = "tdx2_"
 
@@ -60,7 +60,7 @@ class Admin:
     password: str
 
 
-class SqlContainerBackend(PortPoolMixin, HostMixin):
+class SqlContainerBackend(PortRangeMixin, HostMixin):
     # ---- capability flags (drive verb availability in the dispatcher) ----
     is_container: bool = True
     supports_purge: bool = True

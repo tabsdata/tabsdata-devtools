@@ -110,3 +110,50 @@ def test_clean_docker_lists_then_refuses_without_yes_and_sweeps_with_it(
         ("rm", "tdx2_pg-db-1"),
     ]
     assert ok["removed"] == ["tdx2_mysql_a1", "tdx2_pg-db-1"] and ok["failed"] == []
+
+
+def test_every_system_type_owns_a_disjoint_port_slot_documented_in_docs_ports_md():
+    import pathlib
+
+    from tabsdata_dev.common.systems.systems._common.ports import system_port_range
+
+    order = systems.slot_order()
+    assert sorted(order) == systems.all_slugs()
+    slots = [system_port_range(s) for s in order]
+    assert all(hi - lo + 1 == constants.PORTS_PER_SYSTEM for lo, hi in slots)
+    assert slots[0][0] == constants.PORT_BASE and slots[-1][1] < constants.PORTS_CEILING
+    assert all(a[1] < b[0] for a, b in zip(slots, slots[1:]))  # in order, disjoint
+    # the table in docs/ports.md is the contract: a new or moved system must update it
+    doc = (
+        pathlib.Path(__file__).resolve().parents[5] / "docs" / "ports.md"
+    ).read_text()
+    for slug, (lo, hi) in zip(order, slots):
+        assert f"| `{slug}` | {lo}-{hi} |" in doc, (
+            f"docs/ports.md lacks the row for {slug}"
+        )
+
+
+def test_port_range_mixin_walks_its_slot_without_repeating_or_leaving_it():
+    import socket
+
+    from tabsdata_dev.common.systems.systems._common.ports import (
+        PortRangeMixin,
+        system_port_range,
+    )
+
+    class Fake(PortRangeMixin):
+        slug = "mysql"
+
+    lo, hi = system_port_range("mysql")
+    busy = socket.socket()
+    busy.bind(("", lo))
+    busy.listen(1)
+    try:
+        f = Fake()
+        got = [f.next_free_port() for _ in range(3)]
+        assert lo not in got and len(set(got)) == 3 and all(lo < p <= hi for p in got)
+        g = Fake()
+        g.use_ports([lo + 50, lo + 51])
+        assert [g.next_free_port() for _ in range(3)] == [lo + 50, lo + 51, got[0]]
+    finally:
+        busy.close()

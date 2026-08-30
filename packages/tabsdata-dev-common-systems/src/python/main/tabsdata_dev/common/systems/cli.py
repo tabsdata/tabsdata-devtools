@@ -222,8 +222,8 @@ def add_ports(parser: argparse.ArgumentParser) -> None:
         dest="ports",
         default=None,
         metavar="PORT,PORT,...",
-        help="candidate free host ports to use if the system needs any "
-        "(default: find them as needed)",
+        help="pin the host ports to use if the system needs any (default: the "
+        "first free ports of this system type's own slot, see system ports)",
     )
 
 

@@ -108,7 +108,12 @@ TARGET_ALL = "ALL"  # --sys/--domain ALL selects every type (create) / stored on
 # in parallel, so no two racing creates pick the same free port (a system uses as
 # many as it needs -- most one, a couple for multi-port stacks -- and ignores the
 # rest).
-PORTS_PER_SYSTEM = 10
+# Host ports: the i-th system type of the registry owns PORT_BASE + i*PORTS_PER_SYSTEM and
+# the 99 after it; 20000-29999 as a whole is the systems' (core.ports.PORT_RANGE
+# starts above it), below every OS's ephemeral range.
+PORT_BASE = 20000
+PORTS_PER_SYSTEM = 100
+PORTS_CEILING = 30000
 
 # --- sentinels / value sets ------------------------------------------------
 SEED_AUTO = "AUTO"

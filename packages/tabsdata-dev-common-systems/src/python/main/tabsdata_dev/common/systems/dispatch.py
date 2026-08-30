@@ -47,8 +47,8 @@ per system, named after it), and ``--sys`` / ``--domain`` for every other verb.
 Each accepts a single name, a comma list, or ``ALL``; ``--sys-prefix P`` /
 ``--domain-prefix P`` prepends ``P_`` to the created name(s). Multiple targets
 run in parallel, heaviest ``weight`` first (``$TDD_PARALLELISM`` bounds
-concurrency), each in its own child process through ``tdd-exe``; a system create
-batch pre-finds a *disjoint* pool of free ports per child (``--ports``).
+concurrency), each in its own child process through ``tdd-exe``; system creates
+cannot compete for ports, every type owning a fixed slot (``--ports`` pins them).
 ``--fail-fast`` stops on the first failure and ``--report FILE`` writes a JSON run
 record. ``create --manifest FILE`` replays a YAML manifest in parallel and
 ``--sync`` reconciles the store to it.
@@ -921,7 +921,6 @@ def _entry_steps(
     entry: dict,
     *,
     force: bool,
-    ports: list[int] | None,
     store_dir_opt: str | None = None,
 ) -> list[list[str]]:
     if "name" not in entry:
@@ -930,7 +929,6 @@ def _entry_steps(
     f = [constants.OPT_FORCE] if force else []
     d = _store_dir_argv(tool, store_dir_opt)
     if not _is_domain_tool(tool):
-        p = [constants.OPT_PORTS, ",".join(str(x) for x in ports)] if ports else []
         return [
             [
                 constants.V_CREATE,
@@ -938,7 +936,6 @@ def _entry_steps(
                 str(entry["type"]),
                 constants.OPT_SYS,
                 name,
-                *p,
                 *d,
                 *f,
                 *_entry_option_argv(entry),
@@ -1042,19 +1039,14 @@ def _create_from_manifest(tool: str, rest: list[str]) -> int:
         else:
             to_create.append(entry)
 
-    pools = (
-        batch.port_pools(len(to_create))
-        if not _is_domain_tool(tool)
-        else [None] * len(to_create)
-    )
     tasks: list[batch.Task] = []
     build_failed = 0
-    for entry, pool in zip(to_create, pools):
+    for entry in to_create:
         if hostname:
             entry = {**entry, constants.OPT_SYS_HOSTNAME.lstrip("-"): hostname}
         try:
             steps = _entry_steps(
-                tool, entry, force=a.force, ports=pool, store_dir_opt=store_dir_opt
+                tool, entry, force=a.force, store_dir_opt=store_dir_opt
             )
         except (TdxError, KeyError) as exc:
             console.bad(f"  ! {entry.get('name', entry)}: {exc}")

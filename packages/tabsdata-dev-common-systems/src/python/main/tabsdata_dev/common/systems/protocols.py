@@ -58,13 +58,14 @@ class Backend(Protocol):
         implement it)."""
 
     def use_ports(self, ports: list[int]) -> None:
-        """Bind a pool of pre-found candidate host ports for this create (the
-        dispatcher hands each parallel create a disjoint pool so they don't race
-        for the same free port). Only port-using backends implement it."""
+        """Pin the host ports for this create (``--ports``), used in order before
+        the system's own port slot. Only port-using backends implement it."""
 
     def next_free_port(self) -> int:
-        """A host port for the create: the next from the bound pool, else a freshly
-        found free one. Only port-using backends implement it."""
+        """A host port for the create: the next pinned one, else the first free
+        port of this system type's slot not handed out yet (every type owns a
+        fixed slot, so parallel creates never compete). Only port-using backends
+        implement it."""
 
     def use_hostname(self, host: str) -> None:
         """Bind the hostname this create advertises instead of localhost

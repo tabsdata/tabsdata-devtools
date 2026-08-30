@@ -276,3 +276,36 @@ def test_tool_argv_goes_through_the_tdd_dir_dispatcher(monkeypatch, tmp_path):
         "tdk",
         "status",
     ]
+
+
+def test_ports_stay_below_the_ephemeral_range_honour_exclude_and_skip_busy_ones(
+    monkeypatch,
+):
+    import socket
+
+    from tabsdata_dev.common.core import ports
+    from tabsdata_dev.common.core.errors import ToolError
+
+    lo, hi = ports.PORT_RANGE
+    assert (
+        lo >= 30000 and hi < 32768
+    )  # above the systems' slots, below Linux's ephemeral floor
+    found = ports.find_free_ports(12)
+    assert len(set(found)) == 12 and all(lo <= p <= hi for p in found)
+    # a range of one's own, walked from its start: stable, and exclude is honoured
+    rng = (found[0], found[0] + 3)
+    assert ports.find_free_port(rng, from_start=True) == found[0]
+    assert (
+        ports.find_free_port(rng, from_start=True, exclude={found[0]}) == found[0] + 1
+    )
+    with pytest.raises(ToolError, match="free port"):
+        ports.find_free_ports(5, rng, from_start=True)
+    # a port something listens on is skipped
+    busy = socket.socket()
+    busy.bind(("", found[0]))
+    busy.listen(1)
+    try:
+        assert ports.find_free_port(rng, from_start=True) == found[0] + 1
+        assert not ports.is_free(found[0]) and ports.is_free(found[0] + 1)
+    finally:
+        busy.close()

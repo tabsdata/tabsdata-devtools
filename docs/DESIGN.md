@@ -110,6 +110,11 @@ caches wheels by filename and the version does not change between builds.
 it; `-tdd` force-includes it; `tdd-install` stamps `<tdd_dir>/VERSION`, which `tdd --version`
 prints.
 
+## Host ports
+
+Never ephemeral; the systems own 20000-29999 in fixed slots of 100 per type, everything else picks
+from 30000-32767: [ports.md](ports.md).
+
 ## Variables
 
 `TDD_*` is what a user sets or reads (`TDD_DIR`, `TDD_PARALLELISM`); `_TDD_*` is

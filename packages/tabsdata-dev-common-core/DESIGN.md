@@ -23,6 +23,8 @@ dependencies are declared as ranges; each toolset's lock pins them.
   `DIR/bin/CMD` with `bin/` first on `PATH`; refuses when the program is not in that venv.
 - `secrets` (1Password: `<PREFIX>__<KEY>` variables plus `_TDD_SYSTEMS`, the prefix list),
   `ports`, `passwords`, `docker`, `ssh`, `datadir.data_dir()` (`<tdd_dir>/data/<command>`), `latch`.
+  `ports` never hands out an ephemeral port: its generic range is 30000-32767 (random start),
+  20000-29999 being the systems' slots -- [docs/ports.md](../../docs/ports.md).
 
 ## Rules
 

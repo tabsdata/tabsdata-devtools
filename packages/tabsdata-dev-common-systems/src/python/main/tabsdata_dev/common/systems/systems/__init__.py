@@ -57,6 +57,13 @@ def all_slugs() -> list[str]:
     return sorted(_SLUGS)
 
 
+def slot_order() -> list[str]:
+    """The slugs in declaration order -- the order that assigns each system type
+    its host-port slot (docs/ports.md). Append new systems at the END of
+    ``_SLUGS``: inserting one shifts every slot after it."""
+    return list(_SLUGS)
+
+
 def get_class(slug: str) -> type[Backend]:
     """The backend class for `slug` (no instance — used to read capability flags
     when the dispatcher decides which verbs a system exposes)."""

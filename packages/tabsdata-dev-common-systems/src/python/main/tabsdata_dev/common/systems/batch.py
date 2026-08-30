@@ -25,7 +25,6 @@ import subprocess
 import sys
 
 from tabsdata_dev.common.core import batch as core_batch
-from tabsdata_dev.common.core import ports as core_ports
 from tabsdata_dev.common.core import proc
 from tabsdata_dev.common.systems import (
     cli,
@@ -81,12 +80,6 @@ def weight_for(slug: str) -> int:
 
 def _names(sel: str) -> list[str]:
     return [n.strip() for n in sel.split(",") if n.strip()]
-
-
-def port_pools(n: int) -> list[list[int]]:
-    """`n` disjoint pools of ``PORTS_PER_SYSTEM`` free ports, one per parallel
-    system create."""
-    return core_ports.port_pools(n, constants.PORTS_PER_SYSTEM)
 
 
 def _is_all(sel: str) -> bool:
@@ -173,16 +166,15 @@ def _expand(tool: str, verb: str, rest: list[str]) -> list[Task]:
             {constants.OPT_TYPE, constants.OPT_SYS, constants.OPT_PORTS, *_BATCH_VALUE},
             _BATCH_ONLY,
         )
-        pools = port_pools(len(types))
-        for typ, pool in zip(types, pools):
-            ports = [constants.OPT_PORTS, ",".join(str(p) for p in pool)]
+        # No ports are handed down: every system type owns a fixed port slot
+        # (systems._common.ports), so parallel creates cannot compete.
+        for typ in types:
             argv = [
                 constants.V_CREATE,
                 constants.OPT_TYPE,
                 typ,
                 constants.OPT_SYS,
                 typ,
-                *ports,
                 *passthrough,
             ]
             tasks.append(Task(cli.apply_prefix(typ, prefix), weight_for(typ), [argv]))

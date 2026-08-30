@@ -30,3 +30,5 @@ with per-system DDL. The tools `system`, `domain` and `domain-sf` are thin entry
 - Output follows the guidelines through the `console` adapter; chatty verbs log to
   `/tmp/tdd-<tool>-<verb>-<name>-<stamp>.log`, which is also the failure log.
 - Domain names are `<user>_<build>` from `TD_BUILD_USER`/`TD_BUILD_NUMBER` (else login/0).
+- Host ports: every system type owns a slot of 100 from 20000, by registry order (append-only);
+  a create walks its slot for free ports, `--ports` pins them -- [docs/ports.md](../../docs/ports.md).
