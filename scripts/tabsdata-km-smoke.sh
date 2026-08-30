@@ -13,7 +13,7 @@
 #    5  set the descriptor crypto key            tdd env set --crypto
 #    6  create a managed venv                    tdd venv create --name V --type T --python P --force
 #    7  install tabsdata[EXTRAS] in it           uv pip install (extras default: all)
-#    8  create `dev`, check every system the suites (and --llm) need exists   tdd system create, tdd xp list-systems
+#    8  create `dev` and `fs`, check every system the suites (and --llm) need exists   tdd system create, tdd xp list-systems
 #   8b  (--llm) create the LLM domain and read its API key   tdd domain create, tdd domain info --as export
 #    9  tdkserver quickstart (the LLM key when --llm)   tdd tdkserver quickstart --instance I --provider kminus [--<llm>-key K]
 #   9b  every expected service pod is Running    tdd tdkserver status (retried)
@@ -267,12 +267,17 @@ for program in tdkserver tdk; do
 done
 common_checkpoint install
 
-common_stage systems "the dev system, then every system the suites need must be in the tdd store"
+common_stage systems "the dev and fs systems, then every system the suites need must be in the tdd store"
 # Every suite provisions on `dev`, which a fresh tdd dir lacks (--force also
 # replaces a descriptor an older key left unreadable). The other systems are
 # the user's store: check them now, by name and type, rather than find out
 # lane by lane after quickstart has spent its minutes.
 common_run tdd system create --type dev --sys dev --force
+# fs is local plumbing like dev (grok, localfile and friends stage files on it).
+# The root must be explicit and absolute: the backend's default is
+# target/backends/<name> resolved against the CWD, which once landed inside a
+# checkout. Destroy leaves the root dir itself in place.
+common_run tdd system create --type fs --sys fs --sys-path "$TDD_DIR_OPT/data/fs-root" --force
 for suite in "${SUITE_LIST[@]}"; do
     common_run tdd xp list-systems --suite "$suite"
 done

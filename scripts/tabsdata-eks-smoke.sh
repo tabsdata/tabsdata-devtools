@@ -307,8 +307,13 @@ for program in tdkserver tdk; do
 done
 common_checkpoint install
 
-common_stage systems "dev, rdspostgres, s3 (and --llm) plus every system the suites need must be in the tdd store"
+common_stage systems "dev and fs, rdspostgres, s3 (and --llm) plus every system the suites need must be in the tdd store"
 common_run tdd system create --type dev --sys dev --force
+# fs is local plumbing like dev (grok, localfile and friends stage files on it).
+# The root must be explicit and absolute: the backend's default is
+# target/backends/<name> resolved against the CWD, which once landed inside a
+# checkout. Destroy leaves the root dir itself in place.
+common_run tdd system create --type fs --sys fs --sys-path "$TDD_DIR_OPT/data/fs-root" --force
 for suite in "${SUITE_LIST[@]}"; do
     common_run tdd xp list-systems --suite "$suite"
 done
