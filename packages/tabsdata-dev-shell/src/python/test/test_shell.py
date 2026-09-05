@@ -396,5 +396,16 @@ def test_env_set_takes_provider_refs_a_literal_default_and_a_crypto_value():
     assert "_TDD_CRYPTO_MIN=12" in text
     assert '[ "${#_tdd_value}" -lt "$_TDD_CRYPTO_MIN" ]' in text
     assert "--value is the crypto key itself; pass --crypto to say so" in text
+    # masking by name, in every group: the TD group carries TD_BACKENDS_CRYPTO_KEY
+    assert (
+        '"$_TDD_VARS_CRYPTO" | *PASSWORD* | *SECRET* | *TOKEN* | *KEY* | *PASS*' in text
+    )
     assert '"set|--value|"' in text
 
+
+def test_a_secret_option_value_is_masked_in_the_log_and_the_resolved_line():
+    common = (shell.scripts_dir() / COMMON).read_text()
+    assert "_tdd_mask_argv() {" in common
+    assert "--(value|password|secret|token|key)" in common
+    assert 'echo "command: tdd $(_tdd_mask_argv' in common
+    assert '_tdd_info "resolved: tdd $(_tdd_mask_argv "$*")"' in shell.source_template()

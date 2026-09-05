@@ -480,7 +480,7 @@ tdd() {
             esac
             _tdd_prev="$_tdd_a"
         done
-        _tdd_info "resolved: tdd $*" "\"defaults\":\"$(_tdd_json_str "$_TDD_DEFAULTS_SRC")\""
+        _tdd_info "resolved: tdd $(_tdd_mask_argv "$*")" "\"defaults\":\"$(_tdd_json_str "$_TDD_DEFAULTS_SRC")\""
         unset _tdd_word _tdd_ifs _tdd_glob _tdd_prev _tdd_a _TDD_RESOLVED _TDD_DEFAULTS_SRC
     fi
     unset _tdd_drc

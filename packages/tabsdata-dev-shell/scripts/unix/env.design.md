@@ -15,10 +15,14 @@ crypto key, the 1Password secrets, tabsdata's `TD_*` settings and the Python ind
   which also writes `_TDD_SYSTEMS`, the prefix list `unset --secrets` reads back.
 - `--vault` is one form for both, the provider ref `1p:NAME`, and both defaults are **literals**:
   no `ONE_PASSWORD_*` variable decides which vault a key comes from. `crypto-key` names the vault
-  itself, so the ref sheds its `1p:` on the way (that verb takes either spelling). `--py-idx URL` sets `UV_INDEX`/`PIP_EXTRA_INDEX_URL` plus
+  itself, so the ref sheds its `1p:` on the way (that verb takes either spelling).
+- A secret on a command line is masked wherever tdd echoes one back: `_tdd_mask_argv` (common.sh)
+  blanks the value of `--value`/`--password`/`--secret`/`--token`/`--key` in the failure log's
+  `command:` line and in `tdd`'s `resolved:` line. `--py-idx URL` sets `UV_INDEX`/`PIP_EXTRA_INDEX_URL` plus
   `UV_INDEX_STRATEGY=unsafe-best-match`; `--py-default-idx URL` sets `UV_DEFAULT_INDEX`/`PIP_INDEX_URL`.
 - `unset --td` clears every `TD_*` variable -- tabsdata's own; none of tdd's are `TD_`.
   `--vars PREFIX` clears by prefix but never `TDD_DIR`, which `tdd` itself needs.
 - `show` lists three sorted groups -- TD (`^TD*` plus `_TDD_CRYPTO_KEY`, and `_TDD_SYSTEMS`
   while set), PyPi, Secrets -- `- NAME` when unset; values whose name says
-  PASSWORD/SECRET/TOKEN/KEY/PASS/_PAT are masked unless `--reveal`.
+  PASSWORD/SECRET/TOKEN/KEY/PASS/_PAT are masked unless `--reveal`, in every group (the TD one
+  holds `TD_BACKENDS_CRYPTO_KEY`).

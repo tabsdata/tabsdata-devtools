@@ -313,6 +313,14 @@ _tdd_debug() {
     _tdd_emit debug "$1" "${2:-}"
 }
 
+# A command line for the eyes and for the log, with the value of any option that
+# carries a secret replaced: `tdd env set --crypto --value KEY` must not write
+# the key into a world-readable /tmp log or echo it back. Both spellings,
+# `--opt value` and `--opt=value`.
+_tdd_mask_argv() {
+    printf '%s' "$1" | sed -E 's/(--(value|password|secret|token|key))([= ])[^ ]*/\1\3****/g'
+}
+
 # The failure; exactly one, last, then return 1. Writes the log the guidelines
 # require -- what the terminal did not show -- and points at it: view prints
 # `details: <path>` after the message, json carries it as "log". $1 message,
@@ -320,7 +328,7 @@ _tdd_debug() {
 _tdd_error() {
     _tdd_logf="/tmp/tdd-${_TDD_CMD:-shell}-$(date +%Y%m%d-%H%M%S)-$$.log"
     {
-        echo "command: tdd ${_TDD_ARGV:-${_TDD_CMD:-}}"
+        echo "command: tdd $(_tdd_mask_argv "${_TDD_ARGV:-${_TDD_CMD:-}}")"
         echo "cwd:     $(pwd)"
         echo "TDD_DIR: $TDD_DIR"
         echo "version: $(cat "$TDD_DIR/VERSION" 2>/dev/null)"

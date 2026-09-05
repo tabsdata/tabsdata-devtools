@@ -381,8 +381,11 @@ _tdd_vars_show_row() {
     _tdd_val="$(eval "printf '%s' \"\$$1\"")"
     _tdd_shown="$_tdd_val"
     if [ "$_tdd_reveal" != 1 ]; then
-        case "$2:$1" in
-            *:"$_TDD_VARS_CRYPTO" | secrets:*PASSWORD* | secrets:*SECRET* | secrets:*TOKEN* | secrets:*KEY* | secrets:*PASS* | secrets:*_PAT | secrets:*_PAT_*)
+        # By name, in every group: TD_BACKENDS_CRYPTO_KEY is as much a secret in
+        # the TD group as any <SYSTEM>__PASSWORD is among the secrets, and a
+        # masked non-secret costs nothing -- --reveal prints the value.
+        case "$1" in
+            "$_TDD_VARS_CRYPTO" | *PASSWORD* | *SECRET* | *TOKEN* | *KEY* | *PASS* | *_PAT | *_PAT_*)
                 _tdd_shown="$(printf '%s' "$_tdd_val" | cut -c1-2)****" ;;
         esac
     fi
