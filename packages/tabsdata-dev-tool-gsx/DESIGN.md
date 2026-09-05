@@ -53,6 +53,9 @@ gets no call; two ops touching one PR cost one call; every PR is attempted even 
 half-labelled). `new` is judged on the snapshot taken before anything is written, so an earlier
 op cannot erase a later one's targets.
 
+A value that is not valid is refused with **the valid ones listed beside it** (and the aliases,
+when a reviewer was the problem), because the next thing the reader needs is the spelling.
+
 Values are validated against the config first, refreshing it once when one is missing, because
 **`gh pr edit` is not atomic**: given a bad add and a good remove, the remove lands and the add
 fails, so a `replace` with a typo would strip the labels it meant to overwrite. Reviewers
@@ -67,7 +70,11 @@ gsx adds two things of its own to the same file:
 
 - `[gsx] version` -- the gsx that last refreshed the tables below. A version that differs from
   the running gsx forces one refresh, so what is cached is never older than the tool.
-- `[repos."OWNER/NAME"]` -- **per repository**, always: `labels`, `reviewers`, `fetched`, and the
+- `[reviewer-aliases]` -- `<alias> = "<login>"`, a name of your own for a reviewer, usable
+  anywhere a `--reviewer:` value is and resolved before anything looks at the value (validation,
+  the desired state, the `gh pr edit` argument all see the login). File-wide: a login is a person,
+  not a property of one repository.
+- `[repo."OWNER/NAME"]` -- **per repository**, always: `labels`, `reviewers`, `fetched`, and the
   two `default_*` lists. Labels and collaborators differ per repository (a flat list would
   validate one repository's names against another's), and so do the defaults: `default_labels` /
   `default_reviewers` are what `submit`/`apply` put on the PRs *of that repository* that have

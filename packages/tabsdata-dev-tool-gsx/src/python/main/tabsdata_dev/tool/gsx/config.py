@@ -29,8 +29,10 @@ from .options import doc
 from .version import VERSION
 
 COMMAND = "gsx"
-REPOS = "repos"
+REPO = "repo"  # [repo."OWNER/NAME"], one per repository
+ALIASES = "reviewer-aliases"  # nickname -> login, file-wide: a login is a person
 SELF = "gsx"  # the [gsx] table: what gsx knows about the file itself
+_OLD_REPO = "repos"  # what the table was called first; read, never written
 
 
 def path() -> pathlib.Path:
@@ -38,10 +40,13 @@ def path() -> pathlib.Path:
 
 
 def read() -> dict:
-    """``{"version": ..., "repos": {slug: entry}}`` -- the shape gsx works in."""
+    """``{"version", "repos": {slug: entry}, "aliases": {}}`` -- gsx's shape."""
     document = common.read(COMMAND)
     repos: dict[str, dict] = {}
-    for slug, table in (document.get(REPOS) or {}).items():
+    # `repos` was this table's first name; read either, write only `repo`, so a
+    # file written before the rename migrates the next time gsx writes.
+    tables = document.get(REPO) or document.get(_OLD_REPO) or {}
+    for slug, table in tables.items():
         if not isinstance(table, dict):
             continue
         repos[slug] = {
@@ -53,19 +58,36 @@ def read() -> dict:
                 "reviewers": [str(v) for v in table.get("default_reviewers", [])],
             },
         }
+    aliases = {
+        str(name): str(login)
+        for name, login in (document.get(ALIASES) or {}).items()
+        if isinstance(login, str)
+    }
     return {
         "version": str((document.get(SELF) or {}).get("version", "")),
         "repos": repos,
+        "aliases": aliases,
     }
 
 
 def render_tables(config: dict) -> str:
-    """gsx's own tables as TOML: `[gsx]`, then one per repository, sorted."""
+    """gsx's own tables as TOML: `[gsx]`, the aliases, then one per repository."""
     lines = [f"[{SELF}]", f"version = {common.toml_value(VERSION)}"]
+    aliases = config.get("aliases") or {}
+    lines.append(f"\n[{ALIASES}]")
+    lines.append('# a name of your own for a reviewer: <alias> = "<github login>",')
+    lines.append("# usable anywhere a --reviewer: value is (they are validated after")
+    lines.append(
+        "# the alias is resolved). A login is a person, so these are file-wide."
+    )
+    for name in sorted(aliases):
+        lines.append(
+            f"{common.toml_value(name).strip(chr(34))} = {common.toml_value(aliases[name])}"
+        )
     for slug in sorted(config.get("repos", {})):
         entry = config["repos"][slug]
         defaults = entry.get("defaults") or {}
-        lines.append(f"\n[{REPOS}.{common.toml_value(slug)}]")
+        lines.append(f"\n[{REPO}.{common.toml_value(slug)}]")
         lines.append(f"fetched = {common.toml_value(entry.get('fetched', ''))}")
         lines.append(f"labels = {common.toml_value(entry.get('labels', []))}")
         lines.append(f"reviewers = {common.toml_value(entry.get('reviewers', []))}")

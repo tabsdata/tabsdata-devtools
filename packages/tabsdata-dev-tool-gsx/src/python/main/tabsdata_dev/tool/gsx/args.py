@@ -244,7 +244,6 @@ SUBMIT_NATIVES = [
     Native("e", "gh pr edit", PR_EDIT_OWNED),
 ]
 APPLY_NATIVES = [Native("e", "gh pr edit", PR_EDIT_OWNED)]
-
 NATIVES = {
     "create": CREATE_NATIVES,
     "update": UPDATE_NATIVES,

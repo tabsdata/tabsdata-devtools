@@ -34,12 +34,19 @@ class Repo:
         self._entry: dict | None = None
         self._fetched = False
         self._slug: str | None = None
+        self._aliases: dict[str, str] | None = None
 
     @property
     def slug(self) -> str:
         if self._slug is None:
             self._slug = gh.repo_slug(self.runner)
         return self._slug
+
+    def aliases(self) -> dict[str, str]:
+        """The file's `[reviewer-aliases]`: a name of your own for a login."""
+        if self._aliases is None:
+            self._aliases = config_mod.read().get("aliases") or {}
+        return self._aliases
 
     def entry(self) -> tuple[dict, bool]:
         if self._entry is None:
@@ -111,6 +118,26 @@ def with_defaults(repo: Repo, ops: list[LrOp], disabled: bool) -> list[LrOp]:
     return implicit + ops
 
 
+def resolve_aliases(repo: Repo, ops: list[LrOp]) -> list[LrOp]:
+    """Swap every reviewer alias for the login it names, before validation.
+
+    An alias is the reader's own name for a person (`dimas = "aoinokimi"`), so
+    it is resolved once here and everything downstream -- validation, the
+    desired state, the `gh pr edit` argument -- sees the login.
+    """
+    table = repo.aliases()
+    if not table:
+        return ops
+    resolved = []
+    for op in ops:
+        if op.kind != "reviewer":
+            resolved.append(op)
+            continue
+        values = [table.get(value, value) for value in op.values]
+        resolved.append(LrOp(op.kind, op.scope, op.mode, values, op.token))
+    return resolved
+
+
 def _unvalidatable(kind: str, value: str) -> bool:
     """Reviewers that are never in a collaborator list: Copilot, @me, and
     teams, which are `org/team-slug` rather than a login."""
@@ -147,18 +174,29 @@ def check_values(repo: Repo, ops: list[LrOp]) -> None:
         entry = repo.refresh()
         gaps = missing(entry)
     if any(gaps.values()):
-        detail = "; ".join(
-            f"unknown {kind}(s): {', '.join(values)}"
-            for kind, values in gaps.items()
-            if values
-        )
         from tabsdata_dev.common.core.errors import ToolError
 
+        lines = []
+        for kind, values in gaps.items():
+            if not values:
+                continue
+            valid = entry.get(f"{kind}s") or []
+            lines.append(
+                f"unknown {kind}(s): {', '.join(values)}\n"
+                f"  valid {kind}s: {', '.join(valid) if valid else '(none)'}"
+            )
+        aliases = repo.aliases()
+        if gaps.get("reviewer") and aliases:
+            lines.append(
+                "  reviewer aliases: "
+                + ", ".join(f"{name} -> {aliases[name]}" for name in sorted(aliases))
+            )
         raise ToolError(
-            f"not valid for this repository, even after refreshing "
-            f"{config_mod.path()}: {detail} -- nothing was changed. Create them on "
-            "GitHub, fix the spelling, or edit the config; a replace with a bad "
-            "name would strip the values it was meant to overwrite"
+            "not valid for this repository, even after refreshing "
+            f"{config_mod.path()} -- nothing was changed:\n"
+            + "\n".join(lines)
+            + "\nCreate them on GitHub, fix the spelling, or edit the config; a "
+            "replace with a bad name would strip the values it was meant to overwrite"
         )
 
 
@@ -185,6 +223,7 @@ def apply(
     if not snapshot:
         out.warn("no open PRs on this stack; nothing to label or assign")
         return (0, [])
+    ops = resolve_aliases(repo, ops)
     check_values(repo, ops)
     login = gh.me(runner) if any(op.scope == "mine" for op in ops) else ""
 

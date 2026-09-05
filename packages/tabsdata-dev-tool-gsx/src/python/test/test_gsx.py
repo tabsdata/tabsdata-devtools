@@ -124,10 +124,11 @@ def test_the_repo_tables_round_trip_and_leave_the_options_alone(tmp_path, monkey
 
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
     assert config.path() == tmp_path / "gsx.toml"
-    assert config.read() == {"version": "", "repos": {}}  # no file yet
+    assert config.read() == {"version": "", "repos": {}, "aliases": {}}  # no file
 
     written = {
         "version": VERSION,
+        "aliases": {"dimas": "aoinokimi"},
         "repos": {
             "o/n": {
                 "fetched": "2026-09-05T00:00:00-03:00",
@@ -147,7 +148,8 @@ def test_the_repo_tables_round_trip_and_leave_the_options_alone(tmp_path, monkey
     assert config.read() == written  # every repository keeps its own lists
 
     text = config.path().read_text()
-    assert '[repos."o/n"]' in text and '[repos."o/other"]' in text
+    assert '[repo."o/n"]' in text and '[repo."o/other"]' in text
+    assert "[reviewer-aliases]" in text and 'dimas = "aoinokimi"' in text
     # the shared option template is written too, and survives a repo refresh
     assert "[options]" in text and "[options.submit]" in text
     config.path().write_text(text.replace("# verbose = false", "verbose = true"))
@@ -157,6 +159,13 @@ def test_the_repo_tables_round_trip_and_leave_the_options_alone(tmp_path, monkey
 
 
 # ------------------------------------------------------------------ engine
+class _NoAliases:
+    """A repo with nothing in [reviewer-aliases]."""
+
+    def aliases(self):
+        return {}
+
+
 def _snapshot():
     return [
         {"branch": "A-1", "number": 6, "author": "me", "labels": [], "reviewers": []},
@@ -195,7 +204,7 @@ def test_ops_fold_into_one_edit_per_pr_and_an_unchanged_pr_gets_no_call(monkeypa
         args_mod.LrOp("label", "new", "replace", ["skip-ci"], "--label:new"),
         args_mod.LrOp("label", "top", "replace", ["run-ci"], "--label:top"),
     ]
-    changed, failures = labels.apply(FakeRunner(), None, ops, [], _Out())
+    changed, failures = labels.apply(FakeRunner(), _NoAliases(), ops, [], _Out())
     assert (changed, failures) == (2, [])
     assert calls == [
         ["gh", "pr", "edit", "6", "--add-label", "skip-ci"],
@@ -211,7 +220,7 @@ def test_ops_fold_into_one_edit_per_pr_and_an_unchanged_pr_gets_no_call(monkeypa
             for pull in _snapshot()
         ],
     )
-    changed, failures = labels.apply(FakeRunner(), None, ops, [], _Out())
+    changed, failures = labels.apply(FakeRunner(), _NoAliases(), ops, [], _Out())
     assert (changed, failures, calls) == (0, [], [])
 
 
@@ -227,7 +236,7 @@ def test_every_pr_is_attempted_even_when_one_fails(monkeypatch):
     monkeypatch.setattr(gh, "stack_pr_snapshot", lambda runner: _snapshot())
     monkeypatch.setattr(labels, "check_values", lambda repo, ops: None)
     ops = [args_mod.LrOp("label", "all", "replace", ["run-ci"], "--label:all")]
-    changed, failures = labels.apply(FailingRunner(), None, ops, [], _Out())
+    changed, failures = labels.apply(FailingRunner(), _NoAliases(), ops, [], _Out())
     assert changed == 1 and failures == ["PR #6: gh said no"]
 
 
@@ -237,6 +246,9 @@ def test_a_value_missing_from_the_config_stops_everything(tmp_path, monkeypatch)
     class Repo:
         def entry(self):
             return ({"labels": ["bug"], "reviewers": []}, True)  # just fetched
+
+        def aliases(self):
+            return {}
 
     ops = [args_mod.LrOp("label", "all", "replace", ["nope"], "--label:all")]
     with pytest.raises(ToolError, match="unknown label"):
@@ -297,8 +309,62 @@ def test_the_config_action_is_the_shared_one_and_knows_what_gsx_keeps(
     assert gsx.main(["config", "--create"]) == 0
     text = config.path().read_text()
     assert "[options.apply]" in text  # derived from gsx's own parser
-    assert '[repos."OWNER/NAME"]' in text  # and what gsx keeps, explained
+    assert '[repo."OWNER/NAME"]' in text  # and what gsx keeps, explained
+    assert "[reviewer-aliases]" in text
     capsys.readouterr()
     assert gsx.main(["config", "--create"]) == 1  # refuses an existing file
     assert "already exists" in capsys.readouterr().err
     assert gsx.main(["config", "--create", "--force"]) == 0
+
+
+def test_the_old_repos_table_is_read_so_a_file_migrates_on_the_next_write(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    config.path().write_text(
+        '[repos."o/n"]\nlabels = ["bug"]\nreviewers = []\n'
+        "default_labels = []\ndefault_reviewers = []\n"
+    )
+    assert config.read()["repos"]["o/n"]["labels"] == ["bug"]
+    config.write(config.read())  # written under the current name, only once
+    text = config.path().read_text()
+    assert '[repo."o/n"]' in text and "[repos." not in text
+
+
+def test_a_reviewer_alias_is_resolved_before_anything_looks_at_the_value():
+    class Repo:
+        def aliases(self):
+            return {"dimas": "aoinokimi"}
+
+    ops = [
+        args_mod.LrOp("reviewer", "all", "replace", ["dimas", "tucu0"], "-r"),
+        args_mod.LrOp(
+            "label", "all", "replace", ["dimas"], "-l"
+        ),  # labels are not aliased
+    ]
+    resolved = labels.resolve_aliases(Repo(), ops)
+    assert resolved[0].values == ["aoinokimi", "tucu0"]
+    assert resolved[1].values == ["dimas"]
+
+
+def test_an_unknown_value_is_refused_with_the_valid_ones_beside_it(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+
+    class Repo:
+        def entry(self):
+            return ({"labels": ["bug", "run-ci"], "reviewers": ["tucu0"]}, True)
+
+        def aliases(self):
+            return {"dimas": "aoinokimi"}
+
+    ops = [args_mod.LrOp("label", "all", "replace", ["nope"], "--label:all")]
+    with pytest.raises(ToolError) as failure:
+        labels.check_values(Repo(), ops)
+    assert "valid labels: bug, run-ci" in str(failure.value)
+    ops = [args_mod.LrOp("reviewer", "all", "replace", ["nobody"], "-r")]
+    with pytest.raises(ToolError) as failure:
+        labels.check_values(Repo(), ops)
+    assert "valid reviewers: tucu0" in str(failure.value)
+    assert "reviewer aliases: dimas -> aoinokimi" in str(failure.value)

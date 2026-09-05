@@ -31,7 +31,12 @@ CONFIG_PREAMBLE = """\
 #   [gsx]
 #   version            the gsx that last refreshed the tables below
 #
-#   [repos."OWNER/NAME"]
+#   [reviewer-aliases]
+#   <alias> = "<login>"  a name of your own for a reviewer, usable anywhere a
+#                      --reviewer: value is; file-wide, because a login is a
+#                      person rather than a property of one repository
+#
+#   [repo."OWNER/NAME"]
 #   fetched            when auto-config last refreshed the two lists
 #   labels             valid label names, from `gh label list`
 #   reviewers          valid logins, from collaborators + assignable users
