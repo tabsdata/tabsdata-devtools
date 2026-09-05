@@ -2,30 +2,35 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""Per-command default options. Standard library only.
+"""Per-command default options, read from the command's own config file.
 
-    <tdd_dir>/default-opts/<command>.txt
-    <tdd_dir>/default-opts/<command>_<action>.txt      e.g. venv_create.txt
+    <tdd_dir>/<command>.toml
 
-One option per line -- `--name value`, `--name=value` or `--flag` -- with `#`
-comments and blank lines ignored. The `tdd` shell function asks this module to
-merge a file into the command line before dispatching, so both halves get
-defaults without knowing about them, and prints the resolved invocation.
+        [options]              every action of <command>
+        [options.<action>]     that action only
 
-Precedence: what was typed wins over any default, and an action's file wins
-over the command's. The separator is `_` because command names themselves use
-`-` (tdd-env): `tdd-env_activate.txt` is unambiguous where a hyphen would not be. An option counts as typed when its name appears on the
+The `tdd` shell function asks this module to merge them into the command line
+before dispatching, so both halves get defaults without knowing about them, and
+prints the resolved invocation.
+
+Precedence: what was typed wins over any default, and an action's table wins
+over the command's. An option counts as typed when its name appears on the
 command line in either spelling (`--name` or `--name=`); the default is then
 left out entirely, never appended as a second value. The two short forms the
 guidelines allow are understood as their long names.
+
+The mapping from a TOML value to command-line tokens is the twin of
+`common.core.config.to_argv` -- this package has no dependencies, not even on
+common-core, and a test keeps the two honest.
 """
 
 from __future__ import annotations
 
 import pathlib
-import re
+import tomllib
+from typing import Any
 
-DIR_NAME = "default-opts"
+OPTIONS_TABLE = "options"
 # The short forms the guidelines allow, so a typed `-f` overrides a preset `--force`.
 ALIASES = {
     "-v": "--verbose",
@@ -35,39 +40,24 @@ ALIASES = {
     "-V": "--version",
 }
 
-# A `#` starts a comment at the start of a line or after whitespace, so a value
-# like --tag a#b survives.
-_COMMENT = re.compile(r"(^|\s)#.*$")
-
 
 class DefaultsError(Exception):
     pass
 
 
-def defaults_dir(dir_: pathlib.Path) -> pathlib.Path:
-    return dir_ / DIR_NAME
+def config_path(dir_: pathlib.Path, command: str) -> pathlib.Path:
+    return dir_ / f"{command}.toml"
 
 
-def parse_file(path: pathlib.Path) -> list[list[str]]:
-    """Each entry is the tokens to append: ["--name", "value"] or ["--name=value"]
-    or ["--flag"]."""
-    entries: list[list[str]] = []
-    for lineno, raw in enumerate(path.read_text().splitlines(), 1):
-        line = _COMMENT.sub("", raw).strip()
-        if not line:
-            continue
-        if not line.startswith("--"):
-            raise DefaultsError(
-                f"{path}:{lineno}: expected --option, --option value or "
-                f"--option=value, got {line!r}"
-            )
-        entry = line.split(None, 1)
-        # `--python 3.12 --type conda` on one line would silently become one
-        # value; the format is one option per line, so say so.
-        if len(entry) == 2 and re.search(r"(^|\s)--\S", entry[1]):
-            raise DefaultsError(f"{path}:{lineno}: one option per line, got {line!r}")
-        entries.append(entry)
-    return entries
+def to_argv(name: str, value: Any) -> list[str]:
+    """The tokens a configured default contributes. Twin of
+    `common.core.config.to_argv`."""
+    option = f"--{name.replace('_', '-')}"
+    if isinstance(value, bool):
+        return [option] if value else []
+    if isinstance(value, (list, tuple)):
+        return [token for item in value for token in (option, str(item))]
+    return [option, str(value)]
 
 
 def option_name(token: str) -> str:
@@ -78,31 +68,59 @@ def typed_names(argv: list[str]) -> set[str]:
     return {option_name(a) for a in argv if a.startswith("-") and a != "-"}
 
 
-def files_for(dir_: pathlib.Path, command: str, argv: list[str]) -> list[pathlib.Path]:
-    """The command's file, then the action's when the first argument is a bare
-    word. Only files that exist."""
-    candidates = [defaults_dir(dir_) / f"{command}.txt"]
-    if argv and not argv[0].startswith("-"):
-        candidates.append(defaults_dir(dir_) / f"{command}_{argv[0]}.txt")
-    return [f for f in candidates if f.is_file()]
+def read(dir_: pathlib.Path, command: str) -> dict[str, dict[str, Any]]:
+    """The `[options]` tables: action ("" for the command) -> name -> value."""
+    path = config_path(dir_, command)
+    if not path.is_file():
+        return {}
+    try:
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise DefaultsError(f"{path}: {error}") from error
+    table = document.get(OPTIONS_TABLE)
+    if table is None:
+        return {}
+    if not isinstance(table, dict):
+        raise DefaultsError(f"{path}: [{OPTIONS_TABLE}] must be a table")
+    found: dict[str, dict[str, Any]] = {"": {}}
+    for key, value in table.items():
+        if isinstance(value, dict):
+            found[key] = dict(value)
+        else:
+            found[""][key] = value
+    return {action: values for action, values in found.items() if values}
 
 
 def resolve(
     dir_: pathlib.Path, command: str, argv: list[str]
 ) -> tuple[list[str], list[str]] | None:
-    """The merged command line and the file names used, or None if no file applies."""
-    files = files_for(dir_, command, argv)
-    if not files:
+    """The merged command line and the tables used, or None when none apply."""
+    tables = read(dir_, command)
+    if not tables:
+        return None
+    action = argv[0] if argv and not argv[0].startswith("-") else ""
+    # Most specific first, so its names are "present" by the time the general
+    # table is applied and cannot be overridden by it.
+    order = [a for a in (action, "") if a in tables]
+    if not order:
         return None
     merged = list(argv)
     present = typed_names(argv)
-    # Most specific first, so its names are "present" by the time the general
-    # file is applied and cannot be overridden by it.
-    for path in reversed(files):
-        for entry in parse_file(path):
-            name = option_name(entry[0])
+    used: list[str] = []
+    name_of = config_path(dir_, command).name
+    for table in order:
+        applied = False
+        for key, value in tables[table].items():
+            name = f"--{key.replace('_', '-')}"
             if name in present:
                 continue
-            merged.extend(entry)
+            tokens = to_argv(key, value)
             present.add(name)
-    return merged, [f.name for f in files]
+            if tokens:
+                merged.extend(tokens)
+                applied = True
+        if applied:
+            used.append(f"{name_of} [{OPTIONS_TABLE}{'.' + table if table else ''}]")
+    if merged == argv:
+        return None
+    return merged, used

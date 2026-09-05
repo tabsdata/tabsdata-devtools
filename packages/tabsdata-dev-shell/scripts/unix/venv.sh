@@ -33,7 +33,8 @@
 
 tdd_fn_register venv "create, activate, deactivate, delete or list managed venvs (pyenv, uv or conda)"
 
-# Built-in option defaults, for `tdd defaults --command venv`.
+# Built-in option defaults: what `tdd venv config` writes as its template,
+# and what `--show` compares against.
 tdd_defaults_venv() {
     printf '%s\n' "create|--type|pyenv" "create|--python|" "create|--name|" \
         "create|--force|false" "deactivate|--force|false" "activate|--name|" "delete|--name|" "delete|--all|false"
@@ -42,6 +43,12 @@ tdd_defaults_venv() {
 tddfn_venv() {
     _tdd_cmd_reset
     case "${1:-}" in
+        config)
+            shift
+            _TDD_CMD="venv-config"
+            _tdd_config_action venv "$@"
+            _tdd_rc=$?
+            ;;
         create | activate | deactivate | delete | list)
             _tdd_sub="$1"
             shift

@@ -27,7 +27,7 @@ reach a project's dependencies. This file is the working contract; the design li
 ```
 tdd            shell function (sourced from <tdd_dir>/tdd-source.sh) -> front door over both halves
 tdd-exe        executable in <tdd_dir>/tdd-venvs/tdd -> dispatches Python tools; help, doctor, info, --reqs
-tdd-fn         shell function -> commands that change the current shell (venv, env, tdd-env, pycache, defaults)
+tdd-fn         shell function -> commands that change the current shell (venv, env, tdd-env, pycache)
 tdd-install    executable -> the only way to build a tdd dir (`cargo make install [-- --editable]`)
 ```
 
@@ -35,7 +35,7 @@ Packages, all `tabsdata-dev-*` under the `tabsdata_dev` namespace: `-tdd` (stdli
 `-shell` (shell files as data), `-common-*` (shared code, third-party ranges), `-deps-*`
 (pins; its name is the toolset), `-tool-*` (one tool; exactly one `-deps-*`), `-toolset-*`
 (**generated**, committed `uv.lock`). Tools: `system`, `domain`, `domain-sf` (hidden), `xp`, `gsx`,
-`tdk`, `tdkserver`, `km`; shell: `venv`, `env`, `tdd-env`, `pycache`, `defaults`; samples
+`tdk`, `tdkserver`, `km`; shell: `venv`, `env`, `tdd-env`, `pycache`; samples
 `demo-exe1/2`, `demo-fn1/2`. Details: the design docs.
 
 Never run the real `tdk`/`tdkserver` from an agent session: `tdk` refuses under an AI agent
@@ -77,7 +77,7 @@ holds the user's system and domain descriptors.
 16. **`tdd-install` never touches user state in the tdd dir.** It rebuilds only
     `tdd-venvs/` and rewrites `catalog.json`/`VERSION`/`tdd-source.sh`;
     `data/` (system/domain descriptors), `managed-venvs/` (`tdd venv` environments) and
-    `default-opts/` are the user's and survive every re-init (a test pins this).
+    every `<command>.toml` are the user's and survive every re-init (a test pins this).
 
 ## Commands
 
@@ -104,7 +104,9 @@ in wheels mode, a reinstall to see source changes.
 - Comments explain **why**, not what; docstrings on modules and non-obvious functions.
 - Tests live in `src/python/test/` and run inside the toolset venv the code ships with.
 - `ruff format` and `ruff check` must pass at the version pinned in `Makefile.toml`.
-- A command that needs a config file of its own keeps it at `<tdd_dir>/<command>.toml`, named
-  after the command, created on demand by that command: user state, never written or removed
-  by `tdd-install`. There is no shared config file.
+- Every command owns `<tdd_dir>/<command>.toml`: its `[options]` defaults (`[options.<action>]`
+  for one action, merged under what was typed) and whatever else it keeps. The `config` action
+  (`--show`/`--default`/`--create [--force]`) comes from the shared layer on both sides and is
+  built from the command's own options; writes are a temporary file and one rename. User state:
+  `tdd-install` never writes or removes it. There is no shared config file.
 - Commit only when asked; the smoke scripts under `scripts/` stay uncommitted until asked.

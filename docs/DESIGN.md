@@ -34,17 +34,16 @@ tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
 
 `--dir` defaults to `$TDD_DIR`, then `~/.tdd`; everything after the word reaches the command
 verbatim; `--format`/`--verbose` before the word also travel on to it. Commands: `venv`,
-`tdd-env`, `env`, `pycache`, `defaults` (shell, marked `*` in `tdd help`), `system`, `domain`,
+`tdd-env`, `env`, `pycache` (shell, marked `*` in `tdd help`), `system`, `domain`,
 `xp`, `gsx`, `tdk`, `tdkserver`, `km` (Python), the demo pair of each half (listed only with `--demo`).
 `tdd help` merges both halves from `tdd-exe --porcelain` and the shell registry.
 
-**Default options**: `<tdd_dir>/default-opts/<command>.txt` or `<command>_<action>.txt`, one
-`--name value` per line, merged under what was typed (`tdd-exe --defaults`, stdlib,
-unit-tested); `tdd` prints the resolved line as `info`. `tdd defaults --command X` explains.
-
-**Command config**: a command that needs one owns `<tdd_dir>/<command>.toml` (`gsx` ->
-`gsx.toml`), creates it on demand and is the only thing that reads it; it is user state, so
-`tdd-install` never writes or removes it. Nothing reads a shared config file -- there is none.
+**Command config**: `<tdd_dir>/<command>.toml`, one file per command, holding both what the
+command keeps of its own and `[options]` -- what its options default to, `[options.<action>]` for
+one action -- merged under what was typed (`tdd-exe --defaults`, stdlib, unit-tested); `tdd` prints
+the resolved line as `info`. Every command has a `config` action (`--show`, `--default`,
+`--create [--force]`) built from its own options, so the template cannot drift; writes go through
+a temporary file and one rename. It is user state: `tdd-install` never writes or removes it.
 
 **Events everywhere**: one model on both sides -- `command` + `event` (`ok`, `error`, `warn`,
 `info`, `debug`) + `message` + fields; json is one line per event, view puts `ok` on stdout and

@@ -24,7 +24,8 @@
 
 tdd_fn_register env "set, unset or show this shell's crypto key, 1Password secrets, TD_ and Python index variables"
 
-# Built-in option defaults, for `tdd defaults --command env`.
+# Built-in option defaults: what `tdd env config` writes as its template,
+# and what `--show` compares against.
 tdd_defaults_env() {
     printf '%s\n' "set|--vault|crypto: $_TDD_VAULT_CRYPTO; secrets: $_TDD_VAULT_SECRETS" \
         "set|--item|DevSecrets" "set|--field|TD_BACKENDS_CRYPTO_KEY" "set|--value|" "set|--force|false" \
@@ -53,6 +54,12 @@ _TDD_VARS_PY_DEFAULT_LEGACY="UV_INDEX_URL"
 tddfn_env() {
     _tdd_cmd_reset
     case "${1:-}" in
+        config)
+            shift
+            _TDD_CMD="env-config"
+            _tdd_config_action env "$@"
+            _tdd_rc=$?
+            ;;
         set | unset | show)
             _tdd_sub="$1"
             shift

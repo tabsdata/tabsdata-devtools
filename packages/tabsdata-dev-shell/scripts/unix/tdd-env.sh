@@ -15,7 +15,8 @@
 # No `|` in the summary: it is the registry delimiter.
 tdd_fn_register tdd-env "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
 
-# Built-in option defaults, for `tdd defaults --command tdd-env`.
+# Built-in option defaults: what `tdd tdd-env config` writes as its template,
+# and what `--show` compares against.
 tdd_defaults_tdd-env() {
     printf '%s\n' "activate|--toolset|"
 }
@@ -23,6 +24,12 @@ tdd_defaults_tdd-env() {
 tddfn_tdd-env() {
     _tdd_cmd_reset
     case "${1:-}" in
+        config)
+            shift
+            _TDD_CMD="tdd-env-config"
+            _tdd_config_action tdd-env "$@"
+            _tdd_rc=$?
+            ;;
         activate | deactivate)
             _tdd_sub="$1"
             shift

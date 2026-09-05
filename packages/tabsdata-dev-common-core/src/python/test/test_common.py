@@ -187,6 +187,10 @@ def test_managedvenv_needs_tdd_venv_and_points_at_tdd_venv(monkeypatch):
     from tabsdata_dev.common.core.errors import ToolError
 
     monkeypatch.delenv("_TDD_VENV", raising=False)
+    # and nothing for `adopted` to find either: the developer running this may
+    # well have a managed venv of their own active
+    for var in ("VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV"):
+        monkeypatch.delenv(var, raising=False)
     with pytest.raises(ToolError, match="tdd venv"):
         managedvenv.active()
     monkeypatch.setenv("_TDD_VENV", "work")
@@ -309,3 +313,77 @@ def test_ports_stay_below_the_ephemeral_range_honour_exclude_and_skip_busy_ones(
         assert not ports.is_free(found[0]) and ports.is_free(found[0] + 1)
     finally:
         busy.close()
+
+
+def test_config_derives_its_template_from_the_parser_and_writes_atomically(
+    tmp_path, monkeypatch
+):
+    import argparse
+
+    from tabsdata_dev.common.core import config
+
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    parser = argparse.ArgumentParser(prog="demo")
+    parser.add_argument("--type", default="pyenv", help="the tool that creates it")
+    parser.add_argument("--force", action="store_true", help="overwrite")
+    parser.add_argument("--name", help="required, so no default to write")
+    subs = parser.add_subparsers(dest="action")
+    create = subs.add_parser("create")
+    create.add_argument("--python", default="3.12", help="interpreter")
+
+    doc = config.from_parser("demo", parser)
+    assert doc.defaults() == {
+        "": {"type": "pyenv", "force": False},  # --name has no default: left out
+        "create": {"python": "3.12"},
+    }
+    text = config.render_doc(doc)
+    # a template: every option commented at its default, so nothing is pinned
+    assert '# type = "pyenv"' in text and "# force = false" in text
+    assert "[options.create]" in text and '# python = "3.12"' in text
+    assert "name" not in text.split("[options]")[1].split("[options.create]")[0]
+
+    config.write("demo", text)
+    assert config.path("demo") == tmp_path / "demo.toml"
+    # every option is commented out, so the tables are there but empty
+    assert config.options_in("demo") == {"": {}, "create": {}}
+    # nothing of the temporary file survives a successful write
+    assert [p.name for p in tmp_path.iterdir()] == ["demo.toml"]
+
+    # uncommenting one line makes it a default, and --show says so
+    config.path("demo").write_text(text.replace('# type = "pyenv"', 'type = "uv"'))
+    assert config.options_in("demo") == {"": {"type": "uv"}, "create": {}}
+    message, changed = config.show(doc, io.StringIO())
+    assert changed == {"type": "uv"} and 'type = "uv"' in message
+    assert '(default "pyenv")' in message
+
+
+def test_config_rewrites_the_template_but_keeps_what_the_command_keeps(
+    tmp_path, monkeypatch
+):
+    import argparse
+
+    from tabsdata_dev.common.core import config
+
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    parser = argparse.ArgumentParser(prog="demo")
+    parser.add_argument("--type", default="pyenv")
+    doc = config.from_parser("demo", parser)
+    config.write("demo", config.render_doc(doc) + '\n[repos."o/n"]\nlabels = ["bug"]\n')
+    config.path("demo").write_text(
+        config.path("demo").read_text().replace('# type = "pyenv"', 'type = "uv"')
+    )
+
+    config.update("demo", doc)  # what --create --force does
+    text = config.path("demo").read_text()
+    assert 'type = "uv"' in text  # what the file set
+    assert '[repos."o/n"]' in text and 'labels = ["bug"]' in text  # what it keeps
+    assert config.kept_tables("demo").startswith('[repos."o/n"]')
+
+
+def test_the_argv_mapping_covers_flags_lists_and_values():
+    from tabsdata_dev.common.core import config
+
+    assert config.to_argv("dry_run", True) == ["--dry-run"]
+    assert config.to_argv("dry_run", False) == []
+    assert config.to_argv("suite", ["a", "b"]) == ["--suite", "a", "--suite", "b"]
+    assert config.to_argv("type", "uv") == ["--type", "uv"]

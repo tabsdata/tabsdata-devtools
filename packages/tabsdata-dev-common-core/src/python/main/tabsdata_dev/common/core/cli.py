@@ -24,7 +24,7 @@ import sys
 import traceback
 from collections.abc import Callable
 
-from . import errors, render
+from . import config, errors, render
 
 
 class _Parser(argparse.ArgumentParser):
@@ -57,20 +57,34 @@ def run(
     body: Callable[[argparse.Namespace, render.Renderer], int | None],
     argv: list[str] | None = None,
     configure: Callable[[argparse.ArgumentParser], None] | None = None,
+    config_preamble: str = "",
 ) -> int:
     """Parse, render, run, and map everything onto exit 0 or 1.
 
     `configure` adds the command's own options to the parser before parsing.
     The body's return value is the exit code (None counts as 0); anything else
     it raises becomes an error event with the traceback in the log.
+    `config_preamble` is TOML the command's own `config --create` template
+    carries above the options (what it keeps of its own, explained).
     """
     p = parser(prog, description)
     if configure is not None:
         configure(p)
+    raw = list(argv if argv is not None else sys.argv[1:])
     # --format has to be known before an argument error can be rendered, so
     # peek at it the same way the parser would.
-    fmt, verbose = _peek_common(argv if argv is not None else sys.argv[1:])
+    fmt, verbose = _peek_common(raw)
     out = render.Renderer(prog, fmt=fmt, verbose=verbose)
+    # `config` is every command's, from here rather than from each parser: the
+    # document it reads and writes is derived from the parser above, so it can
+    # never drift from the options themselves.
+    if raw[:1] == ["config"]:
+        try:
+            return config.run_action(
+                config.from_parser(prog, p, config_preamble), raw[1:], out
+            )
+        except errors.ToolError as exc:
+            return out.error(str(exc))
     try:
         args = p.parse_args(argv)
     except UsageError as exc:

@@ -208,7 +208,7 @@ _tdd_help() {
     _tdd_rows="$(_tdd_help_rows "${1:-}")"
     if [ "$_TDD_FORMAT" = json ]; then
         _tdd_ok "$(printf '%s\n' "$_tdd_rows" | grep -c .) commands" \
-            "\"tdd_dir\":\"$(_tdd_json_str "$TDD_DIR")\",\"commands\":$(_tdd_rows_json "$_tdd_rows"),\"default_opts\":{\"dir\":\"$(_tdd_json_str "$TDD_DIR/default-opts")\",\"files\":[\"<command>.txt\",\"<command>_<action>.txt\"],\"syntax\":\"one option per line: --name value | --name=value | --flag; # comments; typed options win\"}"
+            "\"tdd_dir\":\"$(_tdd_json_str "$TDD_DIR")\",\"commands\":$(_tdd_rows_json "$_tdd_rows"),\"config\":{\"file\":\"$(_tdd_json_str "$TDD_DIR/<command>.toml")\",\"tables\":[\"options\",\"options.<action>\"],\"syntax\":\"a TOML key per option, typed options win\",\"action\":\"tdd <command> config --create|--default|--show\"}"
     else
         if [ "${1:-}" = --demo ]; then
             _tdd_head="commands, demo included (* runs in this shell):"
@@ -220,9 +220,9 @@ _tdd_help() {
 $_tdd_head
 $(printf '%s\n' "$_tdd_rows" | awk -F'\t' '{ printf "  %s %-13s %s\n", $2, $1, $3 }')
 
-default options: $TDD_DIR/default-opts/<command>.txt or <command>_<action>.txt (venv_create.txt)
-  one option per line: --name value | --name=value | --flag   (# comments)
-  typed options win; \`tdd defaults --command <name>\` shows what applies
+command config: $TDD_DIR/<command>.toml -- its [options] and [options.<action>]
+  tables are what that command's options default to; typed options win
+  \`tdd <command> config --create\` writes one, \`--show\` says what applies
 
 TDD_DIR=$TDD_DIR"
     fi
@@ -266,34 +266,18 @@ $(printf '%s\n' "$_tdd_rows" | awk -F'\t' '{ printf "  %-14s %s\n", $1, $3 }')"
     unset _tdd_rows
 }
 
-# "--demo" if it appears among the arguments, else empty.
-_tdd_demo_flag() {
-    for _tdd_a in "$@"; do
-        if [ "$_tdd_a" = "--demo" ]; then
-            unset _tdd_a
-            printf '%s' "--demo"
-            return 0
-        fi
-    done
-    unset _tdd_a
-    return 0
-}
-
-# ---------------------------------------------------------------- defaults
-
-# Per-command default options, $TDD_DIR/default-opts/<command>.txt (and
-# <command>_<action>.txt). The merge itself -- typed options win, the
-# action's file wins over the command's -- is tdd-exe's job, so it is one
+# Merge the command's configured default options into the argument list, then
+# say what it resolved to. The file is <tdd_dir>/<command>.toml ([options], and
+# [options.<action>] for one action); the merge itself -- typed options win, the
+# action's table wins over the command's -- is tdd-exe's job, so it is one
 # testable piece of Python; this side only rebuilds the argument list and says
 # what it resolved to. Sets _TDD_RESOLVED (one argument per line) and
 # _TDD_DEFAULTS_SRC. Returns 0 when defaults applied, 1 when none exist, 2 on
 # an invalid file (already reported).
 _tdd_apply_defaults() {
-    _tdd_dd="$TDD_DIR/default-opts"
-    [ -d "$_tdd_dd" ] || return 1
-    if [ ! -f "$_tdd_dd/$1.txt" ] && { [ $# -lt 2 ] || [ ! -f "$_tdd_dd/$1_$2.txt" ]; }; then
-        return 1
-    fi
+    _tdd_dd="$TDD_DIR/$1.toml"
+    # No file, no work: the common case is not worth a subprocess.
+    [ -f "$_tdd_dd" ] || return 1
     _tdd_derr="$(mktemp)"
     _tdd_dout="$(tdd-exe --defaults "$@" 2>"$_tdd_derr")"
     if [ $? -ne 0 ]; then

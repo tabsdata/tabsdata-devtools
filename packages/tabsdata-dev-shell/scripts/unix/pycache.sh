@@ -16,7 +16,8 @@
 
 tdd_fn_register pycache "clean the uv and pip caches, by package prefix (default tabsdata) or all of it"
 
-# Built-in option defaults, for `tdd defaults --command pycache`.
+# Built-in option defaults: what `tdd pycache config` writes as its template,
+# and what `--show` compares against.
 tdd_defaults_pycache() {
     printf '%s\n' "clean|--package-prefixes|tabsdata" "clean|--all|false"
 }
@@ -24,6 +25,12 @@ tdd_defaults_pycache() {
 tddfn_pycache() {
     _tdd_cmd_reset
     case "${1:-}" in
+        config)
+            shift
+            _TDD_CMD="pycache-config"
+            _tdd_config_action pycache "$@"
+            _tdd_rc=$?
+            ;;
         clean)
             shift
             _TDD_CMD="pycache-clean"

@@ -34,13 +34,13 @@ tdd domain --help       # domains inside those systems: schemas, generated data,
 tdd tdk --help          # run tabsdata's tdk (also tdkserver, km) inside the venv _TDD_VENV names
 tdd xp --help           # the bundled tabsdata example suites: list-suites, one-shot --suite <type>/<name>
 tdd pycache --help      # purge tabsdata from the uv/pip caches
-tdd defaults --command venv   # a command's option defaults: built-in vs your default-opts
+tdd venv config --show       # a command's option defaults: built-in vs yours
 scripts/tabsdata-km-smoke.sh --help   # fresh venv + tabsdata + tdkserver + xp suites, end to end
 scripts/tabsdata-eks-smoke.sh --help  # the same run against an EKS cluster (rds/s3 domains, port-forward)
 cargo make help         # every build task; `cargo make uninstall` removes ~/.tdd
 ```
 
-Preset a command's options in `~/.tdd/default-opts/<command>.txt` or `<command>_<action>.txt`
+Preset a command's options in `~/.tdd/<command>.toml` (`[options]`, or `[options.<action>]`)
 (one `--name value` per line); what you type wins. Every command takes `--help`, `--verbose` and
 `--format json|view`.
 

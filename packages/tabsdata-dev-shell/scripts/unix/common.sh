@@ -350,3 +350,186 @@ _tdd_error() {
     unset _tdd_logf
     return 1
 }
+
+# Cyan, for a value that is not the default -- next to the plain ones around it.
+_tdd_color_cyan() {
+    [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && printf '\033[36m'
+}
+
+_tdd_color_off() {
+    [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && printf '\033[0m'
+}
+
+# No-op: keeps the row's leading spaces out of the colour run.
+_tdd_ps1_noop() {
+    :
+}
+
+# ---------------------------------------------------------------- config
+# `tdd <command> config [--show | --default | --create [--force]]`, the same
+# action every Python tool gets from common.core.config -- here for the shell
+# half. The template is rendered from the command's own tdd_defaults_<name>
+# declarations (`sub|--option|value` lines), so it cannot drift from the
+# options; what the file sets now comes back from `tdd-exe --defaults-doc`,
+# which has the TOML parser this side lacks.
+#
+#     _tdd_config_action <command> "$@"
+
+# The default document: every option commented out at its built-in value, so
+# the file is a template and a line only becomes a default once uncommented.
+_tdd_config_template() {
+    _tdd_cfg_file="$TDD_DIR/$1.toml"
+    printf '#\n# Copyright 2026 Tabsdata Inc.\n#\n\n'
+    printf '# %s configuration -- %s\n#\n' "$1" "$_tdd_cfg_file"
+    printf '# Written by `tdd %s config --create`; `--default` prints this document\n' "$1"
+    printf '# without writing it, `--show` compares it with what is here now.\n#\n'
+    printf '# Every option below is commented out at the value %s uses when you do\n' "$1"
+    printf '# not say otherwise. UNCOMMENT a line to make it the default for every\n'
+    printf '# `tdd %s` run: typed options always win over it, and an [options.ACTION]\n' "$1"
+    printf '# table wins over [options].\n'
+    printf '\n[options]\n'
+    printf '# json is JSON Lines, one event per line (default: view)\n# format = "view"\n'
+    printf '# show debug events too\n# verbose = false\n'
+    command -v "tdd_defaults_$1" >/dev/null 2>&1 || return 0
+    "tdd_defaults_$1" | sort -t'|' -k1,1 | while IFS='|' read -r _tdd_cfg_sub _tdd_cfg_opt _tdd_cfg_val; do
+        [ -n "$_tdd_cfg_opt" ] || continue
+        if [ "$_tdd_cfg_sub" != "$_tdd_cfg_last" ]; then
+            case "$_tdd_cfg_sub" in
+                - | "") ;;
+                *) printf '\n[options.%s]\n# only for `tdd %s %s`\n' "$_tdd_cfg_sub" "$1" "$_tdd_cfg_sub" ;;
+            esac
+            _tdd_cfg_last="$_tdd_cfg_sub"
+        fi
+        printf '# %s = %s\n' "$(_tdd_config_key "$_tdd_cfg_opt")" "$(_tdd_config_toml "$_tdd_cfg_val")"
+    done
+}
+
+# `--type` -> `type`: a TOML key is the option's dest, as on the Python side.
+_tdd_config_key() {
+    _tdd_cfg_k="${1#--}"
+    printf '%s' "$(printf '%s' "$_tdd_cfg_k" | tr '-' '_')"
+}
+
+# A built-in default as a TOML value: true/false and numbers bare, the rest
+# quoted; an empty declaration means "no default", shown as an empty string.
+_tdd_config_toml() {
+    case "$1" in
+        true | false) printf '%s' "$1" ;;
+        *[!0-9]* | "") printf '"%s"' "$1" ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+_tdd_config_action() {
+    _tdd_cfg_cmd="$1"
+    shift
+    _tdd_cfg_what="show"
+    _tdd_cfg_force=0
+    _tdd_cfg_last=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --show) _tdd_cfg_what="show"; shift ;;
+            --default) _tdd_cfg_what="default"; shift ;;
+            --create) _tdd_cfg_what="create"; shift ;;
+            --force | -f) _tdd_cfg_force=1; shift ;;
+            *)
+                _tdd_common_opt "$@" || { _tdd_error "unknown option: $1 (see --help)"; return 1; }
+                shift "$_TDD_CONSUMED"
+                ;;
+        esac
+    done
+    if [ "$_TDD_HELP" = 1 ]; then
+        _tdd_config_help "$_tdd_cfg_cmd"
+        return 0
+    fi
+    _tdd_cmd_check || return 1
+    _tdd_cfg_file="$TDD_DIR/$_tdd_cfg_cmd.toml"
+    case "$_tdd_cfg_what" in
+        default)
+            _tdd_ok "$(_tdd_config_template "$_tdd_cfg_cmd")" "\"config\":\"$(_tdd_json_str "$_tdd_cfg_file")\",\"action\":\"default\""
+            ;;
+        create)
+            if [ -e "$_tdd_cfg_file" ] && [ "$_tdd_cfg_force" != 1 ]; then
+                _tdd_error "$_tdd_cfg_file already exists; --force overwrites it"
+                return 1
+            fi
+            # Write and replace: an interrupted write leaves the previous file,
+            # never half a config.
+            _tdd_cfg_tmp="$TDD_DIR/.$_tdd_cfg_cmd.toml.$$.tmp"
+            mkdir -p "$TDD_DIR" || { _tdd_error "cannot create $TDD_DIR"; return 1; }
+            if ! _tdd_config_template "$_tdd_cfg_cmd" > "$_tdd_cfg_tmp" 2>/dev/null; then
+                rm -f "$_tdd_cfg_tmp"
+                _tdd_error "cannot write $_tdd_cfg_file"
+                return 1
+            fi
+            mv "$_tdd_cfg_tmp" "$_tdd_cfg_file" || { rm -f "$_tdd_cfg_tmp"; _tdd_error "cannot write $_tdd_cfg_file"; return 1; }
+            _tdd_ok "wrote $_tdd_cfg_file" "\"config\":\"$(_tdd_json_str "$_tdd_cfg_file")\",\"action\":\"create\""
+            ;;
+        *)
+            _tdd_config_show "$_tdd_cfg_cmd"
+            ;;
+    esac
+}
+
+# What the options resolve to now: the built-in value, or -- highlighted -- the
+# one the file sets. The file is read by tdd-exe, which has the TOML parser.
+_tdd_config_show() {
+    _tdd_cfg_file="$TDD_DIR/$1.toml"
+    _tdd_cfg_doc="$(tdd-exe --dir "$TDD_DIR" --defaults-doc "$1" 2>/dev/null)"
+    _tdd_cfg_rows="$_tdd_cfg_file$([ -f "$_tdd_cfg_file" ] || printf '  (no file yet)')
+"
+    _tdd_cfg_json=""
+    _tdd_cfg_last=""
+    { printf '%s\n' "-|--format|view" "-|--verbose|false"; command -v "tdd_defaults_$1" >/dev/null 2>&1 && "tdd_defaults_$1"; } |
+        sort -t'|' -k1,1 | {
+        while IFS='|' read -r _tdd_cfg_sub _tdd_cfg_opt _tdd_cfg_val; do
+            [ -n "$_tdd_cfg_opt" ] || continue
+            if [ "$_tdd_cfg_sub" != "$_tdd_cfg_last" ]; then
+                case "$_tdd_cfg_sub" in
+                    - | "") _tdd_cfg_rows="$_tdd_cfg_rows
+[options]
+" ;;
+                    *) _tdd_cfg_rows="$_tdd_cfg_rows
+[options.$_tdd_cfg_sub]
+" ;;
+                esac
+                _tdd_cfg_last="$_tdd_cfg_sub"
+            fi
+            _tdd_cfg_key="$(_tdd_config_key "$_tdd_cfg_opt")"
+            case "$_tdd_cfg_sub" in
+                - | "") _tdd_cfg_path=".options.\"\"" ;;
+                *) _tdd_cfg_path=".options.\"$_tdd_cfg_sub\"" ;;
+            esac
+            _tdd_cfg_set="$(printf '%s' "$_tdd_cfg_doc" | jq -r "$_tdd_cfg_path.\"$_tdd_cfg_key\" // empty | tostring" 2>/dev/null)"
+            if [ -n "$_tdd_cfg_set" ]; then
+                _tdd_cfg_rows="$_tdd_cfg_rows  $(_tdd_ps1_noop)$(_tdd_color_cyan)$_tdd_cfg_key = $(_tdd_config_toml "$_tdd_cfg_set")$(_tdd_color_off)   (default $(_tdd_config_toml "$_tdd_cfg_val"))
+"
+                _tdd_cfg_json="$_tdd_cfg_json${_tdd_cfg_json:+,}\"$_tdd_cfg_key\":\"$(_tdd_json_str "$_tdd_cfg_set")\""
+            else
+                _tdd_cfg_rows="$_tdd_cfg_rows  $_tdd_cfg_key = $(_tdd_config_toml "$_tdd_cfg_val")
+"
+            fi
+        done
+        _tdd_ok "${_tdd_cfg_rows%
+}" "\"config\":\"$(_tdd_json_str "$_tdd_cfg_file")\",\"action\":\"show\",\"changed\":{$_tdd_cfg_json}"
+    }
+}
+
+_tdd_config_help() {
+    _tdd_help_text <<HELP
+usage: tdd $1 config [--show | --default | --create [--force]]
+
+The config file of \`tdd $1\`: \$TDD_DIR/$1.toml. Its [options] table holds what
+this command's options default to ([options.ACTION] for one action); typed
+options always win. Whatever else the command keeps lives in the same file.
+
+options:
+  --show       what the options resolve to now; what the file sets is
+               highlighted, everything else is the built-in default (default)
+  --default    print the default config, the document --create would write
+  --create     write the default config; refuses when the file exists
+  -f, --force  --create: overwrite an existing file
+
+example: tdd $1 config --create && tdd $1 config --show
+HELP
+}

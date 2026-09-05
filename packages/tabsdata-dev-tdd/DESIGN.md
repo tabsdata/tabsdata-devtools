@@ -21,7 +21,8 @@ The executable half: `tdd-exe` (dispatch, `help`, `doctor`, `info`, `--reqs`, `-
   toolset's `bin/` first on `PATH`, `TDD_DIR` and `_TDD_TOOL` exported. Everything after the
   command word reaches the tool verbatim. Before exec, every `bin-reqs` binary must resolve
   (a pyenv/asdf/mise shim only if its manager wires it) unless `-h`/`--help` is among the args.
-- **Defaults** (`defaults.py`): `<tdd_dir>/default-opts/<cmd>.txt` / `<cmd>_<action>.txt` merged
+- **Defaults** (`defaults.py`): the `[options]` / `[options.<action>]` tables of
+  `<tdd_dir>/<cmd>.toml` merged
   under the typed options; the `tdd` function only rebuilds argv from `tdd-exe --defaults`.
 - **Generator** (`discover.py`, `generate.py`): reads every `tool-*`/`deps-*`/`common-*`
   `pyproject.toml` and the shell scripts, writes the `toolset-*` packages and the catalog, and

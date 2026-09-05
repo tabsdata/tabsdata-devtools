@@ -20,6 +20,7 @@ step that has to run before wheels are built, never from a finished install.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import sys
 
@@ -54,13 +55,17 @@ options:
                     machine-readable `name|kind|summary` lines: what the `tdd`
                     shell function merges into `tdd help`
   --defaults <command> [args...]
-                    merge TDD_PATH/default-opts/<command>.txt into the args and
-                    print the result one per line (first line: the files used);
-                    what the `tdd` shell function calls before dispatching
+                    merge the [options] of TDD_PATH/<command>.toml into the args
+                    and print the result one per line (first line: the tables
+                    used); what the `tdd` shell function calls before dispatching
+  --defaults-doc <command>
+                    what that file sets right now, as JSON: what a shell
+                    command's `config --show` reads, having no TOML parser
   --help
 
-Default options: put `--name value` lines in TDD_PATH/default-opts/<command>.txt
-(or <command>_<action>.txt, e.g. venv_create.txt); typed options win over them.
+Command config: TDD_PATH/<command>.toml, one file per command -- its [options]
+(and [options.<action>]) are what its options default to, typed options win.
+Write one with `tdd <command> config --create`.
 
 Setting a tdd dir up is `tdd-install [--dir TDD_PATH] [--relock] [--from-wheels]`.
 """
@@ -106,6 +111,9 @@ def _split(argv: list[str]) -> tuple[dict, list[str]]:
             i += 1
         elif arg == "--defaults":
             opts["defaults"] = True
+            i += 1
+        elif arg == "--defaults-doc":
+            opts["defaults_doc"] = True
             i += 1
         elif arg in ("-h", "--help"):
             opts["help"] = True
@@ -200,7 +208,6 @@ def _info(dir_: pathlib.Path, out: render.Renderer) -> int:
         "catalog": str(dir_ / catalog_mod.CATALOG_NAME),
         "source": str(dir_ / initialize_mod.SOURCE_NAME),
         "venvs": str(paths.venvs_dir(dir_)),
-        "default_opts": str(defaults_mod.defaults_dir(dir_)),
         "toolsets": catalog["toolsets"],
         "tools": len(catalog["tools"]),
         "demo_tools": sum(1 for e in catalog["tools"].values() if e.get("demo")),
@@ -222,7 +229,6 @@ def _info(dir_: pathlib.Path, out: render.Renderer) -> int:
         f"catalog       {fields['catalog']}",
         f"source        {fields['source']}",
         f"venvs         {fields['venvs']}",
-        f"default-opts  {fields['default_opts']}",
         f"toolsets      {' '.join(catalog['toolsets'])}",
         f"tools         {count(fields['tools'], fields['demo_tools'])}",
         f"shell         {count(fields['shell'], fields['demo_shell'])}",
@@ -303,6 +309,27 @@ def _doctor(dir_: pathlib.Path, out: render.Renderer) -> int:
     return out.ok(f"{dir_} is healthy", checks=len(catalog["tools"]) + 2)
 
 
+def _defaults_doc(dir_: pathlib.Path, rest: list[str]) -> int:
+    """Plumbing for a shell command's `config` action: what its config file
+    sets right now, as one JSON object -- the shell has no TOML parser."""
+    if not rest:
+        print("tdd: --defaults-doc needs a command word", file=sys.stderr)
+        return 1
+    path = defaults_mod.config_path(dir_, rest[0])
+    try:
+        options = defaults_mod.read(dir_, rest[0])
+    except defaults_mod.DefaultsError as exc:
+        print(f"tdd: {exc}", file=sys.stderr)
+        return 1
+    print(
+        json.dumps(
+            {"path": str(path), "exists": path.is_file(), "options": options},
+            default=str,
+        )
+    )
+    return 0
+
+
 def _defaults(dir_: pathlib.Path, rest: list[str]) -> int:
     """Plumbing for the `tdd` shell function: the resolved command line, one
     argument per line, after a first line naming the files used. Nothing at
@@ -353,7 +380,11 @@ def _run(argv: list[str]) -> int:
     opts, rest = _split(argv)
 
     wants_output = (
-        opts["reqs"] or opts["porcelain"] or opts["defaults"] or opts.get("version")
+        opts["reqs"]
+        or opts["porcelain"]
+        or opts["defaults"]
+        or opts.get("defaults_doc")
+        or opts.get("version")
     )
     if opts.get("help") or (not rest and not wants_output):
         print(USAGE, end="")
@@ -373,6 +404,8 @@ def _run(argv: list[str]) -> int:
         return _porcelain(dir_, "--demo" in rest)
     if opts["defaults"]:
         return _defaults(dir_, rest)
+    if opts.get("defaults_doc"):
+        return _defaults_doc(dir_, rest)
 
     word, tool_argv = rest[0], rest[1:]
 

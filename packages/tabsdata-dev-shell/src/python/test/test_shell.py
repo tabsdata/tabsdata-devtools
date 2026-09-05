@@ -415,3 +415,25 @@ def test_sourcing_defines_the_gsx_shorthand_over_the_tool():
     text = shell.source_template()
     hand = text.split("---- shorthands", 1)[1]
     assert 'gsx() {\n    tdd gsx "$@"\n}' in hand  # the tool keeps every option
+
+
+def test_every_shell_command_with_defaults_has_the_config_action():
+    # the same action every Python tool gets from common.core.config
+    common = (shell.scripts_dir() / COMMON).read_text()
+    assert "_tdd_config_action() {" in common
+    for piece in ("--show", "--default", "--create", "--force"):
+        assert piece in common.split("_tdd_config_action() {", 1)[1]
+    # write and replace, never half a config
+    assert 'mv "$_tdd_cfg_tmp" "$_tdd_cfg_file"' in common
+    # and the template is the command's own declarations, not a second list
+    assert 'command -v "tdd_defaults_$1"' in common
+    for name in ("venv", "env", "pycache", "tdd-env"):
+        text = (shell.scripts_dir() / f"{name}.sh").read_text()
+        assert f"_tdd_config_action {name}" in text, name
+        assert f"tdd_defaults_{name}()" in text, name
+
+
+def test_the_defaults_command_is_gone_in_favour_of_config():
+    assert not (shell.scripts_dir() / "defaults.sh").exists()
+    text = shell.source_template()
+    assert "config --create" in text and "default-opts" not in text

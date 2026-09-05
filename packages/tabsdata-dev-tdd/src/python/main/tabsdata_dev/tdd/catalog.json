@@ -1,5 +1,5 @@
 {
-  "fingerprint": "f120520be2819bb1",
+  "fingerprint": "c6e824af8d3c4b44",
   "members": {
     "demo-env1": [
       "tabsdata-dev-common-core",
@@ -40,15 +40,6 @@
   },
   "schema": 1,
   "shell": {
-    "defaults": {
-      "demo": false,
-      "file": "defaults.sh",
-      "reqs": [
-        "jq",
-        "awk"
-      ],
-      "summary": "show a command's option defaults: built-in in white, customized in blue"
-    },
     "demo-fn1": {
       "demo": true,
       "file": "demo-fn1.sh",

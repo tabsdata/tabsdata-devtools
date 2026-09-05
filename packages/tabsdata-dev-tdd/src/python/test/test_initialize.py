@@ -4,7 +4,7 @@
 
 """`initialize` must build (or rebuild) the tool set without touching the user's
 state in the tdd dir. `data/` (system and domain descriptors), `managed-venvs/`
-(the user's `tdd venv` environments) and `default-opts/` are theirs, not the
+(the user's `tdd venv` environments) and every `<command>.toml` are theirs, not the
 installer's -- a re-init to pick up a dependency change must leave them intact.
 The heavy uv steps are stubbed so this stays a fast unit test; what it pins is
 which paths initialize is allowed to write."""
@@ -28,9 +28,9 @@ def test_initialize_from_source_preserves_user_state(tmp_path, monkeypatch):
         "data/domain/dev": "dom",
         "managed-venvs/scratch.env": "uv",
         "managed-venvs/uv/scratch/marker": "venv",
-        "default-opts/venv_create.txt": "--type uv\n",
-        # a command's own config file, <tdd_dir>/<command>.toml
-        "gsx.toml": "[gsx]\n",
+        # a command's own config file: its options and whatever it keeps
+        "venv.toml": '[options.create]\ntype = "uv"\n',
+        "gsx.toml": '[repos."o/n"]\nlabels = ["bug"]\n',
     }
     for rel, text in keep.items():
         p = dir_ / rel

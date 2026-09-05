@@ -116,7 +116,7 @@ def main() -> int:
 exceptions as `error` events and maps everything onto exit 0/1. Never `print`. Subprocesses go
 through `proc.run()`; another tool through `proc.run_tool()` (never an import -- it lives in
 another venv). Keep options long and `-`-separated: a user can preset any of them in
-`$TDD_DIR/default-opts/<name>.txt`, and `tdd` merges those in before your tool starts -- nothing
+`$TDD_DIR/<name>.toml`, and `tdd` merges those in before your tool starts -- nothing
 to do on your side.
 
 ## 3. Declare external binaries

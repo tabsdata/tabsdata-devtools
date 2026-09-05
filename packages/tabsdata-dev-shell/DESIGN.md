@@ -14,7 +14,8 @@ executable cannot do -- change the calling shell (venvs, variables, prompt).
   `source_template()`), which sit at the package root in an editable install and beside the
   module in a wheel. Installed into `<tdd_dir>/tdd-venvs/shells`.
 - Each command: `<name>.sh` (registers with `tdd_fn_register`, defines `tddfn_<name>`, declares
-  `tdd_defaults_<name>`), optional `<name>.bin-reqs.txt`, and `<name>.design.md`.
+  `tdd_defaults_<name>`, which is also the `config` action's template), optional
+  `<name>.bin-reqs.txt`, and `<name>.design.md`.
 - `common.sh` is the shared layer every command sources through `$_TDD_COMMON_SH`: option
   parsing, the event model rendered with `jq`, colours, the failure log, `_tdd_help_text`
   (argparse-layout help), `_tdd_ps1_wrap` (prompt colours). `common.bin-reqs.txt` (`jq`, `awk`)
@@ -30,7 +31,7 @@ executable cannot do -- change the calling shell (venvs, variables, prompt).
   scp/rsync over ssh read the rc too).
 - The `tdd` function routes: registry hit -> `tdd-fn` (checks the command's bin-reqs first,
   `--help` excepted), else `tdd-exe` through a wrapper that keeps that env off `PATH`. It applies
-  `default-opts` via `tdd-exe --defaults`, warns off and unsets a `_TDD_TOOL` found in the shell,
+  `<tdd_dir>/<command>.toml` via `tdd-exe --defaults`, warns off and unsets a `_TDD_TOOL` found in the shell,
   and recomputes `_TDD_COMMON_SH` when `--dir`/`TDD_DIR` changed.
 - Shorthands: sourcing also defines `gsx` as `tdd gsx "$@"` -- a name typed often enough to
   earn one; the tool keeps every option, default and event.

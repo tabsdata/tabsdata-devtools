@@ -24,7 +24,7 @@ follow [command-cli-guidelines.md](command-cli-guidelines.md).
 
 tdd_fn_register gitroot "cd to the top of the current git checkout"
 
-tdd_defaults_gitroot() {                       # built-in option values, for `tdd defaults`
+tdd_defaults_gitroot() {                       # built-in option values, for `config`
     printf '%s\n' "-|--depth|1"              # subcommand|--option|value; `-` = none
 }
 
@@ -85,7 +85,8 @@ adding the common options itself.
 
 `fields` is extra JSON members (`"name":"x","count":3`); quote values through `_tdd_json_str`.
 `common.sh` builds every line with jq; a command never writes JSON or `echo`es. Defaults from
-`default-opts/` arrive merged into `$@` -- nothing to do beyond `tdd_defaults_<name>`.
+`<tdd_dir>/<name>.toml` arrive merged into `$@` -- nothing to do beyond `tdd_defaults_<name>`,
+which is also what `tdd <name> config --create` writes as the template.
 
 ## 2. Declare external binaries
 

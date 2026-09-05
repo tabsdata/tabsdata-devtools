@@ -15,7 +15,7 @@ never `_`, never camelCase. An option is always a long `--name`, taking `--name 
 (`--force`), `-y` (`--yes`, on a command that otherwise asks) and `-V` (`--version`, on `tdd`
 itself) -- every command that has the long form accepts the short one. Long names are also what
 lets a user preset any option in
-`<tdd_dir>/default-opts/<command>.txt` / `<command>_<action>.txt`; `tdd` merges those in, typed
+`<tdd_dir>/<command>.toml` (`[options]`, `[options.<action>]`); `tdd` merges those in, typed
 options winning, and announces the resolved line -- commands do nothing for it.
 
 ## Every command has
@@ -26,6 +26,13 @@ options winning, and announces the resolved line -- commands do nothing for it.
 | `--verbose`, `-v` | more detail about what is happening, never a different result |
 | `--force`, `-f` / `--yes`, `-y` | where a command has them: overwrite or drop-first / do not ask |
 | `--format json\|view` | output format, default `view` |
+| `config` | the command's config file, `<tdd_dir>/<command>.toml`: `--show` (default), `--default`, `--create [--force]` |
+
+`config` is an action, not an option, and comes from the shared layer on both sides
+(`common.core.config` / `_tdd_config_action`): its template is built from the command's own
+options, so it cannot drift. `--show` prints what the options resolve to now with the values the
+file sets highlighted; `--default` prints the document `--create` would write; `--create` writes
+it, refusing an existing file unless `--force`, always through a temporary file and one rename.
 
 Everything after the command word belongs to the command, and `--help` is shown even when its
 `bin-reqs` are missing. The one exception: the launchers (`tdd tdk|tdkserver|km`) own no options
