@@ -244,12 +244,24 @@ SUBMIT_NATIVES = [
     Native("e", "gh pr edit", PR_EDIT_OWNED),
 ]
 APPLY_NATIVES = [Native("e", "gh pr edit", PR_EDIT_OWNED)]
+APPROVE_NATIVES = [
+    Native(
+        "a",
+        "gh pr review",
+        {
+            "approve": "gsx approves; that is the command",
+            "repo": "the repository gh reports for this checkout",
+        },
+    )
+]
+
 NATIVES = {
     "create": CREATE_NATIVES,
     "update": UPDATE_NATIVES,
     "checkout": CHECKOUT_NATIVES,
     "submit": SUBMIT_NATIVES,
     "apply": APPLY_NATIVES,
+    "approve": APPROVE_NATIVES,
     "auto-config": [],
 }
 TAKES_LR = {"submit", "apply"}

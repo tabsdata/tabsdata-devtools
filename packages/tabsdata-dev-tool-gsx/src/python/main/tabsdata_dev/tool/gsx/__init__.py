@@ -40,6 +40,7 @@ HANDLERS = {
     "checkout": commands.checkout,
     "submit": commands.submit,
     "apply": commands.apply,
+    "approve": commands.approve,
     "auto-config": commands.auto_config,
 }
 

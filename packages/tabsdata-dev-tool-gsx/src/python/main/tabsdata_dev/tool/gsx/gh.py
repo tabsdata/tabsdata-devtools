@@ -68,6 +68,7 @@ class Runner:
         check: bool = True,
         stdin_text: str | None = None,
         dry_value: str = "",
+        env: dict | None = None,
     ) -> str:
         if self.dry_run and not is_read_only(argv):
             self.out.info(f"[dry-run] {join(argv)}", dry_run=True, argv=argv)
@@ -84,6 +85,7 @@ class Runner:
                 text=True,
                 input=stdin_text,
                 check=check,
+                **({"env": env} if env is not None else {}),
             )
         except FileNotFoundError as error:
             raise ToolError(f"command not found: {argv[0]} ({error})") from error

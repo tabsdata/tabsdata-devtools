@@ -7,6 +7,7 @@ import json
 import pytest
 from tabsdata_dev.common.core.errors import ToolError
 from tabsdata_dev.tool import gsx
+from tabsdata_dev.tool.gsx import approve as approve_mod
 from tabsdata_dev.tool.gsx import args as args_mod
 from tabsdata_dev.tool.gsx.version import VERSION
 from tabsdata_dev.tool.gsx import commands, config, gh, labels
@@ -124,7 +125,9 @@ def test_the_repo_tables_round_trip_and_leave_the_options_alone(tmp_path, monkey
 
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
     assert config.path() == tmp_path / "gsx.toml"
-    assert config.read() == {"version": "", "repos": {}, "aliases": {}}  # no file
+    empty = config.read()  # no file yet: the defaults, and nothing of its own
+    assert (empty["version"], empty["repos"], empty["aliases"]) == ("", {}, {})
+    assert empty["approve"] == config.APPROVE_DEFAULTS
 
     written = {
         "version": VERSION,
@@ -145,7 +148,9 @@ def test_the_repo_tables_round_trip_and_leave_the_options_alone(tmp_path, monkey
         },
     }
     config.write(written)
-    assert config.read() == written  # every repository keeps its own lists
+    back = config.read()
+    assert {k: back[k] for k in written} == written  # each repository keeps its own
+    assert back["approve"] == config.APPROVE_DEFAULTS  # written with the defaults
 
     text = config.path().read_text()
     assert '[repo."o/n"]' in text and '[repo."o/other"]' in text
@@ -368,3 +373,85 @@ def test_an_unknown_value_is_refused_with_the_valid_ones_beside_it(
         labels.check_values(Repo(), ops)
     assert "valid reviewers: tucu0" in str(failure.value)
     assert "reviewer aliases: dimas -> aoinokimi" in str(failure.value)
+
+
+# ----------------------------------------------------------------- approve
+def test_an_approver_is_resolved_to_a_login_and_the_token_is_read_by_it():
+    aliases = {"dimas": "aoinokimi"}
+    by_alias, by_login, unknown = approve_mod.resolve(
+        ["dimas", "tucu0", "someone"], aliases
+    )
+    assert (by_alias.name, by_alias.login) == ("dimas", "aoinokimi")
+    assert (by_login.name, by_login.login) == ("tucu0", "tucu0")
+    assert (unknown.name, unknown.login) == ("someone", "someone")
+
+    read = []
+
+    class Out:
+        def info(self, message, **fields):
+            read.append(message)
+
+        def debug(self, message, **fields):
+            pass
+
+    runner = gh.Runner(out=Out(), dry_run=True)
+    settings = {
+        "approve_vault": "dev_ci",
+        "approve_item": "GitHub",
+        "approve_pat_suffix": ".review.pat",
+    }
+    # the field is the GitHub username, which is what 1Password is keyed by
+    assert approve_mod.token(runner, by_alias, settings) == ""
+    assert read == ["reading op://dev_ci/GitHub/aoinokimi.review.pat"]
+
+
+def test_a_pr_the_approver_wrote_is_skipped_not_failed():
+    class Out:
+        def __init__(self):
+            self.said = []
+
+        def info(self, message, **fields):
+            self.said.append(message)
+
+        def debug(self, message, **fields):
+            pass
+
+    out = Out()
+    runner = gh.Runner(out=out, dry_run=True)
+    approver = approve_mod.Approver("dimas", "aoinokimi")
+    mine = {"number": 6, "branch": "A-1", "author": "aoinokimi"}
+    theirs = {"number": 7, "branch": "A-2", "author": "tucu0"}
+    assert approve_mod.approve(runner, "o/n", mine, approver, "") == approve_mod.SKIPPED
+    assert (
+        approve_mod.approve(runner, "o/n", theirs, approver, "") == approve_mod.APPROVED
+    )
+    assert "skipping PR #6: aoinokimi wrote it" in out.said
+    assert any("gh pr review --approve --repo o/n 7" in said for said in out.said)
+
+
+def test_the_self_approval_error_is_a_skip_and_any_other_is_a_failure():
+    class Out:
+        def info(self, message, **fields):
+            pass
+
+        def debug(self, message, **fields):
+            pass
+
+    class Runner:
+        dry_run = False
+        out = Out()
+
+        def __init__(self, message):
+            self.message = message
+
+        def run(self, argv, **kwargs):
+            raise ToolError(self.message)
+
+    approver = approve_mod.Approver("dimas", "aoinokimi")
+    pull = {"number": 7, "branch": "A-2", "author": ""}
+    skipped = approve_mod.approve(
+        Runner(f"`gh` failed: {approve_mod.SELF_APPROVAL}"), "o/n", pull, approver, "x"
+    )
+    assert skipped == approve_mod.SKIPPED
+    failed = approve_mod.approve(Runner("gh: 404"), "o/n", pull, approver, "x")
+    assert failed.startswith("PR #7 as aoinokimi (dimas): ")

@@ -32,9 +32,11 @@ CONFIG_PREAMBLE = """\
 #   version            the gsx that last refreshed the tables below
 #
 #   [reviewer-aliases]
-#   <alias> = "<login>"  a name of your own for a reviewer, usable anywhere a
-#                      --reviewer: value is; file-wide, because a login is a
-#                      person rather than a property of one repository
+#   <alias> = "<login>"  a name of your own for someone, usable anywhere a
+#                      --reviewer: or --approvers value is; file-wide, because
+#                      a login is a person rather than a property of one
+#                      repository. `approve` reads their token by login, so an
+#                      alias names the 1Password field too
 #
 #   [repo."OWNER/NAME"]
 #   fetched            when auto-config last refreshed the two lists
@@ -190,6 +192,41 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "--no-defaults",
         action="store_true",
         help="skip the config's default_labels/default_reviewers for this run",
+    )
+
+    approve = add(
+        "approve",
+        "approve PRs as one or more people, each with their own review token",
+        "example:\n  tdd gsx approve --approvers dimas,tucu --down-stack\n\n"
+        "an approver is impersonated with the review token 1Password holds for\n"
+        "their GitHub username ([gsx] approve_* in the config); a PR they wrote\n"
+        "is skipped, since GitHub refuses a self-approval. A [reviewer-aliases]\n"
+        'name is resolved first, so with `dimas = "aoinokimi"`, `--approvers\n'
+        "dimas` reads the token `aoinokimi.review.pat`.\n\n",
+    )
+    approve.add_argument(
+        "-a",
+        "--approvers",
+        action="append",
+        default=[],
+        metavar="NAME[,NAME...]",
+        help="who to approve as; repeatable, and comma separated (required)",
+    )
+    approve.add_argument(
+        "-p",
+        "--pr",
+        action="append",
+        default=[],
+        metavar="N[,N...]",
+        help="the PRs to approve, by number; repeatable, and comma separated",
+    )
+    approve.add_argument(
+        "--down-stack",
+        action="store_true",
+        help="the current PR and the ones it sits on, down to main -- what has to be approved for it to merge",
+    )
+    approve.add_argument(
+        "--stack", action="store_true", help="every PR of the current stack"
     )
 
     add(

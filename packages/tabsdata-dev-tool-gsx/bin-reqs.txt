@@ -4,6 +4,8 @@
 
 # bin-reqs.txt -- external binaries gsx drives. `gh` also needs the gh-stack
 # extension (github/gh-stack); that is checked at run time, since a `gh`
-# without it is on PATH all the same.
+# without it is on PATH all the same. `op` is `approve`'s: an approver is
+# impersonated with the review token 1Password holds for them.
 git
 gh
+op

@@ -32,6 +32,15 @@ COMMAND = "gsx"
 REPO = "repo"  # [repo."OWNER/NAME"], one per repository
 ALIASES = "reviewer-aliases"  # nickname -> login, file-wide: a login is a person
 SELF = "gsx"  # the [gsx] table: what gsx knows about the file itself
+# Where `approve` reads an approver's review token from: 1Password, the way
+# gtx does it -- vault dev_ci, item GitHub, field <approver>.review.pat.
+# Literals with a home in the file, so a different vault is an edit, not a
+# variable in someone's environment.
+APPROVE_DEFAULTS = {
+    "approve_vault": "dev_ci",
+    "approve_item": "GitHub",
+    "approve_pat_suffix": ".review.pat",
+}
 _OLD_REPO = "repos"  # what the table was called first; read, never written
 
 
@@ -63,8 +72,13 @@ def read() -> dict:
         for name, login in (document.get(ALIASES) or {}).items()
         if isinstance(login, str)
     }
+    table = document.get(SELF) or {}
     return {
-        "version": str((document.get(SELF) or {}).get("version", "")),
+        "version": str(table.get("version", "")),
+        "approve": {
+            key: str(table.get(key, default))
+            for key, default in APPROVE_DEFAULTS.items()
+        },
         "repos": repos,
         "aliases": aliases,
     }
@@ -73,6 +87,10 @@ def read() -> dict:
 def render_tables(config: dict) -> str:
     """gsx's own tables as TOML: `[gsx]`, the aliases, then one per repository."""
     lines = [f"[{SELF}]", f"version = {common.toml_value(VERSION)}"]
+    approve = config.get("approve") or {}
+    lines.append("# where `approve` reads an approver's review token from")
+    for key, default in APPROVE_DEFAULTS.items():
+        lines.append(f"{key} = {common.toml_value(approve.get(key, default))}")
     aliases = config.get("aliases") or {}
     lines.append(f"\n[{ALIASES}]")
     lines.append('# a name of your own for a reviewer: <alias> = "<github login>",')

@@ -11,6 +11,7 @@ import sys
 
 from tabsdata_dev.common.core.errors import ToolError
 
+from . import approve as approve_mod
 from . import config as config_mod
 from . import gh
 from . import labels as labels_mod
@@ -311,6 +312,98 @@ def apply(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     return (
         f"updated {changed} PR(s)\n" + _pr_lines(snapshot),
         {"updated": changed, "prs": [pull["number"] for pull in snapshot]},
+    )
+
+
+# ----------------------------------------------------------------- approve
+def _stack_selection(runner: gh.Runner, args, out) -> list[dict]:
+    """The PRs to approve: the ones named, or a slice of the stack.
+
+    `--down-stack` is the current PR and the ones it sits on, down to main --
+    the set that has to be approved for the current one to merge. The snapshot
+    is ordered trunk-first, so that is everything up to and including it.
+    """
+    snapshot = gh.stack_pr_snapshot(runner)
+    if args.pr:
+        wanted = [
+            int(number.strip().lstrip("#"))
+            for number in ",".join(args.pr).split(",")
+            if number.strip()
+        ]
+        by_number = {pull["number"]: pull for pull in snapshot}
+        chosen = []
+        for number in wanted:
+            found = by_number.get(number)
+            # A PR named outright need not be in this stack: approving one from
+            # a review is exactly what --pr is for.
+            chosen.append(found or {"number": number, "branch": "", "author": ""})
+        return chosen
+    if not snapshot:
+        raise ToolError("no open PRs on this stack; name them with --pr instead")
+    if args.stack:
+        return snapshot
+    branch = gh.current_branch(runner)
+    for index, pull in enumerate(snapshot):
+        if pull["branch"] == branch:
+            return snapshot[: index + 1]
+    raise ToolError(
+        f"the current branch {branch!r} has no open PR in this stack; "
+        "name the PRs with --pr, or use --stack"
+    )
+
+
+def approve(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
+    """Approve PRs as one or more people, each with their own review token."""
+    names = [
+        name.strip() for name in ",".join(args.approvers).split(",") if name.strip()
+    ]
+    if not names:
+        raise ToolError("--approvers needs at least one name")
+    if args.stack and args.down_stack:
+        raise ToolError("--stack and --down-stack are exclusive")
+    if args.pr and (args.stack or args.down_stack):
+        raise ToolError("--pr names the PRs; --stack and --down-stack find them")
+    if not args.pr and not args.stack and not args.down_stack:
+        raise ToolError("say which PRs: --pr N,... , --down-stack or --stack")
+
+    gh.require_tools(runner)
+    repo = labels_mod.Repo(runner, out)
+    settings = config_mod.read()["approve"]
+    approvers = approve_mod.resolve(names, repo.aliases())
+    pulls = _stack_selection(runner, args, out)
+    out.info(
+        f"approving {len(pulls)} PR(s) as "
+        + ", ".join(a.name for a in approvers)
+        + f": {', '.join('#' + str(p['number']) for p in pulls)}"
+    )
+
+    failures: list[str] = []
+    approved = skipped = 0
+    for approver in approvers:
+        # One fetch per approver serves every PR of the run.
+        pat = approve_mod.token(runner, approver, settings)
+        for pull in pulls:
+            outcome = approve_mod.approve(runner, repo.slug, pull, approver, pat)
+            if outcome == approve_mod.APPROVED:
+                approved += 1
+            elif outcome == approve_mod.SKIPPED:
+                skipped += 1
+            else:
+                failures.append(outcome)
+    if failures:
+        raise ToolError(f"{len(failures)} approval(s) failed: " + "; ".join(failures))
+    who = ", ".join(a.login for a in approvers)
+    return (
+        f"{approved} approval(s) as {who}"
+        + (f", {skipped} skipped (their own PRs)" if skipped else "")
+        + "\n"
+        + _pr_lines([p for p in pulls if p.get("branch")]),
+        {
+            "approvers": [a.login for a in approvers],
+            "prs": [p["number"] for p in pulls],
+            "approved": approved,
+            "skipped": skipped,
+        },
     )
 
 

@@ -4,7 +4,7 @@ Copyright 2026 Tabsdata Inc.
 
 # gsx
 
-`tdd gsx create|update|checkout|submit|apply|auto-config`: GitHub issues + `gh stack`, the way
+`tdd gsx create|update|checkout|submit|apply|approve|auto-config`: GitHub issues + `gh stack`, the way
 `gtx` does Jira + Graphite -- for a repository that uses neither. One command turns the pending
 changes into an issue, a stack branch and a commit; another pushes the stack, opens its PRs and
 labels them. Ported from the standalone `~/gsx` (1.5.0).
@@ -61,6 +61,23 @@ Values are validated against the config first, refreshing it once when one is mi
 fails, so a `replace` with a typo would strip the labels it meant to overwrite. Reviewers
 starting `@` (`@copilot`, `@me`) or containing `/` (`org/team`) are never in a collaborator list
 and pass through unchecked.
+
+## approve
+
+`approve --approvers NAME[,NAME...]` with `--pr N,...`, `--down-stack` or `--stack`. Each approver
+is impersonated: their review token comes from 1Password **by GitHub username** (vault `dev_ci`,
+item `GitHub`, field `<login>.review.pat`; all three are `[gsx] approve_*` in the config), one
+fetch per approver for the whole run, and `gh pr review --approve` runs with it in `GITHUB_TOKEN`.
+A `[reviewer-aliases]` name is resolved to the login first, so it names the token too.
+
+A PR the approver wrote is **skipped, not failed** -- GitHub refuses a self-approval, and that is
+not the run's problem. It is skipped without a call when the stack snapshot already names the
+author, and on gh's own error otherwise (a PR named with `--pr` need not be in this stack, so its
+author is not always known). Every PR is attempted; failures are collected and reported together.
+
+`--down-stack` is the current PR and the ones it sits on, down to main -- the set that has to be
+approved for the current one to merge. Upstack and downstack are the usual stacking words (`gt`'s,
+and `gtx`'s): downstack is towards the trunk. `--stack` is every PR of the stack.
 
 ## Config
 
