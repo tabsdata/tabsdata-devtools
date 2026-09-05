@@ -85,9 +85,7 @@ CATALOG="$DIR_OPT/catalog.json"
 SKIP=" $(jq -r '.tools | to_entries[] | select(.value.launcher == true) | .key' "$CATALOG" | tr '\n' ' ')"
 # `tdd help` lists tdd-exe's own builtins (doctor, info) beside the commands;
 # only a catalog tool or a shell command has options of its own to configure.
-# Demo tools are samples of the shape, not the user's work: `tdd help` leaves
-# them out without --demo, and so does this.
-KNOWN=" $(jq -r '.tools | to_entries[] | select(.value.demo != true) | .key' "$CATALOG" | tr '\n' ' ')"
+KNOWN=" $(jq -r '.tools | keys[]' "$CATALOG" | tr '\n' ' ')"
 COMMANDS="$(tdd help --format json 2>/dev/null |
     jq -r '.commands[] | select(.shell == true) | .name'; printf '%s' "${KNOWN# }")"
 COMMANDS="$(printf '%s\n' $COMMANDS | sort -u)"

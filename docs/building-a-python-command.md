@@ -7,7 +7,7 @@ Copyright 2026 Tabsdata Inc.
 A Python command is one package, `packages/tabsdata-dev-tool-<name>/`, depending on exactly one
 dependency bundle (`tabsdata-dev-deps-<toolset>`) -- that single dependency puts it in a toolset,
 a venv shared with every other tool naming the same bundle; there is no registration step.
-Copy `tabsdata-dev-tool-demo-exe1` and drop its `[tool.tdd] demo = true`. Options, exit codes
+Copy `tabsdata-dev-tool-gsx`, the smallest tool with subcommands. Options, exit codes
 and output follow [command-cli-guidelines.md](command-cli-guidelines.md).
 
 ## 1. Pick or create the bundle
@@ -151,7 +151,7 @@ Tests in `src/python/test/` run in the toolset venv; `bin-reqs` enforcement is o
 are live in an editable install; dependency changes, new tools and entry points need
 `cargo make install -- -e` (which also regenerates the toolset package and the catalog --
 commit them, never edit them). While iterating, `tdd tdd-env activate --toolset legacy` puts the
-toolset's `bin/` on `PATH` so `audit` runs without `tdd`. `[tool.tdd] demo = true` hides a
+toolset's `bin/` on `PATH` so `audit` runs without `tdd`. `[tool.tdd] hidden = true` hides a
 sample from `tdd help`; `hidden = true` hides plumbing another tool dispatches to. Reuse before
 writing: `common.core` has `batch`, `ports`, `passwords`, `docker`, `ssh`, `secrets`,
 `datadir.data_dir()`, `latch`, `managedvenv` + `launcher`; family code goes in a

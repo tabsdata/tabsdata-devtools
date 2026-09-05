@@ -6,7 +6,7 @@
 
     tdd [--dir TDD_PATH] <word> [args...]
     tdd [--dir TDD_PATH] --reqs [TOOL]
-    tdd-exe [--dir TDD_PATH] --porcelain [--demo]
+    tdd-exe [--dir TDD_PATH] --porcelain
     tdd-exe [--dir TDD_PATH] --defaults <command> [args...]
 
 `<word>` is a builtin or a tool name; everything after it is passed to the
@@ -51,8 +51,7 @@ options:
   --verbose, -v     show debug events too
   --reqs [TOOL]     report external binaries; exit 1 if any missing
   --version, -V     the VERSION stamped into TDD_PATH, else the shipped one
-  --porcelain [--demo]
-                    machine-readable `name|kind|summary` lines: what the `tdd`
+  --porcelain       machine-readable `name|kind|summary` lines: what the `tdd`
                     shell function merges into `tdd help`
   --defaults <command> [args...]
                     merge the [options] of TDD_PATH/<command>.toml into the args
@@ -156,20 +155,20 @@ def _renderer(command: str, fmt: str, verbose: bool) -> render.Renderer:
     return render.Renderer(command, fmt=fmt, verbose=verbose)
 
 
-def _listed(catalog: dict, demo: bool) -> list[tuple[str, dict]]:
-    """Tools worth showing in `tdd help`: the demo ones only when asked for.
+def _listed(catalog: dict) -> list[tuple[str, dict]]:
+    """Tools worth showing in `tdd help`: every one that is not hidden.
 
-    Hiding is a listing concern only -- a demo tool still dispatches, tests
+    Hiding is a listing concern only -- a hidden tool still dispatches, tests
     and reports reqs like any other, so nothing else consults the flag.
     """
     return sorted(
         (name, entry)
         for name, entry in catalog["tools"].items()
-        if demo or not (entry.get("demo", False) or entry.get("hidden", False))
+        if not entry.get("hidden", False)
     )
 
 
-def _porcelain(dir_: pathlib.Path, demo: bool) -> int:
+def _porcelain(dir_: pathlib.Path) -> int:
     """Machine-readable `name|kind|summary`, one per line.
 
     This is what the `tdd` shell function reads to merge its own sourced
@@ -183,7 +182,7 @@ def _porcelain(dir_: pathlib.Path, demo: bool) -> int:
         catalog = catalog_mod.installed(dir_)
     except catalog_mod.NotInitialized:
         catalog = catalog_mod.shipped()
-    for name, entry in _listed(catalog, demo):
+    for name, entry in _listed(catalog):
         print(f"{name}|{entry['toolset']}|{entry['summary']}")
     return 0
 
@@ -210,17 +209,12 @@ def _info(dir_: pathlib.Path, out: render.Renderer) -> int:
         "venvs": str(paths.venvs_dir(dir_)),
         "toolsets": catalog["toolsets"],
         "tools": len(catalog["tools"]),
-        "demo_tools": sum(1 for e in catalog["tools"].values() if e.get("demo")),
         "shell": len(shell),
-        "demo_shell": sum(1 for e in shell.values() if e.get("demo")),
     }
     if root is not None:
         install = f"source (editable), checkout at {root}"
     else:
         install = "wheels" + (f", staged in {staged}" if staged.is_dir() else "")
-
-    def count(n: int, demo: int) -> str:
-        return f"{n}" + (f" ({demo} demo)" if demo else "")
 
     lines = [
         f"tdd dir       {dir_}",
@@ -230,8 +224,8 @@ def _info(dir_: pathlib.Path, out: render.Renderer) -> int:
         f"source        {fields['source']}",
         f"venvs         {fields['venvs']}",
         f"toolsets      {' '.join(catalog['toolsets'])}",
-        f"tools         {count(fields['tools'], fields['demo_tools'])}",
-        f"shell         {count(fields['shell'], fields['demo_shell'])}",
+        f"tools         {fields['tools']}",
+        f"shell         {fields['shell']}",
     ]
     return out.ok("\n".join(lines), **fields)
 
@@ -401,7 +395,7 @@ def _run(argv: list[str]) -> int:
         return reqs_mod.check(rest[0] if rest else None, out)
     # Plumbing for the tdd shell function: plain lines, never events.
     if opts["porcelain"]:
-        return _porcelain(dir_, "--demo" in rest)
+        return _porcelain(dir_)
     if opts["defaults"]:
         return _defaults(dir_, rest)
     if opts.get("defaults_doc"):

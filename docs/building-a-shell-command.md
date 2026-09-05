@@ -7,7 +7,7 @@ Copyright 2026 Tabsdata Inc.
 A shell command is a function sourced into the caller's shell. Write one only for what an
 executable cannot do: change the current shell -- enter or leave a venv, export a variable, `cd`.
 Anything else is a Python command. Each command is one file under
-`packages/tabsdata-dev-shell/scripts/unix/`; copy `demo-fn1.sh`. Options, exit codes and output
+`packages/tabsdata-dev-shell/scripts/unix/`; copy `pycache.sh`, the smallest one. Options, exit codes and output
 follow [command-cli-guidelines.md](command-cli-guidelines.md).
 
 ## 1. Register and define
@@ -65,7 +65,7 @@ HELP
 ```
 
 Conventions the shell tests check: the file sources `common.sh` first; `tdd_fn_register <name>
-"<summary>"` (`--demo` for a sample kept out of `tdd help`; no `|` in the summary -- the registry
+"<summary>"` (no `|` in the summary -- the registry
 is pipe-delimited) and a matching `tddfn_<name>`; the name must not collide with a tool or a
 builtin. A group routes on `$1` and sets `_TDD_CMD="venv-create"` so events and the log name the
 subcommand (`venv.sh` is the fullest example). Help is *declared*, not formatted: `_tdd_help_text`

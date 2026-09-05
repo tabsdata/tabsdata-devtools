@@ -35,7 +35,7 @@ tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
 `--dir` defaults to `$TDD_DIR`, then `~/.tdd`; everything after the word reaches the command
 verbatim; `--format`/`--verbose` before the word also travel on to it. Commands: `venv`,
 `tdd-env`, `env`, `pycache` (shell, marked `*` in `tdd help`), `system`, `domain`,
-`xp`, `gsx`, `tdk`, `tdkserver`, `km` (Python), the demo pair of each half (listed only with `--demo`).
+`xp`, `gsx`, `tdk`, `tdkserver`, `km` (Python).
 `tdd help` merges both halves from `tdd-exe --porcelain` and the shell registry.
 
 **Command config**: `<tdd_dir>/<command>.toml`, one file per command, holding both what the
@@ -69,7 +69,7 @@ above the leaves), all laid out `src/python/main/` + `src/python/test/` with hat
 Arrows point opposite ways on purpose: tools depend on a bundle (so each is installable alone);
 the toolset depends on the tools (so one sync materializes the env). **No uv workspace**: a
 workspace forces one resolution, and two toolsets with conflicting pins must both exist --
-the demo toolsets pin `packaging` differently to prove it. `cargo make gen` warns when a shared
+two toolsets may pin the same package differently. `cargo make gen` warns when a shared
 range resolved differently across locks (`tdd-install --relock` fixes it).
 
 ## The catalog
@@ -77,7 +77,7 @@ range resolved differently across locks (`tdd-install --relock` fixes it).
 `catalog.json` (generated, shipped inside `-tdd`, copied into the tdd dir as the "initialized"
 marker) lists toolsets, `members` (every first-party dist per toolset -- wheels mode installs
 `--no-deps`, which blocks first-party resolution too), tools (toolset, summary, `reqs`,
-`demo`/`hidden`), shell commands (read statically, for `--reqs` and collision checks), the
+`hidden`/`launcher`), shell commands (read statically, for `--reqs` and collision checks), the
 interpreter map and a fingerprint. **Names only**: paths are composed at call time from the tdd
 dir, so a dir is self-describing and relocatable.
 
@@ -144,4 +144,3 @@ name with a script beside it; every toolset has its bundle; no lock drift.
 | [`xp`](../packages/tabsdata-dev-tool-xp/DESIGN.md) | the example suites, end to end |
 | [`tdk`](../packages/tabsdata-dev-tool-tdk/DESIGN.md), [`tdkserver`](../packages/tabsdata-dev-tool-tdkserver/DESIGN.md), [`km`](../packages/tabsdata-dev-tool-km/DESIGN.md) | launchers into the `tdd venv` |
 | [`venv`](../packages/tabsdata-dev-shell/scripts/unix/venv.design.md), [`env`](../packages/tabsdata-dev-shell/scripts/unix/env.design.md), [`pycache`](../packages/tabsdata-dev-shell/scripts/unix/pycache.design.md), [`tdd-env`](../packages/tabsdata-dev-shell/scripts/unix/tdd-env.design.md), [`defaults`](../packages/tabsdata-dev-shell/scripts/unix/defaults.design.md) | the shell commands |
-| [`demo-exe1`](../packages/tabsdata-dev-tool-demo-exe1/DESIGN.md), [`demo-exe2`](../packages/tabsdata-dev-tool-demo-exe2/DESIGN.md), [`demo-fn1`](../packages/tabsdata-dev-shell/scripts/unix/demo-fn1.design.md), [`demo-fn2`](../packages/tabsdata-dev-shell/scripts/unix/demo-fn2.design.md) | the samples |

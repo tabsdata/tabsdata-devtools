@@ -36,7 +36,7 @@ Packages, all `tabsdata-dev-*` under the `tabsdata_dev` namespace: `-tdd` (stdli
 (pins; its name is the toolset), `-tool-*` (one tool; exactly one `-deps-*`), `-toolset-*`
 (**generated**, committed `uv.lock`). Tools: `system`, `domain`, `domain-sf` (hidden), `xp`, `gsx`,
 `tdk`, `tdkserver`, `km`; shell: `venv`, `env`, `tdd-env`, `pycache`; samples
-`demo-exe1/2`, `demo-fn1/2`. Details: the design docs.
+Details: the design docs.
 
 Never run the real `tdk`/`tdkserver` from an agent session: `tdk` refuses under an AI agent
 (only when the user asks, run it with `CLAUDECODE` unset) and `tdkserver` is a server that never
@@ -64,8 +64,8 @@ holds the user's system and domain descriptors.
 9. **Layout is `src/python/main/` + `src/python/test/`** with hatchling `only-include` + `sources`.
 10. **`VERSION` at the repo root is the only version.** Every `pyproject.toml` is `dynamic`;
     `-tdd` force-includes it; `tdd-install` stamps `<tdd_dir>/VERSION`.
-11. **Demo/hidden is an explicit marker** (`[tool.tdd] demo|hidden = true`,
-    `tdd_fn_register --demo`), a listing concern only.
+11. **`[tool.tdd] hidden|launcher = true` are explicit markers**: hidden is a listing concern
+    only (the tool still dispatches); a launcher owns no options, so it has no config file.
 12. **A `-deps-*` may pin its interpreter** with `[tool.tdd] python = "3.12"`.
 13. **Generic code goes in `common-core`, family code in a `common-<family>`.**
 14. **Variables**: `TDD_*` public (`TDD_DIR`, `TDD_PARALLELISM`), `_TDD_*` private

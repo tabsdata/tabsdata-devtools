@@ -84,24 +84,16 @@ tdd-exe() {
 }
 
 # Registry of sourced commands, as newline-separated "name|summary|kind|reqs".
-# kind is "demo" for commands registered with --demo, otherwise empty: demo
-# commands exist to show the shape of one and are left out of the listings
-# unless asked for with --demo; they still run like any other. reqs is the
-# space-separated content of the bin-reqs.txt beside the file that registered
-# the command -- the loader fills _TDD_FN_REQS before sourcing each file.
-# Summaries must not contain "|".
+# kind is empty on this side (every sourced command is a shell one); reqs is
+# the space-separated content of the bin-reqs.txt beside the file that
+# registered the command -- the loader fills _TDD_FN_REQS before sourcing each
+# file. Summaries must not contain "|".
 TDD_FN_COMMANDS=""
 _TDD_FN_REQS=""
 
 tdd_fn_register() {
-    _tdd_kind=""
-    if [ "$1" = "--demo" ]; then
-        _tdd_kind="demo"
-        shift
-    fi
-    TDD_FN_COMMANDS="${TDD_FN_COMMANDS}$1|$2|$_tdd_kind|$_TDD_FN_REQS
+    TDD_FN_COMMANDS="${TDD_FN_COMMANDS}$1|$2||$_TDD_FN_REQS
 "
-    unset _tdd_kind
 }
 
 # ---------------------------------------------------------------- loading
@@ -201,20 +193,14 @@ install $([ "$_tdd_n" = 1 ] && echo it || echo them); \`tdd --reqs $1\` lists ev
 # Commands from both halves, merged and sorted alphabetically, as one ok event.
 # view: the usage plus a listing, shell commands marked with * because they
 # behave differently -- they can change this shell. json: a "commands" array.
-# Pass --demo to include the demo commands; both halves filter on the same
-# flag, tdd-exe on its catalog entry and this side on the registry's kind.
 _tdd_help() {
     _TDD_CMD=tdd
-    _tdd_rows="$(_tdd_help_rows "${1:-}")"
+    _tdd_rows="$(_tdd_help_rows)"
     if [ "$_TDD_FORMAT" = json ]; then
         _tdd_ok "$(printf '%s\n' "$_tdd_rows" | grep -c .) commands" \
             "\"tdd_dir\":\"$(_tdd_json_str "$TDD_DIR")\",\"commands\":$(_tdd_rows_json "$_tdd_rows"),\"config\":{\"file\":\"$(_tdd_json_str "$TDD_DIR/<command>.toml")\",\"tables\":[\"options\",\"options.<action>\"],\"syntax\":\"a TOML key per option, typed options win\",\"action\":\"tdd <command> config --create|--default|--show\"}"
     else
-        if [ "${1:-}" = --demo ]; then
-            _tdd_head="commands, demo included (* runs in this shell):"
-        else
-            _tdd_head="commands (* runs in this shell; --demo includes the demo commands):"
-        fi
+        _tdd_head="commands (* runs in this shell):"
         _tdd_ok "usage: tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
 
 $_tdd_head
@@ -229,17 +215,14 @@ TDD_DIR=$TDD_DIR"
     unset _tdd_rows _tdd_head
 }
 
-# Rows as name<TAB>marker<TAB>summary<TAB>kind, sorted; shell rows first pass
-# the demo filter, tdd-exe's rows arrive already filtered.
+# Rows as name<TAB>marker<TAB>summary<TAB>kind, sorted.
 _tdd_help_rows() {
     {
         printf '%s\n' "$TDD_FN_COMMANDS" | while IFS='|' read -r _n _s _k _r; do
             [ -n "$_n" ] || continue
-            [ "$_k" = "demo" ] && [ "${1:-}" != "--demo" ] && continue
             printf '%s\t*\t%s\tshell\n' "$_n" "$_s"
         done
-        # shellcheck disable=SC2086
-        tdd-exe --porcelain ${1:-} 2>/dev/null | while IFS='|' read -r _n _k _s; do
+        tdd-exe --porcelain 2>/dev/null | while IFS='|' read -r _n _k _s; do
             [ -n "$_n" ] && printf '%s\t \t%s\t%s\n' "$_n" "$_s" "$_k"
         done
     } | sort -f
@@ -254,7 +237,6 @@ _tdd_fn_help() {
     _TDD_CMD=tdd-fn
     _tdd_rows="$(printf '%s\n' "$TDD_FN_COMMANDS" | while IFS='|' read -r _n _s _k _r; do
         [ -n "$_n" ] || continue
-        [ "$_k" = "demo" ] && [ "${1:-}" != "--demo" ] && continue
         printf '%s\t*\t%s\tshell\n' "$_n" "$_s"
     done | sort -f)"
     if [ "$_TDD_FORMAT" = json ]; then
@@ -315,7 +297,7 @@ tdd-fn() {
         -h | --help | help | list)
             _tdd_cmd_reset
             _tdd_scan_common "$@"
-            _tdd_fn_help "$(_tdd_demo_flag "$@")"
+            _tdd_fn_help
             return 0
             ;;
     esac
@@ -417,7 +399,7 @@ tdd() {
     case "$1" in
         -h | --help | help)
             _tdd_scan_common "$@"
-            _tdd_help "$(_tdd_demo_flag "$@")"
+            _tdd_help
             unset _tdd_pass
             return 0
             ;;

@@ -14,9 +14,9 @@ from tabsdata_dev.tdd import initialize, paths
 
 def _fake_catalog():
     return {
-        "toolsets": ["demo-env1"],
+        "toolsets": ["launchers"],
         "python": {},
-        "tools": {"demo-exe1": {"toolset": "demo-env1"}},
+        "tools": {"gsx": {"toolset": "launchers"}},
     }
 
 
@@ -62,7 +62,7 @@ def test_initialize_from_source_preserves_user_state(tmp_path, monkeypatch):
     # no shared config file is written: a command that needs one owns <command>.toml
     assert not (dir_ / "config.toml").exists()
     # and it did do its job: the toolset, tdd-exe and shell venvs, and the catalog
-    assert paths.venvs_dir(dir_) / "demo-env1" in made
+    assert paths.venvs_dir(dir_) / "launchers" in made
     assert (dir_ / "catalog.json").is_file()
 
 

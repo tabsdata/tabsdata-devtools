@@ -70,7 +70,7 @@ commands:
 options:
   --toolset TOOLSET   the toolset to enter (`tdd help` lists them)
 
-example: tdd tdd-env activate --toolset demo-env1
+example: tdd tdd-env activate --toolset systems
 HELP
 }
 

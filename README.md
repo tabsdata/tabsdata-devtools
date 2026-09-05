@@ -27,7 +27,7 @@ echo 'source ~/.tdd/tdd-source.sh' >> ~/.zshrc   # .zshrc, not .zprofile: tdd is
 ## Then
 
 ```bash
-tdd --help              # everything there is (--demo adds the samples); tdd info, tdd doctor, tdd --reqs
+tdd --help              # everything there is; tdd info, tdd doctor, tdd --reqs
 tdd venv --help         # managed pyenv/uv/conda venvs; activation exports _TDD_VENV
 tdd env --help          # this shell's variables: crypto key and secrets from 1Password, TD_*, Python indexes
 tdd system --help       # external systems for testing: databases in docker, object stores, services

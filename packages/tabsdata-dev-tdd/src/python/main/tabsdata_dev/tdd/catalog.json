@@ -1,16 +1,6 @@
 {
-  "fingerprint": "603a3cc9cd09082d",
+  "fingerprint": "6e83b86a577fa8b1",
   "members": {
-    "demo-env1": [
-      "tabsdata-dev-common-core",
-      "tabsdata-dev-deps-demo-env1",
-      "tabsdata-dev-tool-demo-exe1"
-    ],
-    "demo-env2": [
-      "tabsdata-dev-common-core",
-      "tabsdata-dev-deps-demo-env2",
-      "tabsdata-dev-tool-demo-exe2"
-    ],
     "launchers": [
       "tabsdata-dev-common-core",
       "tabsdata-dev-deps-launchers",
@@ -40,30 +30,7 @@
   },
   "schema": 1,
   "shell": {
-    "demo-fn1": {
-      "demo": true,
-      "file": "demo-fn1.sh",
-      "reqs": [
-        "jq",
-        "awk",
-        "whoami",
-        "hostname"
-      ],
-      "summary": "demo shell command: prints its name, then whoami@hostname"
-    },
-    "demo-fn2": {
-      "demo": true,
-      "file": "demo-fn2.sh",
-      "reqs": [
-        "jq",
-        "awk",
-        "uname",
-        "date"
-      ],
-      "summary": "demo shell command: prints its name, then the OS and the date"
-    },
     "env": {
-      "demo": false,
       "file": "env.sh",
       "reqs": [
         "jq",
@@ -72,7 +39,6 @@
       "summary": "set, unset or show this shell's crypto key, 1Password secrets, TD_ and Python index variables"
     },
     "pycache": {
-      "demo": false,
       "file": "pycache.sh",
       "reqs": [
         "jq",
@@ -82,7 +48,6 @@
       "summary": "clean the uv and pip caches, by package prefix (default tabsdata) or all of it"
     },
     "tdd-env": {
-      "demo": false,
       "file": "tdd-env.sh",
       "reqs": [
         "jq",
@@ -91,7 +56,6 @@
       "summary": "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
     },
     "venv": {
-      "demo": false,
       "file": "venv.sh",
       "reqs": [
         "jq",
@@ -104,36 +68,11 @@
     }
   },
   "tools": {
-    "demo-exe1": {
-      "commons": [
-        "tabsdata-dev-common-core"
-      ],
-      "demo": true,
-      "hidden": false,
-      "launcher": false,
-      "package": "tabsdata-dev-tool-demo-exe1",
-      "reqs": [],
-      "summary": "demo tool in the demo-env1 toolset: prints its name",
-      "toolset": "demo-env1"
-    },
-    "demo-exe2": {
-      "commons": [
-        "tabsdata-dev-common-core"
-      ],
-      "demo": true,
-      "hidden": false,
-      "launcher": false,
-      "package": "tabsdata-dev-tool-demo-exe2",
-      "reqs": [],
-      "summary": "demo tool in the demo-env2 toolset: prints its name",
-      "toolset": "demo-env2"
-    },
     "domain": {
       "commons": [
         "tabsdata-dev-common-core",
         "tabsdata-dev-common-systems"
       ],
-      "demo": false,
       "hidden": false,
       "launcher": false,
       "package": "tabsdata-dev-tool-domain",
@@ -149,7 +88,6 @@
         "tabsdata-dev-common-core",
         "tabsdata-dev-common-systems"
       ],
-      "demo": false,
       "hidden": true,
       "launcher": false,
       "package": "tabsdata-dev-tool-domain-sf",
@@ -161,7 +99,6 @@
       "commons": [
         "tabsdata-dev-common-core"
       ],
-      "demo": false,
       "hidden": false,
       "launcher": false,
       "package": "tabsdata-dev-tool-gsx",
@@ -176,7 +113,6 @@
       "commons": [
         "tabsdata-dev-common-core"
       ],
-      "demo": false,
       "hidden": false,
       "launcher": true,
       "package": "tabsdata-dev-tool-km",
@@ -194,7 +130,6 @@
         "tabsdata-dev-common-core",
         "tabsdata-dev-common-systems"
       ],
-      "demo": false,
       "hidden": false,
       "launcher": false,
       "package": "tabsdata-dev-tool-system",
@@ -209,7 +144,6 @@
       "commons": [
         "tabsdata-dev-common-core"
       ],
-      "demo": false,
       "hidden": false,
       "launcher": true,
       "package": "tabsdata-dev-tool-tdk",
@@ -226,7 +160,6 @@
       "commons": [
         "tabsdata-dev-common-core"
       ],
-      "demo": false,
       "hidden": false,
       "launcher": true,
       "package": "tabsdata-dev-tool-tdkserver",
@@ -243,7 +176,6 @@
       "commons": [
         "tabsdata-dev-common-core"
       ],
-      "demo": false,
       "hidden": false,
       "launcher": false,
       "package": "tabsdata-dev-tool-xp",
@@ -253,8 +185,6 @@
     }
   },
   "toolsets": [
-    "demo-env1",
-    "demo-env2",
     "launchers",
     "salesforce",
     "systems"

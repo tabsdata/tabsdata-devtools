@@ -27,10 +27,8 @@ SHELL_SCRIPTS = "scripts/unix"
 SHELL_COMMON = "common.sh"  # the shared helpers, not a command file
 BIN_REQS = "bin-reqs.txt"
 
-# `tdd_fn_register [--demo] <name> "<summary>"`, as the shell files write it.
-_REGISTER = re.compile(
-    r'^tdd_fn_register\s+(?P<demo>--demo\s+)?(?P<name>\S+)\s+"(?P<summary>[^"]*)"'
-)
+# `tdd_fn_register <name> "<summary>"`, as the shell files write it.
+_REGISTER = re.compile(r'^tdd_fn_register\s+(?P<name>\S+)\s+"(?P<summary>[^"]*)"')
 
 
 class LayoutError(Exception):
@@ -89,7 +87,6 @@ def shell_commands(root: pathlib.Path) -> dict[str, dict]:
                 "file": script.name,
                 "summary": match["summary"],
                 "reqs": reqs,
-                "demo": bool(match["demo"]),
             }
             registered += 1
         if not registered:
@@ -116,12 +113,10 @@ def discover(root: pathlib.Path) -> dict:
         data = doc["project"]
         dist = data["name"]
         deps = data.get("dependencies", [])
-        # `[tool.tdd] demo = true` marks a tool that exists to show the shape of
-        # one and exercise the machinery; `hidden = true` marks plumbing another
-        # tool dispatches to (a sibling in a second toolset). Both stay
-        # dispatchable and are left out of `tdd help` unless asked with --demo.
+        # `[tool.tdd] hidden = true` marks plumbing another tool dispatches to
+        # (a sibling in a second toolset): dispatchable, but left out of
+        # `tdd help` -- a listing concern only.
         tdd_cfg = doc.get("tool", {}).get("tdd", {})
-        demo = bool(tdd_cfg.get("demo", False))
         hidden = bool(tdd_cfg.get("hidden", False))
         # `[tool.tdd] launcher = true` marks a tool that owns no options at all:
         # every argument belongs to the program it runs (the one exception to the
@@ -171,7 +166,6 @@ def discover(root: pathlib.Path) -> dict:
                 "package": dist,
                 "summary": data.get("description", ""),
                 "reqs": reqs,
-                "demo": demo,
                 "launcher": launcher,
                 "hidden": hidden,
                 "commons": commons,

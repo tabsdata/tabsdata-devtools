@@ -1,8 +1,0 @@
-#
-# Copyright 2026 Tabsdata Inc.
-#
-
-# bin-reqs.txt -- external binaries demo-fn2 needs on PATH.
-# One bare name per line. Owned by this command; keep it current.
-uname
-date
