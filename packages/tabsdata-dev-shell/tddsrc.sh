@@ -200,17 +200,30 @@ _tdd_help() {
         _tdd_ok "$(printf '%s\n' "$_tdd_rows" | grep -c .) commands" \
             "\"tdd_dir\":\"$(_tdd_json_str "$TDD_DIR")\",\"commands\":$(_tdd_rows_json "$_tdd_rows"),\"config\":{\"file\":\"$(_tdd_json_str "$TDD_DIR/<command>.toml")\",\"tables\":[\"options\",\"options.<action>\"],\"syntax\":\"a TOML key per option, typed options win\",\"action\":\"tdd <command> config --create|--default|--show\"}"
     else
+        # The listing paints itself the way every help does -- a heading bold, a
+        # command name cyan -- so the ok event must not wrap it in green. The
+        # terminal test belongs out here: inside $(...) fd 1 is the capture pipe.
+        _tdd_hb=""
+        _tdd_hc=""
+        _tdd_ho=""
+        if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+            _tdd_hb="$(printf '\033[1m')"
+            _tdd_hc="$(printf '\033[36m')"
+            _tdd_ho="$(printf '\033[0m')"
+        fi
         _tdd_head="commands (* runs in this shell):"
-        _tdd_ok "usage: tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
+        _TDD_PRECOLORED=1
+        _tdd_ok "${_tdd_hb}usage:${_tdd_ho} tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
 
-$_tdd_head
-$(printf '%s\n' "$_tdd_rows" | awk -F'\t' '{ printf "  %s %-13s %s\n", $2, $1, $3 }')
+${_tdd_hb}${_tdd_head}${_tdd_ho}
+$(printf '%s\n' "$_tdd_rows" | awk -F'\t' -v c="$_tdd_hc" -v o="$_tdd_ho" '{ printf "  %s %s%-13s%s %s\n", $2, c, $1, o, $3 }')
 
-command config: $TDD_DIR/<command>.toml -- its [options] and [options.<action>]
+${_tdd_hb}command config:${_tdd_ho} $TDD_DIR/<command>.toml -- its [options] and [options.<action>]
   tables are what that command's options default to; typed options win
   \`tdd <command> config --create\` writes one, \`--show\` says what applies
 
 TDD_DIR=$TDD_DIR"
+        unset _TDD_PRECOLORED _tdd_hb _tdd_hc _tdd_ho
     fi
     unset _tdd_rows _tdd_head
 }

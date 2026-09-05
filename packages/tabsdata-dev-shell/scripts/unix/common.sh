@@ -137,7 +137,43 @@ _tdd_ps1_wrap() {
 # last section, or after the description, when the declaration has none -- so
 # no command repeats them. awk does the layout; common.bin-reqs.txt declares it.
 _tdd_help_text() {
-    awk -v width="${COLUMNS:-80}" '
+    # The colours the Python half paints (common.core.render.colorize_help): a
+    # heading bold, a term -- what stands before a description -- cyan, and
+    # nothing when stdout is not a terminal or NO_COLOR is set. Painted onto
+    # finished lines, so no column moves.
+    _tdd_hl_bold=""
+    _tdd_hl_term=""
+    _tdd_hl_off=""
+    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+        _tdd_hl_bold="$(printf '\033[1m')"
+        _tdd_hl_term="$(printf '\033[36m')"
+        _tdd_hl_off="$(printf '\033[0m')"
+    fi
+    awk -v width="${COLUMNS:-80}" \
+        -v bold="$_tdd_hl_bold" -v termcol="$_tdd_hl_term" -v off="$_tdd_hl_off" '
+    function paintline(l,   m, start, stop) {
+        if (bold == "") return l
+        if (l ~ /^[a-z][a-z0-9 \/_-]*:$/) return bold l off
+        if (l ~ /^(usage|examples?):( |$)/) {
+            m = index(l, ":")
+            return bold substr(l, 1, m) off substr(l, m + 1)
+        }
+        if (match(l, /^ {1,6}[^ ]/)) {
+            start = RSTART + RLENGTH - 1
+            stop = start
+            while (stop < length(l) && substr(l, stop + 1, 2) != "  ") stop++
+            if (stop < length(l))
+                return substr(l, 1, start - 1) termcol substr(l, start, stop - start + 1) off substr(l, stop + 1)
+        }
+        return l
+    }
+    function paint(s,   parts, np, i, out) {
+        if (bold == "") return s
+        np = split(s, parts, "\n")
+        out = ""
+        for (i = 1; i <= np; i++) out = out (i > 1 ? "\n" : "") paintline(parts[i])
+        return out
+    }
     function sp(n) { return sprintf("%" n "s", "") }
     function wrap(text, first, rest, w,   words, nw, i, line, out, ind) {
         nw = split(text, words, / +/); line = ""; out = ""; ind = first
@@ -150,10 +186,10 @@ _tdd_help_text() {
         return out ind line
     }
     function entry(term, help,   pad) {
-        if (help == "") { print "  " term; return }
+        if (help == "") { print paint("  " term); return }
         if (length(term) <= HC - 4) {
             pad = sprintf("%-" (HC - 2) "s", term)
-            print wrap(help, "  " pad, sp(HC), W)
+            print paint(wrap(help, "  " pad, sp(HC), W))
         } else {
             print "  " term
             print wrap(help, sp(HC), sp(HC), W)
@@ -167,7 +203,7 @@ _tdd_help_text() {
         entry("--format {json,view}", "json is JSON Lines, one event per line (default: view)")
     }
     function section(b,   k) {
-        print ""; print btext[b]
+        print ""; print paint(btext[b])
         if (btext[b] == "options:") common()
         for (k = 0; k < nent[b]; k++) entry(eterm[b, k], ehelp[b, k])
     }
@@ -175,7 +211,7 @@ _tdd_help_text() {
     { lines[n++] = $0 }
     END {
         i = 0
-        while (i < n && lines[i] != "") { print lines[i]; i++ }
+        while (i < n && lines[i] != "") { print paint(lines[i]); i++ }
         cur = -1; gap = 1; hasopts = 0; lastsec = -1
         for (; i < n; i++) {
             l = lines[i]
@@ -211,11 +247,11 @@ _tdd_help_text() {
         }
         flushpara()
         optafter = hasopts ? -2 : (lastsec >= 0 ? lastsec : (nb > 0 ? 0 : -1))
-        if (optafter == -1) { print ""; print "options:"; common() }
+        if (optafter == -1) { print ""; print paint("options:"); common() }
         for (b = 0; b < nb; b++) {
             if (btype[b] == "sec") section(b)
-            else { if (bgap[b]) print ""; print (btype[b] == "para") ? wrap(btext[b], "", "", W) : btext[b] }
-            if (b == optafter) { print ""; print "options:"; common() }
+            else { if (bgap[b]) print ""; print (btype[b] == "para") ? wrap(btext[b], "", "", W) : paint(btext[b]) }
+            if (b == optafter) { print ""; print paint("options:"); common() }
         }
     }'
 }
@@ -279,8 +315,9 @@ _tdd_emit() {
         printf '%s%s%s\n' "$(_tdd_color "$1" "$_tdd_tty1")" "$_tdd_line" "$(_tdd_color_end "$1" "$_tdd_tty1")"
         unset _tdd_line
     elif [ "$1" = ok ]; then
-        # A command whose ok message paints its own rows (tdd defaults) sets
-        # _TDD_PRECOLORED so the message is not wrapped in green on top.
+        # A message that paints itself -- a help listing -- sets _TDD_PRECOLORED,
+        # so one colour over the whole of it does not undo its own. The Python
+        # half does the same by looking for an escape in the message.
         if [ "${_TDD_PRECOLORED:-0}" = 1 ]; then
             printf '%s\n' "$2"
         else

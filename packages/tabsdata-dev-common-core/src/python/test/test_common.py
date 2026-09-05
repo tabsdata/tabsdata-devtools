@@ -387,3 +387,38 @@ def test_the_argv_mapping_covers_flags_lists_and_values():
     assert config.to_argv("dry_run", False) == []
     assert config.to_argv("suite", ["a", "b"]) == ["--suite", "a", "--suite", "b"]
     assert config.to_argv("type", "uv") == ["--type", "uv"]
+
+
+def test_help_is_coloured_by_structure_and_only_for_a_terminal():
+    from tabsdata_dev.common.core import render
+
+    text = (
+        "usage: tdd demo [-h]\n"
+        "\n"
+        "A paragraph that is prose and must stay plain, even at length.\n"
+        "\n"
+        "options:\n"
+        "  -v, --verbose         show debug events too\n"
+        "                        a wrapped description line\n"
+        "\n"
+        "example:\n"
+        "  tdd demo --verbose\n"
+    )
+
+    class TTY(io.StringIO):
+        def isatty(self):
+            return True
+
+    plain = render.colorize_help(text, io.StringIO())  # not a terminal
+    assert plain == text
+    painted = render.colorize_help(text, TTY())
+    assert f"\033[{render.HELP_HEADING}moptions:\033[0m" in painted
+    assert f"  \033[{render.HELP_TERM}m-v, --verbose\033[0m" in painted
+    assert "usage:\033[0m tdd demo" in painted
+    # prose, wrapped descriptions and an example's command are left alone
+    assert "A paragraph that is prose and must stay plain, even at length." in painted
+    assert "                        a wrapped description line" in painted
+    assert "  tdd demo --verbose\n" in painted
+    # a line something else already painted is never painted twice
+    already = "  \033[32m--format\033[0m  json or view\n"
+    assert render.colorize_help(already, TTY()) == already

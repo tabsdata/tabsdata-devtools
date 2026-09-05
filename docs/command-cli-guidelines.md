@@ -22,7 +22,7 @@ options winning, and announces the resolved line -- commands do nothing for it.
 
 | Option | Meaning |
 |---|---|
-| `--help`, `-h` | usage, description, options, one example, in argparse's layout on both sides; exit 0 |
+| `--help`, `-h` | usage, description, options, one example, in argparse's layout on both sides; exit 0. Headings bold and terms cyan on a terminal, plain in a pipe (`render.colorize_help`; the shell's `_tdd_help_text` paints the same) |
 | `--verbose`, `-v` | more detail about what is happening, never a different result |
 | `--force`, `-f` / `--yes`, `-y` | where a command has them: overwrite or drop-first / do not ask |
 | `--format json\|view` | output format, default `view` |

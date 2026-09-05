@@ -425,3 +425,15 @@ def test_the_defaults_command_is_gone_in_favour_of_config():
     assert not (shell.scripts_dir() / "defaults.sh").exists()
     text = shell.source_template()
     assert "config --create" in text and "default-opts" not in text
+
+
+def test_the_shell_paints_help_the_way_the_python_half_does():
+    common = (shell.scripts_dir() / COMMON).read_text()
+    # the same two colours, and only for a terminal
+    assert 'if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then' in common
+    assert "function paintline(" in common and "function paint(" in common
+    assert "bold l off" in common and "termcol substr(l" in common
+    # every finished line goes out through it
+    assert "print paint(" in common
+    # and the listing tdd itself prints says it paints itself
+    assert "_TDD_PRECOLORED=1" in shell.source_template()

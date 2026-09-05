@@ -95,7 +95,7 @@ def run(tool: str, argv: list[str] | None = None) -> int:
     if not words or words[0] in constants.HELP_FLAGS:
         out = render.Renderer(tool, fmt=fmt, verbose=verbose)
         text, fields = dispatch.top_help(tool)
-        return out.ok(text, **fields)
+        return out.ok(render.colorize_help(text, out.out), **fields)
     # `config` is every command's, and this family builds a parser per verb
     # rather than one with subparsers, so the shared action is reached here
     # instead of from common.core.cli.run.

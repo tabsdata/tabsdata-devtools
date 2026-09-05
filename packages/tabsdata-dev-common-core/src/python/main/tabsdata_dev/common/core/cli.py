@@ -27,6 +27,27 @@ from collections.abc import Callable
 from . import config, errors, render
 
 
+class ColorHelp(argparse.RawDescriptionHelpFormatter):
+    """argparse's layout, then its headings and terms coloured.
+
+    Colour is applied to the finished text rather than to each piece, so it
+    cannot disturb a column: argparse counts characters, and an escape has
+    none to spare. RawDescription keeps a hand-written epilog as written.
+    """
+
+    def format_help(self) -> str:
+        return render.colorize_help(super().format_help(), sys.stdout)
+
+
+def _colorize(parser: argparse.ArgumentParser) -> None:
+    """Give a parser and every subparser under it the coloured formatter."""
+    parser.formatter_class = ColorHelp
+    for action in parser._actions:  # noqa: SLF001 -- argparse exposes no other way
+        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            for sub in action.choices.values():
+                _colorize(sub)
+
+
 class _Parser(argparse.ArgumentParser):
     """argparse exits 2 on a bad argument; the guidelines allow only 1, and
     want the failure rendered like any other error."""
@@ -79,6 +100,7 @@ def run(
     # document it reads and writes is derived from the parser above, so it can
     # never drift from the options themselves.
     config.announce(p, prog)
+    _colorize(p)
     if raw[:1] == ["config"]:
         try:
             return config.run_action(

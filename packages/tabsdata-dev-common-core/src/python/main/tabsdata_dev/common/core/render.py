@@ -21,6 +21,7 @@ import dataclasses
 import datetime
 import json
 import os
+import re
 import pathlib
 import sys
 from typing import Any, TextIO
@@ -73,6 +74,54 @@ def _isatty(stream: TextIO) -> bool:
         return False
 
 
+# ------------------------------------------------------------------- help
+ESC = "\033"
+HELP_HEADING = "1"  # bold
+HELP_TERM = "36"  # cyan: an option or a subcommand, next to its description
+_HEADING = re.compile(r"^([a-z][a-z0-9 /_-]*:)(\s*)$")
+# `usage:`/`example:` carry their line with them; any other word before a
+# colon may just be prose, so only these two are taken as headings.
+_INLINE_HEADING = re.compile(r"^(usage:|examples?:)( .*)$")
+# `  -v, --verbose         show debug events too` -- a term is what stands at a
+# shallow indent before its description, which the two spaces mark. A line of
+# prose has no such gap, and a wrapped description sits far to the right.
+_TERM = re.compile(r"^( {1,6})(\S.*?)( {2,})")
+
+
+def colorize_help(text: str, stream: TextIO) -> str:
+    """Help text with its headings bold and its terms coloured.
+
+    Applied after the layout is done, so nothing here changes a column: every
+    escape wraps text that is already in place. Both halves of tdd colour help
+    the same way -- the shell one does this in awk.
+    """
+    if os.environ.get("NO_COLOR") or not _isatty(stream):
+        return text
+    out = []
+    for line in text.split("\n"):
+        if ESC in line:
+            # Python 3.14's argparse colours its own help; what it has already
+            # painted is left alone, and what it leaves plain (an epilog, a
+            # hand-written help text) is painted here.
+            out.append(line)
+            continue
+        heading = _HEADING.match(line) or _INLINE_HEADING.match(line)
+        if heading:
+            out.append(
+                f"\033[{HELP_HEADING}m{heading.group(1)}{RESET}{heading.group(2)}"
+            )
+            continue
+        term = _TERM.match(line)
+        if term and not line.strip().startswith("#"):
+            out.append(
+                f"{term.group(1)}\033[{HELP_TERM}m{term.group(2)}{RESET}"
+                f"{term.group(3)}{line[term.end() :]}"
+            )
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
 class Renderer:
     """Where a command's output goes. One per invocation.
 
@@ -105,6 +154,12 @@ class Renderer:
         else:
             stream = self.out if event.kind == "ok" else self.err
             text = event.message
+            if ESC in text:
+                # A message that paints itself -- a help document -- is left as
+                # it is: one colour over the whole of it would undo its own.
+                print(text, file=stream)
+                stream.flush()
+                return
         print(colored(event.kind, text, stream), file=stream)
         stream.flush()
 

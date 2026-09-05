@@ -381,7 +381,7 @@ def _run(argv: list[str]) -> int:
         or opts.get("version")
     )
     if opts.get("help") or (not rest and not wants_output):
-        print(USAGE, end="")
+        print(render.colorize_help(USAGE, sys.stdout), end="")
         return 0
 
     dir_ = paths.tdd_dir(opts["dir"])
