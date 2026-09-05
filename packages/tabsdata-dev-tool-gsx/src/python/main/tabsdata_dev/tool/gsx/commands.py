@@ -284,8 +284,8 @@ def apply(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     if not ops and not extras.passthrough.get("e"):
         raise ToolError(
             "nothing to apply: give at least one --label:... or --reviewer:... op, "
-            "or set default_labels/default_reviewers in the config "
-            "(tdd gsx auto-config --help)"
+            "or set default_labels/default_reviewers for this repository in "
+            f"{config_mod.path()}"
         )
 
     snapshot = gh.stack_pr_snapshot(runner)
@@ -403,25 +403,5 @@ def approve(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
             "prs": [p["number"] for p in pulls],
             "approved": approved,
             "skipped": skipped,
-        },
-    )
-
-
-# ------------------------------------------------------------- auto-config
-def auto_config(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
-    """Refresh this repository's valid labels and reviewers in the config."""
-    gh.require_tools(runner)
-    repo = labels_mod.Repo(runner, out)
-    entry = repo.refresh()
-    return (
-        f"{len(entry.get('labels', []))} label(s), "
-        f"{len(entry.get('reviewers', []))} reviewer(s) for {repo.slug}\n"
-        f"  config     {config_mod.path()}\n"
-        f"  repo       {repo.slug}",
-        {
-            "config": str(config_mod.path()),
-            "repo": repo.slug,
-            "labels": len(entry.get("labels", [])),
-            "reviewers": len(entry.get("reviewers", [])),
         },
     )

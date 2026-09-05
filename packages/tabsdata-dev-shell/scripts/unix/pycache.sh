@@ -65,6 +65,7 @@ swept too. Entries inside cached environments are reported, not removed.
 
 commands:
   clean     purge the caches
+  config    this command's config file: --show, --default, --create [--force]
 
 options:
   --package-prefixes PREFIXES

@@ -82,6 +82,7 @@ from importlib import import_module
 from pathlib import Path
 from types import ModuleType
 
+from tabsdata_dev.common.core import config as core_config
 from tabsdata_dev.common.core import proc
 from tabsdata_dev.common.core import secrets as core_secrets
 from tabsdata_dev.common.systems import (
@@ -1207,6 +1208,9 @@ def top_help(tool: str) -> tuple[str, dict]:
         constants.V_CLEAN_DOCKER: f"stop and delete every {constants.DOCKER_CONTAINER_PREFIX}* docker container (--yes/-y to skip the prompt)",
     }
     summaries.update(delegated)
+    # `config` is every command's, from the shared layer rather than this table.
+    verbs.append(constants.V_CONFIG)
+    summaries[constants.V_CONFIG] = core_config.SUMMARY
     lines = [
         f"usage: tdd {tool} <command> [options]   (tdd {tool} <command> -h for the options)",
         "",

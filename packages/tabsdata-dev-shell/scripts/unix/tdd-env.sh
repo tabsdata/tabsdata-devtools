@@ -66,6 +66,7 @@ goes on PATH exactly as `tdd <tool>` would arrange it.
 commands:
   activate      put the toolset's bin/ first on PATH, in this shell
   deactivate    restore PATH
+  config        this command's config file: --show, --default, --create [--force]
 
 options:
   --toolset TOOLSET   the toolset to enter (`tdd help` lists them)

@@ -4,7 +4,7 @@ Copyright 2026 Tabsdata Inc.
 
 # gsx
 
-`tdd gsx create|update|checkout|submit|apply|approve|auto-config`: GitHub issues + `gh stack`, the way
+`tdd gsx create|update|checkout|submit|apply|approve`: GitHub issues + `gh stack`, the way
 `gtx` does Jira + Graphite -- for a repository that uses neither. One command turns the pending
 changes into an issue, a stack branch and a commit; another pushes the stack, opens its PRs and
 labels them. Ported from the standalone `~/gsx` (1.5.0).
@@ -98,9 +98,11 @@ gsx adds two things of its own to the same file:
   none yet. They are injected as leading `new`-scope ops, so an explicit op still wins;
   `--no-defaults` skips them.
 
-`auto-config` rewrites this repository's two lists and `fetched` through the shared writer, which
-re-renders the option template and carries the rest across: other repositories' tables, every
-`default_*`, and whatever the reader uncommented under `[options]`. The version is the devtools
+gsx refreshes this repository's two lists and `fetched` itself -- when the file has nothing for
+it, when another gsx wrote it, and once more when a value is missing, since the list may simply
+be stale. There is no verb for it: nobody has to remember to run one. The write goes through the
+shared writer, which re-renders the option template and carries the rest across: other
+repositories' tables, every `default_*`, and whatever the reader uncommented under `[options]`. The version is the devtools
 version, from the installed distribution's metadata: one number for the whole repo (invariant
 10).
 

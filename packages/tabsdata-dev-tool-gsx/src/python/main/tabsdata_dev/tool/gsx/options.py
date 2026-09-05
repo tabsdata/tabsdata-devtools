@@ -26,7 +26,7 @@ DESCRIPTION = (
 CONFIG_PREAMBLE = """\
 # What gsx keeps here besides the options: one table per repository, because
 # labels and collaborators differ per repository -- a flat list would validate
-# one repository's names against another's. `tdd gsx auto-config` writes them.
+# one repository's names against another's. gsx keeps them itself.
 #
 #   [gsx]
 #   version            the gsx that last refreshed the tables below
@@ -39,7 +39,7 @@ CONFIG_PREAMBLE = """\
 #                      alias names the 1Password field too
 #
 #   [repo."OWNER/NAME"]
-#   fetched            when auto-config last refreshed the two lists
+#   fetched            when the two lists below were last refreshed
 #   labels             valid label names, from `gh label list`
 #   reviewers          valid logins, from collaborators + assignable users
 #   default_labels     applied by `submit`/`apply` to PRs of THIS repository
@@ -47,8 +47,9 @@ CONFIG_PREAMBLE = """\
 #                      so an explicit op still wins; --no-defaults skips them
 #   default_reviewers  the same, for reviewers
 #
-# auto-config overwrites `labels`, `reviewers` and `fetched`; the two
-# `default_*` keys are yours and are never touched.
+# gsx refreshes `labels`, `reviewers` and `fetched` itself, whenever what it
+# holds cannot answer a --label:/--reviewer: value; the two `default_*` keys
+# are yours and are never touched.
 """
 
 
@@ -227,12 +228,6 @@ def configure(parser: argparse.ArgumentParser) -> None:
     )
     approve.add_argument(
         "--stack", action="store_true", help="every PR of the current stack"
-    )
-
-    add(
-        "auto-config",
-        "refresh this repository's valid labels and reviewers in <tdd_dir>/gsx.toml",
-        "example:\n  tdd gsx auto-config\n\n",
     )
 
 

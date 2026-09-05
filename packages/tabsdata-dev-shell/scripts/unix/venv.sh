@@ -109,6 +109,7 @@ commands:
   delete        remove it and its marker; refuses while it is active. --all
                 removes every managed venv, none of which may be active
   list          every managed venv with its type and path
+  config        this command's config file: --show, --default, --create [--force]
 
 options:
   --name NAME              the venv

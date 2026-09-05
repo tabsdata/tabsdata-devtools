@@ -78,6 +78,7 @@ def run(
     # `config` is every command's, from here rather than from each parser: the
     # document it reads and writes is derived from the parser above, so it can
     # never drift from the options themselves.
+    config.announce(p, prog)
     if raw[:1] == ["config"]:
         try:
             return config.run_action(

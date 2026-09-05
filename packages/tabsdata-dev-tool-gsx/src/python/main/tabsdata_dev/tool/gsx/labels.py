@@ -69,8 +69,12 @@ class Repo:
         return (entry, False)
 
     def refresh(self) -> dict:
-        """`auto-config`: this repo's valid labels and reviewers, and the
-        file's comments, rewritten. Other repos and every default_* survive."""
+        """This repo's valid labels and reviewers, refreshed from GitHub.
+
+        Called when the file has nothing for this repository, when it was
+        written by another gsx, and once more when a value is missing -- the
+        list may simply be stale. There is no verb for it: the reader never
+        has to remember to run one."""
         slug = self.slug
         self.out.info(f"fetching the valid labels and reviewers of {slug}")
         labels = gh.fetch_labels(self.runner)

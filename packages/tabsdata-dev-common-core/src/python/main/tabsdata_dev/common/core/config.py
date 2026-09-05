@@ -306,6 +306,26 @@ def show(doc: Doc, stream) -> tuple[str, dict[str, Any]]:
     return ("\n".join(lines), changed)
 
 
+SUMMARY = "this command's config file: --show, --default, --create [--force]"
+
+
+def announce(parser: argparse.ArgumentParser, command: str) -> None:
+    """Make `config` visible in the command's own --help.
+
+    The action is served before the parser ever sees it, so it would otherwise
+    be a word nobody could discover: registered here as a subcommand where the
+    command has them, and named in the epilog where it does not.
+    """
+    for action in parser._actions:  # noqa: SLF001 -- argparse exposes no other way
+        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            if OPTIONS_TABLE not in action.choices and "config" not in action.choices:
+                action.add_parser("config", help=SUMMARY, description=SUMMARY)
+            return
+    line = f"config: {SUMMARY} (tdd {command} config --help)"
+    parser.epilog = f"{parser.epilog}\n\n{line}" if parser.epilog else line
+    parser.formatter_class = argparse.RawDescriptionHelpFormatter
+
+
 def run_action(doc: Doc, argv: list[str], out: render.Renderer) -> int:
     """`tdd <command> config [--show|--default|--create [--force]]`.
 

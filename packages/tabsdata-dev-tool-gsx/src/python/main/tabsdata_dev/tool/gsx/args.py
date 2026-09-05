@@ -262,6 +262,5 @@ NATIVES = {
     "submit": SUBMIT_NATIVES,
     "apply": APPLY_NATIVES,
     "approve": APPROVE_NATIVES,
-    "auto-config": [],
 }
 TAKES_LR = {"submit", "apply"}

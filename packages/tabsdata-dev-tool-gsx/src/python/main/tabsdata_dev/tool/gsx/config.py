@@ -13,7 +13,7 @@ which are the labels and reviewers `submit`/`apply` put on PRs *of that
 repository* that have none yet.
 
 Writing goes through the shared module, which rewrites the option template and
-carries the rest across, so `auto-config` can never cost the reader their
+carries the rest across, so a refresh can never cost the reader their
 `[options]`.
 """
 

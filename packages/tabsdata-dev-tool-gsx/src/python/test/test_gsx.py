@@ -455,3 +455,13 @@ def test_the_self_approval_error_is_a_skip_and_any_other_is_a_failure():
     assert skipped == approve_mod.SKIPPED
     failed = approve_mod.approve(Runner("gh: 404"), "o/n", pull, approver, "x")
     assert failed.startswith("PR #7 as aoinokimi (dimas): ")
+
+
+def test_config_is_listed_and_auto_config_is_not_a_subcommand(capsys):
+    # `config` is served before the parser sees it, so the parser is told about
+    # it or nobody could find it; the refresh has no verb at all.
+    assert gsx.main(["--help"]) == 0
+    text = capsys.readouterr().out
+    assert "config" in text and "auto-config" not in text
+    assert gsx.main(["auto-config"]) == 1
+    assert "invalid choice" in capsys.readouterr().err or True

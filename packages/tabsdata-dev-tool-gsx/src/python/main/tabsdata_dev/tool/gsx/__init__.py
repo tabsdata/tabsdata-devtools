@@ -15,11 +15,11 @@ repository that uses neither Jira nor Graphite.
                      [--sync] [--draft] [--no-defaults] [--p:|--s:|--e:FLAG]
     tdd gsx apply    [--label:S[:M] LIST]... [--reviewer:S[:M] LIST]...
                      [--no-defaults] [--e:FLAG]
-    tdd gsx auto-config
 
 Branch and commit are named from the repository: `tabsdata-conn-gcs` issue 15
 -> branch `GCS-15`, commit `[GCS-15] <summary>`, trailer `Closes #15`. The
-valid labels and reviewers of each repository live in `<tdd_dir>/gsx.toml`.
+valid labels and reviewers of each repository live in `<tdd_dir>/gsx.toml`,
+which gsx refreshes on its own when what it holds cannot answer a value.
 """
 
 from __future__ import annotations
@@ -41,7 +41,6 @@ HANDLERS = {
     "submit": commands.submit,
     "apply": commands.apply,
     "approve": commands.approve,
-    "auto-config": commands.auto_config,
 }
 
 

@@ -107,6 +107,7 @@ commands:
              when not, in three sorted groups: TD (every variable starting with
              TD), PyPi (the index variables) and Secrets
 
+  config     this command's config file: --show, --default, --create [--force]
 options:
   --crypto             _TDD_CRYPTO_KEY, the key that encrypts the system
                        and domain descriptors; set reads op://VAULT/ITEM/FIELD --
