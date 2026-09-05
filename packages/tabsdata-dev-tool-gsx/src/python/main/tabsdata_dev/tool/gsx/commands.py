@@ -122,7 +122,7 @@ def create(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         f"  issue   #{issue}  {issue_url}\n"
         f"  branch  {branch}\n"
         f"  commit  [{branch}] {summary}\n"
-        "  nothing is pushed yet; open the PR with: tdd gsx submit",
+        "  not pushed yet: use `tdd gsx submit` to push the stack and open the PR",
         {"issue": issue, "issue_url": issue_url, "branch": branch, "summary": summary},
     )
 
