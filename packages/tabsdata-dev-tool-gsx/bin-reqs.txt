@@ -1,0 +1,9 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# bin-reqs.txt -- external binaries gsx drives. `gh` also needs the gh-stack
+# extension (github/gh-stack); that is checked at run time, since a `gh`
+# without it is on PATH all the same.
+git
+gh

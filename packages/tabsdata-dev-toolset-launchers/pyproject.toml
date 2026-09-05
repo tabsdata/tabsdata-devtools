@@ -11,6 +11,7 @@ description = "toolset launchers: materialized environment"
 requires-python = ">=3.11"
 dependencies = [
     "tabsdata-dev-deps-launchers",
+    "tabsdata-dev-tool-gsx",
     "tabsdata-dev-tool-km",
     "tabsdata-dev-tool-tdk",
     "tabsdata-dev-tool-tdkserver",
@@ -18,6 +19,7 @@ dependencies = [
 
 [tool.uv.sources]
 tabsdata-dev-deps-launchers = { path = "../tabsdata-dev-deps-launchers", editable = true }
+tabsdata-dev-tool-gsx = { path = "../tabsdata-dev-tool-gsx", editable = true }
 tabsdata-dev-tool-km = { path = "../tabsdata-dev-tool-km", editable = true }
 tabsdata-dev-tool-tdk = { path = "../tabsdata-dev-tool-tdk", editable = true }
 tabsdata-dev-tool-tdkserver = { path = "../tabsdata-dev-tool-tdkserver", editable = true }

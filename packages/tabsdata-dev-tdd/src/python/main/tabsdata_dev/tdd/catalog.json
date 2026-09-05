@@ -1,5 +1,5 @@
 {
-  "fingerprint": "6e1bdc398a73219f",
+  "fingerprint": "f120520be2819bb1",
   "members": {
     "demo-env1": [
       "tabsdata-dev-common-core",
@@ -14,6 +14,7 @@
     "launchers": [
       "tabsdata-dev-common-core",
       "tabsdata-dev-deps-launchers",
+      "tabsdata-dev-tool-gsx",
       "tabsdata-dev-tool-km",
       "tabsdata-dev-tool-tdk",
       "tabsdata-dev-tool-tdkserver"
@@ -160,6 +161,20 @@
       "reqs": [],
       "summary": "domain, running in the salesforce toolset (the org's data plane)",
       "toolset": "salesforce"
+    },
+    "gsx": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "demo": false,
+      "hidden": false,
+      "package": "tabsdata-dev-tool-gsx",
+      "reqs": [
+        "git",
+        "gh"
+      ],
+      "summary": "GitHub issues + `gh stack`: an issue, a stack branch and a PR in one command",
+      "toolset": "launchers"
     },
     "km": {
       "commons": [

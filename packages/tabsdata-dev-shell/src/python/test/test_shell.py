@@ -409,3 +409,9 @@ def test_a_secret_option_value_is_masked_in_the_log_and_the_resolved_line():
     assert "--(value|password|secret|token|key)" in common
     assert 'echo "command: tdd $(_tdd_mask_argv' in common
     assert '_tdd_info "resolved: tdd $(_tdd_mask_argv "$*")"' in shell.source_template()
+
+
+def test_sourcing_defines_the_gsx_shorthand_over_the_tool():
+    text = shell.source_template()
+    hand = text.split("---- shorthands", 1)[1]
+    assert 'gsx() {\n    tdd gsx "$@"\n}' in hand  # the tool keeps every option

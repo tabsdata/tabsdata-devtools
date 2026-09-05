@@ -525,6 +525,14 @@ PS1="$_tdd_star${PS1-}"
 _TDD_PROMPT_MARK="$_tdd_star"
 unset _tdd_star
 
+# ---------------------------------------------------------------- shorthands
+# A few tools are typed often enough to earn a bare name in an interactive
+# shell. They are plain functions over `tdd <tool>`, so every option, default
+# and event stays the tool's -- nothing is duplicated here.
+gsx() {
+    tdd gsx "$@"
+}
+
 # ---------------------------------------------------------------- hello
 # One line, blank lines around it, in interactive shells only, so a shell that
 # sources this from its rc says which tdd it got, from where (the version

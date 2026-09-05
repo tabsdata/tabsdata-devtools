@@ -32,6 +32,8 @@ executable cannot do -- change the calling shell (venvs, variables, prompt).
   `--help` excepted), else `tdd-exe` through a wrapper that keeps that env off `PATH`. It applies
   `default-opts` via `tdd-exe --defaults`, warns off and unsets a `_TDD_TOOL` found in the shell,
   and recomputes `_TDD_COMMON_SH` when `--dir`/`TDD_DIR` changed.
+- Shorthands: sourcing also defines `gsx` as `tdd gsx "$@"` -- a name typed often enough to
+  earn one; the tool keeps every option, default and event.
 - Prompt: sourcing puts a red `* ` first (replacing the marker of an earlier source, remembered
   in `_TDD_PROMPT_MARK`); `venv` inserts its green `(<type>/<python>/<name>)` after it.
 - Everything runs unmodified in bash 3.2 and zsh: no arrays, quoted expansions, `_tdd_`

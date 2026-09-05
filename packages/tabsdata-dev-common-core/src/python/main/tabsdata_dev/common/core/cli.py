@@ -24,7 +24,7 @@ import sys
 import traceback
 from collections.abc import Callable
 
-from . import render
+from . import errors, render
 
 
 class _Parser(argparse.ArgumentParser):
@@ -90,6 +90,10 @@ def run(
         return out.error(
             str(exc.code) if not isinstance(exc.code, int) else f"exit {exc.code}"
         )
+    except errors.ToolError as exc:
+        # The expected, user-facing failure: its message is the whole story, so
+        # neither the class name nor a traceback belongs in front of it.
+        return out.error(str(exc))
     except Exception as exc:  # noqa: BLE001 -- the guidelines want one error line, not a trace
         return out.error(f"{type(exc).__name__}: {exc}", details=traceback.format_exc())
     return 0 if code in (0, None) else 1

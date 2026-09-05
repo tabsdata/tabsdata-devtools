@@ -34,7 +34,7 @@ tdd-install    executable -> the only way to build a tdd dir (`cargo make instal
 Packages, all `tabsdata-dev-*` under the `tabsdata_dev` namespace: `-tdd` (stdlib only),
 `-shell` (shell files as data), `-common-*` (shared code, third-party ranges), `-deps-*`
 (pins; its name is the toolset), `-tool-*` (one tool; exactly one `-deps-*`), `-toolset-*`
-(**generated**, committed `uv.lock`). Tools: `system`, `domain`, `domain-sf` (hidden), `xp`,
+(**generated**, committed `uv.lock`). Tools: `system`, `domain`, `domain-sf` (hidden), `xp`, `gsx`,
 `tdk`, `tdkserver`, `km`; shell: `venv`, `env`, `tdd-env`, `pycache`, `defaults`; samples
 `demo-exe1/2`, `demo-fn1/2`. Details: the design docs.
 

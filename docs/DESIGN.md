@@ -35,7 +35,7 @@ tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
 `--dir` defaults to `$TDD_DIR`, then `~/.tdd`; everything after the word reaches the command
 verbatim; `--format`/`--verbose` before the word also travel on to it. Commands: `venv`,
 `tdd-env`, `env`, `pycache`, `defaults` (shell, marked `*` in `tdd help`), `system`, `domain`,
-`xp`, `tdk`, `tdkserver`, `km` (Python), the demo pair of each half (listed only with `--demo`).
+`xp`, `gsx`, `tdk`, `tdkserver`, `km` (Python), the demo pair of each half (listed only with `--demo`).
 `tdd help` merges both halves from `tdd-exe --porcelain` and the shell registry.
 
 **Default options**: `<tdd_dir>/default-opts/<command>.txt` or `<command>_<action>.txt`, one
