@@ -51,9 +51,9 @@ class Repo:
         if config.get("version") != VERSION:
             if config.get("repos"):
                 self.out.warn(
-                    f"{config_mod.path()} was written by gsx "
+                    f"the tables in {config_mod.path()} were written by gsx "
                     f"{config.get('version') or '(unversioned)'}, this is "
-                    f"{VERSION}; refreshing it"
+                    f"{VERSION}; refreshing them"
                 )
             return (self.refresh(), True)
         entry = config.get("repos", {}).get(self.slug)
@@ -69,7 +69,8 @@ class Repo:
         labels = gh.fetch_labels(self.runner)
         reviewers = gh.fetch_reviewers(self.runner, slug)
         config = config_mod.read()
-        config["version"] = VERSION
+        # Per repository, always: labels and collaborators are the repository's,
+        # and so are the defaults `submit`/`apply` put on its unlabelled PRs.
         entry = config.setdefault("repos", {}).setdefault(slug, {})
         entry["labels"] = labels
         entry["reviewers"] = reviewers

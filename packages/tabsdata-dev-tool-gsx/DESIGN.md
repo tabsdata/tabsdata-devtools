@@ -15,9 +15,10 @@ labels them. Ported from the standalone `~/gsx` (1.5.0).
   needs no pins of its own and joins an existing env rather than adding a sixth.
 - `bin-reqs`: `git`, `gh`. The `gh stack` extension (github/gh-stack) is a gh install rather than
   a binary, so it is checked at run time, before anything is written.
-- Modules: `args` (the two grammars argparse cannot express), `gh` (every child process),
-  `labels` (config lookup, validation, the edit engine), `commands` (the six bodies), `config`
-  (`<tdd_dir>/gsx.toml`), `version`.
+- Modules: `args` (the two grammars argparse cannot express), `options` (the parser, which the
+  config template is derived from), `gh` (every child process), `labels` (config lookup,
+  validation, the edit engine), `commands` (the six bodies), `config` (the repo tables in
+  `<tdd_dir>/gsx.toml`), `version`.
 
 ## Naming
 
@@ -60,17 +61,24 @@ and pass through unchecked.
 
 ## Config
 
-`<tdd_dir>/gsx.toml`, named after the command like every command's config, and user state --
-`tdd-install` never writes or removes it. Keyed per repository (labels and collaborators differ
-per repo; a flat list would validate one repo's names against another's), holding `labels`,
-`reviewers`, `fetched` and the two `default_*` lists. `version` is the devtools version, from the
-installed distribution's metadata: one number for the whole repo (invariant 10). A version that
-differs from the running gsx forces one refresh, so the file's comments stay true.
+`<tdd_dir>/gsx.toml` -- every command's config file (`common.core.config`), so its `[options]`
+table is what gsx's own options default to and the `config` action comes from the shared layer.
+gsx adds two things of its own to the same file:
 
-`auto-config` rewrites the file whole -- this repository's two lists, `fetched`, the version and
-every comment -- carrying over other repositories' tables and every `default_*` untouched. The
-defaults are injected by `submit`/`apply` as leading `new`-scope ops, so an explicit op still
-wins; `--no-defaults` skips them.
+- `[gsx] version` -- the gsx that last refreshed the tables below. A version that differs from
+  the running gsx forces one refresh, so what is cached is never older than the tool.
+- `[repos."OWNER/NAME"]` -- **per repository**, always: `labels`, `reviewers`, `fetched`, and the
+  two `default_*` lists. Labels and collaborators differ per repository (a flat list would
+  validate one repository's names against another's), and so do the defaults: `default_labels` /
+  `default_reviewers` are what `submit`/`apply` put on the PRs *of that repository* that have
+  none yet. They are injected as leading `new`-scope ops, so an explicit op still wins;
+  `--no-defaults` skips them.
+
+`auto-config` rewrites this repository's two lists and `fetched` through the shared writer, which
+re-renders the option template and carries the rest across: other repositories' tables, every
+`default_*`, and whatever the reader uncommented under `[options]`. The version is the devtools
+version, from the installed distribution's metadata: one number for the whole repo (invariant
+10).
 
 ## Verified `gh` / `gh-stack` behaviour
 
@@ -98,9 +106,9 @@ Facts that cost real testing; the code depends on them.
   the other way round.
 - **No `--help ai`**: what it said -- the ordered side effects, what is irreversible -- lives in
   each subcommand's `--help` epilog and in this document.
-- **Config**: `<tdd_dir>/gsx.toml`, TOML rather than `~/.gsx` INI. TOML was rejected in the
-  standalone because `/usr/bin/python3` (3.9) has no `tomllib`; inside tdd the tool runs in its
-  own toolset venv, where it does.
+- **Config**: `<tdd_dir>/gsx.toml`, TOML rather than `~/.gsx` INI, and shared with the option
+  defaults every command keeps. TOML was rejected in the standalone because `/usr/bin/python3`
+  (3.9) has no `tomllib`; inside tdd the tool runs in its own toolset venv, where it does.
 - **Output is events**, so nothing is printed directly: `--format json` gives one JSON object per
   line, and `--dry-run` announces each mutating command as an `info` event while read-only
   commands still run, so a dry run still validates against the real repository.

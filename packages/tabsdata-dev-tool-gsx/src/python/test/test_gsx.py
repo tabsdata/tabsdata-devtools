@@ -8,6 +8,7 @@ import pytest
 from tabsdata_dev.common.core.errors import ToolError
 from tabsdata_dev.tool import gsx
 from tabsdata_dev.tool.gsx import args as args_mod
+from tabsdata_dev.tool.gsx.version import VERSION
 from tabsdata_dev.tool.gsx import commands, config, gh, labels
 
 
@@ -118,33 +119,41 @@ def test_a_commit_message_carries_the_tag_the_body_and_the_trailer():
 
 
 # ------------------------------------------------------------------ config
-def test_the_config_round_trips_through_its_own_writer(tmp_path, monkeypatch):
+def test_the_repo_tables_round_trip_and_leave_the_options_alone(tmp_path, monkeypatch):
+    from tabsdata_dev.common.core import config as common
+
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
     assert config.path() == tmp_path / "gsx.toml"
-    assert config.read() == {"version": config.VERSION, "repos": {}}  # no file yet
+    assert config.read() == {"version": "", "repos": {}}  # no file yet
+
     written = {
-        "version": config.VERSION,
+        "version": VERSION,
         "repos": {
             "o/n": {
                 "fetched": "2026-09-05T00:00:00-03:00",
                 "labels": ["bug", "run-ci"],
                 "reviewers": ["tucu0"],
                 "defaults": {"labels": ["skip-ci"], "reviewers": []},
-            }
+            },
+            "o/other": {
+                "fetched": "",
+                "labels": [],
+                "reviewers": [],
+                "defaults": {"labels": [], "reviewers": []},
+            },
         },
     }
     config.write(written)
-    assert config.read() == written
+    assert config.read() == written  # every repository keeps its own lists
+
     text = config.path().read_text()
-    assert text.startswith("#\n# Copyright")  # the house header, and the comments
-    assert 'default_labels = ["skip-ci"]' in text
-
-
-def test_an_unreadable_config_says_so_instead_of_crashing(tmp_path, monkeypatch):
-    monkeypatch.setenv("TDD_DIR", str(tmp_path))
-    config.path().write_text("this is not toml =\n")
-    with pytest.raises(ToolError, match="not readable"):
-        config.read()
+    assert '[repos."o/n"]' in text and '[repos."o/other"]' in text
+    # the shared option template is written too, and survives a repo refresh
+    assert "[options]" in text and "[options.submit]" in text
+    config.path().write_text(text.replace("# verbose = false", "verbose = true"))
+    config.write(config.read())
+    assert common.options_in("gsx")[""] == {"verbose": True}
+    assert config.read()["repos"]["o/n"]["defaults"]["labels"] == ["skip-ci"]
 
 
 # ------------------------------------------------------------------ engine
@@ -279,3 +288,17 @@ def test_a_dry_run_announces_a_mutating_command_and_runs_a_read_only_one():
     assert gh.is_read_only(["gh", "pr", "list"]) and not gh.is_read_only(
         ["gh", "pr", "edit"]
     )
+
+
+def test_the_config_action_is_the_shared_one_and_knows_what_gsx_keeps(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    assert gsx.main(["config", "--create"]) == 0
+    text = config.path().read_text()
+    assert "[options.apply]" in text  # derived from gsx's own parser
+    assert '[repos."OWNER/NAME"]' in text  # and what gsx keeps, explained
+    capsys.readouterr()
+    assert gsx.main(["config", "--create"]) == 1  # refuses an existing file
+    assert "already exists" in capsys.readouterr().err
+    assert gsx.main(["config", "--create", "--force"]) == 0
