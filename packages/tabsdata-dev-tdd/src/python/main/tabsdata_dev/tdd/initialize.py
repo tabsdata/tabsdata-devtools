@@ -35,11 +35,6 @@ SOURCE_TEMPLATE = "tddsrc.sh"
 # and does not buy you.
 RELOCATABLE_ENV = {"UV_VENV_RELOCATABLE": "1", "UV_LINK_MODE": "copy"}
 
-CONFIG_STUB = """\
-# Reserved for per-tool configuration. `tdd` does NOT read the envs location
-# from here -- that arrives via --dir, $TDD_DIR, or the ~/.tdd default.
-"""
-
 
 class StepFailed(Exception):
     """A uv step failed; carries its captured output for the error log."""
@@ -293,10 +288,6 @@ def _finish(dir_: pathlib.Path, catalog: dict, out: render.Renderer) -> int:
     # Stamp what was built here, so `tdd --version` describes this dir rather
     # than whatever checkout tdd-exe happens to be linked to.
     version_mod.stamp(dir_)
-
-    config = dir_ / "config.toml"
-    if not config.is_file():
-        config.write_text(CONFIG_STUB)
 
     written = _write_source(dir_, out)
     summary = f"initialized {dir_} ({len(catalog['tools'])} tools, {len(catalog['toolsets'])} toolsets)"

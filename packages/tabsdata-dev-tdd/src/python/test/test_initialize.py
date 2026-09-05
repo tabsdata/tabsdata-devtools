@@ -29,6 +29,8 @@ def test_initialize_from_source_preserves_user_state(tmp_path, monkeypatch):
         "managed-venvs/scratch.env": "uv",
         "managed-venvs/uv/scratch/marker": "venv",
         "default-opts/venv_create.txt": "--type uv\n",
+        # a command's own config file, <tdd_dir>/<command>.toml
+        "gsx.toml": "[gsx]\n",
     }
     for rel, text in keep.items():
         p = dir_ / rel
@@ -57,6 +59,8 @@ def test_initialize_from_source_preserves_user_state(tmp_path, monkeypatch):
 
     for rel, text in keep.items():
         assert (dir_ / rel).read_text() == text, f"{rel} was disturbed by initialize"
+    # no shared config file is written: a command that needs one owns <command>.toml
+    assert not (dir_ / "config.toml").exists()
     # and it did do its job: the toolset, tdd-exe and shell venvs, and the catalog
     assert paths.venvs_dir(dir_) / "demo-env1" in made
     assert (dir_ / "catalog.json").is_file()

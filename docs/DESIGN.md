@@ -42,6 +42,10 @@ verbatim; `--format`/`--verbose` before the word also travel on to it. Commands:
 `--name value` per line, merged under what was typed (`tdd-exe --defaults`, stdlib,
 unit-tested); `tdd` prints the resolved line as `info`. `tdd defaults --command X` explains.
 
+**Command config**: a command that needs one owns `<tdd_dir>/<command>.toml` (`gsx` ->
+`gsx.toml`), creates it on demand and is the only thing that reads it; it is user state, so
+`tdd-install` never writes or removes it. Nothing reads a shared config file -- there is none.
+
 **Events everywhere**: one model on both sides -- `command` + `event` (`ok`, `error`, `warn`,
 `info`, `debug`) + `message` + fields; json is one line per event, view puts `ok` on stdout and
 the rest on stderr; exit 0/1; a failure log in `/tmp`. Shell commands get it from `common.sh`,

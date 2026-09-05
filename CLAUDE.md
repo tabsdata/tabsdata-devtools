@@ -75,7 +75,7 @@ holds the user's system and domain descriptors.
     `common.core.cli.run()`/`render`; `tabsdata_dev.tdd.render`, the byte-identical twin —
     edit both). Commands never print; the tests check it.
 16. **`tdd-install` never touches user state in the tdd dir.** It rebuilds only
-    `tdd-venvs/` and rewrites `catalog.json`/`VERSION`/`config.toml`/`tdd-source.sh`;
+    `tdd-venvs/` and rewrites `catalog.json`/`VERSION`/`tdd-source.sh`;
     `data/` (system/domain descriptors), `managed-venvs/` (`tdd venv` environments) and
     `default-opts/` are the user's and survive every re-init (a test pins this).
 
@@ -104,4 +104,7 @@ in wheels mode, a reinstall to see source changes.
 - Comments explain **why**, not what; docstrings on modules and non-obvious functions.
 - Tests live in `src/python/test/` and run inside the toolset venv the code ships with.
 - `ruff format` and `ruff check` must pass at the version pinned in `Makefile.toml`.
+- A command that needs a config file of its own keeps it at `<tdd_dir>/<command>.toml`, named
+  after the command, created on demand by that command: user state, never written or removed
+  by `tdd-install`. There is no shared config file.
 - Commit only when asked; the smoke scripts under `scripts/` stay uncommitted until asked.
