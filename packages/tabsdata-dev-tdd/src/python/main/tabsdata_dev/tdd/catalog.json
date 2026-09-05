@@ -1,5 +1,5 @@
 {
-  "fingerprint": "c6e824af8d3c4b44",
+  "fingerprint": "603a3cc9cd09082d",
   "members": {
     "demo-env1": [
       "tabsdata-dev-common-core",
@@ -110,6 +110,7 @@
       ],
       "demo": true,
       "hidden": false,
+      "launcher": false,
       "package": "tabsdata-dev-tool-demo-exe1",
       "reqs": [],
       "summary": "demo tool in the demo-env1 toolset: prints its name",
@@ -121,6 +122,7 @@
       ],
       "demo": true,
       "hidden": false,
+      "launcher": false,
       "package": "tabsdata-dev-tool-demo-exe2",
       "reqs": [],
       "summary": "demo tool in the demo-env2 toolset: prints its name",
@@ -133,6 +135,7 @@
       ],
       "demo": false,
       "hidden": false,
+      "launcher": false,
       "package": "tabsdata-dev-tool-domain",
       "reqs": [
         "docker",
@@ -148,6 +151,7 @@
       ],
       "demo": false,
       "hidden": true,
+      "launcher": false,
       "package": "tabsdata-dev-tool-domain-sf",
       "reqs": [],
       "summary": "domain, running in the salesforce toolset (the org's data plane)",
@@ -159,6 +163,7 @@
       ],
       "demo": false,
       "hidden": false,
+      "launcher": false,
       "package": "tabsdata-dev-tool-gsx",
       "reqs": [
         "git",
@@ -173,6 +178,7 @@
       ],
       "demo": false,
       "hidden": false,
+      "launcher": true,
       "package": "tabsdata-dev-tool-km",
       "reqs": [
         "km",
@@ -190,6 +196,7 @@
       ],
       "demo": false,
       "hidden": false,
+      "launcher": false,
       "package": "tabsdata-dev-tool-system",
       "reqs": [
         "docker",
@@ -204,6 +211,7 @@
       ],
       "demo": false,
       "hidden": false,
+      "launcher": true,
       "package": "tabsdata-dev-tool-tdk",
       "reqs": [
         "tdk",
@@ -220,6 +228,7 @@
       ],
       "demo": false,
       "hidden": false,
+      "launcher": true,
       "package": "tabsdata-dev-tool-tdkserver",
       "reqs": [
         "tdkserver",
@@ -236,6 +245,7 @@
       ],
       "demo": false,
       "hidden": false,
+      "launcher": false,
       "package": "tabsdata-dev-tool-xp",
       "reqs": [],
       "summary": "run tabsdata example suites: instances, domains, projects, triggers, one-shot and bench",

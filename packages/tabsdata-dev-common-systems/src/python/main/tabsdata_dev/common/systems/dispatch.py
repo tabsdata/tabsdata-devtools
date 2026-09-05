@@ -166,6 +166,22 @@ _DOM_CATALOG: dict[str, tuple[str, str | None]] = {
 _COMMANDS_PKG = f"{systems.__name__}._common.commands"
 
 
+def verb_modules(tool: str) -> dict:
+    """verb -> its command module, for the verbs that have one.
+
+    The module declares the verb's options in `add_arguments`, which is what
+    lets `config` describe them without running anything.
+    """
+    catalog = _DOM_CATALOG if _is_domain_tool(tool) else _SYS_CATALOG
+    found = {}
+    for verb, (module_name, _) in catalog.items():
+        try:
+            found[verb] = import_module(f"{_COMMANDS_PKG}.{module_name}")
+        except ImportError:
+            continue
+    return found
+
+
 def _is_domain_tool(tool: str) -> bool:
     return tool in (constants.DOM_TOOL, constants.DOM_SF_TOOL)
 

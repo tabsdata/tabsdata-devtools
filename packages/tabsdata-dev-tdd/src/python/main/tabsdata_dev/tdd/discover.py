@@ -123,6 +123,10 @@ def discover(root: pathlib.Path) -> dict:
         tdd_cfg = doc.get("tool", {}).get("tdd", {})
         demo = bool(tdd_cfg.get("demo", False))
         hidden = bool(tdd_cfg.get("hidden", False))
+        # `[tool.tdd] launcher = true` marks a tool that owns no options at all:
+        # every argument belongs to the program it runs (the one exception to the
+        # CLI guidelines), so it has no `config` action and no config file.
+        launcher = bool(tdd_cfg.get("launcher", False))
         # The common-* packages this tool uses: they join its toolset, and only
         # its toolset -- a heavy shared library must not land in every env.
         commons = sorted(
@@ -168,6 +172,7 @@ def discover(root: pathlib.Path) -> dict:
                 "summary": data.get("description", ""),
                 "reqs": reqs,
                 "demo": demo,
+                "launcher": launcher,
                 "hidden": hidden,
                 "commons": commons,
             }

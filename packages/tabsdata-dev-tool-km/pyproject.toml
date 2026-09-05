@@ -12,6 +12,10 @@ dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
 [project.scripts]
 km = "tabsdata_dev.tool.km:main"
 
+[tool.tdd]
+# every argument is the program's, so there are no options to configure
+launcher = true
+
 [tool.hatch.version]
 path = "../../VERSION"
 pattern = '^(?P<version>\S+)'

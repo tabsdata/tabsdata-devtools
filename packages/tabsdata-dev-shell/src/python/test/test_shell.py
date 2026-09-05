@@ -427,6 +427,9 @@ def test_every_shell_command_with_defaults_has_the_config_action():
     assert 'mv "$_tdd_cfg_tmp" "$_tdd_cfg_file"' in common
     # and the template is the command's own declarations, not a second list
     assert 'command -v "tdd_defaults_$1"' in common
+    # --force rewrites the template but keeps what the file set and what it keeps
+    assert '_tdd_config_template "$_tdd_cfg_cmd" $_tdd_cfg_keepcur' in common
+    assert "keep = ($0 !~ /^\\[options[].]/)" in common
     for name in ("venv", "env", "pycache", "tdd-env"):
         text = (shell.scripts_dir() / f"{name}.sh").read_text()
         assert f"_tdd_config_action {name}" in text, name

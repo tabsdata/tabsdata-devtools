@@ -375,10 +375,17 @@ _tdd_ps1_noop() {
 #
 #     _tdd_config_action <command> "$@"
 
-# The default document: every option commented out at its built-in value, so
-# the file is a template and a line only becomes a default once uncommented.
+# The document `--create` writes and `--default` prints: every option commented
+# out at its built-in value, so the file is a template and a line only becomes a
+# default once uncommented. With --current, whatever the file sets already is
+# written uncommented instead, and whatever tables the file keeps of its own are
+# carried across -- that is what makes `--create --force` a rewrite of the
+# template rather than a loss of the reader's file.
+#     _tdd_config_template <command> [--current]
 _tdd_config_template() {
     _tdd_cfg_file="$TDD_DIR/$1.toml"
+    _tdd_cfg_cur=""
+    [ "${2:-}" = --current ] && _tdd_cfg_cur="$(tdd-exe --dir "$TDD_DIR" --defaults-doc "$1" 2>/dev/null)"
     printf '#\n# Copyright 2026 Tabsdata Inc.\n#\n\n'
     printf '# %s configuration -- %s\n#\n' "$1" "$_tdd_cfg_file"
     printf '# Written by `tdd %s config --create`; `--default` prints this document\n' "$1"
@@ -388,20 +395,48 @@ _tdd_config_template() {
     printf '# `tdd %s` run: typed options always win over it, and an [options.ACTION]\n' "$1"
     printf '# table wins over [options].\n'
     printf '\n[options]\n'
-    printf '# json is JSON Lines, one event per line (default: view)\n# format = "view"\n'
-    printf '# show debug events too\n# verbose = false\n'
-    command -v "tdd_defaults_$1" >/dev/null 2>&1 || return 0
-    "tdd_defaults_$1" | sort -t'|' -k1,1 | while IFS='|' read -r _tdd_cfg_sub _tdd_cfg_opt _tdd_cfg_val; do
-        [ -n "$_tdd_cfg_opt" ] || continue
-        if [ "$_tdd_cfg_sub" != "$_tdd_cfg_last" ]; then
-            case "$_tdd_cfg_sub" in
-                - | "") ;;
-                *) printf '\n[options.%s]\n# only for `tdd %s %s`\n' "$_tdd_cfg_sub" "$1" "$_tdd_cfg_sub" ;;
-            esac
-            _tdd_cfg_last="$_tdd_cfg_sub"
-        fi
-        printf '# %s = %s\n' "$(_tdd_config_key "$_tdd_cfg_opt")" "$(_tdd_config_toml "$_tdd_cfg_val")"
-    done
+    _tdd_config_line "$1" - --format view "json is JSON Lines, one event per line (default: view)"
+    _tdd_config_line "$1" - --verbose false "show debug events too"
+    if command -v "tdd_defaults_$1" >/dev/null 2>&1; then
+        "tdd_defaults_$1" | sort -t'|' -k1,1 | while IFS='|' read -r _tdd_cfg_sub _tdd_cfg_opt _tdd_cfg_val; do
+            [ -n "$_tdd_cfg_opt" ] || continue
+            if [ "$_tdd_cfg_sub" != "$_tdd_cfg_last" ]; then
+                case "$_tdd_cfg_sub" in
+                    - | "") ;;
+                    *) printf '\n[options.%s]\n# only for `tdd %s %s`\n' "$_tdd_cfg_sub" "$1" "$_tdd_cfg_sub" ;;
+                esac
+                _tdd_cfg_last="$_tdd_cfg_sub"
+            fi
+            _tdd_config_line "$1" "$_tdd_cfg_sub" "$_tdd_cfg_opt" "$_tdd_cfg_val" ""
+        done
+    fi
+    # What the command (or the reader) keeps of its own: every table that is not
+    # an [options] one, verbatim -- comments and all.
+    if [ "${2:-}" = --current ] && [ -f "$_tdd_cfg_file" ]; then
+        _tdd_cfg_kept="$(awk '
+            /^\[/ { keep = ($0 !~ /^\[options[].]/) }
+            keep { print }' "$_tdd_cfg_file")"
+        [ -n "$_tdd_cfg_kept" ] && printf '\n%s\n' "$_tdd_cfg_kept"
+    fi
+}
+
+# One line of the template: `# key = default`, or `key = value` when the file
+# sets it (--current). $1 command, $2 subcommand or -, $3 option, $4 default,
+# $5 the help comment to put above it.
+_tdd_config_line() {
+    _tdd_cfg_key="$(_tdd_config_key "$3")"
+    case "$2" in
+        - | "") _tdd_cfg_path=".options.\"\"" ;;
+        *) _tdd_cfg_path=".options.\"$2\"" ;;
+    esac
+    _tdd_cfg_set=""
+    [ -n "$_tdd_cfg_cur" ] && _tdd_cfg_set="$(printf '%s' "$_tdd_cfg_cur" | jq -r "$_tdd_cfg_path.\"$_tdd_cfg_key\" // empty | tostring" 2>/dev/null)"
+    [ -n "${5:-}" ] && printf '# %s\n' "$5"
+    if [ -n "$_tdd_cfg_set" ]; then
+        printf '%s = %s\n' "$_tdd_cfg_key" "$(_tdd_config_toml "$_tdd_cfg_set")"
+    else
+        printf '# %s = %s\n' "$_tdd_cfg_key" "$(_tdd_config_toml "$4")"
+    fi
 }
 
 # `--type` -> `type`: a TOML key is the option's dest, as on the Python side.
@@ -457,7 +492,9 @@ _tdd_config_action() {
             # never half a config.
             _tdd_cfg_tmp="$TDD_DIR/.$_tdd_cfg_cmd.toml.$$.tmp"
             mkdir -p "$TDD_DIR" || { _tdd_error "cannot create $TDD_DIR"; return 1; }
-            if ! _tdd_config_template "$_tdd_cfg_cmd" > "$_tdd_cfg_tmp" 2>/dev/null; then
+            _tdd_cfg_keepcur=""
+            [ -e "$_tdd_cfg_file" ] && _tdd_cfg_keepcur="--current"
+            if ! _tdd_config_template "$_tdd_cfg_cmd" $_tdd_cfg_keepcur > "$_tdd_cfg_tmp" 2>/dev/null; then
                 rm -f "$_tdd_cfg_tmp"
                 _tdd_error "cannot write $_tdd_cfg_file"
                 return 1

@@ -17,8 +17,10 @@ import sys
 import traceback
 from pathlib import Path
 
+from tabsdata_dev.common.core import config as core_config
 from tabsdata_dev.common.core import latch as core_latch
 from tabsdata_dev.common.core import render
+from tabsdata_dev.common.core.errors import ToolError
 from tabsdata_dev.common.systems import cli, console, constants, dispatch
 
 
@@ -59,6 +61,34 @@ def _log_prefix(tool: str, verb: str, argv: list[str]) -> str:
     return f"tdd-{tool}-{verb}-" + (f"{name}-" if name else "")
 
 
+CONFIG_PREAMBLE = """\
+# This family builds a parser per verb rather than one parser with subparsers,
+# so the tables below are the verbs whose options are declared in one place
+# (the command modules). A verb that is not listed can still be configured:
+# add its own [options.VERB] table and its keys are merged like any other.
+"""
+
+
+def config_doc(tool: str) -> core_config.Doc:
+    """The default document: the options every verb takes, then one table per
+    verb whose module declares its own with `add_arguments`."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog=f"tdd {tool}")
+    cli.add_format_verbose(parser)
+    doc = core_config.from_parser(tool, parser, CONFIG_PREAMBLE)
+    for verb, module in dispatch.verb_modules(tool).items():
+        sub = argparse.ArgumentParser(prog=f"tdd {tool} {verb}")
+        try:
+            module.add_arguments(sub)
+        except Exception:  # noqa: BLE001 -- a verb we cannot describe is left out
+            continue
+        found = core_config._options_of(sub)  # noqa: SLF001 -- same module's helper
+        if found:
+            doc.actions[verb] = found
+    return doc
+
+
 def run(tool: str, argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     fmt, verbose, words = _common(argv)
@@ -66,6 +96,17 @@ def run(tool: str, argv: list[str] | None = None) -> int:
         out = render.Renderer(tool, fmt=fmt, verbose=verbose)
         text, fields = dispatch.top_help(tool)
         return out.ok(text, **fields)
+    # `config` is every command's, and this family builds a parser per verb
+    # rather than one with subparsers, so the shared action is reached here
+    # instead of from common.core.cli.run.
+    if words[0] == constants.V_CONFIG:
+        out = render.Renderer(tool, fmt=fmt, verbose=verbose)
+        try:
+            return core_config.run_action(
+                config_doc(tool), argv[argv.index(words[0]) + 1 :], out
+            )
+        except ToolError as exc:
+            return out.error(str(exc))
     # The verb is the first word that is not a common option; its own parser
     # still sees everything after it (the common options are declared on it).
     verb = words[0]

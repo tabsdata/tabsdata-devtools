@@ -56,6 +56,8 @@ V_MANIFEST = "manifest"
 V_UPGRADE = "upgrade"
 V_SECRETS = "secrets"
 V_CRYPTO_KEY = "crypto-key"
+# Every command has it, from the shared layer (common.core.config).
+V_CONFIG = "config"
 V_CONNECT = "connect"
 V_CLEAN_DOCKER = "clean-docker"
 
