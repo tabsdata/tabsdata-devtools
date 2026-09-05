@@ -8,7 +8,8 @@
 # Setting and unsetting variables in the caller's shell is the one thing a
 # Python tool cannot do, so this one command owns every variable tdd manages:
 #
-#     crypto     _TDD_CRYPTO_KEY            from 1Password, via `tdd system crypto-key`
+#     crypto     _TDD_CRYPTO_KEY            from 1Password, via `tdd system crypto-key`,
+#                                          or verbatim from --value
 #     secrets    <PREFIX>__<KEY>..., _TDD_SYSTEMS   via `tdd system secrets`; the latter lists
 #                                                  the prefixes, which is how unset knows what to remove
 #     td         TD_*                              (unset only)
@@ -25,11 +26,20 @@ tdd_fn_register env "set, unset or show this shell's crypto key, 1Password secre
 
 # Built-in option defaults, for `tdd defaults --command env`.
 tdd_defaults_env() {
-    printf '%s\n' "set|--vault|crypto: \${ONE_PASSWORD_EMPLOYEE_VAULT:-Employee}; secrets: 1p:\${ONE_PASSWORD_DEV_XP_VAULT}" \
-        "set|--item|DevSecrets" "set|--field|TD_BACKENDS_CRYPTO_KEY" "set|--force|false" "show|--reveal|false"
+    printf '%s\n' "set|--vault|crypto: $_TDD_VAULT_CRYPTO; secrets: $_TDD_VAULT_SECRETS" \
+        "set|--item|DevSecrets" "set|--field|TD_BACKENDS_CRYPTO_KEY" "set|--value|" "set|--force|false" \
+        "show|--reveal|false"
 }
 
 _TDD_VARS_CRYPTO="_TDD_CRYPTO_KEY"
+# Where --crypto and --secrets read from unless --vault says otherwise, as
+# provider refs. Literals, not $ONE_PASSWORD_*: a vault is a choice made on the
+# command line, and a variable in the environment silently changing which vault
+# a key comes from is exactly the kind of surprise these commands are meant to
+# remove. The minimum key length is crypto.MIN_SECRET_LEN, checked by a test.
+_TDD_VAULT_CRYPTO="1p:Employee"
+_TDD_VAULT_SECRETS="1p:dev_xp"
+_TDD_CRYPTO_MIN=12
 _TDD_VARS_SYSTEMS="_TDD_SYSTEMS"
 _TDD_VARS_PY_EXTRA="UV_INDEX PIP_EXTRA_INDEX_URL"
 _TDD_VARS_PY_EXTRA_LEGACY="UV_EXTRA_INDEX_URL"
@@ -63,7 +73,7 @@ tddfn_env() {
             _tdd_rc=1
             ;;
     esac
-    unset _tdd_sub _tdd_crypto _tdd_secrets _tdd_td _tdd_prefixes _tdd_py_extra _tdd_py_default _tdd_vault _tdd_item _tdd_field _tdd_reveal \
+    unset _tdd_sub _tdd_crypto _tdd_secrets _tdd_td _tdd_prefixes _tdd_py_extra _tdd_py_default _tdd_vault _tdd_item _tdd_field _tdd_value _tdd_reveal \
         _tdd_force _tdd_kept _tdd_args _tdd_lines _tdd_err _tdd_names _tdd_n _tdd_json _tdd_v _tdd_p _tdd_rows _tdd_set_names _tdd_unset_names _tdd_row _tdd_val _tdd_shown
     return "$_tdd_rc"
 }
@@ -71,7 +81,8 @@ tddfn_env() {
 _tdd_vars_help() {
     _tdd_help_text <<'HELP'
 usage: tdd env set (--crypto | --secrets | --py-idx URL | --py-default-idx URL)...
-                   [--vault VAULT] [--item ITEM] [--field FIELD] [--force]
+                   [--vault 1p:VAULT] [--item ITEM] [--field FIELD]
+                   [--value VALUE] [--force]
        tdd env unset (--crypto | --secrets | --td | --vars PREFIX | --py-idx
                      | --py-default-idx)...
        tdd env show [--reveal]
@@ -93,16 +104,21 @@ options:
   --crypto             _TDD_CRYPTO_KEY, the key that encrypts the system
                        and domain descriptors; set reads op://VAULT/ITEM/FIELD --
                        only when the variable is not already set, unless --force
+                       (or --value, which reads nothing)
   --secrets            every <PREFIX>__<KEY> secret of a shared vault plus
                        _TDD_SYSTEMS, the list of prefixes -- which is what
                        unset reads to know what to remove
-  --vault VAULT        set --crypto: the 1Password vault (default:
-                       $ONE_PASSWORD_EMPLOYEE_VAULT, else Employee); set
-                       --secrets: the provider ref, 1p:VAULT (default:
-                       1p:$ONE_PASSWORD_DEV_XP_VAULT). Not with both at once
+  --vault 1p:VAULT     set: the vault to read from, as a provider ref
+                       (1p is the only provider today). Defaults: --crypto
+                       1p:Employee, --secrets 1p:dev_xp; no variable of the
+                       environment is consulted
   --item ITEM          set --crypto: item in the vault (default: DevSecrets)
   --field FIELD        set --crypto: field of the item (default:
                        TD_BACKENDS_CRYPTO_KEY, the 1Password field's name)
+  --value VALUE        set --crypto: this value IS the key (at least 12
+                       characters); nothing is read from 1Password and the
+                       variable is replaced whether or not it is set. Not with
+                       --vault, --item or --field
   -f, --force          set --crypto: fetch from 1Password even if
                        _TDD_CRYPTO_KEY is already set
   --td                 unset: every variable starting with TD_ (tabsdata's);
@@ -159,6 +175,7 @@ _tdd_vars_set() {
     _tdd_vault=""
     _tdd_item=""
     _tdd_field=""
+    _tdd_value=""
     _tdd_force=0
     _tdd_set_names=""
     while [ $# -gt 0 ]; do
@@ -175,6 +192,9 @@ _tdd_vars_set() {
             --field | --field=*)
                 _tdd_optval "$@" || { _tdd_error "--field needs a value"; return 1; }
                 _tdd_field="$_TDD_OPTVAL"; shift "$_TDD_CONSUMED" ;;
+            --value | --value=*)
+                _tdd_optval "$@" || { _tdd_error "--value needs a value"; return 1; }
+                _tdd_value="$_TDD_OPTVAL"; shift "$_TDD_CONSUMED" ;;
             --py-idx | --py-idx=*)
                 _tdd_optval "$@" || { _tdd_error "--py-idx needs a URL"; return 1; }
                 _tdd_py_extra="$_TDD_OPTVAL"; shift "$_TDD_CONSUMED" ;;
@@ -191,21 +211,45 @@ _tdd_vars_set() {
         return 0
     fi
     _tdd_cmd_check || return 1
+    if [ -n "$_tdd_value" ] && [ "$_tdd_crypto" = 0 ]; then
+        # Before "nothing selected": --value says what to set, not that anything is.
+        _tdd_error "--value is the crypto key itself; pass --crypto to say so"
+        return 1
+    fi
     if [ "$_tdd_crypto" = 0 ] && [ "$_tdd_secrets" = 0 ] && [ -z "$_tdd_py_extra" ] && [ -z "$_tdd_py_default" ]; then
         _tdd_error "nothing selected: --crypto, --secrets, --py-idx URL and/or --py-default-idx URL (see --help)"
         return 1
     fi
-    _tdd_kept=""
-    if [ "$_tdd_crypto" = 1 ] && [ -n "${_TDD_CRYPTO_KEY:-}" ] && [ "$_tdd_force" != 1 ]; then
-        _tdd_kept="$_TDD_VARS_CRYPTO"
+    if [ -n "$_tdd_vault" ]; then
+        # One form for both selections: a provider ref, as `--secrets` always
+        # took. 1p is the only provider, and crypto-key reads 1Password directly.
+        case "$_tdd_vault" in
+            1p:?*) ;;
+            *) _tdd_error "--vault takes a vault as a provider ref, 1p:NAME (got: $_tdd_vault)"; return 1 ;;
+        esac
     fi
-    if [ -n "$_tdd_vault" ] && [ "$_tdd_crypto" = 1 ] && [ "$_tdd_secrets" = 1 ]; then
-        _tdd_error "--vault means different things to --crypto and --secrets; set them in two calls"
-        return 1
+    if [ -n "$_tdd_value" ]; then
+        if [ -n "$_tdd_vault$_tdd_item$_tdd_field" ]; then
+            _tdd_error "--value is the key itself; --vault, --item and --field say where to read one instead"
+            return 1
+        fi
+        # The value never reaches an event or the failure log; only its length.
+        if [ "${#_tdd_value}" -lt "$_TDD_CRYPTO_MIN" ]; then
+            _tdd_error "--value must be at least $_TDD_CRYPTO_MIN characters, got ${#_tdd_value}"
+            return 1
+        fi
+    fi
+    _tdd_kept=""
+    if [ "$_tdd_crypto" = 1 ] && [ -n "$_tdd_value" ]; then
+        # Given, not fetched: no trip to 1Password, so nothing to keep or force.
+        export "$_TDD_VARS_CRYPTO=$_tdd_value"
+        _tdd_set_names="$_tdd_set_names $_TDD_VARS_CRYPTO"
+        _tdd_crypto=0
     fi
     if [ "$_tdd_crypto" = 1 ] && [ -n "${_TDD_CRYPTO_KEY:-}" ] && [ "$_tdd_force" != 1 ]; then
         # Already there: no trip to 1Password (a signed-in `op` is not a given
         # in every shell); --force refetches.
+        _tdd_kept="$_TDD_VARS_CRYPTO"
         # The ok says it when the key was the only selection; otherwise say it here.
         if [ "$_tdd_secrets" = 1 ] || [ -n "$_tdd_py_extra" ] || [ -n "$_tdd_py_default" ]; then
             _tdd_info "$_TDD_VARS_CRYPTO is already set; not fetched (use --force to refetch)"
@@ -213,8 +257,9 @@ _tdd_vars_set() {
         _tdd_crypto=0
     fi
     if [ "$_tdd_crypto" = 1 ]; then
-        _tdd_args=""
-        [ -n "$_tdd_vault" ] && _tdd_args="$_tdd_args --vault=$_tdd_vault"
+        # crypto-key names the vault itself, so the ref sheds its provider.
+        _tdd_v="${_tdd_vault:-$_TDD_VAULT_CRYPTO}"
+        _tdd_args=" --vault=${_tdd_v#1p:}"
         [ -n "$_tdd_item" ] && _tdd_args="$_tdd_args --item=$_tdd_item"
         [ -n "$_tdd_field" ] && _tdd_args="$_tdd_args --field=$_tdd_field"
         _tdd_info "tdd system crypto-key$_tdd_args --as export"
@@ -222,11 +267,7 @@ _tdd_vars_set() {
         _tdd_vars_apply crypto-key $(printf '%s' "$_tdd_args") || return 1
     fi
     if [ "$_tdd_secrets" = 1 ]; then
-        _tdd_v="${_tdd_vault:-${ONE_PASSWORD_DEV_XP_VAULT:+1p:$ONE_PASSWORD_DEV_XP_VAULT}}"
-        if [ -z "$_tdd_v" ]; then
-            _tdd_error "--secrets needs --vault 1p:VAULT (or ONE_PASSWORD_DEV_XP_VAULT set)"
-            return 1
-        fi
+        _tdd_v="${_tdd_vault:-$_TDD_VAULT_SECRETS}"
         _tdd_info "tdd system secrets --set $_tdd_v --as export"
         _tdd_vars_apply secrets "--set=$_tdd_v" || return 1
     fi

@@ -132,7 +132,8 @@ ENV_CRYPTO_KEY = "_TDD_CRYPTO_KEY"
 # Where `crypto-key` reads the personal key from, unless told otherwise: the
 # 1Password Employee vault every user has, item DevSecrets, and the field that
 # item has always had -- the 1Password schema did not follow the variable's rename.
-ENV_EMPLOYEE_VAULT = "ONE_PASSWORD_EMPLOYEE_VAULT"
+# Literals: which vault a key comes from is a choice made on the command line,
+# never one an exported variable can change underfoot.
 DEFAULT_EMPLOYEE_VAULT = "Employee"
 DEFAULT_CRYPTO_ITEM = "DevSecrets"
 DEFAULT_CRYPTO_FIELD = "TD_BACKENDS_CRYPTO_KEY"
@@ -155,11 +156,6 @@ class EnvVar:
 
 
 ENV_VARS: tuple[EnvVar, ...] = (
-    EnvVar(
-        ENV_EMPLOYEE_VAULT,
-        DEFAULT_EMPLOYEE_VAULT,
-        "1Password vault `crypto-key` reads the key from",
-    ),
     EnvVar(
         ENV_CRYPTO_KEY, "(required, >=12 chars)", "secret that encrypts descriptors"
     ),

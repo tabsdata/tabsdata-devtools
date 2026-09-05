@@ -749,8 +749,6 @@ def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
     """Fetch the personal descriptor key -- what `secrets` does, for the one
     variable everything else needs first. Deliberately never reads the store,
     so it works before the key is set."""
-    import os
-
     from tabsdata_dev.common.systems import crypto
 
     p = ArgumentParser(
@@ -758,15 +756,13 @@ def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
         description=f"fetch ${constants.ENV_CRYPTO_KEY} from 1Password and print it "
         "(source the export form to set it in your shell)",
     )
-    default_vault = (
-        os.environ.get(constants.ENV_EMPLOYEE_VAULT) or constants.DEFAULT_EMPLOYEE_VAULT
-    )
     p.add_argument(
         constants.OPT_VAULT,
-        default=default_vault,
+        default=constants.DEFAULT_EMPLOYEE_VAULT,
         metavar="VAULT",
-        help=f"1Password vault (default: ${constants.ENV_EMPLOYEE_VAULT}, else "
-        f"{constants.DEFAULT_EMPLOYEE_VAULT})",
+        help=f"1Password vault, plain or as the provider ref 1p:VAULT that "
+        f"`tdd env set` speaks (default: {constants.DEFAULT_EMPLOYEE_VAULT}); no "
+        "variable of the environment is consulted",
     )
     p.add_argument(
         constants.OPT_ITEM,
@@ -789,6 +785,11 @@ def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
     )
     cli.add_format_verbose(p)
     a = p.parse_args(rest)
+    # 1p is this verb's only provider, so a ref that names it says nothing more
+    # than the bare vault does -- both spellings resolve to the same vault.
+    scheme, sep, rest_ = a.vault.partition(":")
+    if sep and scheme == "1p" and rest_:
+        a.vault = rest_
     console.debug(f"op read op://{a.vault}/{a.item}/{a.field}")
     value = core_secrets.read_field("1p", a.vault, a.item, a.field)
     if len(value) < crypto.MIN_SECRET_LEN:

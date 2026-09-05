@@ -376,3 +376,25 @@ def test_sourcing_says_version_and_dir_in_interactive_shells_only():
 def test_tdd_routes_the_short_version_flag_to_tdd_exe():
     text = shell.source_template()
     assert "-V | --version | --reqs)" in text
+
+
+def test_env_set_takes_provider_refs_a_literal_default_and_a_crypto_value():
+    text = (shell.scripts_dir() / "env.sh").read_text()
+    # the vault of each selection is a literal, never read from the environment
+    assert '_TDD_VAULT_CRYPTO="1p:Employee"' in text
+    assert '_TDD_VAULT_SECRETS="1p:dev_xp"' in text
+    assert "ONE_PASSWORD" not in text.replace(
+        "# provider refs. Literals, not $ONE_PASSWORD_*: a vault is a choice made on the",
+        "",
+    )
+    # --vault is one form for both: a provider ref
+    assert "1p:?*) ;;" in text and "1p:NAME" in text
+    assert (
+        '_tdd_args=" --vault=${_tdd_v#1p:}"' in text
+    )  # crypto-key wants the bare vault
+    # --value: the key itself, at least MIN_SECRET_LEN characters, crypto only
+    assert "_TDD_CRYPTO_MIN=12" in text
+    assert '[ "${#_tdd_value}" -lt "$_TDD_CRYPTO_MIN" ]' in text
+    assert "--value is the crypto key itself; pass --crypto to say so" in text
+    assert '"set|--value|"' in text
+

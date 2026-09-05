@@ -162,3 +162,25 @@ def test_port_range_mixin_walks_its_slot_without_repeating_or_leaving_it():
         assert [g.next_free_port() for _ in range(3)] == [lo + 50, lo + 51, got[0]]
     finally:
         busy.close()
+
+
+def test_crypto_key_takes_a_literal_vault_default_and_the_shell_agrees_on_the_minimum():
+    import pathlib
+
+    from tabsdata_dev.common.systems import crypto
+
+    repo = pathlib.Path(__file__).resolve().parents[5]
+    env_sh = (repo / "packages/tabsdata-dev-shell/scripts/unix/env.sh").read_text()
+    # `tdd env set --crypto --value` checks the length the crypto module enforces
+    assert f"_TDD_CRYPTO_MIN={crypto.MIN_SECRET_LEN}" in env_sh
+    # neither side lets a variable of the environment choose the vault
+    assert not hasattr(constants, "ENV_EMPLOYEE_VAULT")
+    assert constants.DEFAULT_EMPLOYEE_VAULT == "Employee"
+    assert f'_TDD_VAULT_CRYPTO="1p:{constants.DEFAULT_EMPLOYEE_VAULT}"' in env_sh
+    assert not any(ev.name.startswith("ONE_PASSWORD") for ev in constants.ENV_VARS)
+    src = (
+        repo
+        / "packages/tabsdata-dev-common-systems/src/python/main/tabsdata_dev"
+        / "common/systems/dispatch.py"
+    ).read_text()
+    assert "ONE_PASSWORD" not in src
