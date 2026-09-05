@@ -18,7 +18,7 @@ no Python, no venv.
 
 ```bash
 git clone <this repo> && cd tabsdata-devtools
-scripts/install.sh                  # builds ~/.tdd and writes every command's config file
+./install.sh                  # builds ~/.tdd and writes every command's config file
 cargo make install                  # the envs only; `-- --editable` links this checkout
 source ~/.tdd/tdd-source.sh
 echo 'source ~/.tdd/tdd-source.sh' >> ~/.zshrc   # .zshrc, not .zprofile: tdd is a shell function

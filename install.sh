@@ -5,7 +5,7 @@
 
 # install.sh -- build a tdd dir and give every command its config file.
 #
-#     scripts/install.sh [--dir PATH] [--editable] [--force] [--no-config]
+#     ./install.sh [--dir PATH] [--editable] [--force] [--no-config]
 #
 # `cargo make install` builds the envs; this adds the second half of a fresh
 # setup: `tdd <command> config --create` for every command that has options, so
@@ -29,7 +29,7 @@ fi
 
 usage() {
     cat <<'USAGE'
-usage: scripts/install.sh [--dir PATH] [--editable] [--force] [--no-config]
+usage: ./install.sh [--dir PATH] [--editable] [--force] [--no-config]
 
 Build a tdd dir with `cargo make install`, then create the config file of every
 command that has options (`tdd <command> config --create`).
@@ -41,7 +41,7 @@ options:
   --force       recreate a config file that already exists, keeping what it set
   --no-config   only build the tdd dir
 
-example: scripts/install.sh --dir /tmp/t2 --editable
+example: ./install.sh --dir /tmp/t2 --editable
 USAGE
 }
 

@@ -86,7 +86,7 @@ cargo make help                  # every task with its options
 cargo make install               # wheels + locks -> <dir>/wheels, build the envs from them
 cargo make dev                   # = install -- --editable: every env linked to this checkout
 cargo make check                 # lint + test + reqs — the gate; must pass before a commit
-scripts/install.sh               # install + a config file for every command (--dir, --editable, --force)
+./install.sh               # install + a config file for every command (--dir, --editable, --force)
 cargo make test                  # every package's tests, each in the env it ships with
 cargo make fmt                   # ruff format; run after editing (stale string patches fail otherwise)
 ```
