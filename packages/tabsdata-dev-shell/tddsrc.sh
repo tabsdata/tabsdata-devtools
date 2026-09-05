@@ -491,10 +491,14 @@ PS1="$_tdd_star${PS1-}"
 _TDD_PROMPT_MARK="$_tdd_star"
 unset _tdd_star
 
-# ---------------------------------------------------------------- shorthands
-# A few tools are typed often enough to earn a bare name in an interactive
-# shell. They are plain functions over `tdd <tool>`, so every option, default
-# and event stays the tool's -- nothing is duplicated here.
+# ---------------------------------------------------------------- aliases
+# Commands typed often enough to earn a bare name in the shell. Each is an
+# alias for `tdd <command>`, so every option, default and event stays the
+# command's -- nothing is duplicated here. Written as functions rather than
+# with `alias`: a shell alias is not expanded in a non-interactive shell, and
+# these have to work the same in a script.
+#
+#     alias                command
 gsx() {
     tdd gsx "$@"
 }

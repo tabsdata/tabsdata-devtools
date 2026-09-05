@@ -394,10 +394,12 @@ def test_a_secret_option_value_is_masked_in_the_log_and_the_resolved_line():
     assert '_tdd_info "resolved: tdd $(_tdd_mask_argv "$*")"' in shell.source_template()
 
 
-def test_sourcing_defines_the_gsx_shorthand_over_the_tool():
+def test_the_aliases_section_defines_gsx_over_the_command():
     text = shell.source_template()
-    hand = text.split("---- shorthands", 1)[1]
-    assert 'gsx() {\n    tdd gsx "$@"\n}' in hand  # the tool keeps every option
+    aliases = text.split("---- aliases", 1)[1]
+    assert 'gsx() {\n    tdd gsx "$@"\n}' in aliases  # the command keeps every option
+    # functions, not `alias`: a shell alias is not expanded non-interactively
+    assert "alias gsx=" not in text
 
 
 def test_every_shell_command_with_defaults_has_the_config_action():
