@@ -58,6 +58,31 @@ FAR_FUTURE = "2099-12-31"
 _DATABASE_KEYS = frozenset({"HOSTNAME", "PORT", "USERNAME", "PASSWORD"})
 
 
+# What `op item create` takes, and all it takes: a title to file the item under,
+# a category to shape it, and the fields. Everything else an item carries -- id,
+# version, vault, timestamps, last_edited_by -- describes the item it was read
+# *from*, so carrying it into a create would either be ignored or file the new
+# item as a copy of the old one's identity.
+UPLOAD_KEYS = ("title", "category", "fields")
+# `reference` is the op:// URL a field was read at. 1Password mints it from the
+# vault, item and field it ends up in, so one copied from elsewhere points at
+# elsewhere.
+FIELD_DROP = ("reference",)
+
+
+def for_upload(item: dict) -> dict:
+    """`item` reduced to what may be created from it.
+
+    Lets a whole `op item get --format=json` be handed straight back to
+    :func:`.secrets_1p.set_item`: read an item, edit a value, file it again."""
+    out = {k: item[k] for k in UPLOAD_KEYS if k in item}
+    out["fields"] = [
+        {k: v for k, v in field.items() if k not in FIELD_DROP}
+        for field in out.get("fields", [])
+    ]
+    return out
+
+
 def vault_options(backend) -> tuple:
     """The options that belong in a shared vault: every one the backend does not
     exclude with ``onepassword_skip``.
@@ -90,12 +115,6 @@ def field_id(key: str) -> str:
     """The field id for a meta key. Lower-case, so it reads like the hand-written
     templates; ``secrets_1p`` upper-cases it back to the key."""
     return key.lower()
-
-
-def env_var(backend, key: str, title: str | None = None) -> str:
-    """The variable ``secrets`` will produce for this option -- the round-trip
-    this module exists to make exact."""
-    return f"{_norm(title_for(backend, title))}__{_norm(field_id(key))}"
 
 
 def _norm(s: str) -> str:
@@ -167,63 +186,6 @@ def render(payload: dict) -> str:
     return json.dumps(payload, indent=2)
 
 
-def describe(backend, title: str | None = None) -> dict:
-    """The template as tdx's own description: every field beside the option it
-    stands for and the variable it becomes."""
-    item_title = title_for(backend, title)
-    fields = []
-    for opt in vault_options(backend):
-        fields.append(
-            {
-                "field": field_id(opt.name),
-                "key": opt.name,
-                "env": env_var(backend, opt.name, item_title),
-                "type": TYPE_CONCEALED if opt.secret else TYPE_STRING,
-                "source": opt.source,
-                "secret": opt.secret,
-                "required": opt.required,
-                "default": opt.default_doc,
-            }
-        )
-    return {
-        "type": backend.slug,
-        "label": getattr(backend, "label", backend.slug),
-        "title": item_title,
-        "category": category_for(backend),
-        "env_prefix": getattr(backend, "env_prefix", ""),
-        "fields": fields,
-    }
-
-
-def view(backend, title: str | None = None) -> str:
-    """The readable rendering: what to put in the vault, and what each field
-    becomes in the environment."""
-    desc = describe(backend, title)
-    head = (
-        f"  {desc['type']}  ({desc['label']})\n"
-        f"  1Password item: {desc['title']}   category: {desc['category']}"
-    )
-    if not desc["fields"]:
-        return f"{head}\n  (this type takes no create options)"
-    rows = [("FIELD", "ENV VAR", "1P TYPE", "SOURCE", "DEFAULT")]
-    rows += [
-        (
-            f["field"],
-            f["env"],
-            f["type"],
-            f["source"] + ("" if f["required"] else " (optional)"),
-            f["default"],
-        )
-        for f in desc["fields"]
-    ]
-    widths = [max(len(r[i]) for r in rows) for i in range(4)]
-    body = "\n".join(
-        f"  {a:<{widths[0]}}  {b:<{widths[1]}}  {c:<{widths[2]}}  {d:<{widths[3]}}  {e}"
-        for a, b, c, d, e in rows
-    )
-    return f"{head}\n\n{body}"
-
-
 def item_for_descriptor(info, title: str | None = None) -> dict:
     """The item for a *provisioned* system: the same shape, carrying the values
     the descriptor holds rather than placeholders."""
@@ -236,9 +198,9 @@ def item_for_descriptor(info, title: str | None = None) -> dict:
 __all__ = [
     "CATEGORY_API",
     "CATEGORY_DATABASE",
-    "describe",
+    "for_upload",
     "item",
     "item_for_descriptor",
     "render",
-    "view",
+    "vault_options",
 ]

@@ -60,7 +60,7 @@ V_CRYPTO_KEY = "crypto-key"
 V_CONFIG = "config"
 V_CONNECT = "connect"
 V_CLEAN_DOCKER = "clean-docker"
-V_TEMPLATE = "template"
+V_1P_TEMPLATE = "1p-template"
 V_1P_SET = "1p-set"
 
 # --- option flags ----------------------------------------------------------
@@ -133,8 +133,8 @@ FMT_1P = "1p"  # a 1Password item, ready for `op item create --template=`
 BASE_FORMATS = (FMT_JSON, FMT_VIEW)
 # info / secrets / crypto-key: shell lines to eval, or the 1Password item.
 RENDER_FORMATS = ("export", "unset", FMT_1P)
-# template renders a type rather than a descriptor: no shell form to eval.
-TEMPLATE_FORMATS = (FMT_1P,)
+# `1p-template` and `1p-set` speak one shape only -- the 1Password item -- so
+# neither takes a --format at all.
 
 # Every container the docker-backed systems create -- `docker run` ones
 # (`_common/sql.py`) and compose projects (`_common/containers.py`) -- is named

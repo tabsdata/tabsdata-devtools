@@ -19,6 +19,7 @@
                        [--ssh-port N] [--identity KEYFILE] [--force]
     tdd system upgrade [--sys-dir DIR]        # convert legacy TDX2 descriptors
     tdd system secrets --set 1p:<vault> [--format export|unset]
+    tdd system 1p-template --type TYPE|list|ALL
     tdd system 1p-set --vault <vault> --entry PATH|-
     tdd system crypto-key [--vault V] [--item I] [--field F] [--format export|unset]
     tdd system clean-docker [--yes]           # stop and delete every tdx2* docker container
@@ -543,6 +544,8 @@ def _read_entry(entry: str) -> dict:
     needs -- a title to file it under, a category to shape it, and the fields
     themselves. Better here than as op's own error after the delete has already
     happened."""
+    from tabsdata_dev.common.systems import onepassword
+
     if entry == "-":
         # Decode the pipe ourselves: sys.stdin's encoding follows the locale, so
         # an item read under LANG=C would not survive a non-ASCII value.
@@ -568,10 +571,12 @@ def _read_entry(entry: str) -> dict:
     if missing:
         raise TdxError(
             f"{where} is not a 1Password item: no {', '.join(missing)} "
-            f"(`tdd {constants.SYS_TOOL} {constants.V_TEMPLATE} {constants.OPT_TYPE} "
-            f"TYPE {constants.OPT_FORMAT} {constants.FMT_1P}` writes one)"
+            f"(`tdd {constants.SYS_TOOL} {constants.V_1P_TEMPLATE} "
+            f"{constants.OPT_TYPE} TYPE` writes one)"
         )
-    return item
+    # Reduced to what a create may carry, so a whole `op item get --format=json`
+    # can be handed straight back -- read an item, edit a value, file it again.
+    return onepassword.for_upload(item)
 
 
 def _cmn_1p_set(tool: str, rest: list[str]) -> int:
@@ -586,10 +591,9 @@ def _cmn_1p_set(tool: str, rest: list[str]) -> int:
         prog=f"tdd {tool} {constants.V_1P_SET}",
         description="put a 1Password item in a vault, replacing what is filed "
         "under its title (delete, then create -- a create alone duplicates)",
-        epilog=f"example: tdd {constants.SYS_TOOL} {constants.V_TEMPLATE} "
-        f"{constants.OPT_TYPE} s3 {constants.OPT_FORMAT} {constants.FMT_1P} | "
-        f"tdd {constants.SYS_TOOL} {constants.V_1P_SET} {constants.OPT_VAULT} "
-        f"dev_xp {constants.OPT_ENTRY} -",
+        epilog=f"example: tdd {constants.SYS_TOOL} {constants.V_1P_TEMPLATE} "
+        f"{constants.OPT_TYPE} s3 | tdd {constants.SYS_TOOL} {constants.V_1P_SET} "
+        f"{constants.OPT_VAULT} dev_xp {constants.OPT_ENTRY} -",
     )
     p.add_argument(
         constants.OPT_VAULT,
@@ -603,7 +607,7 @@ def _cmn_1p_set(tool: str, rest: list[str]) -> int:
         metavar="PATH",
         help="the item JSON (`-` reads it from stdin)",
     )
-    cli.add_format_verbose(p)
+    cli.add_verbose(p)
     a = p.parse_args(rest)
     item = _read_entry(a.entry)
     title = str(item["title"])
@@ -628,64 +632,44 @@ def _shape(fmt: str) -> str:
     return constants.FMT_JSON if fmt == constants.FMT_VIEW else fmt
 
 
-def _cmn_template(tool: str, rest: list[str]) -> int:
-    """A type's create options as something to fill in, before any system exists.
+def _cmn_1p_template(tool: str, rest: list[str]) -> int:
+    """A type's create options as the 1Password item its credentials belong in.
 
-    ``--format 1p`` is the point of it: the 1Password item a system's credentials
-    belong in, in the shape `op item create` takes and `secrets` reads back (see
-    :mod:`.onepassword`). ``view`` reads that mapping out -- every field beside
-    the variable it becomes -- and ``json`` is the same as data, in the event."""
+    One shape only, so there is nothing to choose: the item `op item create`
+    takes and `secrets` reads back (see :mod:`.onepassword`). The title is the
+    type's own env prefix, which is what the variables it yields are prefixed
+    with -- renaming it would only break that."""
     from tabsdata_dev.common.systems import onepassword
 
     p = ArgumentParser(
-        prog=f"tdd {tool} {constants.V_TEMPLATE}",
-        description="a system type's create options as a template to fill in: the "
-        "1Password item its credentials belong in (--format 1p, one type at a "
-        "time for `op item create --template=FILE`), or a listing of it",
+        prog=f"tdd {tool} {constants.V_1P_TEMPLATE}",
+        description="a system type's create options as the 1Password item its "
+        "credentials belong in, to fill in and file with 1p-set",
+        epilog=f"example: tdd {constants.SYS_TOOL} {constants.V_1P_TEMPLATE} "
+        f"{constants.OPT_TYPE} s3 | tdd {constants.SYS_TOOL} {constants.V_1P_SET} "
+        f"{constants.OPT_VAULT} dev_xp {constants.OPT_ENTRY} -",
     )
     cli.add_type(p)
-    p.add_argument(
-        constants.OPT_PREFIX,
-        default=None,
-        metavar="TITLE",
-        help="the 1Password item title, which is the prefix its fields become "
-        "when read back (default: the type's own env prefix); one type only",
-    )
-    cli.add_format_verbose(p, constants.TEMPLATE_FORMATS)
+    cli.add_verbose(p)
     a = p.parse_args(rest)
     slugs = _template_slugs(a.type)
-    if a.prefix and len(slugs) > 1:
-        raise TdxError(
-            f"{tool} {constants.V_TEMPLATE}: {constants.OPT_PREFIX} names one "
-            f"item title, so it takes one type (got {len(slugs)})"
-        )
-    backends = [systems.get(slug) for slug in slugs]
-    if a.format == constants.FMT_1P:
-        items = [onepassword.item(b, title=a.prefix) for b in backends]
-        text = onepassword.render(items[0] if len(items) == 1 else items)
-    else:
-        text = "\n\n".join(onepassword.view(b, a.prefix) for b in backends)
-    console.result(
-        {
-            "format": a.format,
-            "types": slugs,
-            # the machine form rides in the event, so `--format json` has it
-            "templates": [onepassword.describe(b, a.prefix) for b in backends],
-            "lines": text.splitlines(),
-        }
-    )
-    # The rendering *is* the result, on stdout, so it can be piped to a file.
+    items = [onepassword.item(systems.get(slug)) for slug in slugs]
+    # One type is one item, as `op item create` takes it; several are a list,
+    # which is a listing rather than something to file.
+    text = onepassword.render(items[0] if len(items) == 1 else items)
+    console.result({"types": slugs, "items": items})
+    # The rendering *is* the result, on stdout, so it can be piped to 1p-set.
     console.good(text)
     return 0
 
 
 def _template_slugs(target: str | None) -> list[str]:
-    """The types a `template` run covers: one, a comma list, or every one of
+    """The types a `1p-template` run covers: one, a comma list, or every one of
     them (ALL). Named rather than defaulted -- a template is about a type, and
     there is no current one to assume."""
     if not target:
         raise TdxError(
-            f"{constants.V_TEMPLATE}: {constants.OPT_TYPE} TYPE|list|ALL is "
+            f"{constants.V_1P_TEMPLATE}: {constants.OPT_TYPE} TYPE|list|ALL is "
             f"required (see `{constants.V_TYPES}` for the types)"
         )
     if target.strip().upper() == constants.TARGET_ALL:
@@ -1043,7 +1027,7 @@ def _cmn_clean_docker(tool: str, rest: list[str]) -> int:
 _COMMON = {
     constants.SYS_TOOL: {
         constants.V_TYPES: _cmn_types,
-        constants.V_TEMPLATE: _cmn_template,
+        constants.V_1P_TEMPLATE: _cmn_1p_template,
         constants.V_1P_SET: _cmn_1p_set,
         constants.V_LIST: _cmn_sys_list,
         constants.V_INFO: _cmn_sys_info,
@@ -1354,7 +1338,7 @@ def top_help(tool: str) -> tuple[str, dict]:
     verbs = list(common) + [v for v in delegated if v not in common]
     summaries = {
         constants.V_TYPES: "list system types, their toolsets and docker images",
-        constants.V_TEMPLATE: "a type's create options to fill in (--format view|1p)",
+        constants.V_1P_TEMPLATE: "a type's create options as a 1Password item (--type T)",
         constants.V_1P_SET: "file a 1Password item in a vault (--vault V --entry PATH|-)",
         constants.V_LIST: "list the descriptors in the store",
         constants.V_INFO: "print a descriptor (--format export|unset|1p)",

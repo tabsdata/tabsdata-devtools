@@ -448,12 +448,12 @@ def test_info_renders_a_descriptor_as_a_1password_item_holding_its_values():
     assert json.loads(descriptor.info_render(info, constants.FMT_1P, "S3Dev"))["title"]
 
 
-def test_template_covers_every_type_and_says_so_when_none_is_named(capsys):
+def test_1p_template_covers_every_type_and_says_so_when_none_is_named(capsys):
     from tabsdata_dev.common.systems import main
 
     rc = main.run(
         constants.SYS_TOOL,
-        [constants.V_TEMPLATE, constants.OPT_TYPE, "ALL", constants.OPT_FORMAT, "1p"],
+        [constants.V_1P_TEMPLATE, constants.OPT_TYPE, "ALL"],
     )
     out = capsys.readouterr().out
     assert rc == 0
@@ -461,14 +461,17 @@ def test_template_covers_every_type_and_says_so_when_none_is_named(capsys):
     assert len(items) == len(systems.all_slugs())
 
     # a template is about a type, and there is no current one to assume
-    rc = main.run(constants.SYS_TOOL, [constants.V_TEMPLATE, "--format", "json"])
-    events = [
-        json.loads(line)
-        for line in capsys.readouterr().out.splitlines()
-        if line.startswith("{")
-    ]
-    err = [e for e in events if e["event"] == "error"][0]
-    assert rc == 1 and constants.OPT_TYPE in err["message"]
+    rc = main.run(constants.SYS_TOOL, [constants.V_1P_TEMPLATE])
+    said = capsys.readouterr()
+    assert rc == 1 and constants.OPT_TYPE in said.out + said.err
+
+    # the item is the only shape it speaks, so there is no --format to ask for
+    rc = main.run(
+        constants.SYS_TOOL,
+        [constants.V_1P_TEMPLATE, constants.OPT_TYPE, "s3", "--format", "1p"],
+    )
+    said = capsys.readouterr()
+    assert rc == 1 and "--format" in said.out + said.err
 
 
 def test_gcppostgres_1p_item_carries_the_certificate_but_not_the_path_to_it(tmp_path):
@@ -608,3 +611,55 @@ def test_1p_set_refuses_anything_that_is_not_an_item_before_it_deletes(tmp_path)
         dispatch._read_entry(str(bad))
     with pytest.raises(TdxError, match="cannot read"):
         dispatch._read_entry(str(tmp_path / "nope.json"))
+
+
+def test_1p_set_uploads_only_what_a_create_may_carry(tmp_path):
+    """A whole `op item get --format=json` can be handed straight back to
+    1p-set: read an item, edit a value, file it again. What is dropped is the
+    identity of the item it was read *from* -- id, version, vault, timestamps --
+    and each field's op:// reference, which 1Password mints from where the field
+    ends up, so a copied one points somewhere else."""
+    from tabsdata_dev.common.systems import dispatch
+
+    got = {
+        "id": "abcd1234",
+        "title": "GCPPOSTGRES",
+        "version": 3,
+        "vault": {"id": "v1", "name": "dev_xp"},
+        "category": "DATABASE",
+        "last_edited_by": "USER1",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-02-01T00:00:00Z",
+        "additional_information": "postgres",
+        "fields": [
+            {
+                "id": "username",
+                "type": "STRING",
+                "purpose": "USERNAME",
+                "label": "username",
+                "value": "postgres",
+                "reference": "op://dev_xp/GCPPOSTGRES/username",
+            }
+        ],
+    }
+    entry = tmp_path / "item.json"
+    entry.write_text(json.dumps(got))
+    out = dispatch._read_entry(str(entry))
+
+    assert list(out) == ["title", "category", "fields"]
+    assert out["title"] == "GCPPOSTGRES" and out["category"] == "DATABASE"
+    # the field keeps everything that describes it, and loses only the reference
+    assert out["fields"] == [
+        {
+            "id": "username",
+            "type": "STRING",
+            "purpose": "USERNAME",
+            "label": "username",
+            "value": "postgres",
+        }
+    ]
+    # and a template this tool generated passes through untouched
+    from tabsdata_dev.common.systems import onepassword, systems as _s
+
+    item = onepassword.item(_s.get("gcppostgres"))
+    assert onepassword.for_upload(item) == item

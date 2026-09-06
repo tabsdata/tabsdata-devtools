@@ -49,6 +49,12 @@ def add_format_verbose(
         choices=(*constants.BASE_FORMATS, *renders),
         help=f"json is one event per line (default: view){extra}",
     )
+    add_verbose(parser)
+
+
+def add_verbose(parser: argparse.ArgumentParser) -> None:
+    """``-v`` alone, for a command that renders one shape and so has no
+    ``--format`` to offer (the runner still reads both from raw argv)."""
     parser.add_argument(
         "-v", constants.OPT_VERBOSE, action="store_true", help="show debug events too"
     )
