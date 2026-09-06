@@ -6,6 +6,6 @@
 # with a dedicated owner role. Only the backend is system-specific; every verb
 # runs the shared command in _common/commands.
 
-from tabsdata_dev.common.systems.systems.rdspostgres.backend import RdsPostgres
+from tabsdata_dev.common.systems.systems.awspostgres.backend import AwsPostgres
 
-__all__ = ["RdsPostgres"]
+__all__ = ["AwsPostgres"]

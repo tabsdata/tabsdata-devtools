@@ -44,7 +44,7 @@ is consulted once they run out. Backends that need no ports never ask.
 | `db2` | 20500-20599 | container |
 | `mysqlcdc` | 20600-20699 | container |
 | `postgrescdc` | 20700-20799 | container |
-| `rdspostgres` | 20800-20899 | no ports |
+| `awspostgres` | 20800-20899 | no ports |
 | `fs` | 20900-20999 | no ports |
 | `s3` | 21000-21099 | no ports |
 | `gcs` | 21100-21199 | no ports |
@@ -61,6 +61,7 @@ is consulted once they run out. Backends that need no ports never ask.
 | `clickhouse` | 22200-22299 | container |
 | `db2cdc` | 22300-22399 | container |
 | `salesforce` | 22400-22499 | no ports |
+| `gcppostgres` | 22500-22599 | no ports |
 
 ## Where in the code
 

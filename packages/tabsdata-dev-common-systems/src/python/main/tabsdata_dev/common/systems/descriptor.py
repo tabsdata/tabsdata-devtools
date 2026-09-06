@@ -16,6 +16,7 @@ commands never load the system descriptor.
 from __future__ import annotations
 
 import os
+import shlex
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Literal, Union
@@ -248,7 +249,8 @@ def info_render(
 ) -> str:
     """Render a descriptor for ``info``. ``json`` dumps the whole model;
     ``export`` / ``unset`` emit shell lines for each ``meta`` key, optionally
-    prefixed as ``<PREFIX>__<KEY>``; ``1p`` emits the 1Password item that would
+    prefixed as ``<PREFIX>__<KEY>`` and POSIX-quoted, so ``eval "$(... --format
+    export)"`` reproduces each value byte for byte; ``1p`` emits the 1Password item that would
     hold this system's credentials -- there ``prefix`` is the item title, since
     the title is what becomes the variables' prefix when they are read back."""
     if fmt == "json":
@@ -258,7 +260,13 @@ def info_render(
         return f"{prefix}__{k}" if prefix else k
 
     if fmt == "export":
-        return "\n".join(f"export {key(k)}={v!r}" for k, v in info.meta.items())
+        # POSIX quoting, not repr(): repr switches to double quotes around a
+        # value containing a single quote, and the shell then expands the $ and
+        # backticks inside it. shlex.quote also carries a multiline value
+        # through eval intact, which is what a PEM in meta needs.
+        return "\n".join(
+            f"export {key(k)}={shlex.quote(v)}" for k, v in info.meta.items()
+        )
     if fmt == "unset":
         return "\n".join(f"unset {key(k)}" for k in info.meta)
     if fmt == constants.FMT_1P:

@@ -264,7 +264,7 @@ common_stage set-crypto "set _TDD_CRYPTO_KEY"
 common_run tdd env set --crypto
 common_checkpoint set-crypto
 
-common_stage systems "dev and fs, rdspostgres, s3 (and --llm) plus every system the suites need must be in the tdd store"
+common_stage systems "dev and fs, awspostgres, s3 (and --llm) plus every system the suites need must be in the tdd store"
 # checked UPFRONT: a run missing one must fail before anything is built
 common_run tdd system create --type dev --sys dev --force
 # fs needs an explicit absolute root: its default is target/backends/<name>
@@ -273,7 +273,7 @@ common_run tdd system create --type fs --sys fs --sys-path "$TDD_DIR_OPT/data/fs
 for suite in "${SUITE_LIST[@]}"; do
     common_run tdd xp list-systems --suite "$suite"
 done
-common_run tdd system status --sys rdspostgres
+common_run tdd system status --sys awspostgres
 common_run tdd system status --sys s3
 [ -z "$LLM" ] || common_run tdd system status --sys "$LLM"
 common_checkpoint systems
@@ -323,7 +323,7 @@ fi
 common_stage domains "domains $RDS_DOMAIN, $S3_DOMAIN${LLM:+, $LLM_DOMAIN} -- the instance's database, storage${LLM:+ and LLM key}"
 # Each domain is this run's slice of the shared system. Values are eval'd into
 # THIS shell, never echoed; they fill the config files below.
-common_run tdd domain create --sys rdspostgres --domain "$RDS_DOMAIN" --force
+common_run tdd domain create --sys awspostgres --domain "$RDS_DOMAIN" --force
 common_note "eval \$(tdd domain info --domain $RDS_DOMAIN --format export --prefix RDS)   (values not shown)"
 eval "$(tdd domain info --domain "$RDS_DOMAIN" --format export --prefix RDS 2>/dev/null)"
 common_run test -n "${RDS__HOST:+set}${RDS__PORT:+set}${RDS__DB:+set}${RDS__USER:+set}${RDS__PASSWORD:+set}"

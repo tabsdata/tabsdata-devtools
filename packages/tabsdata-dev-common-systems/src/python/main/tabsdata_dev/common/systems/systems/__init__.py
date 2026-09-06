@@ -33,7 +33,7 @@ _SLUGS: dict[str, tuple[str, str]] = {
     "db2": ("db2", "Db2"),
     "mysqlcdc": ("mysqlcdc", "Mysqlcdc"),
     "postgrescdc": ("postgrescdc", "Postgrescdc"),
-    "rdspostgres": ("rdspostgres", "RdsPostgres"),
+    "awspostgres": ("awspostgres", "AwsPostgres"),
     "fs": ("fs", "Fs"),
     "s3": ("s3", "S3"),
     "gcs": ("gcs", "GCS"),
@@ -50,6 +50,7 @@ _SLUGS: dict[str, tuple[str, str]] = {
     "clickhouse": ("clickhouse", "Clickhouse"),
     "db2cdc": ("db2cdc", "Db2Cdc"),
     "salesforce": ("salesforce", "Salesforce"),
+    "gcppostgres": ("gcppostgres", "GcpPostgres"),
 }
 
 
