@@ -513,3 +513,98 @@ def test_gcppostgres_1p_item_carries_the_certificate_but_not_the_path_to_it(tmp_
 
     produced = {f"{_norm(item['title'])}__{_norm(i)}" for i in ids}
     assert {"GCPPOSTGRES__SERVER_CA_PEM", "GCPPOSTGRES__SSLMODE"} <= produced
+
+
+def test_1p_set_deletes_before_creating_so_a_title_cannot_duplicate(
+    tmp_path, monkeypatch, capsys
+):
+    """`op item create` files a second item under a title that already exists
+    rather than replacing the first, and a vault with two `S3` items reads back
+    a coin toss -- so a set is a delete followed by a create."""
+    from tabsdata_dev.common.core import secrets_1p
+    from tabsdata_dev.common.systems import main
+
+    calls: list[list[str]] = []
+    sent: dict[str, str] = {}
+
+    def fake_run(argv, **kw):
+        calls.append(list(argv))
+
+        class CP:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        cp = CP()
+        if argv[0] == "which":
+            return cp
+        if "get" in argv:
+            cp.returncode = 0 if sent.get("exists") else 1
+        if "create" in argv:
+            # the item is piped in, not written anywhere and not in argv
+            sent["stdin"] = kw.get("input", "")
+            cp.stdout = '{"id": "abc123"}'
+        return cp
+
+    monkeypatch.setattr(secrets_1p.subprocess, "run", fake_run)
+    item = {"title": "S3", "category": "API_CREDENTIAL", "fields": [{"id": "bucket"}]}
+    entry = tmp_path / "s3.json"
+    entry.write_text(json.dumps(item))
+
+    # the item is already filed: delete, then create
+    sent["exists"] = True
+    rc = main.run(
+        constants.SYS_TOOL,
+        [
+            constants.V_1P_SET,
+            constants.OPT_VAULT,
+            "dev_xp",
+            constants.OPT_ENTRY,
+            str(entry),
+        ],
+    )
+    assert rc == 0
+    ops = [c[c.index("item") + 1] for c in calls if "item" in c]
+    assert ops == ["get", "delete", "create"]
+    assert all(c[c.index("--vault") + 1] == "dev_xp" for c in calls if "--vault" in c)
+    # what op is handed is the item itself, on stdin: not in argv (which every
+    # user on the machine can read) and not written to a file at all
+    assert json.loads(sent["stdin"]) == item
+    assert not any("--template" in c or "secret" in " ".join(c) for c in calls)
+    out = capsys.readouterr().out
+    assert "replaced 'S3'" in out and "Recently Deleted" in out
+
+    # nothing filed under that title yet: no delete to do
+    calls.clear()
+    sent["exists"] = False
+    assert (
+        main.run(
+            constants.SYS_TOOL,
+            [
+                constants.V_1P_SET,
+                constants.OPT_VAULT,
+                "dev_xp",
+                constants.OPT_ENTRY,
+                str(entry),
+            ],
+        )
+        == 0
+    )
+    assert [c[c.index("item") + 1] for c in calls if "item" in c] == ["get", "create"]
+    assert "created 'S3'" in capsys.readouterr().out
+
+
+def test_1p_set_refuses_anything_that_is_not_an_item_before_it_deletes(tmp_path):
+    """The check is here rather than left to op: a refusal after the delete has
+    already run is a refusal that has destroyed something."""
+    from tabsdata_dev.common.systems import dispatch
+
+    bad = tmp_path / "bad.json"
+    bad.write_text('{"title": "S3"}')  # no category, no fields
+    with pytest.raises(TdxError, match="category, fields"):
+        dispatch._read_entry(str(bad))
+    bad.write_text("[]")
+    with pytest.raises(TdxError, match="one 1Password item"):
+        dispatch._read_entry(str(bad))
+    with pytest.raises(TdxError, match="cannot read"):
+        dispatch._read_entry(str(tmp_path / "nope.json"))

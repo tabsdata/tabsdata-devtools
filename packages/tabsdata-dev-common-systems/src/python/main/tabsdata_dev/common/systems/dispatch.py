@@ -19,6 +19,7 @@
                        [--ssh-port N] [--identity KEYFILE] [--force]
     tdd system upgrade [--sys-dir DIR]        # convert legacy TDX2 descriptors
     tdd system secrets --set 1p:<vault> [--format export|unset]
+    tdd system 1p-set --vault <vault> --entry PATH|-
     tdd system crypto-key [--vault V] [--item I] [--field F] [--format export|unset]
     tdd system clean-docker [--yes]           # stop and delete every tdx2* docker container
 
@@ -535,6 +536,90 @@ def _cmn_types(tool: str, rest: list[str]) -> int:
     return 0
 
 
+def _read_entry(entry: str) -> dict:
+    """The item JSON `--entry` names: a file, or ``-`` for stdin.
+
+    Refuses anything that is not an item, by the three keys `op item create`
+    needs -- a title to file it under, a category to shape it, and the fields
+    themselves. Better here than as op's own error after the delete has already
+    happened."""
+    if entry == "-":
+        # Decode the pipe ourselves: sys.stdin's encoding follows the locale, so
+        # an item read under LANG=C would not survive a non-ASCII value.
+        text = sys.stdin.buffer.read().decode("utf-8")
+        where = "stdin"
+    else:
+        try:
+            text = Path(entry).expanduser().read_text(encoding="utf-8")
+        except OSError as exc:
+            raise TdxError(f"cannot read {constants.OPT_ENTRY} {entry}: {exc}")
+        where = entry
+    try:
+        item = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise TdxError(f"{where} is not valid JSON: {exc}")
+    missing = (
+        [k for k in ("title", "category", "fields") if not item.get(k)]
+        if isinstance(item, dict)
+        else None
+    )
+    if missing is None:
+        raise TdxError(f"{where} must be one 1Password item (a JSON object)")
+    if missing:
+        raise TdxError(
+            f"{where} is not a 1Password item: no {', '.join(missing)} "
+            f"(`tdd {constants.SYS_TOOL} {constants.V_TEMPLATE} {constants.OPT_TYPE} "
+            f"TYPE {constants.OPT_FORMAT} {constants.FMT_1P}` writes one)"
+        )
+    return item
+
+
+def _cmn_1p_set(tool: str, rest: list[str]) -> int:
+    """Put one item in a vault, replacing what is filed under its title.
+
+    The other end of `template` / `info --format 1p`: those write the item, this
+    files it. Always delete-then-create -- see :func:`secrets_1p.set_item` for
+    why a create alone would duplicate rather than replace."""
+    from tabsdata_dev.common.core import secrets_1p
+
+    p = ArgumentParser(
+        prog=f"tdd {tool} {constants.V_1P_SET}",
+        description="put a 1Password item in a vault, replacing what is filed "
+        "under its title (delete, then create -- a create alone duplicates)",
+        epilog=f"example: tdd {constants.SYS_TOOL} {constants.V_TEMPLATE} "
+        f"{constants.OPT_TYPE} s3 {constants.OPT_FORMAT} {constants.FMT_1P} | "
+        f"tdd {constants.SYS_TOOL} {constants.V_1P_SET} {constants.OPT_VAULT} "
+        f"dev_xp {constants.OPT_ENTRY} -",
+    )
+    p.add_argument(
+        constants.OPT_VAULT,
+        required=True,
+        metavar="VAULT",
+        help="1Password vault to file the item in",
+    )
+    p.add_argument(
+        constants.OPT_ENTRY,
+        required=True,
+        metavar="PATH",
+        help="the item JSON (`-` reads it from stdin)",
+    )
+    cli.add_format_verbose(p)
+    a = p.parse_args(rest)
+    item = _read_entry(a.entry)
+    title = str(item["title"])
+    console.out(f"\u25b6 filing '{title}' in vault '{a.vault}' \u2026")
+    replaced, item_id = secrets_1p.set_item(a.vault, item)
+    console.result(
+        {"vault": a.vault, "title": title, "replaced": replaced, "id": item_id}
+    )
+    console.good(
+        f"{'replaced' if replaced else 'created'} '{title}' in vault '{a.vault}'"
+        + (f" ({item_id})" if item_id else "")
+        + (" -- the item it replaced is in Recently Deleted" if replaced else "")
+    )
+    return 0
+
+
 def _shape(fmt: str) -> str:
     """The document `--format` asks for. ``view`` and ``json`` differ in the
     envelope, not the document -- both render the payload as JSON -- so a plain
@@ -959,6 +1044,7 @@ _COMMON = {
     constants.SYS_TOOL: {
         constants.V_TYPES: _cmn_types,
         constants.V_TEMPLATE: _cmn_template,
+        constants.V_1P_SET: _cmn_1p_set,
         constants.V_LIST: _cmn_sys_list,
         constants.V_INFO: _cmn_sys_info,
         constants.V_MANIFEST: _cmn_sys_manifest,
@@ -1269,6 +1355,7 @@ def top_help(tool: str) -> tuple[str, dict]:
     summaries = {
         constants.V_TYPES: "list system types, their toolsets and docker images",
         constants.V_TEMPLATE: "a type's create options to fill in (--format view|1p)",
+        constants.V_1P_SET: "file a 1Password item in a vault (--vault V --entry PATH|-)",
         constants.V_LIST: "list the descriptors in the store",
         constants.V_INFO: "print a descriptor (--format export|unset|1p)",
         constants.V_MANIFEST: "dump a YAML manifest of the store (--out FILE)",

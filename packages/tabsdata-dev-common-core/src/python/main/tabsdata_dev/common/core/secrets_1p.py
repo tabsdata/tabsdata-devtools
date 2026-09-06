@@ -99,3 +99,55 @@ def read_field(vault: str, item: str, field: str) -> str:
     if not value or value == "null":
         raise ToolError(f"{ref} is empty")
     return value
+
+
+def _op(args: list[str], what: str, stdin: str | None = None) -> str:
+    cp = subprocess.run(
+        ["op", *args], input=stdin, capture_output=True, encoding="utf-8"
+    )
+    if cp.returncode != 0:
+        raise ToolError(
+            f"{what}: {cp.stderr.strip() or cp.stdout.strip() or 'op failed'}"
+        )
+    return cp.stdout
+
+
+def item_exists(vault: str, title: str) -> bool:
+    _require("op")
+    cp = subprocess.run(
+        ["op", "--vault", vault, "item", "get", title, "--format=json"],
+        capture_output=True,
+        encoding="utf-8",
+    )
+    return cp.returncode == 0
+
+
+def set_item(vault: str, item: dict) -> tuple[bool, str]:
+    """Put `item` in `vault` under its own title, and return
+    ``(replaced, item_id)``.
+
+    Delete first, then create: 1Password keys an item on the id *it* assigns,
+    never on the title we send, so creating over a title that already exists
+    makes a second item with the same name rather than replacing the first --
+    and a vault with two `S3` items is one that reads back a coin toss. A
+    deleted item is recoverable from Recently Deleted for 30 days, which is what
+    makes delete-then-create an acceptable way to spell "set".
+
+    The item is piped in -- ``op item create -`` reads a template from standard
+    input -- so the values reach op through neither argv, which every user on the
+    machine can read, nor a file.
+    """
+    _require("op")
+    title = str(item.get("title", ""))
+    replaced = item_exists(vault, title)
+    if replaced:
+        _op(["--vault", vault, "item", "delete", title], f"could not delete '{title}'")
+    out = _op(
+        ["--vault", vault, "item", "create", "-", "--format=json"],
+        f"could not create '{title}'",
+        stdin=json.dumps(item),
+    )
+    try:
+        return replaced, str(json.loads(out).get("id", ""))
+    except json.JSONDecodeError:
+        return replaced, ""

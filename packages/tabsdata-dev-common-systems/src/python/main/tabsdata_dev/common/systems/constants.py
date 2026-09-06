@@ -61,6 +61,7 @@ V_CONFIG = "config"
 V_CONNECT = "connect"
 V_CLEAN_DOCKER = "clean-docker"
 V_TEMPLATE = "template"
+V_1P_SET = "1p-set"
 
 # --- option flags ----------------------------------------------------------
 OPT_TYPE = "--type"
@@ -86,6 +87,7 @@ OPT_VERBOSE = "--verbose"
 OPT_OUT = "--out"  # manifest: destination file
 OPT_SET = "--set"
 OPT_VAULT = "--vault"
+OPT_ENTRY = "--entry"  # 1p-set: the item JSON (- reads stdin)
 OPT_ITEM = "--item"
 OPT_FIELD = "--field"
 OPT_MANIFEST = "--manifest"

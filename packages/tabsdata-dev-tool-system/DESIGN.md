@@ -29,8 +29,15 @@ connection details kept as encrypted descriptors.
   carrying what the system actually has. The title *is* the prefix (`--prefix` overrides it), a
   field id is its meta key lower-cased, a secret option is `CONCEALED`, and a
   host/port/user/password type is 1Password's `DATABASE` item rather than an `API_CREDENTIAL`.
-  A backend's `onepassword_skip` keeps an option out of the item; a computed default is written
-  in rather than left as `?`, which would be read back as the literal string.
+  A backend's `onepassword_skip` keeps an option out of the item (`gcppostgres` carries its server
+  CA as the certificate, never the local path to a copy); a computed default is written in rather
+  than left as `?`, which would be read back as the literal string.
+- `1p-set --vault V --entry PATH|-` files such an item, closing the loop: `template` writes it,
+  this puts it in the vault, `secrets` reads it back as the variables `create` needs. Always a
+  delete then a create -- `op item create` files a *second* item under a title that already
+  exists, and a vault with two `S3` items reads back a coin toss; what it replaces stays in
+  Recently Deleted for 30 days. The item is piped to `op` (`item create -`), so it reaches it
+  through neither argv nor a file, and is refused before the delete if it is not an item.
 - Every descriptor read or write needs `_TDD_CRYPTO_KEY`; `create --force` replaces a descriptor
   an older key left unreadable.
 - Batch verbs run children through `tdd-exe` in parallel (`TDD_PARALLELISM`), heaviest first,
