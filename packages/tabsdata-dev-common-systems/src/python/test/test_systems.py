@@ -184,3 +184,108 @@ def test_crypto_key_takes_a_literal_vault_default_and_the_shell_agrees_on_the_mi
         / "common/systems/dispatch.py"
     ).read_text()
     assert "ONE_PASSWORD" not in src
+
+
+def test_every_type_makes_a_1password_item_that_reads_back_as_its_own_env_vars():
+    """The round-trip is the whole point: an item's title becomes the `<PREFIX>`
+    and each field id the `<KEY>` of the variables `secrets` produces, and those
+    are what a type's env-sourced options read. Normalised by the very function
+    the reader uses, so the two halves cannot drift apart."""
+    from tabsdata_dev.common.core.secrets_1p import _norm as reader_norm
+    from tabsdata_dev.common.systems import onepassword, options as opts
+
+    for slug in systems.all_slugs():
+        backend = systems.get(slug)
+        item = onepassword.item(backend)
+        # what `secrets_1p.fetch` would name every field of this item
+        produced = {
+            f"{reader_norm(item['title'])}__{reader_norm(f['id'])}"
+            for f in item["fields"]
+            if f["id"] != onepassword.EXPIRES_FIELD
+        }
+        # a container type declares no env prefix at all (nothing of its create
+        # comes from the environment); the item falls back to the slug
+        prefix = getattr(backend, "env_prefix", "") or slug.upper()
+        skipped = set(getattr(backend, "onepassword_skip", ()))
+        for opt in backend.options():
+            if opt.source != opts.ENV:
+                continue
+            if opt.name in skipped:  # deliberately not vault material
+                assert f"{prefix}__{opt.name}" not in produced
+                continue
+            # exactly the variable options.resolve() reads for this option
+            assert f"{prefix}__{opt.name}" in produced, (
+                f"{slug}: no 1p field yields ${prefix}__{opt.name}"
+            )
+
+
+def test_1p_item_conceals_secrets_and_takes_its_category_from_its_fields():
+    from tabsdata_dev.common.systems import onepassword
+
+    # a host/port/user/password type is 1Password's DATABASE item, and gets the
+    # database_type menu filled from the dialect (the human would have to guess)
+    rds = systems.get("rdspostgres")
+    item = onepassword.item(rds)
+    assert item["category"] == onepassword.CATEGORY_DATABASE
+    assert item["fields"][0] == {
+        "id": "database_type",
+        "label": "type",
+        "type": "MENU",
+        "value": "postgresql",
+    }
+    assert not any(f["id"] == onepassword.EXPIRES_FIELD for f in item["fields"])
+
+    # everything else is a credential, with the expires field those carry --
+    # which the reader skips, so it never becomes a variable
+    s3 = onepassword.item(systems.get("s3"))
+    assert s3["category"] == onepassword.CATEGORY_API
+    assert s3["fields"][-1]["type"] == "DATE"
+
+    for slug in systems.all_slugs():
+        backend = systems.get(slug)
+        by_id = {f["id"]: f for f in onepassword.item(backend)["fields"]}
+        for opt in onepassword.vault_options(backend):
+            want = "CONCEALED" if opt.secret else "STRING"
+            assert by_id[opt.name.lower()]["type"] == want, f"{slug}.{opt.name}"
+
+
+def test_info_renders_a_descriptor_as_a_1password_item_holding_its_values():
+    """`info --format 1p` is the same item with what the system actually has in it;
+    `--prefix` names the title, since the title is what the prefix comes from."""
+    from tabsdata_dev.common.systems import descriptor
+
+    info = descriptor.SystemInfo(
+        system="s3",
+        name="s3",
+        started="now",
+        meta={"BUCKET": "b", "REGION": "r", "ACCESS_KEY": "ak", "SECRET_KEY": "sk"},
+    )
+    item = json.loads(descriptor.info_render(info, constants.FMT_1P))
+    values = {f["id"]: f["value"] for f in item["fields"]}
+    assert values["bucket"] == "b" and values["access_key"] == "ak"
+    # an option with no value in the descriptor stays a placeholder to fill in
+    assert values["sys_path"] == "?"
+    assert json.loads(descriptor.info_render(info, constants.FMT_1P, "S3Dev"))["title"]
+
+
+def test_template_covers_every_type_and_says_so_when_none_is_named(capsys):
+    from tabsdata_dev.common.systems import main
+
+    rc = main.run(
+        constants.SYS_TOOL,
+        [constants.V_TEMPLATE, constants.OPT_TYPE, "ALL", constants.OPT_FORMAT, "1p"],
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    items = json.loads(out[out.index("[") : out.rindex("]") + 1])
+    assert len(items) == len(systems.all_slugs())
+
+    # a template is about a type, and there is no current one to assume
+    rc = main.run(constants.SYS_TOOL, [constants.V_TEMPLATE, "--format", "json"])
+    events = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{")
+    ]
+    err = [e for e in events if e["event"] == "error"][0]
+    assert rc == 1 and constants.OPT_TYPE in err["message"]

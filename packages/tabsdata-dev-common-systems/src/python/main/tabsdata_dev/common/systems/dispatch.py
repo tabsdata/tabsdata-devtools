@@ -7,7 +7,7 @@
     tdd system types                          # system types, toolsets, images
     tdd system list [--sys-dir DIR]           # systems in the store
     tdd system manifest [--out FILE]          # YAML manifest of the store
-    tdd system info --sys NAME|list|ALL | --manifest FILE [--as json|export|unset] [--prefix P]
+    tdd system info --sys NAME|list|ALL | --manifest FILE [--format export|unset|1p] [--prefix P]
     tdd system create  --type TYPE [--sys NAME] [--sys-prefix P] [--ports P,..] [--sys-hostname HOST]
     tdd system create  --type ALL|t1,t2 [--sys-prefix P]         # one per type
     tdd system destroy --sys NAME|s1,s2|ALL | --manifest FILE [--force] [--dry-run]
@@ -18,14 +18,14 @@
     tdd system connect --remote-sys [user@]HOST:PATH --remote-secret-env VAR --sys NAME
                        [--ssh-port N] [--identity KEYFILE] [--force]
     tdd system upgrade [--sys-dir DIR]        # convert legacy TDX2 descriptors
-    tdd system secrets --set 1p:<vault> [--as json|export|unset]
-    tdd system crypto-key [--vault V] [--item I] [--field F] [--as json|export|unset]
+    tdd system secrets --set 1p:<vault> [--format export|unset]
+    tdd system crypto-key [--vault V] [--item I] [--field F] [--format export|unset]
     tdd system clean-docker [--yes]           # stop and delete every tdx2* docker container
 
     tdd domain list [--domain-dir DIR]
     tdd domain manifest [--out FILE]
     tdd domain upgrade [--domain-dir DIR]
-    tdd domain info --domain NAME|list|ALL | --manifest FILE [--as ...]
+    tdd domain info --domain NAME|list|ALL | --manifest FILE [--format ...]
     tdd domain create      --sys NAME [--domain NAME] [--domain-prefix P] [--force]
     tdd domain create      --sys ALL|s1,s2 [--domain-prefix P]   # one domain / system
     tdd domain destroy     --domain NAME|d1,d2|ALL [--force] [--dry-run]
@@ -535,6 +535,82 @@ def _cmn_types(tool: str, rest: list[str]) -> int:
     return 0
 
 
+def _shape(fmt: str) -> str:
+    """The document `--format` asks for. ``view`` and ``json`` differ in the
+    envelope, not the document -- both render the payload as JSON -- so a plain
+    `info` reads as it always did, and `--format json` still wraps it in events
+    (the runner consumes that value before a command's parser sees it)."""
+    return constants.FMT_JSON if fmt == constants.FMT_VIEW else fmt
+
+
+def _cmn_template(tool: str, rest: list[str]) -> int:
+    """A type's create options as something to fill in, before any system exists.
+
+    ``--format 1p`` is the point of it: the 1Password item a system's credentials
+    belong in, in the shape `op item create` takes and `secrets` reads back (see
+    :mod:`.onepassword`). ``view`` reads that mapping out -- every field beside
+    the variable it becomes -- and ``json`` is the same as data, in the event."""
+    from tabsdata_dev.common.systems import onepassword
+
+    p = ArgumentParser(
+        prog=f"tdd {tool} {constants.V_TEMPLATE}",
+        description="a system type's create options as a template to fill in: the "
+        "1Password item its credentials belong in (--format 1p, one type at a "
+        "time for `op item create --template=FILE`), or a listing of it",
+    )
+    cli.add_type(p)
+    p.add_argument(
+        constants.OPT_PREFIX,
+        default=None,
+        metavar="TITLE",
+        help="the 1Password item title, which is the prefix its fields become "
+        "when read back (default: the type's own env prefix); one type only",
+    )
+    cli.add_format_verbose(p, constants.TEMPLATE_FORMATS)
+    a = p.parse_args(rest)
+    slugs = _template_slugs(a.type)
+    if a.prefix and len(slugs) > 1:
+        raise TdxError(
+            f"{tool} {constants.V_TEMPLATE}: {constants.OPT_PREFIX} names one "
+            f"item title, so it takes one type (got {len(slugs)})"
+        )
+    backends = [systems.get(slug) for slug in slugs]
+    if a.format == constants.FMT_1P:
+        items = [onepassword.item(b, title=a.prefix) for b in backends]
+        text = onepassword.render(items[0] if len(items) == 1 else items)
+    else:
+        text = "\n\n".join(onepassword.view(b, a.prefix) for b in backends)
+    console.result(
+        {
+            "format": a.format,
+            "types": slugs,
+            # the machine form rides in the event, so `--format json` has it
+            "templates": [onepassword.describe(b, a.prefix) for b in backends],
+            "lines": text.splitlines(),
+        }
+    )
+    # The rendering *is* the result, on stdout, so it can be piped to a file.
+    console.good(text)
+    return 0
+
+
+def _template_slugs(target: str | None) -> list[str]:
+    """The types a `template` run covers: one, a comma list, or every one of
+    them (ALL). Named rather than defaulted -- a template is about a type, and
+    there is no current one to assume."""
+    if not target:
+        raise TdxError(
+            f"{constants.V_TEMPLATE}: {constants.OPT_TYPE} TYPE|list|ALL is "
+            f"required (see `{constants.V_TYPES}` for the types)"
+        )
+    if target.strip().upper() == constants.TARGET_ALL:
+        return systems.all_slugs()
+    slugs = [t.strip() for t in target.split(",") if t.strip()]
+    for slug in slugs:
+        systems.get_class(slug)  # refuses, naming every known type
+    return slugs
+
+
 def _cmn_sys_list(tool: str, rest: list[str]) -> int:
     p = ArgumentParser(prog=f"tdd {tool} {constants.V_LIST}")
     cli.add_sys_dir(p)
@@ -605,7 +681,7 @@ def _render_infos(
         }
     )
     # The rendering *is* the result: on stdout, as the ok message, so
-    # `eval "$(tdd domain info --domain x --as export)"` keeps working.
+    # `eval "$(tdd domain info --domain x --format export)"` keeps working.
     console.good(text)
     return 0
 
@@ -615,11 +691,11 @@ def _cmn_sys_info(tool: str, rest: list[str]) -> int:
     cli.add_sys(p, required=False)
     cli.add_sys_dir(p)
     _add_info_manifest(p)
-    cli.add_as(p)
-    cli.add_format_verbose(p)
+    cli.add_prefix(p)
+    cli.add_format_verbose(p, constants.RENDER_FORMATS)
     a = p.parse_args(rest)
     names, is_batch = _info_targets(tool, a.sys, a.manifest, a.sys_dir)
-    return _render_infos(tool, names, a.sys_dir, a.as_, a.prefix, is_batch)
+    return _render_infos(tool, names, a.sys_dir, _shape(a.format), a.prefix, is_batch)
 
 
 def _cmn_dom_list(tool: str, rest: list[str]) -> int:
@@ -679,11 +755,13 @@ def _cmn_dom_info(tool: str, rest: list[str]) -> int:
     cli.add_domain(p, required=False)
     cli.add_domain_dir(p)
     _add_info_manifest(p)
-    cli.add_as(p)
-    cli.add_format_verbose(p)
+    cli.add_prefix(p)
+    cli.add_format_verbose(p, constants.RENDER_FORMATS)
     a = p.parse_args(rest)
     names, is_batch = _info_targets(tool, a.domain, a.manifest, a.domain_dir)
-    return _render_infos(tool, names, a.domain_dir, a.as_, a.prefix, is_batch)
+    return _render_infos(
+        tool, names, a.domain_dir, _shape(a.format), a.prefix, is_batch
+    )
 
 
 def _add_manifest_out(p: ArgumentParser) -> None:
@@ -747,18 +825,13 @@ def _cmn_secrets(tool: str, rest: list[str]) -> int:
         metavar="PROVIDER:REF",
         help="provider ref, e.g. 1p:<vault> (1Password via the `op` CLI)",
     )
-    p.add_argument(
-        constants.OPT_AS,
-        dest="as_",
-        default=core_secrets.OUT_FORMATS[0],
-        choices=list(core_secrets.OUT_FORMATS),
-        help=f"output shape (default: {core_secrets.OUT_FORMATS[0]})",
-    )
-    cli.add_format_verbose(p)
+    # These render shell lines to eval, never a 1Password item: they *read* a
+    # vault, and what comes back is a set of variables, not one system's entry.
+    cli.add_format_verbose(p, ("export", "unset"))
     a = p.parse_args(rest)
     found = core_secrets.with_systems_var(core_secrets.fetch(a.ref))
-    console.result({"as": a.as_, "names": list(found)})
-    console.good(core_secrets.render(found, a.as_))
+    console.result({"format": a.format, "names": list(found)})
+    console.good(core_secrets.render(found, _shape(a.format)))
     return 0
 
 
@@ -793,14 +866,9 @@ def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
         metavar="FIELD",
         help=f"field of the item (default: {constants.DEFAULT_CRYPTO_FIELD})",
     )
-    p.add_argument(
-        constants.OPT_AS,
-        dest="as_",
-        default=core_secrets.OUT_FORMATS[0],
-        choices=list(core_secrets.OUT_FORMATS),
-        help=f"output shape (default: {core_secrets.OUT_FORMATS[0]})",
-    )
-    cli.add_format_verbose(p)
+    # These render shell lines to eval, never a 1Password item: they *read* a
+    # vault, and what comes back is a set of variables, not one system's entry.
+    cli.add_format_verbose(p, ("export", "unset"))
     a = p.parse_args(rest)
     # 1p is this verb's only provider, so a ref that names it says nothing more
     # than the bare vault does -- both spellings resolve to the same vault.
@@ -816,9 +884,9 @@ def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
         )
     found = {constants.ENV_CRYPTO_KEY: value}
     console.result(
-        {"as": a.as_, "names": list(found), "vault": a.vault, "item": a.item}
+        {"format": a.format, "names": list(found), "vault": a.vault, "item": a.item}
     )
-    console.good(core_secrets.render(found, a.as_))
+    console.good(core_secrets.render(found, _shape(a.format)))
     return 0
 
 
@@ -890,6 +958,7 @@ def _cmn_clean_docker(tool: str, rest: list[str]) -> int:
 _COMMON = {
     constants.SYS_TOOL: {
         constants.V_TYPES: _cmn_types,
+        constants.V_TEMPLATE: _cmn_template,
         constants.V_LIST: _cmn_sys_list,
         constants.V_INFO: _cmn_sys_info,
         constants.V_MANIFEST: _cmn_sys_manifest,
@@ -1199,12 +1268,13 @@ def top_help(tool: str) -> tuple[str, dict]:
     verbs = list(common) + [v for v in delegated if v not in common]
     summaries = {
         constants.V_TYPES: "list system types, their toolsets and docker images",
+        constants.V_TEMPLATE: "a type's create options to fill in (--format view|1p)",
         constants.V_LIST: "list the descriptors in the store",
-        constants.V_INFO: "print a descriptor (--as json|export|unset)",
+        constants.V_INFO: "print a descriptor (--format export|unset|1p)",
         constants.V_MANIFEST: "dump a YAML manifest of the store (--out FILE)",
         constants.V_UPGRADE: "convert legacy TDX2 descriptors in the store to TDX3",
         constants.V_SECRETS: "fetch a provider's secrets as env vars (--set 1p:VAULT)",
-        constants.V_CRYPTO_KEY: f"fetch ${constants.ENV_CRYPTO_KEY} from 1Password (--as export to source it)",
+        constants.V_CRYPTO_KEY: f"fetch ${constants.ENV_CRYPTO_KEY} from 1Password (--format export to source it)",
         constants.V_CLEAN_DOCKER: f"stop and delete every {constants.DOCKER_CONTAINER_PREFIX}* docker container (--yes/-y to skip the prompt)",
     }
     summaries.update(delegated)

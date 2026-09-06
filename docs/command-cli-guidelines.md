@@ -25,7 +25,7 @@ options winning, and announces the resolved line -- commands do nothing for it.
 | `--help`, `-h` | usage, description, options, one example, in argparse's layout on both sides; exit 0. Headings bold and terms cyan on a terminal, plain in a pipe (`render.colorize_help`; the shell's `_tdd_help_text` paints the same) |
 | `--verbose`, `-v` | more detail about what is happening, never a different result |
 | `--force`, `-f` / `--yes`, `-y` | where a command has them: overwrite or drop-first / do not ask |
-| `--format json\|view` | output format, default `view` |
+| `--format json\|view` | output format, default `view`. A command that *renders* something -- a descriptor, a set of secrets -- adds its own shapes here rather than a second flag (`tdd system info --format export\|unset\|1p`): the runner consumes only `json`/`view`, so the extra value reaches the command's parser and leaves the envelope on `view` |
 | `config` | the command's config file, `<tdd_dir>/<command>.toml`: `--show` (default), `--default`, `--create [--force]` |
 
 `config` is an action, not an option, and comes from the shared layer on both sides

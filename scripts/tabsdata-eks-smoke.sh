@@ -324,18 +324,18 @@ common_stage domains "domains $RDS_DOMAIN, $S3_DOMAIN${LLM:+, $LLM_DOMAIN} -- th
 # Each domain is this run's slice of the shared system. Values are eval'd into
 # THIS shell, never echoed; they fill the config files below.
 common_run tdd domain create --sys rdspostgres --domain "$RDS_DOMAIN" --force
-common_note "eval \$(tdd domain info --domain $RDS_DOMAIN --as export --prefix RDS)   (values not shown)"
-eval "$(tdd domain info --domain "$RDS_DOMAIN" --as export --prefix RDS 2>/dev/null)"
+common_note "eval \$(tdd domain info --domain $RDS_DOMAIN --format export --prefix RDS)   (values not shown)"
+eval "$(tdd domain info --domain "$RDS_DOMAIN" --format export --prefix RDS 2>/dev/null)"
 common_run test -n "${RDS__HOST:+set}${RDS__PORT:+set}${RDS__DB:+set}${RDS__USER:+set}${RDS__PASSWORD:+set}"
 common_run tdd domain create --sys s3 --domain "$S3_DOMAIN" --force
-common_note "eval \$(tdd domain info --domain $S3_DOMAIN --as export --prefix S3D; tdd system info --sys s3 --as export --prefix S3S)"
-eval "$(tdd domain info --domain "$S3_DOMAIN" --as export --prefix S3D 2>/dev/null)"
-eval "$(tdd system info --sys s3 --as export --prefix S3S 2>/dev/null)"
+common_note "eval \$(tdd domain info --domain $S3_DOMAIN --format export --prefix S3D; tdd system info --sys s3 --format export --prefix S3S)"
+eval "$(tdd domain info --domain "$S3_DOMAIN" --format export --prefix S3D 2>/dev/null)"
+eval "$(tdd system info --sys s3 --format export --prefix S3S 2>/dev/null)"
 common_run test -n "${S3D__URI:+set}${S3S__REGION:+set}"
 if [ -n "$LLM" ]; then
     common_run tdd domain create --sys "$LLM" --domain "$LLM_DOMAIN" --force
-    common_note "eval \$(tdd domain info --domain $LLM_DOMAIN --as export --prefix LLM)   (the key is not shown)"
-    eval "$(tdd domain info --domain "$LLM_DOMAIN" --as export --prefix LLM 2>/dev/null)"
+    common_note "eval \$(tdd domain info --domain $LLM_DOMAIN --format export --prefix LLM)   (the key is not shown)"
+    eval "$(tdd domain info --domain "$LLM_DOMAIN" --format export --prefix LLM 2>/dev/null)"
     common_run test -n "${LLM__API_KEY:+set}"
 fi
 common_checkpoint domains

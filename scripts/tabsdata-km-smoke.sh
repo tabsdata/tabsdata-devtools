@@ -275,8 +275,8 @@ if [ -n "$LLM" ]; then
     # The key is eval'd into THIS shell, never echoed; the quickstart command
     # line masks --<llm>-key when displayed.
     common_run tdd domain create --sys "$LLM" --domain "$LLM_DOMAIN" --force
-    common_note "eval \$(tdd domain info --domain $LLM_DOMAIN --as export --prefix LLM)   (the key is not shown)"
-    eval "$(tdd domain info --domain "$LLM_DOMAIN" --as export --prefix LLM 2>/dev/null)"
+    common_note "eval \$(tdd domain info --domain $LLM_DOMAIN --format export --prefix LLM)   (the key is not shown)"
+    eval "$(tdd domain info --domain "$LLM_DOMAIN" --format export --prefix LLM 2>/dev/null)"
     common_run test -n "${LLM__API_KEY:+set}"
     common_checkpoint llm-domain
 fi

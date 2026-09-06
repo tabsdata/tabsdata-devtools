@@ -7,11 +7,11 @@ Copyright 2026 Tabsdata Inc.
 `tdd env set|unset|show`: the variables tdd manages in the calling shell -- the descriptor
 crypto key, the 1Password secrets, tabsdata's `TD_*` settings and the Python index variables.
 
-- `set --crypto` evals `tdd system crypto-key --as export` (1Password; skipped when
+- `set --crypto` evals `tdd system crypto-key --format export` (1Password; skipped when
   `_TDD_CRYPTO_KEY` is already set unless `--force`), from `--vault`/`--item`/`--field`
   (`1p:Employee`, `DevSecrets`, `TD_BACKENDS_CRYPTO_KEY`) -- or `--value KEY` sets the variable
   verbatim, at least `crypto.MIN_SECRET_LEN` characters, no 1Password and no `--force` dance.
-  `set --secrets [--vault 1p:V]` (default `1p:dev_xp`) evals `tdd system secrets --as export`,
+  `set --secrets [--vault 1p:V]` (default `1p:dev_xp`) evals `tdd system secrets --format export`,
   which also writes `_TDD_SYSTEMS`, the prefix list `unset --secrets` reads back.
 - `--vault` is one form for both, the provider ref `1p:NAME`, and both defaults are **literals**:
   no `ONE_PASSWORD_*` variable decides which vault a key comes from. `crypto-key` names the vault

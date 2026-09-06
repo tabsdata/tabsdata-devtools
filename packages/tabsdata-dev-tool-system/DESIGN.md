@@ -17,10 +17,20 @@ connection details kept as encrypted descriptors.
 
 ## How it works
 
-- Verbs: `create/destroy/status/purge/restart/fetch-bin/connect`, `types/list/info/manifest/
-  upgrade`, `secrets` and `crypto-key` (`--as json|export|unset`, which `tdd env set` evals).
+- Verbs: `create/destroy/status/purge/restart/fetch-bin/connect`, `types/template/list/info/
+  manifest/upgrade`, `secrets` and `crypto-key` (`--format export`, which `tdd env set` evals).
   `clean-docker [--yes|-y]` stops and deletes every `tdx2*` container -- the prefix all
   docker-backed systems use -- descriptor or not; it lists them and asks first unless `--yes`.
+- **1Password is a shape, not an integration** (`common.systems.onepassword`). `secrets --set
+  1p:VAULT` reads a vault into `<ITEM_TITLE>__<FIELD_ID>` variables, which are the
+  `$<PREFIX>__<KEY>` a type's env-sourced options read; `--format 1p` writes that mapping the
+  other way. `template --type T [--format 1p]` produces the item for a type before any system
+  exists (`op item create --vault=V --template=FILE`), `info --sys S --format 1p` the same item
+  carrying what the system actually has. The title *is* the prefix (`--prefix` overrides it), a
+  field id is its meta key lower-cased, a secret option is `CONCEALED`, and a
+  host/port/user/password type is 1Password's `DATABASE` item rather than an `API_CREDENTIAL`.
+  A backend's `onepassword_skip` keeps an option out of the item; a computed default is written
+  in rather than left as `?`, which would be read back as the literal string.
 - Every descriptor read or write needs `_TDD_CRYPTO_KEY`; `create --force` replaces a descriptor
   an older key left unreadable.
 - Batch verbs run children through `tdd-exe` in parallel (`TDD_PARALLELISM`), heaviest first,

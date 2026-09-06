@@ -248,7 +248,9 @@ def info_render(
 ) -> str:
     """Render a descriptor for ``info``. ``json`` dumps the whole model;
     ``export`` / ``unset`` emit shell lines for each ``meta`` key, optionally
-    prefixed as ``<PREFIX>__<KEY>``."""
+    prefixed as ``<PREFIX>__<KEY>``; ``1p`` emits the 1Password item that would
+    hold this system's credentials -- there ``prefix`` is the item title, since
+    the title is what becomes the variables' prefix when they are read back."""
     if fmt == "json":
         return info.model_dump_json(indent=2)
 
@@ -259,4 +261,10 @@ def info_render(
         return "\n".join(f"export {key(k)}={v!r}" for k, v in info.meta.items())
     if fmt == "unset":
         return "\n".join(f"unset {key(k)}" for k in info.meta)
-    raise TdxError(f"unknown info format: {fmt} ({'|'.join(constants.INFO_FORMATS)})")
+    if fmt == constants.FMT_1P:
+        # Imported here: `onepassword` resolves the backend, and the systems
+        # package reaches back into this module.
+        from tabsdata_dev.common.systems import onepassword
+
+        return onepassword.render(onepassword.item_for_descriptor(info, prefix))
+    raise TdxError(f"unknown info format: {fmt} ({'|'.join(constants.RENDER_FORMATS)})")

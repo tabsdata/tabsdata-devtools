@@ -60,6 +60,7 @@ V_CRYPTO_KEY = "crypto-key"
 V_CONFIG = "config"
 V_CONNECT = "connect"
 V_CLEAN_DOCKER = "clean-docker"
+V_TEMPLATE = "template"
 
 # --- option flags ----------------------------------------------------------
 OPT_TYPE = "--type"
@@ -80,9 +81,8 @@ OPT_PREFIX = "--prefix"
 OPT_NAME_IN_SYSTEM = "--name-in-system"
 OPT_PORT = "--port"
 OPT_PORTS = "--ports"
-OPT_FORMAT = "--format"  # the guidelines' json|view rendering
+OPT_FORMAT = "--format"  # the guidelines' json|view, plus a renderer's own shapes
 OPT_VERBOSE = "--verbose"
-OPT_AS = "--as"  # info / secrets: json|export|unset (was --format / --out)
 OPT_OUT = "--out"  # manifest: destination file
 OPT_SET = "--set"
 OPT_VAULT = "--vault"
@@ -120,7 +120,19 @@ PORTS_CEILING = 30000
 # --- sentinels / value sets ------------------------------------------------
 SEED_AUTO = "AUTO"
 ENTITY_ALL = "ALL"
-AS_FORMATS = ("json", "export", "unset")
+# --- rendering ---------------------------------------------------------------
+# `--format` is one flag: the guidelines' json|view envelope, and -- for the
+# commands that render something -- the shape of what they render. `main` only
+# ever consumes json|view itself, so a renderer's own value reaches its parser
+# and leaves the envelope on view.
+FMT_VIEW = "view"
+FMT_JSON = "json"
+FMT_1P = "1p"  # a 1Password item, ready for `op item create --template=`
+BASE_FORMATS = (FMT_JSON, FMT_VIEW)
+# info / secrets / crypto-key: shell lines to eval, or the 1Password item.
+RENDER_FORMATS = ("export", "unset", FMT_1P)
+# template renders a type rather than a descriptor: no shell form to eval.
+TEMPLATE_FORMATS = (FMT_1P,)
 
 # Every container the docker-backed systems create -- `docker run` ones
 # (`_common/sql.py`) and compose projects (`_common/containers.py`) -- is named

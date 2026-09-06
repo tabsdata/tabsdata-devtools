@@ -50,6 +50,9 @@ class GCS(CloudFileBackend):
                 "hmac-access-key",
                 options.ENV,
                 "env $GCS__HMAC_ACCESS_KEY (S3-interop access key)",
+                # Half of a credential pair, like S3's own ACCESS_KEY: never a
+                # value a manifest may re-emit in clear.
+                secret=True,
                 required=False,
             ),
             options.Option(

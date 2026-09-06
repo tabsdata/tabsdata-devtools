@@ -31,15 +31,23 @@ class ArgumentParser(argparse.ArgumentParser):
         raise UsageError(f"{self.prog}: {message} (see --help)")
 
 
-def add_format_verbose(parser: argparse.ArgumentParser) -> None:
+def add_format_verbose(
+    parser: argparse.ArgumentParser, renders: tuple[str, ...] = ()
+) -> None:
     """The options every command takes (docs/command-cli-guidelines.md). The
     runner reads them from raw argv before parsing; they are declared here so
-    ``-h`` lists them and argparse accepts them."""
+    ``-h`` lists them and argparse accepts them.
+
+    `renders` are the shapes a command can render its payload as -- shell lines,
+    a 1Password item -- which ride on this same ``--format``. The runner consumes
+    only ``json``/``view`` itself, so one of these reaches the command's own
+    parser and leaves the event envelope on ``view``."""
+    extra = f"; {', '.join(renders)} render the result itself" if renders else ""
     parser.add_argument(
         constants.OPT_FORMAT,
-        default="view",
-        choices=("json", "view"),
-        help="json is one event per line (default: view)",
+        default=constants.FMT_VIEW,
+        choices=(*constants.BASE_FORMATS, *renders),
+        help=f"json is one event per line (default: view){extra}",
     )
     parser.add_argument(
         "-v", constants.OPT_VERBOSE, action="store_true", help="show debug events too"
@@ -311,21 +319,14 @@ def add_size(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def add_as(parser: argparse.ArgumentParser) -> None:
-    """``--as json|export|unset``: how ``info`` renders a descriptor. (``--format``
-    is the guidelines' event rendering, so the descriptor's shape got its own
-    flag; ``export``/``unset`` emit shell lines for its ``meta``.)"""
-    parser.add_argument(
-        constants.OPT_AS,
-        dest="as_",
-        default="json",
-        choices=list(constants.AS_FORMATS),
-        help="render the descriptor as json, or as shell export / unset lines (default: json)",
-    )
+def add_prefix(parser: argparse.ArgumentParser) -> None:
+    """``--prefix``: how the rendered keys are named -- the ``<PREFIX>__<KEY>``
+    of the shell forms, and for ``1p`` the item's title, which is the very thing
+    that becomes that prefix when the item is read back."""
     parser.add_argument(
         constants.OPT_PREFIX,
         default=None,
         metavar="PREFIX",
-        help="emit keys as <PREFIX>__<KEY> (one backend; a batch render uses "
-        "each backend's own name)",
+        help="emit keys as <PREFIX>__<KEY>, or title a 1p item (one backend; a "
+        "batch render uses each backend's own name)",
     )
