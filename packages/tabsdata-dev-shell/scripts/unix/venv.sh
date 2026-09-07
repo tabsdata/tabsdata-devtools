@@ -36,7 +36,7 @@ tdd_fn_register venv "create, activate, deactivate, delete or list managed venvs
 # Built-in option defaults: what `tdd venv config` writes as its template,
 # and what `--show` compares against.
 tdd_defaults_venv() {
-    printf '%s\n' "create|--type|pyenv" "create|--python|" "create|--name|" \
+    printf '%s\n' "create|--type|pyenv" "create|--python|3.12.13" "create|--name|" \
         "create|--force|false" "deactivate|--force|false" "activate|--name|" "delete|--name|" "delete|--all|false"
 }
 
@@ -120,9 +120,10 @@ options:
   --type {pyenv,uv,conda}  the tool that creates it (default: pyenv)
   --python VERSION         interpreter for create: pyenv needs it installed
                            already (pyenv install VERSION), uv and conda fetch
-                           it (default: the tool's current one)
+                           it (default: 3.12.13, what a tdkserver instance
+                           builds its own environments with)
 
-example: tdd venv create --name scratch --type uv --python 3.12
+example: tdd venv create --name scratch --type uv --python 3.12.13
 HELP
 }
 
@@ -174,7 +175,11 @@ _tdd_venv_resolve() {
 _tdd_venv_create() {
     _tdd_name=""
     _tdd_type="pyenv"
-    _tdd_python=""
+    # One interpreter across every venv tdd makes, whichever tool makes it --
+    # otherwise `--type uv` and `--type pyenv` hand you different Pythons from
+    # the same command. 3.12.13 is what a tdkserver instance builds its own
+    # environments with, so a venv made here matches what the product runs.
+    _tdd_python="3.12.13"
     _tdd_force=0
     while [ $# -gt 0 ]; do
         case "$1" in

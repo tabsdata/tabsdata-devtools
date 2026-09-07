@@ -10,6 +10,11 @@ shell command.
 
 - Layout: `managed-venvs/<name>.env` holds the type, `managed-venvs/<type>/<name>/` the venv.
   `create` (`--type`, `--python`, `--force` to recreate even the active one) ends in activation.
+  `--python` defaults to **3.12.13** rather than to whatever each tool would pick on its own:
+  uv's default, pyenv's current version and conda's latest are three different interpreters
+  from one command, and 3.12.13 is what a tdkserver instance builds its own environments with,
+  so a venv made here matches what the product runs. pyenv needs it installed (the error says
+  so); uv and conda fetch it.
   `delete --name NAME` refuses the active one; `delete --all` removes every managed venv and
   refuses while any is active (the shell would be left standing in a deleted venv).
 - Activation exports `_TDD_VENV` (what `tdd tdk|tdkserver|km` read), saves the prompt in
