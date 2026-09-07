@@ -422,3 +422,28 @@ def test_help_is_coloured_by_structure_and_only_for_a_terminal():
     # a line something else already painted is never painted twice
     already = "  \033[32m--format\033[0m  json or view\n"
     assert render.colorize_help(already, TTY()) == already
+
+
+def test_generated_password_carries_every_class_and_nothing_that_bites():
+    """A generated password has to survive three journeys unchanged, and a rule
+    at the end of one of them: Cloud SQL rejects a password with no
+    non-alphanumeric character (INVALID_PASSWORD), while a quoted SQL literal, a
+    DB-API driver's `%` placeholders and an un-encoded URL each rule characters
+    out. The safe symbols are the URL-unreserved ones."""
+    from tabsdata_dev.common.core.passwords import SAFE_SYMBOLS, gen_password
+
+    passwords = [gen_password() for _ in range(200)]
+    assert {len(p) for p in passwords} == {24}
+    assert len(set(passwords)) == len(passwords)  # not a fixed string
+    for p in passwords:
+        assert any(c.isupper() for c in p), p
+        assert any(c.islower() for c in p), p
+        assert any(c.isdigit() for c in p), p
+        assert any(not c.isalnum() for c in p), p  # Cloud SQL requires one
+        # a quote or backslash would end the SQL literal it sits in, `%` is a
+        # placeholder to psycopg2, and the rest are URL-reserved
+        assert not set(p) & set("%'\"\\@:/?#&"), p
+        assert set(p) - set(SAFE_SYMBOLS) <= set(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        ), p
+    assert gen_password(8)  # a short one still returns something usable

@@ -280,17 +280,19 @@ def test_gcppostgres_stores_the_ca_itself_and_gives_a_connection_a_file(tmp_path
     }
 
     # a path is read at create; the PEM is what is stored
-    meta = gcp.plan_system("gcppostgres", {**base, "SERVER_CA_PEM_PATH": str(src)})
-    assert meta["SERVER_CA_PEM"] == pem
-    # and so is the PEM handed over directly ($GCPPOSTGRES__SERVER_CA_PEM)
+    meta = gcp.plan_system("gcppostgres", {**base, "SERVER_CA_CERT_PATH": str(src)})
+    assert meta["SERVER_CA_CERT"] == pem
+    # and so is the PEM handed over directly ($GCPPOSTGRES__SERVER_CA_CERT)
     assert (
-        gcp.plan_system("gcppostgres", {**base, "SERVER_CA_PEM": pem})["SERVER_CA_PEM"]
+        gcp.plan_system("gcppostgres", {**base, "SERVER_CA_CERT": pem})[
+            "SERVER_CA_CERT"
+        ]
         == pem
     )
 
     # the domain inherits the certificate, so it needs no back-ref to the system
     dom = gcp.domain_meta(meta, "d1", "secret")
-    assert dom["SERVER_CA_PEM"] == pem
+    assert dom["SERVER_CA_CERT"] == pem
     # ... and never leaks into the URIs a connector-under-test is handed
     assert "sslrootcert" not in dom["SQLALCHEMY_URI"] + dom["URI"]
 
@@ -311,15 +313,15 @@ def test_gcppostgres_stores_the_ca_itself_and_gives_a_connection_a_file(tmp_path
     assert shlex.split(f"K={shlex.quote(pem)}")[0] == f"K={pem}"
 
     for bad in (
-        {"SERVER_CA_PEM": "not a pem"},
-        {"SERVER_CA_PEM_PATH": str(tmp_path / "x")},
+        {"SERVER_CA_CERT": "not a pem"},
+        {"SERVER_CA_CERT_PATH": str(tmp_path / "x")},
     ):
         with pytest.raises(TdxError):
             gcp.plan_system("gcppostgres", {**base, **bad})
     with pytest.raises(TdxError, match="not both"):
         gcp.plan_system(
             "gcppostgres",
-            {**base, "SERVER_CA_PEM": pem, "SERVER_CA_PEM_PATH": str(src)},
+            {**base, "SERVER_CA_CERT": pem, "SERVER_CA_CERT_PATH": str(src)},
         )
 
 
@@ -348,7 +350,7 @@ def test_gcppostgres_refuses_a_verifying_sslmode_without_the_instance_ca(tmp_pat
 
     with pytest.raises(TdxError, match="is not a file"):
         gcp.plan_system(
-            "gcppostgres", {**base, "SERVER_CA_PEM_PATH": str(tmp_path / "nope.pem")}
+            "gcppostgres", {**base, "SERVER_CA_CERT_PATH": str(tmp_path / "nope.pem")}
         )
     with pytest.raises(TdxError, match="unknown sslmode"):
         gcp.plan_system("gcppostgres", {**base, "SSLMODE": "verify-most"})
@@ -358,7 +360,7 @@ def test_gcppostgres_refuses_a_verifying_sslmode_without_the_instance_ca(tmp_pat
     # and a real cert file satisfies the verifying default, on the admin URL only
     pem = tmp_path / "server-ca.pem"
     pem.write_text("-----BEGIN CERTIFICATE-----\ncreate-time\n")
-    meta = gcp.plan_system("gcppostgres", {**base, "SERVER_CA_PEM_PATH": str(pem)})
+    meta = gcp.plan_system("gcppostgres", {**base, "SERVER_CA_CERT_PATH": str(pem)})
     with gcp._ca_file(gcp._admin(meta)) as connectable:
         admin_url = gcp._admin_url(connectable).replace("%2F", "/")
         assert "sslmode=verify-ca" in admin_url
@@ -483,12 +485,12 @@ def test_gcppostgres_1p_item_carries_the_certificate_but_not_the_path_to_it(tmp_
     item = onepassword.item(gcp)
     ids = [f["id"] for f in item["fields"]]
     assert item["category"] == onepassword.CATEGORY_DATABASE
-    assert "server_ca_pem" in ids
+    assert "server_ca_cert" in ids
     # which instance this is, in Google's terms -- not how it is reached
     assert "instance_id" in ids
     # the path to a local copy is one machine's, and create refuses being told
     # the same thing twice -- an item carrying both would break every create
-    assert "server_ca_pem_path" not in ids
+    assert "server_ca_cert_path" not in ids
     pem = "-----BEGIN CERTIFICATE-----\nMIIBfake\n"
     src = tmp_path / "server-ca.pem"
     src.write_text(pem)
@@ -500,8 +502,8 @@ def test_gcppostgres_1p_item_carries_the_certificate_but_not_the_path_to_it(tmp_
                 "PORT": "5432",
                 "USERNAME": "postgres",
                 "PASSWORD": "p",
-                "SERVER_CA_PEM": pem,
-                "SERVER_CA_PEM_PATH": str(src),
+                "SERVER_CA_CERT": pem,
+                "SERVER_CA_CERT_PATH": str(src),
             },
         )
 
@@ -509,13 +511,13 @@ def test_gcppostgres_1p_item_carries_the_certificate_but_not_the_path_to_it(tmp_
     # from the vault, "?" would be refused as an sslmode
     by_id = {f["id"]: f["value"] for f in item["fields"]}
     assert by_id["sslmode"] == gcp.ssl_mode == "verify-ca"
-    assert by_id["database_type"] == "postgresql" and by_id["server_ca_pem"] == "?"
+    assert by_id["database_type"] == "postgresql" and by_id["server_ca_cert"] == "?"
 
     # and what the vault yields is what create reads
     from tabsdata_dev.common.core.secrets_1p import _norm
 
     produced = {f"{_norm(item['title'])}__{_norm(i)}" for i in ids}
-    assert {"GCPPOSTGRES__SERVER_CA_PEM", "GCPPOSTGRES__SSLMODE"} <= produced
+    assert {"GCPPOSTGRES__SERVER_CA_CERT", "GCPPOSTGRES__SSLMODE"} <= produced
 
 
 def test_1p_set_deletes_before_creating_so_a_title_cannot_duplicate(

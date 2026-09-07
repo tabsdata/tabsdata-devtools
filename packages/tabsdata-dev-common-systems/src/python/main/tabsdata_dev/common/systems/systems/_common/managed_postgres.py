@@ -238,8 +238,8 @@ class ManagedPostgres(Postgres):
         # Recorded so a domain descriptor is enough to reach the instance on its
         # own -- destroy runs from it, without the system's.
         meta["SSLMODE"] = mode
-        if sys_meta.get("SERVER_CA_PEM"):
-            meta["SERVER_CA_PEM"] = sys_meta["SERVER_CA_PEM"]
+        if sys_meta.get("SERVER_CA_CERT"):
+            meta["SERVER_CA_CERT"] = sys_meta["SERVER_CA_CERT"]
         for key in ("SQLALCHEMY_URI", "URI"):
             meta[key] = self._with_ssl(meta[key], mode)
         return meta

@@ -29,8 +29,9 @@ which is why the mode is the system's rather than the class's:
       gcloud sql instances describe INSTANCE \
           --format='value(serverCaCert.cert)' > server-ca.pem
 
-  and handed to create either way round: ``--server-ca-pem-path server-ca.pem``,
-  or the PEM itself in ``$GCPPOSTGRES__SERVER_CA_PEM``. Either
+  and handed to create either way round: ``--server-ca-cert-path server-ca.pem``,
+  or the certificate itself in ``$GCPPOSTGRES__SERVER_CA_CERT`` -- named for the
+  field it comes from, so the vault entry and `gcloud` agree. Either
   way what the descriptor stores is the certificate, not the path -- every later
   connection (status, domain create, destroy, purge) needs it, and a path into
   somebody's home directory is not something a domain descriptor can inherit.
@@ -77,7 +78,7 @@ class GcpPostgres(ManagedPostgres):
     region_required = False
     # The vault carries the certificate, never the path to a copy of it: that
     # path is one machine's, and an item holding both would be refused at create.
-    onepassword_skip = ("SERVER_CA_PEM_PATH",)
+    onepassword_skip = ("SERVER_CA_CERT_PATH",)
 
     def options(self) -> tuple[options.Option, ...]:
         return (
@@ -99,17 +100,17 @@ class GcpPostgres(ManagedPostgres):
             # holding the PEM, as `envx set-secrets` loads it) or a file to read
             # it from. What is stored is always the PEM.
             options.Option(
-                "SERVER_CA_PEM",
-                "server-ca-pem",
+                "SERVER_CA_CERT",
+                "server-ca-cert",
                 options.ENV,
-                f"env ${self.env_prefix}__SERVER_CA_PEM (the server CA PEM itself)",
+                f"env ${self.env_prefix}__SERVER_CA_CERT (the certificate itself)",
                 required=False,
             ),
             options.Option(
-                "SERVER_CA_PEM_PATH",
-                "server-ca-pem-path",
+                "SERVER_CA_CERT_PATH",
+                "server-ca-cert-path",
                 options.ENV,
-                f"env ${self.env_prefix}__SERVER_CA_PEM_PATH (a file holding it)",
+                f"env ${self.env_prefix}__SERVER_CA_CERT_PATH (a file holding it)",
                 required=False,
             ),
         )
@@ -120,7 +121,7 @@ class GcpPostgres(ManagedPostgres):
         raise TdxError(f"{self.slug}: no synth default for {name}")
 
     def _ca_pem(self, meta: dict[str, str]) -> str:
-        return meta.get("SERVER_CA_PEM", "")
+        return meta.get("SERVER_CA_CERT", "")
 
     def domain_meta(
         self, sys_meta: dict[str, str], entity_name: str, password: str
@@ -140,30 +141,30 @@ class GcpPostgres(ManagedPostgres):
         return meta
 
     def _read_ca(self, meta: dict[str, str]) -> None:
-        """Resolve the two inputs into ``SERVER_CA_PEM`` -- the certificate itself,
+        """Resolve the two inputs into ``SERVER_CA_CERT`` -- the certificate itself,
         which is what the descriptor keeps. A path is read here, at create, so
         nothing later depends on that file still being there (or on this
         machine)."""
-        pem, path = meta.get("SERVER_CA_PEM", ""), meta.get("SERVER_CA_PEM_PATH", "")
+        pem, path = meta.get("SERVER_CA_CERT", ""), meta.get("SERVER_CA_CERT_PATH", "")
         if pem and path:
             raise TdxError(
-                f"{self.slug}: specify the server CA once — --server-ca-pem (the "
-                f"PEM) or --server-ca-pem-path (a file holding it), not both"
+                f"{self.slug}: specify the server CA once — --server-ca-cert (the "
+                f"PEM) or --server-ca-cert-path (a file holding it), not both"
             )
         if path:
             src = Path(path).expanduser()
             if not src.is_file():
                 raise TdxError(
-                    f"{self.slug}: --server-ca-pem-path '{path}' is not a file"
+                    f"{self.slug}: --server-ca-cert-path '{path}' is not a file"
                 )
             pem = src.read_text(encoding="utf-8")
         if pem and not pem.lstrip().startswith(PEM_HEADER):
-            where = f"--server-ca-pem-path '{path}'" if path else "--server-ca-pem"
+            where = f"--server-ca-cert-path '{path}'" if path else "--server-ca-cert"
             raise TdxError(f"{self.slug}: {where} is not a PEM certificate")
         # Canonical form: a file keeps its trailing newline and `$(cat ...)` eats
         # it, and the same certificate arriving two ways must not become two
         # stored values (and two content-addressed files).
-        meta["SERVER_CA_PEM"] = f"{pem.strip()}\n" if pem else ""
+        meta["SERVER_CA_CERT"] = f"{pem.strip()}\n" if pem else ""
 
     def _check_ssl(self, meta: dict[str, str]) -> None:
         """Refuse a TLS setting the instance cannot honour, at create time --
@@ -177,7 +178,7 @@ class GcpPostgres(ManagedPostgres):
             )
         if mode not in VERIFYING_SSL_MODES:
             return
-        if not meta.get("SERVER_CA_PEM"):
+        if not meta.get("SERVER_CA_CERT"):
             raise TdxError(
                 f"{self.slug}: sslmode '{mode}' verifies the server, so it needs "
                 f"the instance's own CA — Cloud SQL signs each instance with a CA "
@@ -185,7 +186,7 @@ class GcpPostgres(ManagedPostgres):
                 f"  gcloud sql instances describe "
                 f"{meta.get('INSTANCE_ID') or 'INSTANCE'} "
                 f"--format='value(serverCaCert.cert)' > server-ca.pem\n"
-                f"then pass --server-ca-pem-path server-ca.pem (or hand the PEM "
-                f"itself in ${self.env_prefix}__SERVER_CA_PEM).\n"
+                f"then pass --server-ca-cert-path server-ca.pem (or hand the PEM "
+                f"itself in ${self.env_prefix}__SERVER_CA_CERT).\n"
                 f"(or --sslmode require to encrypt without verifying the server)"
             )
