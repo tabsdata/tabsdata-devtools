@@ -105,10 +105,13 @@ class Backend(Protocol):
     def purge_domain_entity(self, sys_meta: dict[str, str], name: str) -> None: ...
 
     # data plane
-    def data_plane_uri(self, meta: dict[str, str]) -> str:
-        """The opaque handle the generic data-plane commands pass to
-        ``install_schema`` / ``load_tables`` / ``apply_changes`` — the SQLAlchemy
-        URL for SQL backends, the staging destination for file backends."""
+    def data_plane_uri(self, meta: dict[str, str]):
+        """A context manager yielding the opaque handle the generic data-plane
+        commands pass to ``install_schema`` / ``load_tables`` / ``apply_changes``
+        — the SQLAlchemy URL for SQL backends, the staging destination for file
+        backends. A context manager because a handle may need something on disk
+        that nothing should keep once the connection is done with it (a managed
+        instance's root certificate)."""
 
     def has_model(self, model: str) -> bool: ...
     def available_models(self) -> list[str]: ...

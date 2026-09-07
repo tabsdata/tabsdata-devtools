@@ -9,8 +9,10 @@ A descriptor is a pydantic model stored as an encrypted file (see ``crypto``).
 ``role`` discriminator), so callers work with typed attributes rather than a raw
 dict. ``meta`` stays a ``dict[str, str]`` — an open-ended, system-specific bag of
 connection settings (env-var-style ``KEY -> value``). The domain descriptor
-carries every back-ref it needs (``SQLALCHEMY_URI``, admin creds), so domain
-commands never load the system descriptor.
+carries every back-ref it needs (a ``SQLALCHEMY_URI``, admin creds), so domain
+commands never load the system descriptor. Which keys those are is the system's
+to name: a type reachable on more than one network carries one URI per plane,
+under a name that says which (``gcppostgres``).
 """
 
 from __future__ import annotations

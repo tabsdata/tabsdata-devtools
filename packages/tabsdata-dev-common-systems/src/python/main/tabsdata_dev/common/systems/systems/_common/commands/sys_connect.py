@@ -41,7 +41,7 @@ from tabsdata_dev.common.systems.shell import find_free_port
 
 # Copied from the remote descriptor onto the local one; HOST and PORT are
 # replaced by the tunnel's near end, and anything docker-local is dropped.
-_CARRIED = ("USER", "PASSWORD", "CONTAINER", "IMAGE", "SYSTEM_KIND")
+_CARRIED = ("USER", "PASSWORD", "DOCKER_CONTAINER_NAME", "IMAGE", "SYSTEM_KIND")
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -122,7 +122,7 @@ def run(ctx: cli.Context) -> int:
     log_path = f"{path}.ssh.log"
     console.out(
         f">>> opening ssh tunnel to {endpoint.target}: localhost:{local_port} -> "
-        f"localhost:{target_port} (container {remote.meta.get('CONTAINER', '?')})"
+        f"localhost:{target_port} (container {remote.meta.get('DOCKER_CONTAINER_NAME', '?')})"
     )
     pid = ssh.open_tunnel(endpoint, local_port, int(target_port), log_path)
 

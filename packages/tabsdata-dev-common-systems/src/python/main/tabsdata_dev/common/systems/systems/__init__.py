@@ -51,6 +51,7 @@ _SLUGS: dict[str, tuple[str, str]] = {
     "db2cdc": ("db2cdc", "Db2Cdc"),
     "salesforce": ("salesforce", "Salesforce"),
     "gcppostgres": ("gcppostgres", "GcpPostgres"),
+    "azpostgres": ("azpostgres", "AzPostgres"),
 }
 
 

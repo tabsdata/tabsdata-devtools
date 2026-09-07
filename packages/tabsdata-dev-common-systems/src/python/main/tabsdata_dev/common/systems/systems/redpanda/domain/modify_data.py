@@ -41,8 +41,8 @@ def run(ctx: cli.Context) -> int:
     tables = datagen.load_model(info.model).build_initial(
         random.Random(datagen.INITIAL_SEED + seed), n
     )
-    uri = sysobj.data_plane_uri(info.meta)
-    produced = sysobj.load_tables(uri, tables)
+    with sysobj.data_plane_uri(info.meta) as uri:
+        produced = sysobj.load_tables(uri, tables)
     counts = dict(info.entities)
     for topic, count in produced.items():
         counts[topic] = counts.get(topic, 0) + count  # kafka log appends

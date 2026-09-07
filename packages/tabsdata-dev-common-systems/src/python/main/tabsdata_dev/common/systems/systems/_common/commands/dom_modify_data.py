@@ -132,8 +132,8 @@ def run(ctx: cli.Context) -> int:
         insert_base=insert_base,
     )
     txns = datagen.plan(model_obj, spec, counts)
-    uri = sysobj.data_plane_uri(info.meta)
-    new_entities = sysobj.apply_changes(uri, txns, counts)
+    with sysobj.data_plane_uri(info.meta) as uri:
+        new_entities = sysobj.apply_changes(uri, txns, counts)
     descriptor.record_changes(ctx.path, new_entities, seed=seed if auto else None)
     applied = len(txns)
     summary = datagen.op_counts(txns)

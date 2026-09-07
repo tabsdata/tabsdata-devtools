@@ -326,7 +326,18 @@ common_stage domains "domains $RDS_DOMAIN, $S3_DOMAIN${LLM:+, $LLM_DOMAIN} -- th
 common_run tdd domain create --sys awspostgres --domain "$RDS_DOMAIN" --force
 common_note "eval \$(tdd domain info --domain $RDS_DOMAIN --format export --prefix RDS)   (values not shown)"
 eval "$(tdd domain info --domain "$RDS_DOMAIN" --format export --prefix RDS 2>/dev/null)"
-common_run test -n "${RDS__HOST:+set}${RDS__PORT:+set}${RDS__DB:+set}${RDS__USER:+set}${RDS__PASSWORD:+set}"
+common_run test -n "${RDS__EXTERNAL_HOST:+set}${RDS__PORT:+set}${RDS__DATABASE:+set}${RDS__USER:+set}${RDS__PASSWORD:+set}"
+# A postgres domain names both networks its instance answers on, and the address
+# that matters here is the pods', not this laptop's: the function pods reach the
+# instance from inside the VPC, which is what INTERNAL_HOST holds. Falling back
+# to the external one covers an RDS endpoint that is reachable either way (the
+# usual case, and the single endpoint that worked before the split).
+RDS_POD_HOST="${RDS__INTERNAL_HOST:-$RDS__EXTERNAL_HOST}"
+if [ -n "${RDS__INTERNAL_HOST:-}" ]; then
+    common_note "database: the pods get awspostgres's INTERNAL_HOST (its in-VPC address)"
+else
+    common_remark "awspostgres records no INTERNAL_HOST; the pods get EXTERNAL_HOST ($RDS__EXTERNAL_HOST) -- fine if that endpoint routes from inside the cluster, and the reason to record the private one if it does not"
+fi
 common_run tdd domain create --sys s3 --domain "$S3_DOMAIN" --force
 common_note "eval \$(tdd domain info --domain $S3_DOMAIN --format export --prefix S3D; tdd system info --sys s3 --format export --prefix S3S)"
 eval "$(tdd domain info --domain "$S3_DOMAIN" --format export --prefix S3D 2>/dev/null)"
@@ -357,9 +368,9 @@ common_stage configure "fill the config files from the domains: database, storag
 # Named placeholders are shared across files; the storage file's ${{secret}}
 # are positional. Values travel in the environment, never on a command line.
 common_note "database: \${{literal:tdk_database_*}} and \${{secret:postgres_system_*}} from $RDS_DOMAIN"
-common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_host}}' "$RDS__HOST"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_host}}' "$RDS_POD_HOST"
 common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_port}}' "$RDS__PORT"
-common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_name}}' "$RDS__DB"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_name}}' "$RDS__DATABASE"
 common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_user}}' "$RDS__USER"
 common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_password}}' "$RDS__PASSWORD"
 common_note "storage: the ROOT/BUNDLES/IMAGES mounts under ${S3D__URI%/}/ with the s3 system's credentials"

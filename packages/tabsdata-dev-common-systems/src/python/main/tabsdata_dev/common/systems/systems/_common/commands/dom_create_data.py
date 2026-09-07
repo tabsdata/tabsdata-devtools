@@ -36,13 +36,13 @@ def run(ctx: cli.Context) -> int:
             f"domain '{ctx.name}' already has data (size x{info.data}); "
             f"use {constants.OPT_FORCE} to reload"
         )
-    uri = sysobj.data_plane_uri(info.meta)
     model_obj = datagen.load_model(model)
     n = datagen.BASE_SIZE * a.size
     tables = model_obj.build_initial(random.Random(datagen.INITIAL_SEED), n)
     if a.force or info.data:
         sysobj.install_schema(info.meta, model, force=True)  # reload = drop + recreate
-    entities = sysobj.load_tables(uri, tables)
+    with sysobj.data_plane_uri(info.meta) as uri:
+        entities = sysobj.load_tables(uri, tables)
     descriptor.record_data(ctx.path, str(a.size), entities)
     rows = sum(len(t.rows) for t in tables)
     if console.json_mode():

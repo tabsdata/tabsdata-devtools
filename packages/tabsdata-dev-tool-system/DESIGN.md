@@ -21,6 +21,19 @@ connection details kept as encrypted descriptors.
   manifest/upgrade`, `secrets` and `crypto-key` (`--format export`, which `tdd env set` evals).
   `clean-docker [--yes|-y]` stops and deletes every `tdd_*` container -- the prefix all
   docker-backed systems use -- descriptor or not; it lists them and asks first unless `--yes`.
+- **The five postgres types are one shape** (`systems/postgres/backend.py`, which
+  `ManagedPostgres` extends): `postgres` and `postgrescdc` are containers, `awspostgres`,
+  `gcppostgres` and `azpostgres` managed instances, and every one of them records the same
+  block -- `INTERNAL_HOST`/`EXTERNAL_HOST`, `PORT`, `DATABASE`, `USER`, `PASSWORD`, `VERSION`
+  (probed at create) and a `SQLALCHEMY_URI`/`URI` pair per plane -- plus only its own group
+  (`DOCKER_CONTAINER_NAME`/`_ID`, or `AWS_*` / `GCP_*` / `AZ_*`, and the TLS pair on the
+  managed three). Which plane a reader wants is the reader's property, not the instance's, so
+  neither is unqualified; a container has one address and records it under both names.
+  Everything tdd does itself -- probe, status, DDL, loading a model -- goes over the external
+  plane, since that is where tdd is. A domain carries the block with its own database and owner
+  in it. All five hold models and data; the managed three borrow the plain system's DDL
+  (`ddl_from_slug`) and get the root certificate written to a temporary file for the length of
+  a load (`data_plane_uri`, a context manager for exactly that reason).
 - **1Password is a shape, not an integration** (`common.systems.onepassword`). `secrets --set
   1p:VAULT` reads a vault into `<ITEM_TITLE>__<FIELD_ID>` variables, which are the
   `$<PREFIX>__<KEY>` a type's env-sourced options read; `--format 1p` writes that mapping the
@@ -28,10 +41,13 @@ connection details kept as encrypted descriptors.
   `info --sys S --format 1p` the same item carrying what the system actually has. `1p-template`
   and `1p-set` speak the item and nothing else, so neither takes a `--format` at all. The title *is* the prefix (`--prefix` overrides it), a
   field id is its meta key lower-cased, a secret option is `CONCEALED`, and a
-  host/port/user/password type is 1Password's `DATABASE` item rather than an `API_CREDENTIAL`.
-  A backend's `onepassword_skip` keeps an option out of the item (`gcppostgres` carries its server
-  CA as the certificate, never the local path to a copy); a computed default is written in rather
-  than left as `?`, which would be read back as the literal string.
+  host/port/user/password type is 1Password's `DATABASE` item rather than an `API_CREDENTIAL`
+  -- no type has that shape today (the postgres family names two hosts, and `external_host` is
+  not 1Password's `hostname`), so every item is a credential; the branch stays for a type that
+  does. A backend's `onepassword_skip` keeps an option out of the item (`gcppostgres` and
+  `azpostgres` carry their server CA as the certificate, never the local path to a copy;
+  `awspostgres` carries neither, since RDS's is a download); a computed default is written in
+  rather than left as `?`, which would be read back as the literal string.
 - `1p-set --vault V --entry PATH|-` files such an item, closing the loop: `template` writes it,
   this puts it in the vault, `secrets` reads it back as the variables `create` needs. Always a
   delete then a create -- `op item create` files a *second* item under a title that already

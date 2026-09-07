@@ -17,6 +17,7 @@ appends). ``entities`` records the produced topics and their message counts.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 
 from tabsdata_dev.common.systems import datagen, emit, naming, options
 from tabsdata_dev.common.systems.errors import TdxError
@@ -63,7 +64,7 @@ class Redpanda(SqlContainerBackend):
         while reg == kport:
             reg = self.next_free_port()
         return {
-            "CONTAINER": self.container_name(name),
+            "DOCKER_CONTAINER_NAME": self.container_name(name),
             "IMAGE": self.image,
             "HOST": self.hostname,
             "PORT": str(kport),
@@ -78,7 +79,8 @@ class Redpanda(SqlContainerBackend):
         self, meta: dict[str, str], *, force: bool = False
     ) -> dict[str, str]:
         require_docker()
-        container, port, reg = meta["CONTAINER"], meta["PORT"], meta["REGISTRY_PORT"]
+        container = meta["DOCKER_CONTAINER_NAME"]
+        port, reg = meta["PORT"], meta["REGISTRY_PORT"]
         # A client bootstraps against the external listener and is then redirected
         # to the address it advertises, so that one is the descriptor's own host.
         advertised = meta["HOST"]
@@ -119,7 +121,7 @@ class Redpanda(SqlContainerBackend):
         print(f">>> waiting for {self.label} to become ready …")
         self._wait_ready(container, "", self.ready_timeout)
         cid = container_id(container)
-        return {"CONTAINER_ID": cid} if cid else {}
+        return {"DOCKER_CONTAINER_ID": cid} if cid else {}
 
     def check_ready(self, container: str, password: str) -> bool:
         from tabsdata_dev.common.systems.shell import docker_exec_check
@@ -218,12 +220,13 @@ class Redpanda(SqlContainerBackend):
     def available_models(self) -> list[str]:
         return datagen.list_models()
 
-    def data_plane_uri(self, meta: dict[str, str]) -> str:
+    @contextmanager
+    def data_plane_uri(self, meta: dict[str, str]):
         # A kafka domain is brokers + a topic prefix, not an addressable
         # endpoint, so the descriptor stores no URI: this composes the handle the
         # generic data-plane commands pass around, and `_brokers_prefix` takes it
         # apart again.
-        return f"kafka://{meta.get('KAFKA_BROKERS', '')}/{meta.get('DB', '')}"
+        yield f"kafka://{meta.get('KAFKA_BROKERS', '')}/{meta.get('DB', '')}"
 
     @staticmethod
     def _brokers_prefix(uri: str) -> tuple[str, str]:

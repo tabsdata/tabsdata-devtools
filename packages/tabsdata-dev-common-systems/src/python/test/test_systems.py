@@ -190,182 +190,307 @@ def test_crypto_key_takes_a_literal_vault_default_and_the_shell_agrees_on_the_mi
     assert "ONE_PASSWORD" not in src
 
 
-def test_managed_postgres_pair_shares_a_base_and_filters_its_own_provider():
-    """awspostgres and gcppostgres differ only where the provider does. The role
-    filter is the load-bearing part: `purge` drops what a listing offers, and a
-    managed instance grants its master service roles of its own."""
+POSTGRES_FAMILY = (
+    "postgres",
+    "postgrescdc",
+    "awspostgres",
+    "gcppostgres",
+    "azpostgres",
+)
+# The block every one of the five records, whatever is behind it.
+INFO_BLOCK = (
+    "INTERNAL_HOST",
+    "EXTERNAL_HOST",
+    "PORT",
+    "DATABASE",
+    "USER",
+    "PASSWORD",
+    "VERSION",
+    "INTERNAL_SQLALCHEMY_URI",
+    "EXTERNAL_SQLALCHEMY_URI",
+    "INTERNAL_URI",
+    "EXTERNAL_URI",
+)
+# What each adds past it, and nothing else.
+FAMILY_EXTRAS = {
+    "postgres": {"DOCKER_CONTAINER_NAME", "IMAGE"},
+    "postgrescdc": {"DOCKER_CONTAINER_NAME", "IMAGE"},
+    "awspostgres": {"SSLMODE", "SERVER_CA_CERT_PEM", "AWS_ACCOUNT_ID", "AWS_REGION"},
+    "gcppostgres": {
+        "SSLMODE",
+        "SERVER_CA_CERT_PEM",
+        "GCP_PROJECT",
+        "GCP_REGION",
+        "GCP_INSTANCE_ID",
+    },
+    "azpostgres": {"SSLMODE", "SERVER_CA_CERT_PEM", "AZ_SERVER_NAME", "AZ_REGION"},
+}
+MANAGED = ("awspostgres", "gcppostgres", "azpostgres")
+
+_CONN = {
+    "EXTERNAL_HOST": "ext.example",
+    "INTERNAL_HOST": "10.0.0.1",
+    "PORT": "5432",
+    "USER": "postgres",
+    "PASSWORD": "p@ss %20 word",
+    "SSLMODE": "require",
+}
+
+
+def _plan(slug, **extra):
+    return systems.get(slug).plan_system(slug, {**_CONN, **extra})
+
+
+def test_the_five_postgres_types_record_one_info_block_and_their_own_group():
+    """The point of the family: a script that reads a postgres descriptor reads
+    the same keys whichever of the five it came from, and the only difference is
+    the provider group each adds."""
+    for slug in POSTGRES_FAMILY:
+        meta = _plan(slug)
+        assert set(INFO_BLOCK) <= set(meta), slug
+        assert set(meta) - set(INFO_BLOCK) == FAMILY_EXTRAS[slug], slug
+    # docker has no certificate and no mode to choose
+    for slug in ("postgres", "postgrescdc"):
+        assert not {"SSLMODE", "SERVER_CA_CERT_PEM"} & set(_plan(slug))
+    # and every one of them can hold a model and its data
+    for slug in POSTGRES_FAMILY:
+        backend = systems.get(slug)
+        assert backend.supports_models and backend.supports_data
+        assert backend.supports_changes
+        assert "world" in backend.available_models(), slug
+
+
+def test_both_planes_get_a_uri_pair_and_a_container_answers_on_one_address():
+    """A managed instance answers on a public address and a private one, and
+    which is usable is the reader's property, not the instance's. A container has
+    one address and records it under both names, so all five read alike."""
+    gcp = _plan("gcppostgres")
+    assert gcp["EXTERNAL_SQLALCHEMY_URI"].startswith(
+        "postgresql+psycopg2://postgres:p%40ss%20%2520%20word@ext.example:5432/postgres"
+    )
+    assert gcp["INTERNAL_URI"] == (
+        "postgresql+psycopg2://10.0.0.1:5432/postgres?sslmode=require"
+    )
+    # the credentials ride on one of each pair only
+    assert "p%40ss" not in gcp["EXTERNAL_URI"] + gcp["INTERNAL_URI"]
+    # every recorded URI carries the mode the system was created with, and none
+    # carries the root cert -- that rides on tdx's own admin connections
+    for key in INFO_BLOCK[-4:]:
+        assert "sslmode=require" in gcp[key] and "sslrootcert" not in gcp[key]
+
+    pg = _plan("postgres")
+    assert pg["INTERNAL_HOST"] == pg["EXTERNAL_HOST"] == "localhost"
+    assert pg["INTERNAL_SQLALCHEMY_URI"] == pg["EXTERNAL_SQLALCHEMY_URI"]
+    assert "sslmode" not in pg["EXTERNAL_URI"]
+
+    # an instance with no address on a network says so, rather than offering a
+    # `postgresql://:5432` somebody could try to connect to
+    alone = systems.get("azpostgres").plan_system("a", {**_CONN, "INTERNAL_HOST": ""})
+    assert alone["INTERNAL_HOST"] == "" and alone["INTERNAL_SQLALCHEMY_URI"] == ""
+    assert alone["INTERNAL_URI"] == "" and alone["EXTERNAL_URI"]
+
+
+def test_a_domain_carries_the_block_with_its_own_database_and_owner():
+    """A domain descriptor is enough on its own -- and for the managed three the
+    reader handed one is usually not where tdx ran, so both planes come too."""
+    for slug in POSTGRES_FAMILY:
+        backend = systems.get(slug)
+        sys_meta = {**_plan(slug), "VERSION": "18.4"}
+        dom = backend.domain_meta(sys_meta, "d1", "secret")
+        assert set(INFO_BLOCK) <= set(dom), slug
+        # the block now describes the domain's own database and owner role
+        assert dom["DATABASE"] == "d1" and dom["USER"] == "d1"
+        assert dom["PASSWORD"] == "secret" and dom["VERSION"] == "18.4"
+        # ... with the master kept as the back-ref destroy runs from, and the
+        # maintenance database it must connect to (never the domain's own: a
+        # database cannot be dropped from a session connected to it)
+        assert dom["SYS_ADMIN_USER"] == "postgres"
+        assert dom["SYS_DATABASE"] == "postgres"
+        assert backend._admin(backend._sys_admin_meta(dom)).db == "postgres"
+        for plane in ("INTERNAL", "EXTERNAL"):
+            assert dom[f"{plane}_URI"].endswith(
+                "/d1" if slug in ("postgres", "postgrescdc") else "/d1?sslmode=require"
+            ), slug
+        # the provider group comes through: not derivable from a host that may
+        # be a bare IP, and a domain command never loads the system descriptor
+        assert FAMILY_EXTRAS[slug] - {"IMAGE"} <= set(dom) | {
+            "DOCKER_CONTAINER_NAME"
+        }, slug
+    gcp = systems.get("gcppostgres")
+    dom = gcp.domain_meta(
+        _plan("gcppostgres", GCP_PROJECT="td-dev", GCP_INSTANCE_ID="k8sdb"),
+        "d1",
+        "secret",
+    )
+    assert dom["GCP_PROJECT"] == "td-dev" and dom["GCP_INSTANCE_ID"] == "k8sdb"
+    # a URI recorded on a domain claims the mode its system was created with,
+    # never the class default (verify-ca here)
+    assert dom["SSLMODE"] == "require"
+    assert "sslmode=require" in dom["EXTERNAL_SQLALCHEMY_URI"]
+
+
+def test_the_managed_three_differ_only_where_their_provider_does():
+    """Same base, same block; each filters the service roles its own provider
+    grants the master. The role filter is the load-bearing part: `purge` drops
+    what a listing offers."""
     from tabsdata_dev.common.systems.systems._common.managed_postgres import (
         ManagedPostgres,
     )
 
-    aws, gcp = systems.get("awspostgres"), systems.get("gcppostgres")
-    for backend in (aws, gcp):
+    for slug in MANAGED:
+        backend = systems.get(slug)
         assert isinstance(backend, ManagedPostgres)
         assert not backend.is_container and backend.supports_purge
-        assert not (
-            backend.supports_models or backend.supports_data or backend.supports_changes
-        )
         assert backend.docker_images() == []
-        # every connection option reads the backend's own env prefix
+        assert backend.ddl_from_slug == "postgres"  # a model is the plain one's
+        # every env-sourced option reads the backend's own prefix
         env_opts = [o for o in backend.options() if o.default_doc.startswith("env $")]
         assert env_opts and all(
             o.default_doc.startswith(f"env ${backend.env_prefix}__") for o in env_opts
         )
+        # only the plane tdx connects on holds a create up
+        required = {o.name for o in backend.options() if o.required}
+        assert "EXTERNAL_HOST" in required and "INTERNAL_HOST" not in required
+        # nor does the provider group: the instance is reached at its host
+        provider = {o.name for o in backend.provider_options()}
+        assert provider and not provider & required
 
-    # RDS names an instance by region; Cloud SQL is reached at its host, so
-    # there the region is recorded but never holds a create up
-    def region(backend):
-        return next(o for o in backend.options() if o.name == "REGION")
-
-    assert region(aws).required and not region(gcp).required
-    assert "informational" in region(gcp).default_doc
-
+    aws, gcp, az = (systems.get(s) for s in MANAGED)
     assert "rdsadmin" in aws.system_schemas and "rds_" in aws.role_prefixes
     assert "cloudsqladmin" in gcp.system_schemas and "cloudsql" in gcp.role_prefixes
-    # the master holds cloudsqlsuperuser; without the prefix it lists as a domain
-    assert "starts_with(r.rolname, 'cloudsql')" in gcp.list_schemas_sql()
-    assert "starts_with(r.rolname, 'rds_')" in aws.list_schemas_sql()
-    for backend in (aws, gcp):
-        assert "starts_with(r.rolname, 'pg_')" in backend.list_schemas_sql()
-    # neither borrows the other's provider names
-    assert "cloudsql" not in aws.list_schemas_sql()
-    assert "rds_" not in gcp.list_schemas_sql()
+    assert "azure_sys" in az.system_schemas and "azure_" in az.role_prefixes
+    for backend, own, other in (
+        (aws, "rds_", "cloudsql"),
+        (gcp, "cloudsql", "rds_"),
+        (az, "azure_", "cloudsql"),
+    ):
+        sql = backend.list_schemas_sql()
+        assert f"starts_with(r.rolname, '{own}')" in sql
+        assert "starts_with(r.rolname, 'pg_')" in sql
+        assert other not in sql  # none borrows another's provider names
+    # a Cloud SQL leaf has no IP SAN, so verify-full cannot work against one;
+    # an RDS or Azure leaf names its host, so the strict mode is the useful one
+    assert gcp.ssl_mode == "verify-ca"
+    assert aws.ssl_mode == az.ssl_mode == "verify-full"
 
 
-def test_managed_postgres_urls_carry_the_mode_and_keep_the_root_cert_to_admin():
-    """The root cert rides on tdx's own admin connections only: a descriptor's
-    URIs carry the mode alone, since a connector-under-test brings its own root."""
-    gcp = systems.get("gcppostgres")
-    sys_meta = gcp.plan_system(
-        "gcppostgres",
-        {
-            "HOSTNAME": "10.0.0.1",
-            "PORT": "5432",
-            "USERNAME": "postgres",
-            "PASSWORD": "p@ss %20 word",
-            "SSLMODE": "require",
-        },
-    )
-    assert sys_meta["LOCATION"] == "postgresql://10.0.0.1:5432"
-
-    admin_url = gcp._admin_url(gcp._admin(sys_meta))
-    assert "sslmode=require" in admin_url
-    # the password is percent-encoded, so a literal '%20' survives as itself
-    assert "p%40ss%20%2520%20word" in admin_url
-
-    dom = gcp.domain_meta(sys_meta, "d1", "secret")
-    assert dom["SSLMODE"] == "require" and dom["REGION"] == ""
-    # a domain records which instance its database lives in: not derivable from
-    # a host that may be a bare IP
-    assert dom["INSTANCE_ID"] == ""
-    for key in ("SQLALCHEMY_URI", "URI"):
-        assert "sslmode=require" in dom[key] and "sslrootcert" not in dom[key]
-    # a container's keys have no meaning on an externally-owned instance
-    assert not {"IMAGE", "SYS_CONTAINER", "SYS_CONTAINER_ID"} & set(dom)
-
-
-def test_gcppostgres_stores_the_ca_itself_and_gives_a_connection_a_file(tmp_path):
+def test_the_managed_three_store_the_ca_itself_and_give_a_connection_a_file(tmp_path):
     """The descriptor keeps the certificate, not a path into somebody's home
-    directory: a path is read at create, the domain inherits the PEM, and a
-    connection gets a file materialized from it."""
+    directory: a path is read at create, the domain inherits the PEM, and every
+    connection that needs one gets a file materialized from it."""
     pem = "-----BEGIN CERTIFICATE-----\nMIIBfake\n-----END CERTIFICATE-----\n"
     src = tmp_path / "server-ca.pem"
     src.write_text(pem)
-    gcp = systems.get("gcppostgres")
-    base = {
-        "HOSTNAME": "10.0.0.1",
-        "PORT": "5432",
-        "USERNAME": "postgres",
-        "PASSWORD": "p",
-    }
+    for slug in ("gcppostgres", "azpostgres"):  # aws downloads a bundle instead
+        backend = systems.get(slug)
+        # a path is read at create; the PEM is what is stored
+        meta = _plan(slug, SERVER_CA_CERT_PATH=str(src))
+        assert meta["SERVER_CA_CERT_PEM"] == pem
+        # ... and the path is gone: it describes one box, so a descriptor
+        # carrying it would offer every other reader a file that is not theirs
+        assert "SERVER_CA_CERT_PATH" not in meta
+        # the PEM handed over directly reaches the same place
+        assert _plan(slug, SERVER_CA_CERT_PEM=pem)["SERVER_CA_CERT_PEM"] == pem
 
-    # a path is read at create; the PEM is what is stored
-    meta = gcp.plan_system("gcppostgres", {**base, "SERVER_CA_CERT_PATH": str(src)})
-    assert meta["SERVER_CA_CERT"] == pem
-    # and so is the PEM handed over directly ($GCPPOSTGRES__SERVER_CA_CERT)
-    assert (
-        gcp.plan_system("gcppostgres", {**base, "SERVER_CA_CERT": pem})[
-            "SERVER_CA_CERT"
-        ]
-        == pem
-    )
-
-    # the domain inherits the certificate, so it needs no back-ref to the system
-    dom = gcp.domain_meta(meta, "d1", "secret")
-    assert dom["SERVER_CA_CERT"] == pem
-    # ... and never leaks into the URIs a connector-under-test is handed
-    assert "sslrootcert" not in dom["SQLALCHEMY_URI"] + dom["URI"]
-
-    # a connection gets a real file -- and only for as long as it is connecting
-    admin = gcp._admin(dom)
-    assert admin.ca_pem == pem and not admin.sslrootcert
-    with gcp._ca_file(admin) as connectable:
-        written = pathlib.Path(connectable.sslrootcert)
-        assert written.read_text() == pem
-        assert connectable.sslrootcert in gcp._admin_url(connectable).replace(
-            "%2F", "/"
+        # the domain inherits it, so it needs no back-ref to the system ...
+        dom = backend.domain_meta(meta, "d1", "secret")
+        assert dom["SERVER_CA_CERT_PEM"] == pem
+        # ... and it never leaks into the URIs a connector is handed
+        assert "sslrootcert" not in "".join(
+            v for k, v in dom.items() if k.endswith("URI")
         )
-    assert not written.exists() and not written.parent.exists()
+
+        # an admin connection gets a real file, for as long as it is connecting
+        admin = backend._admin(dom)
+        assert admin.ca_pem == pem and not admin.sslrootcert
+        with backend._ca_file(admin) as connectable:
+            written = pathlib.Path(connectable.sslrootcert)
+            assert written.read_text() == pem
+        assert not written.exists() and not written.parent.exists()
+
+        for bad in (
+            {"SERVER_CA_CERT_PEM": "not a pem"},
+            {"SERVER_CA_CERT_PATH": str(tmp_path / "nope.pem")},
+        ):
+            with pytest.raises(TdxError):
+                _plan(slug, **bad)
+        with pytest.raises(TdxError, match="not both"):
+            _plan(slug, SERVER_CA_CERT_PEM=pem, SERVER_CA_CERT_PATH=str(src))
 
     # POSIX quoting, so `eval "$(... --as export)"` reproduces a multiline PEM
     import shlex
 
     assert shlex.split(f"K={shlex.quote(pem)}")[0] == f"K={pem}"
 
-    for bad in (
-        {"SERVER_CA_CERT": "not a pem"},
-        {"SERVER_CA_CERT_PATH": str(tmp_path / "x")},
-    ):
-        with pytest.raises(TdxError):
-            gcp.plan_system("gcppostgres", {**base, **bad})
-    with pytest.raises(TdxError, match="not both"):
-        gcp.plan_system(
-            "gcppostgres",
-            {**base, "SERVER_CA_CERT": pem, "SERVER_CA_CERT_PATH": str(src)},
-        )
 
-
-def test_gcppostgres_refuses_a_verifying_sslmode_without_the_instance_ca(tmp_path):
-    """Cloud SQL signs each instance with a CA of its own -- there is no bundle to
-    download -- and libpq reports the miss as a bare 'certificate verify failed'
-    long after create. So create refuses first, naming the way to get the cert."""
+def test_the_data_plane_gets_the_root_cert_a_verifying_mode_needs(tmp_path):
+    """The loader goes through `run_sql_text`, which takes a URI and nothing
+    else, while a verifying sslmode needs libpq handed a path -- so the certificate
+    is written for the length of the load, and only then."""
+    pem = "-----BEGIN CERTIFICATE-----\nMIIBfake\n-----END CERTIFICATE-----\n"
     gcp = systems.get("gcppostgres")
-    base = {
-        "HOSTNAME": "10.0.0.1",
-        "PORT": "5432",
-        "USERNAME": "postgres",
-        "PASSWORD": "p",
-        "REGION": "europe-west1",
-    }
-    # the default posture verifies, so it needs the cert
-    assert gcp.ssl_mode == "verify-ca"
-    with pytest.raises(TdxError) as missing:
-        gcp.plan_system("gcppostgres", base)
-    assert "gcloud sql instances describe INSTANCE" in str(missing.value)
-    # ... and it names the instance when the system knows which one it is
+    verifying = _plan("gcppostgres", SSLMODE="verify-ca", SERVER_CA_CERT_PEM=pem)
+    dom = gcp.domain_meta(verifying, "d1", "secret")
+    with gcp.data_plane_uri(dom) as uri:
+        # the external plane -- tdx runs the loader itself, from where tdx is
+        assert "ext.example:5432/d1" in uri and "10.0.0.1" not in uri
+        written = pathlib.Path(uri.replace("%2F", "/").split("sslrootcert=")[1])
+        assert written.read_text() == pem
+        # Every parameter exactly once. The recorded URI already carries the
+        # mode, so adding it again here makes libpq read the pair as a list and
+        # refuse the connection: invalid sslmode value: "('verify-ca',
+        # 'verify-ca')" -- a failure that only shows up against a real server
+        # with a verifying mode, which is why it is pinned here.
+        from urllib.parse import parse_qs, urlsplit
+
+        params = parse_qs(urlsplit(uri).query)
+        assert params["sslmode"] == ["verify-ca"], params
+        assert len(params["sslrootcert"]) == 1
+    assert not written.exists()
+
+    # nothing to write when nothing verifies, and the URI is handed over as it is
+    plain = gcp.domain_meta(_plan("gcppostgres"), "d1", "secret")
+    with gcp.data_plane_uri(plain) as uri:
+        assert uri == plain["EXTERNAL_SQLALCHEMY_URI"] and "sslrootcert" not in uri
+
+    # a container has nothing to set up either
+    pg = systems.get("postgres")
+    pdom = pg.domain_meta(_plan("postgres"), "d1", "secret")
+    with pg.data_plane_uri(pdom) as uri:
+        assert uri == pdom["EXTERNAL_SQLALCHEMY_URI"]
+
+
+def test_a_verifying_sslmode_without_a_root_is_refused_with_the_way_to_get_one():
+    """libpq reports a missing root as a bare 'certificate verify failed' long
+    after create, and it is not guessable from that -- so create refuses first,
+    and each provider names where its certificate comes from."""
+    with pytest.raises(TdxError) as gcp_missing:
+        _plan("gcppostgres", SSLMODE="verify-ca")
+    assert "gcloud sql instances describe INSTANCE" in str(gcp_missing.value)
+    assert "--project" not in str(gcp_missing.value)  # gcloud's own default is better
     with pytest.raises(TdxError) as named:
-        gcp.plan_system("gcppostgres", {**base, "INSTANCE_ID": "k8sdb"})
-    assert "gcloud sql instances describe k8sdb" in str(named.value)
-    assert "--sslmode require" in str(missing.value)
-
-    with pytest.raises(TdxError, match="is not a file"):
-        gcp.plan_system(
-            "gcppostgres", {**base, "SERVER_CA_CERT_PATH": str(tmp_path / "nope.pem")}
+        _plan(
+            "gcppostgres",
+            SSLMODE="verify-ca",
+            GCP_INSTANCE_ID="k8sdb",
+            GCP_PROJECT="td-dev",
         )
-    with pytest.raises(TdxError, match="unknown sslmode"):
-        gcp.plan_system("gcppostgres", {**base, "SSLMODE": "verify-most"})
+    assert "describe k8sdb --project td-dev" in str(named.value)
 
-    # require encrypts without verifying: no cert to supply
-    assert gcp.plan_system("gcppostgres", {**base, "SSLMODE": "require"})
-    # and a real cert file satisfies the verifying default, on the admin URL only
-    pem = tmp_path / "server-ca.pem"
-    pem.write_text("-----BEGIN CERTIFICATE-----\ncreate-time\n")
-    meta = gcp.plan_system("gcppostgres", {**base, "SERVER_CA_CERT_PATH": str(pem)})
-    with gcp._ca_file(gcp._admin(meta)) as connectable:
-        admin_url = gcp._admin_url(connectable).replace("%2F", "/")
-        assert "sslmode=verify-ca" in admin_url
-        written = admin_url.split("sslrootcert=")[1]
-        assert pathlib.Path(written).read_text() == pem.read_text()
+    with pytest.raises(TdxError) as az_missing:
+        _plan("azpostgres", SSLMODE="verify-full", AZ_SERVER_NAME="k8sdb")
+    assert "k8sdb" in str(az_missing.value) and "learn.microsoft.com" in str(
+        az_missing.value
+    )
+
+    for slug in ("gcppostgres", "azpostgres"):
+        with pytest.raises(TdxError) as no_root:
+            _plan(slug, SSLMODE="verify-ca")
+        assert "--sslmode require" in str(no_root.value)
+        with pytest.raises(TdxError, match="unknown sslmode"):
+            _plan(slug, SSLMODE="verify-most")
+        # require encrypts without verifying: no certificate to supply
+        assert _plan(slug, SSLMODE="require")
 
 
 def test_every_type_makes_a_1password_item_that_reads_back_as_its_own_env_vars():
@@ -402,20 +527,36 @@ def test_every_type_makes_a_1password_item_that_reads_back_as_its_own_env_vars()
 
 
 def test_1p_item_conceals_secrets_and_takes_its_category_from_its_fields():
-    from tabsdata_dev.common.systems import onepassword
+    from tabsdata_dev.common.systems import onepassword, options
 
-    # a host/port/user/password type is 1Password's DATABASE item, and gets the
-    # database_type menu filled from the dialect (the human would have to guess)
-    rds = systems.get("awspostgres")
-    item = onepassword.item(rds)
-    assert item["category"] == onepassword.CATEGORY_DATABASE
-    assert item["fields"][0] == {
+    # The category follows the fields: a type whose options are 1Password's own
+    # host/port/username/password shape gets the DATABASE item (and its
+    # database_type menu, filled from the dialect -- the human would have to
+    # guess 1Password's vocabulary). No type has that shape today: the five
+    # postgres types name two hosts, and `external_host` is not `hostname`.
+    assert not [
+        s
+        for s in systems.all_slugs()
+        if onepassword.category_for(systems.get(s)) == onepassword.CATEGORY_DATABASE
+    ]
+    fake = systems.get("awspostgres")
+
+    class _NativeShape(type(fake)):  # the shape the DATABASE branch is for
+        def options(self):
+            return tuple(o for o in super().options() if o.name != "EXTERNAL_HOST") + (
+                options.Option("HOSTNAME", "hostname", options.ENV, "env $X__HOSTNAME"),
+                options.Option("USERNAME", "username", options.ENV, "env $X__USERNAME"),
+            )
+
+    native = onepassword.item(_NativeShape())
+    assert native["category"] == onepassword.CATEGORY_DATABASE
+    assert native["fields"][0] == {
         "id": "database_type",
         "label": "type",
         "type": "MENU",
         "value": "postgresql",
     }
-    assert not any(f["id"] == onepassword.EXPIRES_FIELD for f in item["fields"])
+    assert not any(f["id"] == onepassword.EXPIRES_FIELD for f in native["fields"])
 
     # everything else is a credential, with the expires field those carry --
     # which the reader skips, so it never becomes a variable
@@ -476,48 +617,54 @@ def test_1p_template_covers_every_type_and_says_so_when_none_is_named(capsys):
     assert rc == 1 and "--format" in said.out + said.err
 
 
-def test_gcppostgres_1p_item_carries_the_certificate_but_not_the_path_to_it(tmp_path):
-    """The whole point of the item for this type: a Cloud SQL instance is signed
-    by a CA of its own, so the certificate has to travel with the credentials."""
+def test_the_managed_items_carry_the_certificate_but_not_the_path_to_it():
+    """The whole point of the item for these types: a Cloud SQL or Azure instance
+    is signed by a root libpq will not find on its own, so the certificate has to
+    travel with the credentials -- and RDS's is a download, so it does not."""
     from tabsdata_dev.common.systems import onepassword
 
     gcp = systems.get("gcppostgres")
     item = onepassword.item(gcp)
     ids = [f["id"] for f in item["fields"]]
-    assert item["category"] == onepassword.CATEGORY_DATABASE
-    assert "server_ca_cert" in ids
+    # 1Password's DATABASE item has exactly one built-in `hostname`, and these
+    # instances answer on two named planes, so it is a credential item instead
+    assert item["category"] == onepassword.CATEGORY_API
+    assert {"external_host", "internal_host", "database", "user"} <= set(ids)
+    assert "hostname" not in ids and "username" not in ids
+    assert "server_ca_cert_pem" in ids
     # which instance this is, in Google's terms -- not how it is reached
-    assert "instance_id" in ids
+    assert {"gcp_project", "gcp_region", "gcp_instance_id"} <= set(ids)
     # the path to a local copy is one machine's, and create refuses being told
     # the same thing twice -- an item carrying both would break every create
     assert "server_ca_cert_path" not in ids
-    pem = "-----BEGIN CERTIFICATE-----\nMIIBfake\n"
-    src = tmp_path / "server-ca.pem"
-    src.write_text(pem)
-    with pytest.raises(TdxError, match="not both"):
-        gcp.plan_system(
-            "g",
-            {
-                "HOSTNAME": "h",
-                "PORT": "5432",
-                "USERNAME": "postgres",
-                "PASSWORD": "p",
-                "SERVER_CA_CERT": pem,
-                "SERVER_CA_CERT_PATH": str(src),
-            },
-        )
+
+    # RDS fetches a current bundle every run, so neither belongs in a vault
+    aws_ids = [f["id"] for f in onepassword.item(systems.get("awspostgres"))["fields"]]
+    assert not [i for i in aws_ids if i.startswith("server_ca_cert")]
+    assert {"aws_account_id", "aws_region"} <= set(aws_ids)
+
+    az_ids = [f["id"] for f in onepassword.item(systems.get("azpostgres"))["fields"]]
+    assert {"az_server_name", "az_region", "server_ca_cert_pem"} <= set(az_ids)
 
     # a computed default is written out, never left as a placeholder: read back
-    # from the vault, "?" would be refused as an sslmode
+    # from the vault, "?" would be refused as an sslmode -- and `database` is
+    # `postgres` on every instance nobody renamed
     by_id = {f["id"]: f["value"] for f in item["fields"]}
     assert by_id["sslmode"] == gcp.ssl_mode == "verify-ca"
-    assert by_id["database_type"] == "postgresql" and by_id["server_ca_cert"] == "?"
+    assert by_id["database"] == "postgres"
+    assert by_id["server_ca_cert_pem"] == "?"
 
     # and what the vault yields is what create reads
     from tabsdata_dev.common.core.secrets_1p import _norm
 
     produced = {f"{_norm(item['title'])}__{_norm(i)}" for i in ids}
-    assert {"GCPPOSTGRES__SERVER_CA_CERT", "GCPPOSTGRES__SSLMODE"} <= produced
+    assert {
+        "GCPPOSTGRES__SERVER_CA_CERT_PEM",
+        "GCPPOSTGRES__SSLMODE",
+        "GCPPOSTGRES__EXTERNAL_HOST",
+        "GCPPOSTGRES__INTERNAL_HOST",
+        "GCPPOSTGRES__GCP_PROJECT",
+    } <= produced
 
 
 def test_1p_set_deletes_before_creating_so_a_title_cannot_duplicate(

@@ -27,6 +27,7 @@ from tabsdata_dev.common.systems import constants
 
 import tempfile
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from tabsdata_dev.common.systems import datagen, emit, options
@@ -142,8 +143,9 @@ class FileBackend:
     def new_domain_password(self) -> str:
         return ""  # file domains have no credentials
 
-    def data_plane_uri(self, meta: dict[str, str]) -> str:
-        return meta["BASE_PATH"]  # the opaque staging destination
+    @contextmanager
+    def data_plane_uri(self, meta: dict[str, str]):
+        yield meta["BASE_PATH"]  # the opaque staging destination; nothing to set up
 
     def _uri(self, dest: str) -> str:
         """The connector-facing location URI for storage destination `dest`."""
@@ -206,7 +208,8 @@ class FileBackend:
         self, meta: dict[str, str], model: str, *, force: bool = False
     ) -> None:
         if force:
-            self.store_clear(self.data_plane_uri(meta))
+            with self.data_plane_uri(meta) as dest:
+                self.store_clear(dest)
         print(">>> file domain: no schema to install")
 
     def _stage_and_upload(

@@ -101,8 +101,8 @@ class Db2(SqlContainerBackend):
             "SQLALCHEMY_URI": f"{self.driver}://{admin.user}:{admin.password}@{base}",
             "URI": f"{self.driver}://{base}",
             "IMAGE": sys_meta.get("IMAGE", ""),
-            "SYS_CONTAINER": sys_meta.get("CONTAINER", ""),
-            "SYS_CONTAINER_ID": sys_meta.get("CONTAINER_ID", ""),
+            "SYS_DOCKER_CONTAINER_NAME": sys_meta.get("DOCKER_CONTAINER_NAME", ""),
+            "SYS_DOCKER_CONTAINER_ID": sys_meta.get("DOCKER_CONTAINER_ID", ""),
             "SYS_ADMIN_USER": admin.user,
             "SYS_ADMIN_PASSWORD": admin.password,
         }

@@ -73,7 +73,8 @@ class Postgrescdc(Postgres):
         if not tables:
             return
         print(f">>> CDC: REPLICA IDENTITY FULL on {len(tables)} table(s)")
-        run_sql_text(
-            meta["SQLALCHEMY_URI"],
-            "\n".join(f'ALTER TABLE "{t}" REPLICA IDENTITY FULL;' for t in tables),
-        )
+        with self.data_plane_uri(meta) as uri:
+            run_sql_text(
+                uri,
+                "\n".join(f'ALTER TABLE "{t}" REPLICA IDENTITY FULL;' for t in tables),
+            )

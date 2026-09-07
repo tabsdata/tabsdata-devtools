@@ -48,7 +48,7 @@ import tempfile
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 
 from tabsdata_dev.common.systems import constants, options
 from tabsdata_dev.common.systems.errors import TdxError
@@ -70,33 +70,54 @@ class ManagedPostgres(Postgres):
     # start and probes over SQL instead, so it needs the driver from the outside
     # too (see _venv).
     sys_toolset = constants.TOOLSET_SYSTEMS
-    supports_models = False
-    supports_data = False
-    supports_changes = False
+    # A managed instance holds a model and its data like any other postgres: the
+    # DDL is the plain system's (ddl_from_slug on each provider) and the loader
+    # connects over the external plane, with the root certificate materialized
+    # for the length of the load (see data_plane_uri).
+    supports_models = True
+    supports_data = True
+    supports_changes = True
 
     # The default posture, used when the system's meta names no SSLMODE.
     ssl_mode = "verify-full"
     # Role-name prefixes the provider owns: memberships the master is given by
     # the service, never domains. 'pg_' is filtered for every provider.
     role_prefixes: tuple[str, ...] = ()
-    # Whether the region is part of reaching the instance (RDS names one) or is
-    # only recorded (Cloud SQL). Informational means a create is never held up
-    # for it.
-    region_required: bool = True
 
     # ---- options --------------------------------------------------------
 
     def connection_options(self) -> tuple[options.Option, ...]:
-        """Host, credentials and region, all from ``$<PREFIX>__*`` (as loaded by
-        ``envx set-secrets``). A subclass appends whatever else it needs."""
+        """The shared info block, all from ``$<PREFIX>__*`` (as loaded by ``envx
+        set-secrets``). A provider appends only its own group.
+
+        Only ``EXTERNAL_HOST`` is required. tdx connects on that one, so without
+        it there is nothing to create; ``INTERNAL_HOST`` is the plane tdx cannot
+        use and is recorded for whoever runs inside the VPC, so a create is never
+        held up for it -- nor for a ``DATABASE`` that is ``postgres`` on every
+        instance nobody renamed."""
         p = self.env_prefix
-        region_doc = f"env ${p}__REGION" + (
-            "" if self.region_required else " (informational)"
-        )
         return (
-            options.Option("HOSTNAME", "hostname", options.ENV, f"env ${p}__HOSTNAME"),
+            options.Option(
+                "INTERNAL_HOST",
+                "internal-host",
+                options.ENV,
+                f"env ${p}__INTERNAL_HOST (the private-network plane)",
+                required=False,
+            ),
+            options.Option(
+                "EXTERNAL_HOST",
+                "external-host",
+                options.ENV,
+                f"env ${p}__EXTERNAL_HOST",
+            ),
             options.Option("PORT", "port", options.ENV, f"env ${p}__PORT"),
-            options.Option("USERNAME", "username", options.ENV, f"env ${p}__USERNAME"),
+            options.Option(
+                "DATABASE",
+                "database",
+                options.SYNTH,
+                self.admin_db,
+            ),
+            options.Option("USER", "user", options.ENV, f"env ${p}__USER"),
             options.Option(
                 "PASSWORD",
                 "password",
@@ -104,17 +125,52 @@ class ManagedPostgres(Postgres):
                 f"env ${p}__PASSWORD",
                 secret=True,
             ),
+            options.Option("SSLMODE", "sslmode", options.SYNTH, self.ssl_mode),
+            # Two ways in, one meta key out: the certificate itself (an env var
+            # holding the PEM, as `envx set-secrets` loads it) or a file to read
+            # it from. What is stored is always the PEM.
             options.Option(
-                "REGION",
-                "region",
+                "SERVER_CA_CERT_PEM",
+                "server-ca-cert-pem",
                 options.ENV,
-                region_doc,
-                required=self.region_required,
+                f"env ${p}__SERVER_CA_CERT_PEM (the certificate itself)",
+                required=False,
+            ),
+            options.Option(
+                "SERVER_CA_CERT_PATH",
+                "server-ca-cert-path",
+                options.ENV,
+                f"env ${p}__SERVER_CA_CERT_PATH (a file holding it)",
+                required=False,
             ),
         )
 
     def options(self) -> tuple[options.Option, ...]:
-        return self.connection_options()
+        """The block plus this provider's own group (see ``provider_options``)."""
+        return (*self.connection_options(), *self.provider_options())
+
+    def provider_options(self) -> tuple[options.Option, ...]:
+        """What only this provider has -- the AWS / GCP / AZ group. All
+        informational: the instance is reached at its host, so a create is never
+        held up for any of them."""
+        return ()
+
+    def provider_option(self, name: str, doc: str) -> options.Option:
+        """One informational provider option, named the way its group is."""
+        return options.Option(
+            name,
+            name.lower().replace("_", "-"),
+            options.ENV,
+            f"env ${self.env_prefix}__{name} ({doc})",
+            required=False,
+        )
+
+    def synth_default(self, name: str, sys_name: str) -> str:
+        if name == "SSLMODE":
+            return self.ssl_mode
+        if name == "DATABASE":
+            return self.admin_db
+        raise TdxError(f"{self.slug}: no synth default for {name}")
 
     def docker_images(self) -> list[tuple[str, str]]:
         return []
@@ -126,9 +182,68 @@ class ManagedPostgres(Postgres):
 
     def _ca_pem(self, meta: dict[str, str]) -> str:
         """The root certificate a verifying mode validates against, as PEM text,
-        or ``""`` when there is none. Provider-specific: a bundle to download, a
-        certificate the descriptor carries."""
-        return ""
+        or ``""`` when there is none. The descriptor carries it by default;
+        AwsPostgres overrides, because RDS publishes a bundle to download."""
+        return meta.get("SERVER_CA_CERT_PEM", "")
+
+    def _read_ca(self, meta: dict[str, str]) -> None:
+        """Resolve the two inputs into ``SERVER_CA_CERT_PEM`` -- the certificate
+        itself, which is what the descriptor keeps. A path is read here, at
+        create, so nothing later depends on that file still being there (or on
+        this machine); it is then dropped, for the same reason the vault never
+        carries it -- a path into somebody's home directory describes one box, so
+        keeping it in the meta would offer every reader of the descriptor a file
+        that is not theirs."""
+        pem = meta.get("SERVER_CA_CERT_PEM", "")
+        path = meta.get("SERVER_CA_CERT_PATH", "")
+        if pem and path:
+            raise TdxError(
+                f"{self.slug}: specify the server CA once — --server-ca-cert-pem "
+                f"(the PEM) or --server-ca-cert-path (a file holding it), not both"
+            )
+        if path:
+            src = Path(path).expanduser()
+            if not src.is_file():
+                raise TdxError(
+                    f"{self.slug}: --server-ca-cert-path '{path}' is not a file"
+                )
+            pem = src.read_text(encoding="utf-8")
+        if pem and not pem.lstrip().startswith(PEM_HEADER):
+            where = (
+                f"--server-ca-cert-path '{path}'" if path else "--server-ca-cert-pem"
+            )
+            raise TdxError(f"{self.slug}: {where} is not a PEM certificate")
+        # Canonical form: a file keeps its trailing newline and `$(cat ...)` eats
+        # it, and the same certificate arriving two ways must not become two
+        # stored values (and two content-addressed files).
+        meta["SERVER_CA_CERT_PEM"] = f"{pem.strip()}\n" if pem else ""
+        meta.pop("SERVER_CA_CERT_PATH", None)
+
+    def _check_ssl(self, meta: dict[str, str]) -> None:
+        """Refuse a TLS setting the instance cannot honour, at create time --
+        libpq reports these as a bare ``certificate verify failed`` much later,
+        and neither is guessable from that."""
+        mode = self._sslmode(meta)
+        if mode not in SSL_MODES:
+            raise TdxError(
+                f"{self.slug}: unknown sslmode '{mode}' — one of: "
+                f"{', '.join(SSL_MODES)}"
+            )
+        if mode not in VERIFYING_SSL_MODES:
+            return
+        if not self._ca_pem(meta):
+            raise TdxError(self.missing_ca_message(meta, mode))
+
+    def missing_ca_message(self, meta: dict[str, str], mode: str) -> str:
+        """What to say when a verifying mode has no root to verify against. Each
+        provider names where its certificate comes from, so the refusal is a
+        command to run rather than a shrug."""
+        return (
+            f"{self.slug}: sslmode '{mode}' verifies the server, so it needs the "
+            f"instance's root CA — pass --server-ca-cert-path FILE (or hand the "
+            f"PEM itself in ${self.env_prefix}__SERVER_CA_CERT_PEM).\n"
+            f"(or --sslmode require to encrypt without verifying the server)"
+        )
 
     @contextmanager
     def _ca_file(self, admin: Admin):
@@ -157,24 +272,25 @@ class ManagedPostgres(Postgres):
             return super()._query_admin(connectable, query)
 
     def _with_ssl(self, url: str, sslmode: str, sslrootcert: str = "") -> str:
+        """Add the TLS settings to a URL that carries none. Never call it on a
+        URL that already has them: libpq reads a repeated parameter as a list
+        and rejects the pair (`invalid sslmode value: "('verify-full',
+        'verify-full')"`). To add only the root cert, use _with_root_cert."""
         params = {"sslmode": sslmode}
         if sslrootcert:
             params["sslrootcert"] = sslrootcert
+        return self._add_params(url, params)
+
+    @staticmethod
+    def _add_params(url: str, params: dict[str, str]) -> str:
         sep = "&" if "?" in url else "?"
         return f"{url}{sep}{urlencode(params)}"
 
-    def sqlalchemy_url(
-        self, host: str, port: str, db: str = "", user: str = "", password: str = ""
-    ) -> str:
-        # The credentials are percent-encoded because SQLAlchemy decodes what it
-        # parses out of a URL: a master password may contain a literal '%NN',
-        # which would otherwise arrive at the server as the single byte it
-        # escapes. quote() (not quote_plus) — a space must be '%20', since
-        # SQLAlchemy unquotes with unquote(). TLS is added by the caller: it
-        # differs between an admin connection and a recorded URI.
-        creds = f"{quote(user, safe='')}:{quote(password, safe='')}@" if user else ""
-        tail = f"/{db}" if db else ""
-        return f"{self.driver}://{creds}{host}:{port}{tail}"
+    def _with_root_cert(self, url: str, sslrootcert: str) -> str:
+        """A *recorded* URI plus the path to the root certificate. The mode is
+        already on it (``finish_uri`` put it there when the descriptor was
+        written), so only the path is added."""
+        return self._add_params(url, {"sslrootcert": sslrootcert})
 
     def _admin_url(self, admin: Admin) -> str:
         return self._with_ssl(
@@ -183,15 +299,12 @@ class ManagedPostgres(Postgres):
             admin.sslrootcert,
         )
 
-    def _location(self, meta: dict[str, str]) -> str:
-        return f"postgresql://{meta.get('HOSTNAME', '')}:{meta.get('PORT', '')}"
+    def finish_uri(self, url: str, meta: dict[str, str]) -> str:
+        return self._with_ssl(url, self._sslmode(meta))
 
     def _admin(self, sys_meta: dict[str, str]) -> Admin:
-        return Admin(
-            host=sys_meta.get("HOSTNAME", ""),
-            port=sys_meta.get("PORT", ""),
-            user=sys_meta.get("USERNAME", ""),
-            password=sys_meta.get("PASSWORD", ""),
+        return replace(
+            super()._admin(sys_meta),
             sslmode=self._sslmode(sys_meta),
             ca_pem=self._ca_pem(sys_meta),
         )
@@ -199,21 +312,50 @@ class ManagedPostgres(Postgres):
     def _probe(self, meta: dict[str, str]) -> None:
         self._query_admin(self._admin(meta), "SELECT 1")
 
+    @contextmanager
+    def data_plane_uri(self, meta: dict[str, str]):
+        """The external plane's URI with ``sslrootcert`` pointing at the
+        certificate on disk, for the length of the load and no longer.
+
+        The loader goes through ``run_sql_text``, which takes a URI and nothing
+        else, while a verifying ``sslmode`` needs libpq to be handed a path. So
+        the same temporary file the admin connections get is written here too --
+        the recorded URIs stay free of a path that belongs to one machine."""
+        uri = meta.get("EXTERNAL_SQLALCHEMY_URI", "")
+        pem = self._ca_pem(meta)
+        if not pem or self._sslmode(meta) not in VERIFYING_SSL_MODES:
+            yield uri
+            return
+        with tempfile.TemporaryDirectory(prefix="tdx-ca-") as tmp:
+            path = Path(tmp) / "server-ca.pem"
+            path.write_text(pem, encoding="utf-8")
+            yield self._with_root_cert(uri, str(path))
+
     # ---- system lifecycle (the instance is externally owned) ------------
 
     def plan_system(
         self, name: str, overrides: dict[str, str] | None = None
     ) -> dict[str, str]:
         o = overrides or {}
-        meta = {opt.name: o.get(opt.name, "") for opt in self.options()}
-        meta["LOCATION"] = self._location(meta)
+        # Built in the order a reader wants it: the block every one of the five
+        # shares, then this provider's own group, then the URIs derived from both.
+        meta = {opt.name: o.get(opt.name, "") for opt in self.connection_options()}
+        meta["DATABASE"] = meta.get("DATABASE") or self.admin_db
+        self._read_ca(meta)
+        meta["VERSION"] = ""  # filled in by the probe, once there is a server to ask
+        meta.update({opt.name: o.get(opt.name, "") for opt in self.provider_options()})
+        # After the provider group: a refusal names the instance from it, so it
+        # can print the command that fetches the certificate rather than a
+        # placeholder somebody has to notice and replace.
+        self._check_ssl(meta)
+        self._plane_keys(meta, meta["DATABASE"], meta["USER"], meta["PASSWORD"])
         return meta
 
     def provision_system(
         self, meta: dict[str, str], *, force: bool = False
     ) -> dict[str, str]:
         self._probe(meta)
-        return {}
+        return {"VERSION": self._probe_version(meta)}
 
     def destroy_system(self, meta: dict[str, str]) -> None:
         return None
@@ -223,39 +365,21 @@ class ManagedPostgres(Postgres):
             self._probe(meta)
         except TdxError as exc:
             return False, f"cannot reach {self.label}: {exc}"
-        return True, f"{self.label} at {self._location(meta)}"
+        where = self._admin(meta)
+        return True, f"{self.label} at {where.host}:{where.port}"
 
     # ---- domain lifecycle (a database + its owner) ----------------------
 
-    def domain_meta(
-        self, sys_meta: dict[str, str], entity_name: str, password: str
-    ) -> dict[str, str]:
-        meta = super().domain_meta(sys_meta, entity_name, password)
-        for key in ("IMAGE", "SYS_CONTAINER", "SYS_CONTAINER_ID"):
-            meta.pop(key, None)
-        mode = self._sslmode(sys_meta)
-        meta["REGION"] = sys_meta.get("REGION", "")
-        # Recorded so a domain descriptor is enough to reach the instance on its
-        # own -- destroy runs from it, without the system's.
-        meta["SSLMODE"] = mode
-        if sys_meta.get("SERVER_CA_CERT"):
-            meta["SERVER_CA_CERT"] = sys_meta["SERVER_CA_CERT"]
-        for key in ("SQLALCHEMY_URI", "URI"):
-            meta[key] = self._with_ssl(meta[key], mode)
+    def provider_meta(self, sys_meta: dict[str, str]) -> dict[str, str]:
+        """No docker keys on an instance nobody runs -- the TLS pair instead, so
+        a domain descriptor can reach the instance without the system's, plus
+        this provider's own group."""
+        meta = {
+            "SSLMODE": self._sslmode(sys_meta),
+            "SERVER_CA_CERT_PEM": sys_meta.get("SERVER_CA_CERT_PEM", ""),
+        }
+        meta.update({o.name: sys_meta.get(o.name, "") for o in self.provider_options()})
         return meta
-
-    def destroy_domain(self, domain_meta: dict[str, str]) -> None:
-        self._do_delete(
-            Admin(
-                host=domain_meta.get("HOST", ""),
-                port=domain_meta.get("PORT", ""),
-                user=domain_meta.get("SYS_ADMIN_USER", ""),
-                password=domain_meta.get("SYS_ADMIN_PASSWORD", ""),
-                sslmode=self._sslmode(domain_meta),
-                ca_pem=self._ca_pem(domain_meta),
-            ),
-            domain_meta["DB"],
-        )
 
     def create_domain_sql(self, db: str, user: str, password: str) -> list[str]:
         return [

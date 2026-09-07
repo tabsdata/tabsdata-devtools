@@ -226,7 +226,9 @@ class Db2Cdc(Db2):
         -- but both setup steps are guarded, so re-running them costs nothing.
         """
         result = super().restart_system(meta)
-        container = meta.get("CONTAINER") or meta.get("SYS_CONTAINER", "")
+        container = meta.get("DOCKER_CONTAINER_NAME") or meta.get(
+            "SYS_DOCKER_CONTAINER_NAME", ""
+        )
         if not container:
             return result
         self._wait_ready(container, meta.get("PASSWORD", ""), self.ready_timeout)
@@ -352,9 +354,11 @@ class Db2Cdc(Db2):
         return state.upper() == "C" or state == ""
 
     def _container_and_schema(self, meta: dict[str, str]) -> tuple[str, str]:
-        container = meta.get("SYS_CONTAINER", "")
+        container = meta.get("SYS_DOCKER_CONTAINER_NAME", "")
         if not container:
-            raise TdxError("db2cdc domain has no SYS_CONTAINER back-reference")
+            raise TdxError(
+                "db2cdc domain has no SYS_DOCKER_CONTAINER_NAME back-reference"
+            )
         return container, self._schema(meta.get("DB", ""))
 
     # ---- domain teardown -------------------------------------------------

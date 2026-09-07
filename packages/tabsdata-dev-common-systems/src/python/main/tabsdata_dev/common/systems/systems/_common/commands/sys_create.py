@@ -63,7 +63,11 @@ def _where(meta: dict[str, str], name: str) -> str:
     if meta.get("LOCATION"):
         return meta["LOCATION"]
     if meta.get("PORT"):
-        return f"{meta.get('HOST') or DEFAULT_HOSTNAME}:{meta['PORT']}"
+        # A family that names its networks (the five postgres types) has no
+        # unqualified HOST; the summary reports the plane tdx itself just
+        # connected on, which is the external one.
+        host = meta.get("EXTERNAL_HOST") or meta.get("HOST") or DEFAULT_HOSTNAME
+        return f"{host}:{meta['PORT']}"
     return meta.get("SYS_PATH") or name
 
 

@@ -26,6 +26,7 @@ import hashlib
 import inspect
 import platform
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -56,6 +57,11 @@ class Admin:
     port: str
     user: str
     password: str
+    # The maintenance database this connection targets. Empty = the class's
+    # `admin_db`; a family that records the database in its meta (Postgres) puts
+    # it here, so a server whose default database is not the usual one is reached
+    # at the one it actually has.
+    db: str = ""
     # TLS for this connection, where the dialect takes it on the URL and the
     # setting is the system's rather than the class's (see ManagedPostgres);
     # every container backend leaves these empty. `ca_pem` is the certificate
@@ -130,6 +136,13 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
     def docker_images(self) -> list[tuple[str, str]]:
         return [(self.image, self.image_platform)]
 
+    # The domain-meta keys holding the address tdx connects to and the domain's
+    # own database. One endpoint and one word for a database need no qualifier,
+    # so a domain says HOST and DB; a family that names its networks and spells
+    # the word out points these at its own keys (see Postgres).
+    domain_host_key: str = "HOST"
+    domain_db_key: str = "DB"
+
     def container_name(self, sys_name: str) -> str:
         return f"{constants.DOCKER_NAME_PREFIX}{sys_name}"
 
@@ -201,7 +214,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
     ) -> dict[str, str]:
         o = overrides or {}
         return {
-            "CONTAINER": self.container_name(name),
+            "DOCKER_CONTAINER_NAME": self.container_name(name),
             "IMAGE": self.image,
             "HOST": self.hostname,
             "PORT": o.get("PORT") or str(self.next_free_port()),
@@ -213,7 +226,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         self, meta: dict[str, str], *, force: bool = False
     ) -> dict[str, str]:
         require_docker()
-        container = meta["CONTAINER"]
+        container = meta["DOCKER_CONTAINER_NAME"]
         password = meta["PASSWORD"]
         port = int(meta["PORT"])
         if container_exists(container):
@@ -230,7 +243,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         self._wait_ready(container, password, self.ready_timeout)
         self.post_provision(container, password)
         cid = container_id(container)
-        return {"CONTAINER_ID": cid} if cid else {}
+        return {"DOCKER_CONTAINER_ID": cid} if cid else {}
 
     def _docker_args(self, container: str, host_port: int, password: str) -> list[str]:
         args = [
@@ -264,7 +277,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         )
 
     def destroy_system(self, meta: dict[str, str]) -> None:
-        cname = meta["CONTAINER"]
+        cname = meta["DOCKER_CONTAINER_NAME"]
         st = container_state(cname)
         if st is None:
             raise TdxError(f"container does not exist: {cname}")
@@ -273,7 +286,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         docker_rm(cname)
 
     def system_status(self, meta: dict[str, str]) -> tuple[bool, str]:
-        cname = meta["CONTAINER"]
+        cname = meta["DOCKER_CONTAINER_NAME"]
         st = container_state(cname)
         if st is None:
             return False, f"container {cname} does not exist"
@@ -285,7 +298,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         return False, f"{self.label} container is up but not yet accepting connections"
 
     def restart_system(self, meta: dict[str, str]) -> str:
-        cname = meta["CONTAINER"]
+        cname = meta["DOCKER_CONTAINER_NAME"]
         if container_state(cname) is None:
             raise TdxError(f"container does not exist: {cname}")
         docker_restart(cname)
@@ -305,7 +318,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         return self.sqlalchemy_url(
             admin.host,
             admin.port,
-            db=self.admin_db,
+            db=admin.db or self.admin_db,
             user=admin.user,
             password=admin.password,
         )
@@ -328,8 +341,8 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
             "SQLALCHEMY_URI": uri,
             "URI": uri_no_creds,
             "IMAGE": sys_meta.get("IMAGE", ""),
-            "SYS_CONTAINER": sys_meta.get("CONTAINER", ""),
-            "SYS_CONTAINER_ID": sys_meta.get("CONTAINER_ID", ""),
+            "SYS_DOCKER_CONTAINER_NAME": sys_meta.get("DOCKER_CONTAINER_NAME", ""),
+            "SYS_DOCKER_CONTAINER_ID": sys_meta.get("DOCKER_CONTAINER_ID", ""),
             "SYS_ADMIN_USER": admin.user,
             "SYS_ADMIN_PASSWORD": admin.password,
         }
@@ -361,22 +374,25 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
             except TdxError:
                 pass
         self._do_create(
-            admin, domain_meta["DB"], domain_meta["USER"], domain_meta["PASSWORD"]
+            admin,
+            domain_meta[self.domain_db_key],
+            domain_meta["USER"],
+            domain_meta["PASSWORD"],
         )
 
     def destroy_domain(self, domain_meta: dict[str, str]) -> None:
         admin = Admin(
-            host=domain_meta.get("HOST", DEFAULT_HOSTNAME),
+            host=domain_meta.get(self.domain_host_key, DEFAULT_HOSTNAME),
             port=domain_meta.get("PORT", ""),
             user=domain_meta.get("SYS_ADMIN_USER", self.root_user),
             password=domain_meta.get("SYS_ADMIN_PASSWORD", ""),
         )
-        self._do_delete(admin, domain_meta["DB"])
+        self._do_delete(admin, domain_meta[self.domain_db_key])
 
     def domain_status(self, domain_meta: dict[str, str]) -> tuple[bool, str]:
         from tabsdata_dev.common.systems.shell import port_open
 
-        host = domain_meta.get("HOST", DEFAULT_HOSTNAME)
+        host = domain_meta.get(self.domain_host_key, DEFAULT_HOSTNAME)
         port = domain_meta.get("PORT", "")
         ok = port.isdigit() and port_open(host, int(port))
         return (
@@ -438,8 +454,15 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
 
     # ---- data plane -----------------------------------------------------
 
-    def data_plane_uri(self, meta: dict[str, str]) -> str:
-        return meta["SQLALCHEMY_URI"]
+    @contextmanager
+    def data_plane_uri(self, meta: dict[str, str]):
+        """The URI the loader connects on, for the length of the block.
+
+        A context manager because a connection may need something on disk that
+        nothing should keep afterwards -- a managed instance's root certificate,
+        which libpq takes as a path (see ManagedPostgres). A container has
+        nothing to set up, so the default just hands the URI over."""
+        yield meta["SQLALCHEMY_URI"]
 
     def _ddl_dir(self, model: str) -> Path:
         root = self._package_dir()
@@ -469,13 +492,13 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
     def install_schema(
         self, meta: dict[str, str], model: str, *, force: bool = False
     ) -> None:
-        uri = self.data_plane_uri(meta)
-        if force:
-            self.drop_all_tables(uri)
-        print(f">>> creating schema for model '{model}' …")
-        setup = "".join(f"{s};\n" for s in self.session_setup())
-        run_sql_text(uri, setup + self.ddl_text(model))
-        self.after_install_schema(meta, model)
+        with self.data_plane_uri(meta) as uri:
+            if force:
+                self.drop_all_tables(uri)
+            print(f">>> creating schema for model '{model}' …")
+            setup = "".join(f"{s};\n" for s in self.session_setup())
+            run_sql_text(uri, setup + self.ddl_text(model))
+            self.after_install_schema(meta, model)
         print(">>> schema ready")
 
     def load_tables(self, uri: str, tables: list[emit.Table]) -> dict[str, int]:

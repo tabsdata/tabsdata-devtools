@@ -89,7 +89,7 @@ class MongoDB(SqlContainerBackend):
             "DB": entity_name,
             "URI": f"mongodb://{admin.host}:{admin.port}/{entity_name}",
             "IMAGE": sys_meta.get("IMAGE", ""),
-            "SYS_CONTAINER": sys_meta.get("CONTAINER", ""),
+            "SYS_DOCKER_CONTAINER_NAME": sys_meta.get("DOCKER_CONTAINER_NAME", ""),
             "SYS_ADMIN_USER": admin.user,
             "SYS_ADMIN_PASSWORD": admin.password,
         }

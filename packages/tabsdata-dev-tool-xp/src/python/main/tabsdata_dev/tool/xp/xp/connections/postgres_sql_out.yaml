@@ -13,7 +13,16 @@ spec:
   # accepts: <value> | secret:<value>
   # replace <value> with the actual uri
   #
-  uri: '$secret:D0__URI'
+  # A postgres domain names both networks its instance answers on, so there is no
+  # unqualified URI to read: this is the address the FUNCTION uses, and a function
+  # runs inside the instance -- in the cluster for a k8s provider, where only the
+  # private plane routes. The `postgres` / `postgrescdc` containers the suites
+  # ship with record one address under both names, so the choice costs them
+  # nothing; repoint a domain at a managed instance served by a local (kminus)
+  # tdkserver and it is D0__EXTERNAL_URI you want instead. Credentials-free by
+  # design -- user and password ride below.
+  #
+  uri: '$secret:D0__INTERNAL_URI'
   credentials:
     kind: userPasswordCredentials
     apiVersion: '1.0'

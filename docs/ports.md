@@ -62,6 +62,7 @@ is consulted once they run out. Backends that need no ports never ask.
 | `db2cdc` | 22300-22399 | container |
 | `salesforce` | 22400-22499 | no ports |
 | `gcppostgres` | 22500-22599 | no ports |
+| `azpostgres` | 22600-22699 | no ports |
 
 ## Where in the code
 
