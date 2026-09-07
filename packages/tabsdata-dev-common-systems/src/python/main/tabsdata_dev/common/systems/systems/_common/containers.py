@@ -26,8 +26,6 @@ from tabsdata_dev.common.systems.shell import (
 from tabsdata_dev.common.systems.systems._common.host import HostMixin
 from tabsdata_dev.common.systems.systems._common.ports import PortRangeMixin
 
-_PROJECT_PREFIX = "tdx2_"
-
 
 class ContainersBackend(PortRangeMixin, HostMixin):
     is_container: bool = True
@@ -58,7 +56,8 @@ class ContainersBackend(PortRangeMixin, HostMixin):
         return ()  # declarative create options; overridden by backends that have any
 
     def _project(self, name: str) -> str:
-        return f"{_PROJECT_PREFIX}{name}".lower()  # compose rejects upper-case projects
+        # compose rejects upper-case project names
+        return f"{constants.DOCKER_NAME_PREFIX}{name}".lower()
 
     # ---- subclass hooks ------------------------------------------------
 

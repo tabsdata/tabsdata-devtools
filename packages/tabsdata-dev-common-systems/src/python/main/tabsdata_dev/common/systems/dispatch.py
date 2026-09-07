@@ -22,7 +22,7 @@
     tdd system 1p-template --type TYPE|list|ALL
     tdd system 1p-set --vault <vault> --entry PATH|-
     tdd system crypto-key [--vault V] [--item I] [--field F] [--format export|unset]
-    tdd system clean-docker [--yes]           # stop and delete every tdx2* docker container
+    tdd system clean-docker [--yes]           # stop and delete every tdd_* docker container
 
     tdd domain list [--domain-dir DIR]
     tdd domain manifest [--out FILE]
@@ -960,7 +960,7 @@ def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
 
 
 def _cmn_clean_docker(tool: str, rest: list[str]) -> int:
-    """Stop and delete every docker container named `tdx2*` -- the ones the
+    """Stop and delete every docker container named `tdd_*` -- the ones the
     docker-backed systems create -- whether or not a descriptor still points at
     them. The sweep for a store that lost track of its containers, or a machine
     to be left clean. Asks first, unless --yes."""

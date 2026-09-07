@@ -49,8 +49,6 @@ from tabsdata_dev.common.systems.sql_runner import run_sql_text, run_sql_transac
 from tabsdata_dev.common.systems.systems._common.host import DEFAULT_HOSTNAME, HostMixin
 from tabsdata_dev.common.systems.systems._common.ports import PortRangeMixin
 
-_CONTAINER_PREFIX = "tdx2_"
-
 
 @dataclass
 class Admin:
@@ -133,7 +131,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         return [(self.image, self.image_platform)]
 
     def container_name(self, sys_name: str) -> str:
-        return f"{_CONTAINER_PREFIX}{sys_name}"
+        return f"{constants.DOCKER_NAME_PREFIX}{sys_name}"
 
     def _login(self, name: str) -> str:
         # The owner user is named after the domain, capped at the dialect's

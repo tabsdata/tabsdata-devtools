@@ -22,7 +22,7 @@ SEEING IT WORK
     yourself (`tdx-domain info --domain <instance>_redpanda --format json` prints
     the prefix as `meta.DB`):
 
-        docker exec -i tdx2_redpanda rpk topic produce <prefix>.departments <<'MSG'
+        docker exec -i tdd_redpanda rpk topic produce <prefix>.departments <<'MSG'
         {"dept_no": 42}
         MSG
 

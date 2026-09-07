@@ -68,13 +68,13 @@ def test_clean_docker_lists_then_refuses_without_yes_and_sweeps_with_it(
     monkeypatch, capsys
 ):
     """`clean-docker` over a fake daemon: without --yes and no terminal it lists
-    the tdx2* containers and refuses; with --yes it stops the running ones and
-    removes all, and only the tdx2-prefixed names are ever touched."""
+    the tdd_* containers and refuses; with --yes it stops the running ones and
+    removes all, and only the tdd-prefixed names are ever touched."""
     from tabsdata_dev.common.systems import main, shell
 
     boxes = [
-        {"id": "1", "name": "tdx2_mysql_a1", "state": "running", "image": "mysql:8"},
-        {"id": "2", "name": "tdx2_pg-db-1", "state": "exited", "image": "postgres:16"},
+        {"id": "1", "name": "tdd_mysql_a1", "state": "running", "image": "mysql:8"},
+        {"id": "2", "name": "tdd_pg-db-1", "state": "exited", "image": "postgres:16"},
     ]
     calls: list[tuple[str, str]] = []
     monkeypatch.setattr(shell, "require_docker", lambda: None)
@@ -109,11 +109,11 @@ def test_clean_docker_lists_then_refuses_without_yes_and_sweeps_with_it(
     ok = [e for e in events if e["event"] == "ok"][0]
     assert rc == 0
     assert calls == [
-        ("stop", "tdx2_mysql_a1"),
-        ("rm", "tdx2_mysql_a1"),
-        ("rm", "tdx2_pg-db-1"),
+        ("stop", "tdd_mysql_a1"),
+        ("rm", "tdd_mysql_a1"),
+        ("rm", "tdd_pg-db-1"),
     ]
-    assert ok["removed"] == ["tdx2_mysql_a1", "tdx2_pg-db-1"] and ok["failed"] == []
+    assert ok["removed"] == ["tdd_mysql_a1", "tdd_pg-db-1"] and ok["failed"] == []
 
 
 def test_every_system_type_owns_a_disjoint_port_slot_documented_in_docs_ports_md():

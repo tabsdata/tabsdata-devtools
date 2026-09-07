@@ -57,7 +57,7 @@ one group would leave one idle (templates: kafka_topic_in.yaml / _dlq / _time):
                       produce a violating line yourself and read it back from
                       ``<prefix>.dead`` (``tdx-domain info --domain <instance>_redpanda
                       --format json`` prints the prefix as ``meta.DB``):
-                          docker exec -i tdx2_redpanda rpk topic produce \\
+                          docker exec -i tdd_redpanda rpk topic produce \\
                               <prefix>.departments <<'EOF'
                           {"dept_no": 42}
                           EOF

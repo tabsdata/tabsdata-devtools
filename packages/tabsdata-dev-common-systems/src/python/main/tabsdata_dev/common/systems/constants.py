@@ -138,8 +138,11 @@ RENDER_FORMATS = ("export", "unset", FMT_1P)
 
 # Every container the docker-backed systems create -- `docker run` ones
 # (`_common/sql.py`) and compose projects (`_common/containers.py`) -- is named
-# `tdx2_...`; `clean-docker` sweeps by this prefix, descriptors or not.
-DOCKER_CONTAINER_PREFIX = "tdx2"
+# `tdd_...`; `clean-docker` sweeps by this prefix, descriptors or not. Both
+# sides compose their names from this one constant, so the sweep can never
+# miss what the backends create.
+DOCKER_CONTAINER_PREFIX = "tdd"
+DOCKER_NAME_PREFIX = f"{DOCKER_CONTAINER_PREFIX}_"
 
 # --- environment variables -------------------------------------------------
 # tdd's own variables carry a leading underscore when they are private to the

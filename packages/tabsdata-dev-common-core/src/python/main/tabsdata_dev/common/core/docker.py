@@ -72,7 +72,7 @@ def list_containers(name_prefix: str) -> list[dict]:
     """Every container, running or not, whose name starts with `name_prefix`:
     ``{"id", "name", "state", "image"}``. docker's ``name`` filter is a regex
     matched anywhere in the name, so it is anchored here and the prefix checked
-    again in Python -- ``tdx2`` must not catch ``my_tdx2_thing``."""
+    again in Python -- ``tdd`` must not catch ``my_tdd_thing``."""
     cp = subprocess.run(
         [
             "docker",

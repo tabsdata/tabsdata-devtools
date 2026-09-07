@@ -19,7 +19,7 @@ connection details kept as encrypted descriptors.
 
 - Verbs: `create/destroy/status/purge/restart/fetch-bin/connect`, `types/1p-template/list/info/
   manifest/upgrade`, `secrets` and `crypto-key` (`--format export`, which `tdd env set` evals).
-  `clean-docker [--yes|-y]` stops and deletes every `tdx2*` container -- the prefix all
+  `clean-docker [--yes|-y]` stops and deletes every `tdd_*` container -- the prefix all
   docker-backed systems use -- descriptor or not; it lists them and asks first unless `--yes`.
 - **1Password is a shape, not an integration** (`common.systems.onepassword`). `secrets --set
   1p:VAULT` reads a vault into `<ITEM_TITLE>__<FIELD_ID>` variables, which are the
