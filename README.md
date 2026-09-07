@@ -17,33 +17,28 @@ You need [`uv`](https://docs.astral.sh/uv/) and [`cargo-make`](https://github.co
 no Python, no venv.
 
 ```bash
-git clone <this repo> && cd tabsdata-devtools
-./install.sh                  # builds ~/.tdd and writes every command's config file
-cargo make install                  # the envs only; `-- --editable` links this checkout
+git clone git@github.com:tabsdata/tabsdata-dt.git && cd tabsdata-dt
+./install.sh 
 source ~/.tdd/tdd-source.sh
-echo 'source ~/.tdd/tdd-source.sh' >> ~/.zshrc   # .zshrc, not .zprofile: tdd is a shell function
+echo '' >> ~/.zshrc
+echo '#Tabsdata DevTools' >> ~/.zshrc
+echo 'source ~/.tdd/tdd-source.sh' >> ~/.zshrc
+echo '' >> ~/.zshrc
 ```
 
 ## Then
 
 ```bash
-tdd --help              # everything there is; tdd info, tdd doctor, tdd --reqs
-tdd venv --help         # managed pyenv/uv/conda venvs; activation exports _TDD_VENV
-tdd env --help          # this shell's variables: crypto key and secrets from 1Password, TD_*, Python indexes
-tdd system --help       # external systems for testing: databases in docker, object stores, services
-tdd domain --help       # domains inside those systems: schemas, generated data, change sets
-tdd tdk --help          # run tabsdata's tdk (also tdkserver, km) inside the venv _TDD_VENV names
-tdd xp --help           # the bundled tabsdata example suites: list-suites, one-shot --suite <type>/<name>
-tdd pycache --help      # purge tabsdata from the uv/pip caches
-tdd venv config --show       # a command's option defaults: built-in vs yours
+tdd --help
+```
+
+Smoke test scripts using `tdd`:
+
+```bash
 scripts/tabsdata-km-smoke.sh --help   # fresh venv + tabsdata + tdkserver + xp suites, end to end
 scripts/tabsdata-eks-smoke.sh --help  # the same run against an EKS cluster (rds/s3 domains, port-forward)
 cargo make help         # every build task; `cargo make uninstall` removes ~/.tdd
 ```
-
-Preset a command's options in `~/.tdd/<command>.toml` (`[options]`, or `[options.<action>]`)
-(one `--name value` per line); what you type wins. Every command takes `--help`, `--verbose` and
-`--format json|view`.
 
 ## Tests
 
