@@ -1,5 +1,5 @@
 {
-  "fingerprint": "5bf093220776f430",
+  "fingerprint": "cf6b131bbb248996",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
@@ -8,6 +8,11 @@
       "tabsdata-dev-tool-km",
       "tabsdata-dev-tool-tdk",
       "tabsdata-dev-tool-tdkserver"
+    ],
+    "pypi": [
+      "tabsdata-dev-common-core",
+      "tabsdata-dev-deps-pypi",
+      "tabsdata-dev-tool-pypi"
     ],
     "salesforce": [
       "tabsdata-dev-common-core",
@@ -126,6 +131,26 @@
       "summary": "run tabsdata's km CLI inside the managed venv named by $_TDD_VENV",
       "toolset": "launchers"
     },
+    "pypi": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "hidden": false,
+      "launcher": false,
+      "package": "tabsdata-dev-tool-pypi",
+      "reqs": [
+        "aws",
+        "tofu",
+        "uv",
+        "git",
+        "curl",
+        "jq",
+        "openssl",
+        "dig"
+      ],
+      "summary": "build and publish pypi.tabsdata.com, the static index of Tabsdata's own wheels",
+      "toolset": "pypi"
+    },
     "system": {
       "commons": [
         "tabsdata-dev-common-core",
@@ -187,6 +212,7 @@
   },
   "toolsets": [
     "launchers",
+    "pypi",
     "salesforce",
     "systems"
   ]

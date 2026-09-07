@@ -1,0 +1,40 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# The pypi toolset: three small libraries, kept apart from `systems` on purpose.
+# `deps-systems` already pins boto3 and pyyaml, but it also pins every SQL
+# dialect and driver in the shop -- oracledb, ibm_db, polars, pyarrow -- and a
+# tool that builds a static index has no business dragging those into its venv,
+# nor sharing their resolution.
+[project]
+name = "tabsdata-dev-deps-pypi"
+dynamic = ["version"]
+description = "pins for the pypi toolset: the AWS SDK, YAML and PEP 440 versions"
+requires-python = ">=3.11"
+dependencies = [
+    "pytest==9.1.1",
+    # S3 and CloudFront. The tool talks to AWS through boto3 alone, never the
+    # aws CLI, so the plans it prints and the calls it makes cannot disagree.
+    "boto3==1.43.82",
+    # config/lanes.yaml and each tree's yanked.yaml.
+    "pyyaml==6.0.3",
+    # PEP 440 comparison: which release is newest, and what a wheel's filename
+    # says it is. Version parsing is not something to hand-roll.
+    "packaging==25.0",
+]
+
+[tool.hatch.version]
+path = "../../VERSION"
+pattern = '^(?P<version>\S+)'
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src/python/main/tabsdata_dev"]
+sources = ["src/python/main"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/python/test"]
