@@ -93,7 +93,9 @@ def test_every_tool_and_shell_command_has_a_design_doc():
     ]
     scripts = root / "packages/tabsdata-dev-shell/scripts/unix"
     docs += [
-        s.with_name(s.name[: -len(".sh")] + ".DESIGN.md")
+        # `<name>.design.md`, exactly: this passes on a case-insensitive
+        # filesystem whatever case is written here, and fails on Linux.
+        s.with_name(s.name[: -len(".sh")] + ".design.md")
         for s in scripts.glob("*.sh")
         if s.name != "common.sh"
     ]
