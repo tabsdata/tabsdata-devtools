@@ -39,6 +39,11 @@ from tabsdata_dev.common.core.errors import ToolError
 #: The option, the config key, and the name used in every message.
 OPTION = "--pypi-repo"
 
+#: The repository this tool exists to publish from. A real default rather than
+#: a blank: there is exactly one of them, so a fresh install works before it is
+#: configured, and the guard below still refuses if someone blanks it on purpose.
+DEFAULT = "git@github.com:tabsdata/tabsdata-pi.git"
+
 
 def _git(*args: str) -> subprocess.CompletedProcess:
     return proc.run(["git", *args], capture_output=True, text=True)
@@ -85,8 +90,8 @@ def require_root(pypi_repo: str | None) -> pathlib.Path:
     """
     if not pypi_repo:
         raise ToolError(
-            f"no pypi-repo configured — {OPTION} URL, or set it once:\n"
-            "  tdd pypi config --create      then uncomment and set pypi-repo\n"
+            f"pypi-repo is blank — {OPTION} URL, or set it in pypi.toml "
+            f"(delete the line to get the default back, {DEFAULT}).\n"
             "It is the remote of the repository holding config/, raw-wheels/ "
             "and pypi-wheels/."
         )

@@ -26,8 +26,10 @@ venv of its own and two verifier scripts beside it.
 
 - **`pypi-repo` and the guard** (`repo.py`). The meta lives in a repository of
   its own whose root holds `config/`, `raw-wheels/` and `pypi-wheels/`. Its
-  remote is `pypi-repo` in `<tdd_dir>/pypi.toml`, and every subcommand runs at
-  the root of a clone of it. The check is three questions in the order a reader
+  remote is `pypi-repo` in `<tdd_dir>/pypi.toml` -- defaulting to
+  `git@github.com:tabsdata/tabsdata-pi.git`, since there is exactly one of them
+  and a fresh install should work before it is configured -- and every
+  subcommand runs at the root of a clone of it. The check is three questions in the order a reader
   would ask them -- a repository? its root? a clone of the right one? -- each
   with its own message. It compares **remotes, not paths**: a path is one
   machine's, and remotes normalize to `host/org/repo`, so the ssh and https

@@ -74,7 +74,7 @@ def test_a_different_remote_stays_different(other):
 
 def test_no_pypi_repo_says_how_to_set_one(tmp_path, monkeypatch):
     monkeypatch.chdir(clone(tmp_path / "c"))
-    with pytest.raises(ToolError, match="no pypi-repo configured"):
+    with pytest.raises(ToolError, match="pypi-repo is blank"):
         repo.require_root(None)
 
 

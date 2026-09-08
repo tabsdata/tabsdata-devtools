@@ -73,7 +73,8 @@ CONFIG_PREAMBLE = """\
 # pypi-repo is the remote of the repository holding config/, raw-wheels/ and
 # pypi-wheels/. Every subcommand runs at the root of a clone of it and refuses
 # anywhere else, so the tree a command reads and the release record a prod push
-# checks are always the same repository.
+# checks are always the same repository. It defaults to the one below; set it
+# only to work against a fork or a replacement.
 """
 
 
@@ -132,12 +133,12 @@ def configure(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         repo.OPTION,
         metavar="URL",
-        # "" and not None: config.from_parser leaves out an option with no
+        # A value and not None: config.from_parser leaves out an option with no
         # default, and this is the one option that most wants to live in the
-        # file. Empty still reads as unset -- the guard says how to set it.
-        default="",
+        # file. Blanking it there reads as unset -- the guard says so.
+        default=repo.DEFAULT,
         help="the remote of the repo holding the pypi meta; every subcommand "
-        "runs at the root of a clone of it (set it in pypi.toml)",
+        f"runs at the root of a clone of it (default {repo.DEFAULT})",
     )
     p.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     p.add_argument("--raw", type=Path, default=DEFAULT_RAW, help="raw-wheels/")
