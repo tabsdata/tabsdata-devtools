@@ -214,6 +214,7 @@ _tdd_help() {
         _tdd_help_text <<HELP
 usage: tdd [-h] [-v] [--format {json,view}] [--dir TDD_PATH] [-V] [--reqs [TOOL]]
            SUBCOMMAND ...
+       tdd --help full
 
 the front door: run one of the tools, or one of the shell commands that change this shell
 
@@ -226,12 +227,45 @@ options:
   --dir TDD_PATH  the tdd dir to use (default: \$TDD_DIR, else ~/.tdd)
   --version, -V  the version stamped into that dir
   --reqs [TOOL]  report the external binaries every tool needs; exit 1 if one is missing
+  --help full  this listing, and then the help of every command after it
   (--dir, --format and --verbose come before the command word)
 
 TDD_DIR=$TDD_DIR
 HELP
     fi
     unset _tdd_rows _tdd_head
+}
+
+# `tdd --help full`: this help, then every command's, in one pass -- what a
+# reader wants when they are hunting for a command whose name they cannot
+# remember, and what a reviewer wants when checking that the pages agree.
+#
+# A launcher is skipped, and says so. `tdd tdk -h` is not tdd's help to print: a
+# launcher owns no options, so every argument, -h included, goes to the real
+# program -- which needs a managed venv and answers for itself.
+_tdd_help_full() {
+    _tdd_help
+    _tdd_launchers=" $(jq -r '.tools | to_entries[] | select(.value.launcher) | .key' \
+        "$TDD_DIR/catalog.json" 2>/dev/null | tr '\n' ' ')"
+    _tdd_skipped=""
+    for _tdd_n in $(_tdd_help_rows | awk -F'\t' '{print $1}'); do
+        case "$_tdd_launchers" in
+            *" $_tdd_n "*)
+                _tdd_skipped="$_tdd_skipped $_tdd_n"
+                continue
+                ;;
+        esac
+        # A separator in every format: a help page is what argparse prints, not
+        # an event, so `--format json --help` has always been plain text and
+        # there is no JSON here to keep clean.
+        printf '\n\n========== tdd %s ==========\n\n' "$_tdd_n"
+        tdd "$_tdd_n" --help
+    done
+    if [ -n "$_tdd_skipped" ]; then
+        printf '\n\n(no tdd help for%s: a launcher hands every argument, -h included, to the program it runs)\n' \
+            "$_tdd_skipped"
+    fi
+    unset _tdd_launchers _tdd_skipped _tdd_n
 }
 
 # Rows as name<TAB>marker<TAB>summary<TAB>kind, sorted.
@@ -418,7 +452,15 @@ tdd() {
     case "$1" in
         -h | --help | help)
             _tdd_scan_common "$@"
-            _tdd_help
+            case "${2:-}" in
+                "") _tdd_help ;;
+                full) _tdd_help_full ;;
+                *)
+                    _tdd_error "unknown help topic: $2 (the only one is 'full')"
+                    unset _tdd_pass
+                    return 1
+                    ;;
+            esac
             unset _tdd_pass
             return 0
             ;;

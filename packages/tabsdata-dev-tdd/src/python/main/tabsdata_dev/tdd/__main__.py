@@ -129,12 +129,66 @@ class UsageError(Exception):
     pass
 
 
+#: What each builtin is, past its one-line summary -- the description argparse
+#: puts under the usage, so a builtin's help is the page every other command
+#: prints rather than a refusal.
+BUILTIN_ABOUT = {
+    "doctor": (
+        "Check TDD_PATH against the catalog the installed tdd ships: the envs "
+        "that should exist, the tools that should dispatch, the external "
+        "binaries they declare. Reports what is wrong and exits 1, or says it "
+        "is sound."
+    ),
+    "info": (
+        "Describe TDD_PATH: whether it was built from wheels or from a "
+        "checkout, which checkout, the version stamped into it, and the envs "
+        "it holds."
+    ),
+}
+
+
+def _builtin_help(word: str) -> str:
+    """A builtin's help, laid out by argparse like every other command's.
+
+    tdd-exe has no parser of its own -- it reads argv by hand, because it must
+    stop at the command word and hand the rest to a tool untouched -- so this
+    builds a throwaway one for the page alone. argparse is standard library,
+    which is the only kind of dependency this package may have (invariant 1).
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog=f"tdd {word}",
+        description=BUILTIN_ABOUT.get(word, BUILTIN_SUMMARIES.get(word, "")),
+        add_help=False,
+    )
+    parser.add_argument(
+        "-h", "--help", action="store_true", help="show this help message and exit"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="show debug events too"
+    )
+    parser.add_argument(
+        "--format",
+        choices=("json", "view"),
+        default="view",
+        help="json is JSON Lines, one event per line (default: view)",
+    )
+    return parser.format_help()
+
+
 def _builtin_opts(word: str, argv: list[str], opts: dict) -> render.Renderer:
-    """A builtin takes --format/--verbose after the word too, and nothing else."""
+    """A builtin takes --format/--verbose after the word too, plus -h, and
+    nothing else."""
     fmt, verbose = opts["format"], opts["verbose"]
     i = 0
     while i < len(argv):
         arg = argv[i]
+        if arg in ("-h", "--help"):
+            # Printed, not an event: help is what argparse prints for every
+            # other command, and `tdd --help full` collects these beside them.
+            print(render.colorize_help(_builtin_help(word), sys.stdout), end="")
+            raise SystemExit(0)
         if arg == "--format" and i + 1 < len(argv):
             fmt = argv[i + 1]
             i += 2

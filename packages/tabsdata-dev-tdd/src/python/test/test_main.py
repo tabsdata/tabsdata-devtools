@@ -14,6 +14,33 @@ def _events(capsys):
     return [json.loads(line) for line in capsys.readouterr().out.splitlines()]
 
 
+def test_a_builtin_helps_like_every_other_command(capsys):
+    """`tdd doctor -h` used to be a refusal -- "doctor takes no argument
+    '-h'" -- which `tdd --help full` walked straight into. tdd-exe reads argv by
+    hand, since it must stop at the command word and hand the rest to a tool
+    untouched, so a builtin had no parser to answer for it. It builds a
+    throwaway one for the page: argparse is standard library, the only kind of
+    dependency this package may have."""
+    import pytest as _pytest
+
+    from tabsdata_dev.tdd import __main__ as main_mod
+
+    for word in ("doctor", "info"):
+        page = main_mod._builtin_help(word)
+        assert page.startswith(f"usage: tdd {word} [-h] [-v] [--format {{json,view}}]")
+        assert "\noptions:\n" in page
+        for option in ("-h, --help", "-v, --verbose", "--format {json,view}"):
+            assert option in page, f"{word}: {option}"
+        # the description is the builtin's own, not its one-line summary
+        assert main_mod.BUILTIN_ABOUT[word].split(".")[0][:20] in page
+
+    # and it is printed and exits 0, rather than raising the old usage error
+    with _pytest.raises(SystemExit) as exit_:
+        main_mod._builtin_opts("doctor", ["-h"], {"format": "view", "verbose": False})
+    assert exit_.value.code == 0
+    assert "usage: tdd doctor" in capsys.readouterr().out
+
+
 def test_version_is_an_ok_event(capsys):
     assert main_mod.main(["--format", "json", "--version"]) == 0
     (event,) = _events(capsys)

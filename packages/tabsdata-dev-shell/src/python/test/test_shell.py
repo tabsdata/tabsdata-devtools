@@ -577,14 +577,21 @@ def test_every_shell_command_helps_the_way_argparse_does(tmp_path):
     one line per subcommand and the paragraph is that subcommand's description.
     """
     # the help function's stem is the command's own, and predates the names
-    helps = {"venv": "_tdd_venv_help", "env": "_tdd_vars_help",
-             "pycache": "_tdd_pycache_help", "tdd-env": "_tdd_env_help"}
+    helps = {
+        "venv": "_tdd_venv_help",
+        "env": "_tdd_vars_help",
+        "pycache": "_tdd_pycache_help",
+        "tdd-env": "_tdd_env_help",
+    }
     for name, stem in helps.items():
         text = (shell.scripts_dir() / f"{name}.sh").read_text()
         top = text.split(f"{stem}() {{", 1)
         assert len(top) == 2, name
         top = top[1].split("HELP\n}", 1)[0]
-        assert f"usage: tdd {name} [-h] [-v] [--format {{json,view}}] SUBCOMMAND ..." in top, name
+        assert (
+            f"usage: tdd {name} [-h] [-v] [--format {{json,view}}] SUBCOMMAND ..."
+            in top
+        ), name
         assert "\npositional arguments:\n  SUBCOMMAND\n" in top, name
         # every subcommand in the listing is one line: no continuation under it
         listing = top.split("positional arguments:\n  SUBCOMMAND\n", 1)[1]
@@ -624,9 +631,29 @@ def test_env_can_resource_the_generated_source_file():
     that is not JSON."""
     text = (shell.scripts_dir() / "env.sh").read_text()
     assert "_tdd_vars_tdd_source()" in text and "tdd-source)" in text
-    assert '_TDD_RESOURCING=1' in text and "unset _TDD_RESOURCING" in text
+    assert "_TDD_RESOURCING=1" in text and "unset _TDD_RESOURCING" in text
     source = shell.source_template()
     assert '[ -n "${_TDD_RESOURCING:-}" ] && return 0' in source
+
+
+def test_tdd_help_full_collects_every_command_and_skips_the_launchers():
+    """`tdd --help full` is this help and then every command's, for a reader
+    hunting a command whose name they cannot remember.
+
+    A launcher is skipped and says so: `tdd tdk -h` is not tdd's help to print.
+    A launcher owns no options, so every argument -- -h included -- goes to the
+    real program, which would need a managed venv and would answer for itself.
+    """
+    text = shell.source_template()
+    body = text.split("_tdd_help_full() {", 1)[1].split("\n}\n", 1)[0]
+    assert "_tdd_help\n" in body  # this help first
+    assert 'tdd "$_tdd_n" --help' in body  # then each command's
+    # which are launchers comes from the catalog, never from a list kept here
+    assert "select(.value.launcher)" in body
+    assert "_tdd_skipped" in body and "hands every argument" in body
+    # and the word is only reachable as `--help full`
+    assert "full) _tdd_help_full ;;" in text
+    assert "unknown help topic" in text
 
 
 def test_the_defaults_command_is_gone_in_favour_of_config():
