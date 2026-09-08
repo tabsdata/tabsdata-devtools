@@ -41,6 +41,20 @@ APPROVE_DEFAULTS = {
     "approve_item": "GitHub",
     "approve_pat_suffix": ".review.pat",
 }
+#: The team, shipped so an alias works before anyone has a config file. A file
+#: entry of the same name wins, the way APPROVE_DEFAULTS works: these are a
+#: starting point, not a lock. Ordered as written, not sorted, so the table
+#: reads as a list of people rather than an index.
+ALIAS_DEFAULTS = {
+    "dimas": "aoinokimi",
+    "joaquin": "joaquin041",
+    "tucu": "tucu0",
+    "daniel": "adaydan-tabsdata",
+    "arvind": "aptabs",
+    "shreyas": "shreyasvan001",
+    "david": "tabsdavid",
+}
+
 _OLD_REPO = "repos"  # what the table was called first; read, never written
 
 
@@ -68,9 +82,12 @@ def read() -> dict:
             },
         }
     aliases = {
-        str(name): str(login)
-        for name, login in (document.get(ALIASES) or {}).items()
-        if isinstance(login, str)
+        **ALIAS_DEFAULTS,
+        **{
+            str(name): str(login)
+            for name, login in (document.get(ALIASES) or {}).items()
+            if isinstance(login, str)
+        },
     }
     table = document.get(SELF) or {}
     return {
@@ -98,7 +115,10 @@ def render_tables(config: dict) -> str:
     lines.append(
         "# the alias is resolved). A login is a person, so these are file-wide."
     )
-    for name in sorted(aliases):
+    # The shipped ones first, in the order they are declared, then anything the
+    # reader added, sorted: a list of people, not an index.
+    shipped = [n for n in ALIAS_DEFAULTS if n in aliases]
+    for name in shipped + sorted(set(aliases) - set(shipped)):
         lines.append(
             f"{common.toml_value(name).strip(chr(34))} = {common.toml_value(aliases[name])}"
         )

@@ -92,7 +92,9 @@ tables of its own:
 - `[reviewer-aliases]` -- `<alias> = "<login>"`, a name of your own for a reviewer, usable
   anywhere a `--reviewer:` value is and resolved before anything looks at the value (validation,
   the desired state, the `gh pr edit` argument all see the login). File-wide: a login is a person,
-  not a property of one repository.
+  not a property of one repository. **The team ships in code** (`ALIAS_DEFAULTS`), so an alias
+  resolves before anyone has a config file; a file entry of the same name wins, exactly as the
+  `approve_*` defaults work, and anything else you add sits beside them.
 - `[repo."OWNER/NAME"]` -- **per repository**, always: `labels`, `reviewers`, `fetched`, and the
   two `default_*` lists. Labels and collaborators differ per repository (a flat list would
   validate one repository's names against another's), and so do the defaults: `default_labels` /

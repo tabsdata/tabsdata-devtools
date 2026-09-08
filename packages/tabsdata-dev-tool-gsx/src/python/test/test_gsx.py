@@ -126,12 +126,13 @@ def test_the_repo_tables_round_trip_and_leave_the_options_alone(tmp_path, monkey
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
     assert config.path() == tmp_path / "gsx.toml"
     empty = config.read()  # no file yet: the defaults, and nothing of its own
-    assert (empty["version"], empty["repos"], empty["aliases"]) == ("", {}, {})
+    assert (empty["version"], empty["repos"]) == ("", {})
     assert empty["approve"] == config.APPROVE_DEFAULTS
+    assert empty["aliases"] == config.ALIAS_DEFAULTS  # the team ships with gsx
 
     written = {
         "version": VERSION,
-        "aliases": {"dimas": "aoinokimi"},
+        "aliases": {**config.ALIAS_DEFAULTS, "extra": "someone"},
         "repos": {
             "o/n": {
                 "fetched": "2026-09-05T00:00:00-03:00",
@@ -155,6 +156,7 @@ def test_the_repo_tables_round_trip_and_leave_the_options_alone(tmp_path, monkey
     text = config.path().read_text()
     assert '[repo."o/n"]' in text and '[repo."o/other"]' in text
     assert "[reviewer-aliases]" in text and 'dimas = "aoinokimi"' in text
+    assert 'extra = "someone"' in text  # a reader's own, beside the shipped ones
     # the shared option template is written too, and survives a repo refresh
     assert "[options]" in text and "[options.submit]" in text
     # the template writes no option line, so setting one means adding it
@@ -182,7 +184,8 @@ def test_the_commented_tables_are_valid_toml_once_uncommented(tmp_path, monkeypa
     )
     document = tomllib.loads(text)
     assert document["gsx"]["approve_vault"] == config.APPROVE_DEFAULTS["approve_vault"]
-    assert document[config.ALIASES]  # an example alias to copy
+    # every shipped alias is listed, and at the login it actually resolves to
+    assert document[config.ALIASES] == config.ALIAS_DEFAULTS
     assert document[config.REPO]["OWNER/NAME"] == {
         "default_labels": [],
         "default_reviewers": [],
@@ -192,6 +195,25 @@ def test_the_commented_tables_are_valid_toml_once_uncommented(tmp_path, monkeypa
         "default_labels = []", ""
     )
     assert "MAINTAINED BY gsx" in CONFIG_TABLES
+
+
+def test_the_shipped_aliases_work_without_a_file_and_yield_to_one(
+    tmp_path, monkeypatch
+):
+    """The team's aliases ship in code, so `--reviewer:new tucu` resolves before
+    anyone has written a config; a file entry of the same name wins, the way the
+    approve_* defaults do."""
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    assert config.read()["aliases"] == config.ALIAS_DEFAULTS  # no file at all
+    assert approve_mod.resolve(["tucu"], config.read()["aliases"])[0].login == "tucu0"
+
+    config.path().write_text(
+        '[options]\n\n[reviewer-aliases]\ntucu = "elsewhere"\nnew = "newlogin"\n'
+    )
+    aliases = config.read()["aliases"]
+    assert aliases["tucu"] == "elsewhere"  # the file wins
+    assert aliases["david"] == config.ALIAS_DEFAULTS["david"]  # the rest survive
+    assert aliases["new"] == "newlogin"
 
 
 # ------------------------------------------------------------------ engine

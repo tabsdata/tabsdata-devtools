@@ -42,11 +42,19 @@ CONFIG_TABLES = """\
 # approve_item = "GitHub"
 # approve_pat_suffix = ".review.pat"
 #
-# Your own name for someone, usable wherever a --reviewer: or --approvers value
-# is; file-wide, because a login is a person rather than one repository's
-# property. The alias is resolved before the value is validated.
+# A name of your own for someone, usable wherever a --reviewer: or --approvers
+# value is; file-wide, because a login is a person rather than one repository's
+# property. The alias is resolved before the value is validated. These are the
+# shipped ones and work without being uncommented -- write one here to change
+# where it points, or to add somebody.
 # [reviewer-aliases]
 # dimas = "aoinokimi"
+# joaquin = "joaquin041"
+# tucu = "tucu0"
+# daniel = "adaydan-tabsdata"
+# arvind = "aptabs"
+# shreyas = "shreyasvan001"
+# david = "tabsdavid"
 #
 # One table per repository, WRITTEN AND MAINTAINED BY gsx: `fetched`, `labels`
 # and `reviewers` are refreshed on their own whenever what they hold cannot
