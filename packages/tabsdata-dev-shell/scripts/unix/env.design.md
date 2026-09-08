@@ -33,7 +33,16 @@ crypto key, the 1Password secrets, tabsdata's `TD_*` settings and the Python ind
 - `config` (`--show`/`--default`/`--create [--force]`) comes from the shared layer, over the
   per-action defaults `tdd_defaults_env` declares -- including the two vault literals, so the
   vault a key comes from is a line in `env.toml` and never an environment variable.
+- `tdd-source` loads `$TDD_DIR/tdd-source.sh` again in this shell. It is the one shell file an
+  editable install does not link to the checkout -- `tdd-install` generates it -- so a reinstall
+  leaves the copy an open shell already loaded, and this is how that shell catches up without a
+  new terminal. The greeting the file prints on a first source is suppressed on the way through
+  (`_TDD_RESOURCING`): two announcements of one thing, and in `--format json` a line that is not
+  JSON.
+- `show --group all|td|pypi|secrets` prints one group instead of all three (default `all`, and
+  a default like any other, so `[options.show] group` sets it).
 - `show` lists three sorted groups -- TD (`^TD*` plus `_TDD_CRYPTO_KEY`, and `_TDD_SYSTEMS`
   while set), PyPi, Secrets -- `- NAME` when unset; values whose name says
-  PASSWORD/SECRET/TOKEN/KEY/PASS/_PAT are masked unless `--reveal`, in every group (the TD one
-  holds `TD_BACKENDS_CRYPTO_KEY`).
+  PASSWORD/SECRET/TOKEN/KEY/PASS/_PAT/_PEM/PEM_ are masked unless `--reveal`, in every group (the
+  TD one holds `TD_BACKENDS_CRYPTO_KEY`). A PEM earns its place there twice over: a private key
+  or a pinned certificate is a credential, and either way it is unreadable in a listing.

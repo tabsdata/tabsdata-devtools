@@ -597,6 +597,35 @@ def test_every_shell_command_helps_the_way_argparse_does(tmp_path):
             assert f"_help_{sub.replace('-', '_')}()" in text, f"{name} {sub}"
 
 
+def test_env_show_groups_and_masks_a_certificate():
+    """`show` prints three groups and can print one, and a name that says the
+    value is a credential is masked -- now including a PEM, which is both a
+    credential and unreadable in a listing."""
+    text = (shell.scripts_dir() / "env.sh").read_text()
+    assert "*_PEM* | *PEM_*" in text  # either spelling, anywhere in the name
+    # --group takes the three groups show prints, and all of them
+    assert "all | td | pypi | secrets)" in text
+    assert '"show|--group|all"' in text  # configurable like every other option
+    for group in ("td", "pypi", "secrets"):
+        assert f"_tdd_vars_wanted {group}" in text, group
+
+
+def test_env_can_resource_the_generated_source_file():
+    """Every shell file is linked to the checkout except tdd-source.sh, which
+    tdd-install generates -- so a reinstall does not reach a shell that already
+    sourced it. `tdd env tdd-source` is how that shell catches up, and it
+    belongs to `env` because it changes this shell.
+
+    The greeting the file prints when a shell first loads it is suppressed on
+    the way through: two announcements of one thing, and in --format json a line
+    that is not JSON."""
+    text = (shell.scripts_dir() / "env.sh").read_text()
+    assert "_tdd_vars_tdd_source()" in text and "tdd-source)" in text
+    assert '_TDD_RESOURCING=1' in text and "unset _TDD_RESOURCING" in text
+    source = shell.source_template()
+    assert '[ -n "${_TDD_RESOURCING:-}" ] && return 0' in source
+
+
 def test_the_defaults_command_is_gone_in_favour_of_config():
     assert not (shell.scripts_dir() / "defaults.sh").exists()
     text = shell.source_template()

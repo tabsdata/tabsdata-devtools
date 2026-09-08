@@ -531,8 +531,12 @@ gsx() {
 # sources this from its rc says which tdd it got, from where (the version
 # tdd-install stamped in <TDD_DIR>/VERSION) and how to start. A non-interactive shell -- a smoke script, scp or rsync
 # over ssh reading the rc -- stays silent: output there breaks the protocol.
+# `tdd env tdd-source` re-sources this file to pick up a reinstall, and says so
+# itself, as an event -- the greeting on top of that would be two announcements
+# of one thing, and in --format json a line that is not JSON.
 case $- in
     *i*)
+        [ -n "${_TDD_RESOURCING:-}" ] && return 0 2>/dev/null
         _tdd_v="$(cat "$TDD_DIR/VERSION" 2>/dev/null)"
         printf '\ntdd %s installed at %s -- tdd -h for help\n\n' "${_tdd_v:-?}" "$TDD_DIR"
         unset _tdd_v
