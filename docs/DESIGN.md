@@ -70,7 +70,7 @@ Arrows point opposite ways on purpose: tools depend on a bundle (so each is inst
 the toolset depends on the tools (so one sync materializes the env). **No uv workspace**: a
 workspace forces one resolution, and two toolsets with conflicting pins must both exist --
 two toolsets may pin the same package differently. `cargo make gen` warns when a shared
-range resolved differently across locks (`tdd-install --relock` fixes it).
+range resolved differently across locks (`cargo make lock` fixes it).
 
 ## The catalog
 

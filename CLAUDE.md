@@ -85,6 +85,7 @@ holds the user's system and domain descriptors.
 cargo make help                  # every task with its options
 cargo make install               # wheels + locks -> <dir>/wheels, build the envs from them
 cargo make dev                   # = install -- --editable: every env linked to this checkout
+cargo make lock                  # re-resolve every toolset's uv.lock in one pass (upgrade)
 cargo make check                 # lint + test + reqs — the gate; must pass before a commit
 ./install.sh               # install + a config file for every command (--dir, --editable, --force)
 cargo make test                  # every package's tests, each in the env it ships with

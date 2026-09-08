@@ -59,6 +59,8 @@ quality (what CI runs)
 
 build
   gen                       regenerate the toolset packages and catalog.json
+  lock                      gen, then re-resolve every toolset's uv.lock in one
+                            pass, upgrading within the declared ranges
   wheels                    gen, then wheels + exported locks -> target/wheels
   clean                     remove target/wheels and every cache
 
@@ -181,6 +183,27 @@ set -euo pipefail
 # dev` -- and so the catalog baked into the wheels is never stale. It is a
 # module, not a tdd word: nobody regenerates a catalog from a finished install.
 uv run --no-project --with-editable "${TDD_PKG}" python -m tabsdata_dev.tdd.generate
+'''
+
+[tasks.lock]
+description = "Re-resolve every toolset's uv.lock in one pass"
+dependencies = ["gen"]
+script_runner = "@shell"
+script = '''
+set -euo pipefail
+# One pass over every toolset, so a range shared through a common-* resolves to
+# the same version everywhere. Drift between locks is a timing artifact -- one
+# toolset locked months after another -- and locking them together is the fix
+# `cargo make gen` points at when it warns.
+for pkg in "${PACKAGES}"/tabsdata-dev-toolset-*; do
+    toolset="$(basename "$pkg")"
+    toolset="${toolset#tabsdata-dev-toolset-}"
+    echo "== locking $toolset"
+    uv lock --quiet --upgrade --project "$pkg"
+done
+
+echo
+echo "re-resolved; \`cargo make dev\` rebuilds the envs from the new locks"
 '''
 
 [tasks.wheels]

@@ -144,7 +144,7 @@ def _check_common_floor(root: pathlib.Path, found: dict) -> list[str]:
     is the whole reason toolsets exist. What this catches is accidental drift:
     a common-* range that resolved to different versions because the toolset
     locks were generated at different times rather than in one pass.
-    `tdd-install --relock` puts them back in step.
+    `cargo make lock` puts them back in step.
     """
     pinned: dict[str, set[str]] = {}
     resolved: dict[str, dict[str, str]] = {}
@@ -175,7 +175,7 @@ def _check_common_floor(root: pathlib.Path, found: dict) -> list[str]:
             continue  # a deps-* bundle asked for this difference
         spread = ", ".join(f"{ts}={v}" for ts, v in sorted(by_toolset.items()))
         warnings.append(
-            f"{name} drifted across toolsets ({spread}); run `tdd-install --relock`"
+            f"{name} drifted across toolsets ({spread}); run `cargo make lock`"
         )
     return warnings
 
