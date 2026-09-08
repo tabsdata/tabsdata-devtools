@@ -43,7 +43,19 @@ connection details kept as encrypted descriptors.
   from.
 - Every descriptor read or write needs `_TDD_CRYPTO_KEY`; `create --force` replaces a descriptor
   an older key left unreadable.
+- **A verb exists when some type exposes it**, gated on a capability: `purge` on
+  `supports_purge`, `restart` and `connect` on `is_container`. `fetch-bin` is ungated on purpose,
+  so `--type ALL` is the handy way to pull every image at once and a type with none is warned and
+  skipped rather than failing the run. A verb aimed at a system that does not have it is rejected
+  naming what that system does support.
 - Batch verbs run children through `tdd-exe` in parallel (`TDD_PARALLELISM`), heaviest first,
-  and re-emit their events.
+  and re-emit their events. The selector is `--type` for `create` (one system per type, named
+  after it) and `--sys` for everything else, each a name, a comma list or `ALL`; `--sys-prefix P`
+  prepends `P_`, `--manifest FILE` replays a YAML manifest (`--sync` reconciles the store to it),
+  `--fail-fast` stops at the first failure and `--report FILE` writes a JSON run record. Parallel
+  creates cannot compete for ports: every type owns a fixed slot, and `--ports` pins them.
+- The long verbs (`create`, `destroy`, `purge`) take `--latch FILE` so a background run is
+  waitable, and their chatty detail goes to `/tmp/tdd-system-<verb>-...` while the console keeps
+  to brief progress.
 - All logic is in `common-systems`; this package exists so the tool has a name, a toolset and a
   requirements file.

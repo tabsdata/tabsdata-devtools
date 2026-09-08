@@ -6,7 +6,7 @@
 
 The file is every command's config file (`common.core.config`): its
 ``[options]`` table holds what gsx's own options default to, and gsx adds
-``[gsx]`` and one ``[repos."OWNER/NAME"]`` table per repository. Labels and
+``[gsx]`` and one ``[repo."OWNER/NAME"]`` table per repository. Labels and
 collaborators differ per repository -- a flat list would validate one
 repository's names against another's -- and so do the two ``default_*`` lists,
 which are the labels and reviewers `submit`/`apply` put on PRs *of that

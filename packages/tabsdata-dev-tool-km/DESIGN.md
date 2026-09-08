@@ -24,4 +24,11 @@ venv type and without the venv being active in the calling shell.
   when the program is not installed in that venv (a manager falling back to `PATH` would find
   this launcher itself). Launch: uv `VIRTUAL_ENV=DIR uv run --active --no-project`, conda
   `conda run --prefix DIR --no-capture-output`, pyenv `DIR/bin/km` with `bin/` first on `PATH`.
+- `[tool.tdd] launcher = true`: with no options of its own there is nothing to configure, so it
+  owns no `<command>.toml` and has no `config` action (invariant 11). The program runs in the
+  cwd the user is in.
+- Only what happens *before* the program runs is the launcher's, and it is reported the
+  guidelines' way: a non-zero exit comes back as one error event carrying `status`, and Ctrl-C --
+  how a server is stopped -- is one warning and exit 1, with no failure log, because a log for a
+  deliberate interrupt is noise.
 - Same shape as `tdk`/`tdkserver`; nothing specific to `km`.
