@@ -757,6 +757,81 @@ def test_every_cluster_smoke_script_pins_its_kubectl_context():
         assert 'config use-context "$PREV_CONTEXT"' in text, path.name
 
 
+def test_common_fill_pem_writes_a_yaml_block_scalar():
+    """A certificate is many lines, and common_fill_placeholder substitutes text.
+    Dropped in raw, a PEM's newlines continue the plain scalar and YAML folds them
+    into spaces: the file still parses, and then no certificate ever loads. So the
+    whole `key: ${{...}}` line becomes a block scalar indented past its key."""
+    import os
+    import pathlib as _pathlib
+    import subprocess
+    import tempfile
+
+    common = _pathlib.Path(__file__).resolve().parents[5] / "scripts" / "_common.sh"
+    pem = "-----BEGIN CERTIFICATE-----\nAAAA\nBBBB\n-----END CERTIFICATE-----"
+    placeholder = "${{secret:ca}}"
+
+    def fill(body: str, ph: str, value: str):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _pathlib.Path(tmp) / "db.yaml"
+            cfg.write_text(body)
+            done = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    '. "%s"; common_fill_pem "%s" -- \'%s\' "$PEM"' % (common, cfg, ph),
+                ],
+                capture_output=True,
+                text=True,
+                env={**os.environ, "PEM": value},
+            )
+            return done, cfg.read_text()
+
+    body = "postgres:\n    ssl_root_cert_pem: %s\n    port: 5432\n" % placeholder
+    done, written = fill(body, placeholder, pem)
+    assert done.returncode == 0, done.stderr
+    assert written == (
+        "postgres:\n"
+        "    ssl_root_cert_pem: |\n"
+        "      -----BEGIN CERTIFICATE-----\n"
+        "      AAAA\n"
+        "      BBBB\n"
+        "      -----END CERTIFICATE-----\n"
+        "    port: 5432\n"
+    )
+    # a config that only looks filled is the failure worth catching early, so
+    # neither an empty value nor an absent placeholder passes quietly
+    assert fill(body, placeholder, "")[0].returncode != 0
+    assert fill(body, "${{secret:nope}}", pem)[0].returncode != 0
+
+
+def test_the_gke_smoke_fills_the_database_ca_before_checking_placeholders():
+    """Cloud SQL signs with a per-instance CA, so gke's dbmanager template is the
+    only one asking for the certificate inline as a `secret:` -- eks, aks and
+    fargate name a path tdkserver fills from a bundle baked into the image. The
+    domain carries the PEM; the run has to put it in before it declares the
+    config complete."""
+    import pathlib as _pathlib
+
+    gke = (
+        _pathlib.Path(__file__).resolve().parents[5]
+        / "scripts"
+        / "tabsdata-gke-smoke.sh"
+    )
+    lines = gke.read_text().splitlines()
+
+    def called(name: str) -> int:
+        # the call, not a comment that discusses it
+        return next(
+            i
+            for i, line in enumerate(lines)
+            if name in line and not line.lstrip().startswith("#")
+        )
+
+    assert "tdk_database_ssl_root_cert_pem" in "\n".join(lines)
+    assert called("common_fill_pem") < called("common_placeholders_left")
+
+
 def test_the_defaults_command_is_gone_in_favour_of_config():
     assert not (shell.scripts_dir() / "defaults.sh").exists()
     # the old shared file is gone, and so is every mention of it: a command's

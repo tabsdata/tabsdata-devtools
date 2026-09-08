@@ -31,6 +31,8 @@
 #   common_kubeportforward_stop           end it (also on exit: the script traps EXIT to it)
 #   common_fill_placeholder FILE... -- PLACEHOLDER VALUE
 #                                         replace a `${{kind:name}}` placeholder in config files
+#   common_fill_pem FILE... -- PLACEHOLDER VALUE
+#                                         the same for a multi-line PEM: a YAML block scalar
 #   common_placeholders_left DIR          fail while a required placeholder remains in DIR/*.yaml
 #                                         `tdkserver status` must agree with the expected state
 #   common_tabsdata_setup_info common_screen|common_note
@@ -568,6 +570,46 @@ common_fill_placeholder() {
     while [ $# -gt 0 ] && [ "$1" != "--" ]; do files[${#files[@]}]="$1"; shift; done
     shift
     PH="$1" VAL="$2" perl -pi -e 's/\Q$ENV{PH}\E/$ENV{VAL}/g' "${files[@]}"
+}
+
+# common_fill_pem FILE... -- PLACEHOLDER VALUE -- replace a whole `key: PLACEHOLDER`
+# line with a YAML block scalar holding VALUE. What a multi-line certificate needs:
+# substituted inline the way common_fill_placeholder does it, a PEM's newlines
+# would continue the plain scalar and YAML would fold them into spaces -- the file
+# still parses, and then no certificate ever loads. The block is indented two past
+# the key's own indent, so it works wherever the key sits. Refuses an empty value
+# or a placeholder that is not there: both leave a config that only looks filled.
+common_fill_pem() {
+    local files=()
+    while [ $# -gt 0 ] && [ "$1" != "--" ]; do files[${#files[@]}]="$1"; shift; done
+    shift
+    PH="$1" VAL="$2" python3 - "${files[@]}" <<'PEMEOF'
+import os, sys
+
+ph, val = os.environ["PH"], os.environ["VAL"].strip()
+if not val:
+    sys.exit(f"nothing to fill {ph} with: the value is empty")
+hits = 0
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as fh:
+        lines = fh.readlines()
+    out = []
+    for line in lines:
+        if ph not in line:
+            out.append(line)
+            continue
+        hits += 1
+        key = line.split(":", 1)[0]
+        pad = " " * (len(key) - len(key.lstrip()) + 2)
+        out.append(f"{key}: |\n")
+        out.extend(f"{pad}{one}\n" for one in val.splitlines())
+    if out != lines:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("".join(out))
+if not hits:
+    sys.exit(f"{ph} is not in any of: {' '.join(sys.argv[1:])}")
+print(f"filled {ph} with {len(val.splitlines())} lines of PEM")
+PEMEOF
 }
 
 # common_placeholders_left DIR -- fail, listing them, while a REQUIRED

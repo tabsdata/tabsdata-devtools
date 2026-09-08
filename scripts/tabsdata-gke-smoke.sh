@@ -509,6 +509,14 @@ common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_port}}' "$
 common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_name}}' "$DB__DATABASE"
 common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_user}}' "$DB__USER"
 common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_password}}' "$DB__PASSWORD"
+# Cloud SQL signs with a CA of its own, per instance, so there is no bundle to
+# bake into an image: gke's template is the only one asking for the certificate
+# inline (`secret:`), where eks/aks/fargate name a path tdkserver fills itself.
+# The domain carries the PEM for exactly this reason. ssl_mode stays a `system:`
+# placeholder -- tdkserver puts verify-ca there for every cloud provider, which
+# is what the domain asks for anyway.
+common_note "database TLS: $DB__SSLMODE with the instance's own CA, from $DB_DOMAIN"
+common_fill_pem "$CONFIGS/dbmanager.database.yaml" -- '${{secret:tdk_database_ssl_root_cert_pem}}' "$DB__SERVER_CA_CERT_PEM"
 common_note "storage: the ROOT/BUNDLES/IMAGES mounts under ${GCSD__URI%/}/ with the gcs system's credentials"
 common_run fill_storage "$CONFIGS/apiserver.storage.yaml"
 if [ -n "$LLM" ]; then
