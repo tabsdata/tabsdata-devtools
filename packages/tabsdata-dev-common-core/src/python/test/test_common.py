@@ -360,6 +360,39 @@ def test_config_derives_its_template_from_the_parser_and_writes_atomically(
     assert '(default "pyenv")' in message
 
 
+def test_show_prints_the_tables_the_command_keeps_of_its_own(tmp_path, monkeypatch):
+    """`--show` answers "what is in effect", which includes what the command
+    keeps besides options -- naming the tables was not an answer. The file's own
+    are the real state; with none, the defaults it ships are shown instead, so a
+    reader learns they exist before anything has written them."""
+    import argparse
+    import io
+
+    from tabsdata_dev.common.core import config
+
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    parser = argparse.ArgumentParser(prog="demo")
+    parser.add_argument("--type", default="pyenv")
+    tables = '# [demo]\n# vault = "dev_ci"\n#\n# [repo."OWNER/NAME"]\n# labels = []\n'
+    doc = config.from_parser("demo", parser, tables=tables)
+
+    message, _ = config.show(doc, io.StringIO())
+    assert "defaults; not set here yet" in message
+    assert "[demo]" in message and 'vault = "dev_ci"' in message
+    assert '[repo."OWNER/NAME"]' in message and "labels = []" in message
+
+    # once the file has real ones, those are what it shows -- nested table and all
+    config.write(
+        "demo",
+        config.render_doc(doc)
+        + '\n[demo]\nvault = "mine"\n\n[repo."o/n"]\nlabels = ["bug"]\n',
+    )
+    message, _ = config.show(doc, io.StringIO())
+    assert "defaults" not in message.split("kept by")[1]
+    assert 'vault = "mine"' in message and '[repo."o/n"]' in message
+    assert 'labels = ["bug"]' in message
+
+
 def test_config_rewrites_the_template_but_keeps_what_the_command_keeps(
     tmp_path, monkeypatch
 ):

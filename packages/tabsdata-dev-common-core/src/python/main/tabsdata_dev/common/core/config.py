@@ -290,6 +290,41 @@ def _highlight(text: str, stream) -> str:
     return f"\033[{HIGHLIGHT}m{text}{render.RESET}"
 
 
+def _table_lines(data: dict[str, Any], prefix: str = "") -> list[str]:
+    """A table dict as `[name]` headers and `key = value` lines, sub-tables and
+    all -- `{"repo": {"o/n": {...}}}` is `[repo."o/n"]`. Scalars come first, so
+    a table's own keys are not buried under its children."""
+    lines: list[str] = []
+    scalars = {k: v for k, v in data.items() if not isinstance(v, dict)}
+    tables = {k: v for k, v in data.items() if isinstance(v, dict)}
+    if scalars or (not tables and prefix):
+        lines.append(f"\n[{prefix}]" if prefix else "")
+        for key, value in scalars.items():
+            lines.append(f"  {key} = {toml_value(value)}")
+    for name, table in tables.items():
+        # A key that is not bare has to be quoted, the way it is in the file.
+        part = name if name.replace("_", "").replace("-", "").isalnum() else f'"{name}"'
+        lines.extend(_table_lines(table, f"{prefix}.{part}" if prefix else part))
+    return lines
+
+
+def _default_tables(doc: Doc) -> dict[str, Any]:
+    """The command's own tables at their defaults, read back out of the
+    commented block it supplies. Best effort: a block that does not uncomment
+    into TOML simply has nothing to show."""
+    if not doc.tables:
+        return {}
+    text = "\n".join(
+        line[2:] if line.startswith("# ") else line
+        for line in doc.tables.splitlines()
+        if line.startswith("# [") or " = " in line
+    )
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return {}
+
+
 def show(doc: Doc, stream) -> tuple[str, dict[str, Any]]:
     """What the command's options resolve to now, with the values this file
     sets highlighted -- everything else is the built-in default."""
@@ -318,9 +353,18 @@ def show(doc: Doc, stream) -> tuple[str, dict[str, Any]]:
                         else ""
                     )
                 )
+    # What the command keeps of its own. The file's tables when it has them --
+    # that is the real state, the repositories gsx has learnt and so on -- and
+    # otherwise the defaults it ships, so the reader sees they exist at all.
     other = {k: v for k, v in read(doc.command).items() if k != OPTIONS_TABLE}
     if other:
-        lines.append("\nkept by the command: " + ", ".join(sorted(other)))
+        lines.append(f"\nkept by `tdd {doc.command}` itself:")
+        lines.extend(_table_lines(other))
+    elif _default_tables(doc):
+        lines.append(
+            f"\nkept by `tdd {doc.command}` itself (defaults; not set here yet):"
+        )
+        lines.extend(_table_lines(_default_tables(doc)))
     return ("\n".join(lines), changed)
 
 
