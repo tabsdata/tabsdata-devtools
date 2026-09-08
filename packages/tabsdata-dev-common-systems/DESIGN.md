@@ -31,6 +31,11 @@ with per-system DDL. The tools `system`, `domain` and `domain-sf` are thin entry
   belongs to another toolset, `domain` re-dispatches through `tdd-exe` to `domain-sf`.
 - A system's own config comes from `<SYSTEM>__<KEY>` variables (`S3__BUCKET`,
   `DRUID__ROUTER_PORT`); `secrets` loads them from 1Password.
+- Every verb describes its own options once, and `config` reads that: a delegated verb through
+  its command module's `add_arguments`, a common one through the parser builder its handler uses
+  (`dispatch.common_parsers`). That is what keeps `config --show` and the config file from
+  drifting from the CLI -- the ten verbs handled in `dispatch` had no table at all while their
+  parsers were built inline.
 - Output follows the guidelines through the `console` adapter; chatty verbs log to
   `/tmp/tdd-<tool>-<verb>-<name>-<stamp>.log`, which is also the failure log.
 - Domain names are `<user>_<build>` from `TD_BUILD_USER`/`TD_BUILD_NUMBER` (else login/0).

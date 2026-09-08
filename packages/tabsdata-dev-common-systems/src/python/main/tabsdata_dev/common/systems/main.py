@@ -63,29 +63,51 @@ def _log_prefix(tool: str, verb: str, argv: list[str]) -> str:
 
 CONFIG_PREAMBLE = """\
 # This family builds a parser per verb rather than one parser with subparsers,
-# so the tables below are the verbs whose options are declared in one place
-# (the command modules). A verb that is not listed can still be configured:
-# add its own [options.VERB] table and its keys are merged like any other.
+# so the tables below are one per verb, holding the options that verb takes on
+# top of --format and --verbose. A verb with nothing of its own is not listed,
+# and can still be configured: add its [options.VERB] table and its keys are
+# merged like any other.
 """
 
 
 def config_doc(tool: str) -> core_config.Doc:
     """The default document: the options every verb takes, then one table per
-    verb whose module declares its own with `add_arguments`."""
+    verb -- from its command module's `add_arguments` where it has one, and from
+    the parser the dispatcher builds it with where it is handled there.
+
+    Both halves matter. Without the second, ten of `system`'s seventeen verbs
+    had no table at all: the ones a reader most wants a default for (which vault
+    `crypto-key` reads, where `manifest` writes) are handled in `dispatch`."""
     import argparse
 
     parser = argparse.ArgumentParser(prog=f"tdd {tool}")
     cli.add_format_verbose(parser)
     doc = core_config.from_parser(tool, parser, CONFIG_PREAMBLE)
+    shared = set(doc.actions[""])
+
+    def table(verb: str, sub: argparse.ArgumentParser) -> None:
+        # --format and --verbose are on every verb's parser and already in the
+        # table above; repeating them per verb would say nothing new.
+        found = {
+            name: value
+            for name, value in core_config._options_of(sub).items()  # noqa: SLF001
+            if name not in shared
+        }
+        if found:
+            doc.actions[verb] = found
+
     for verb, module in dispatch.verb_modules(tool).items():
         sub = argparse.ArgumentParser(prog=f"tdd {tool} {verb}")
         try:
             module.add_arguments(sub)
         except Exception:  # noqa: BLE001 -- a verb we cannot describe is left out
             continue
-        found = core_config._options_of(sub)  # noqa: SLF001 -- same module's helper
-        if found:
-            doc.actions[verb] = found
+        table(verb, sub)
+    for verb, build in dispatch.common_parsers(tool).items():
+        try:
+            table(verb, build(tool))
+        except Exception:  # noqa: BLE001 -- same rule: describe it or leave it out
+            continue
     return doc
 
 

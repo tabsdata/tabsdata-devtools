@@ -497,9 +497,16 @@ def _list_store(store_dir: Path, role: str) -> None:
     )
 
 
-def _cmn_types(tool: str, rest: list[str]) -> int:
+def _parser_types(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(prog=f"tdd {tool} {constants.V_TYPES}")
     cli.add_format_verbose(p)
+    return p
+
+
+def _cmn_types(tool: str, rest: list[str]) -> int:
+    p = _parser_types(tool)
     p.parse_args(rest)
     rows = [("TYPE", "LABEL", "WEIGHT", "SYS-TOOLSET", "DOM-TOOLSET", "IMAGE(S)")]
     types: list[dict] = []
@@ -579,14 +586,9 @@ def _read_entry(entry: str) -> dict:
     return onepassword.for_upload(item)
 
 
-def _cmn_1p_set(tool: str, rest: list[str]) -> int:
-    """Put one item in a vault, replacing what is filed under its title.
-
-    The other end of `template` / `info --format 1p`: those write the item, this
-    files it. Always delete-then-create -- see :func:`secrets_1p.set_item` for
-    why a create alone would duplicate rather than replace."""
-    from tabsdata_dev.common.core import secrets_1p
-
+def _parser_1p_set(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(
         prog=f"tdd {tool} {constants.V_1P_SET}",
         description="put a 1Password item in a vault, replacing what is filed "
@@ -608,6 +610,18 @@ def _cmn_1p_set(tool: str, rest: list[str]) -> int:
         help="the item JSON (`-` reads it from stdin)",
     )
     cli.add_verbose(p)
+    return p
+
+
+def _cmn_1p_set(tool: str, rest: list[str]) -> int:
+    """Put one item in a vault, replacing what is filed under its title.
+
+    The other end of `template` / `info --format 1p`: those write the item, this
+    files it. Always delete-then-create -- see :func:`secrets_1p.set_item` for
+    why a create alone would duplicate rather than replace."""
+    from tabsdata_dev.common.core import secrets_1p
+
+    p = _parser_1p_set(tool)
     a = p.parse_args(rest)
     item = _read_entry(a.entry)
     title = str(item["title"])
@@ -632,15 +646,9 @@ def _shape(fmt: str) -> str:
     return constants.FMT_JSON if fmt == constants.FMT_VIEW else fmt
 
 
-def _cmn_1p_template(tool: str, rest: list[str]) -> int:
-    """A type's create options as the 1Password item its credentials belong in.
-
-    One shape only, so there is nothing to choose: the item `op item create`
-    takes and `secrets` reads back (see :mod:`.onepassword`). The title is the
-    type's own env prefix, which is what the variables it yields are prefixed
-    with -- renaming it would only break that."""
-    from tabsdata_dev.common.systems import onepassword
-
+def _parser_1p_template(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(
         prog=f"tdd {tool} {constants.V_1P_TEMPLATE}",
         description="a system type's create options as the 1Password item its "
@@ -651,6 +659,19 @@ def _cmn_1p_template(tool: str, rest: list[str]) -> int:
     )
     cli.add_type(p)
     cli.add_verbose(p)
+    return p
+
+
+def _cmn_1p_template(tool: str, rest: list[str]) -> int:
+    """A type's create options as the 1Password item its credentials belong in.
+
+    One shape only, so there is nothing to choose: the item `op item create`
+    takes and `secrets` reads back (see :mod:`.onepassword`). The title is the
+    type's own env prefix, which is what the variables it yields are prefixed
+    with -- renaming it would only break that."""
+    from tabsdata_dev.common.systems import onepassword
+
+    p = _parser_1p_template(tool)
     a = p.parse_args(rest)
     slugs = _template_slugs(a.type)
     items = [onepassword.item(systems.get(slug)) for slug in slugs]
@@ -680,10 +701,17 @@ def _template_slugs(target: str | None) -> list[str]:
     return slugs
 
 
-def _cmn_sys_list(tool: str, rest: list[str]) -> int:
+def _parser_sys_list(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(prog=f"tdd {tool} {constants.V_LIST}")
     cli.add_sys_dir(p)
     cli.add_format_verbose(p)
+    return p
+
+
+def _cmn_sys_list(tool: str, rest: list[str]) -> int:
+    p = _parser_sys_list(tool)
     a = p.parse_args(rest)
     _list_store(store.system_dir(a.sys_dir), constants.ROLE_SYSTEM)
     return 0
@@ -755,22 +783,36 @@ def _render_infos(
     return 0
 
 
-def _cmn_sys_info(tool: str, rest: list[str]) -> int:
+def _parser_sys_info(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(prog=f"tdd {tool} {constants.V_INFO}")
     cli.add_sys(p, required=False)
     cli.add_sys_dir(p)
     _add_info_manifest(p)
     cli.add_prefix(p)
     cli.add_format_verbose(p, constants.RENDER_FORMATS)
+    return p
+
+
+def _cmn_sys_info(tool: str, rest: list[str]) -> int:
+    p = _parser_sys_info(tool)
     a = p.parse_args(rest)
     names, is_batch = _info_targets(tool, a.sys, a.manifest, a.sys_dir)
     return _render_infos(tool, names, a.sys_dir, _shape(a.format), a.prefix, is_batch)
 
 
-def _cmn_dom_list(tool: str, rest: list[str]) -> int:
+def _parser_dom_list(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(prog=f"tdd {tool} {constants.V_LIST}")
     cli.add_domain_dir(p)
     cli.add_format_verbose(p)
+    return p
+
+
+def _cmn_dom_list(tool: str, rest: list[str]) -> int:
+    p = _parser_dom_list(tool)
     a = p.parse_args(rest)
     _list_store(store.domain_dir(a.domain_dir), constants.ROLE_DOMAIN)
     return 0
@@ -803,29 +845,50 @@ def _upgrade_store(store_dir: Path, role: str) -> int:
     return 0
 
 
-def _cmn_sys_upgrade(tool: str, rest: list[str]) -> int:
+def _parser_sys_upgrade(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(prog=f"tdd {tool} {constants.V_UPGRADE}")
     cli.add_sys_dir(p)
     cli.add_format_verbose(p)
+    return p
+
+
+def _cmn_sys_upgrade(tool: str, rest: list[str]) -> int:
+    p = _parser_sys_upgrade(tool)
     a = p.parse_args(rest)
     return _upgrade_store(store.system_dir(a.sys_dir), constants.ROLE_SYSTEM)
 
 
-def _cmn_dom_upgrade(tool: str, rest: list[str]) -> int:
+def _parser_dom_upgrade(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(prog=f"tdd {tool} {constants.V_UPGRADE}")
     cli.add_domain_dir(p)
     cli.add_format_verbose(p)
+    return p
+
+
+def _cmn_dom_upgrade(tool: str, rest: list[str]) -> int:
+    p = _parser_dom_upgrade(tool)
     a = p.parse_args(rest)
     return _upgrade_store(store.domain_dir(a.domain_dir), constants.ROLE_DOMAIN)
 
 
-def _cmn_dom_info(tool: str, rest: list[str]) -> int:
+def _parser_dom_info(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(prog=f"tdd {tool} {constants.V_INFO}")
     cli.add_domain(p, required=False)
     cli.add_domain_dir(p)
     _add_info_manifest(p)
     cli.add_prefix(p)
     cli.add_format_verbose(p, constants.RENDER_FORMATS)
+    return p
+
+
+def _cmn_dom_info(tool: str, rest: list[str]) -> int:
+    p = _parser_dom_info(tool)
     a = p.parse_args(rest)
     names, is_batch = _info_targets(tool, a.domain, a.manifest, a.domain_dir)
     return _render_infos(
@@ -857,11 +920,18 @@ def _write_manifest(tool: str, dest: str, entries: list[dict]) -> int:
     return 0
 
 
-def _cmn_sys_manifest(tool: str, rest: list[str]) -> int:
+def _parser_sys_manifest(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(prog=f"tdd {tool} {constants.V_MANIFEST}")
     cli.add_sys_dir(p)
     _add_manifest_out(p)
     cli.add_format_verbose(p)
+    return p
+
+
+def _cmn_sys_manifest(tool: str, rest: list[str]) -> int:
+    p = _parser_sys_manifest(tool)
     a = p.parse_args(rest)
     infos = _store_infos(
         store.system_dir(a.sys_dir), constants.ROLE_SYSTEM, strict=True
@@ -869,11 +939,18 @@ def _cmn_sys_manifest(tool: str, rest: list[str]) -> int:
     return _write_manifest(tool, a.out, [manifest.system_entry(i) for i in infos])  # type: ignore[arg-type]
 
 
-def _cmn_dom_manifest(tool: str, rest: list[str]) -> int:
+def _parser_dom_manifest(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(prog=f"tdd {tool} {constants.V_MANIFEST}")
     cli.add_domain_dir(p)
     _add_manifest_out(p)
     cli.add_format_verbose(p)
+    return p
+
+
+def _cmn_dom_manifest(tool: str, rest: list[str]) -> int:
+    p = _parser_dom_manifest(tool)
     a = p.parse_args(rest)
     infos = _store_infos(
         store.domain_dir(a.domain_dir), constants.ROLE_DOMAIN, strict=True
@@ -881,7 +958,9 @@ def _cmn_dom_manifest(tool: str, rest: list[str]) -> int:
     return _write_manifest(tool, a.out, [manifest.domain_entry(i) for i in infos])  # type: ignore[arg-type]
 
 
-def _cmn_secrets(tool: str, rest: list[str]) -> int:
+def _parser_secrets(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(
         prog=f"tdd {tool} {constants.V_SECRETS}",
         description="fetch a provider's secrets as the systems' env vars and "
@@ -897,6 +976,11 @@ def _cmn_secrets(tool: str, rest: list[str]) -> int:
     # These render shell lines to eval, never a 1Password item: they *read* a
     # vault, and what comes back is a set of variables, not one system's entry.
     cli.add_format_verbose(p, ("export", "unset"))
+    return p
+
+
+def _cmn_secrets(tool: str, rest: list[str]) -> int:
+    p = _parser_secrets(tool)
     a = p.parse_args(rest)
     found = core_secrets.with_systems_var(core_secrets.fetch(a.ref))
     console.result({"format": a.format, "names": list(found)})
@@ -904,12 +988,9 @@ def _cmn_secrets(tool: str, rest: list[str]) -> int:
     return 0
 
 
-def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
-    """Fetch the personal descriptor key -- what `secrets` does, for the one
-    variable everything else needs first. Deliberately never reads the store,
-    so it works before the key is set."""
-    from tabsdata_dev.common.systems import crypto
-
+def _parser_crypto_key(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     p = ArgumentParser(
         prog=f"tdd {tool} {constants.V_CRYPTO_KEY}",
         description=f"fetch ${constants.ENV_CRYPTO_KEY} from 1Password and print it "
@@ -938,6 +1019,16 @@ def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
     # These render shell lines to eval, never a 1Password item: they *read* a
     # vault, and what comes back is a set of variables, not one system's entry.
     cli.add_format_verbose(p, ("export", "unset"))
+    return p
+
+
+def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
+    """Fetch the personal descriptor key -- what `secrets` does, for the one
+    variable everything else needs first. Deliberately never reads the store,
+    so it works before the key is set."""
+    from tabsdata_dev.common.systems import crypto
+
+    p = _parser_crypto_key(tool)
     a = p.parse_args(rest)
     # 1p is this verb's only provider, so a ref that names it says nothing more
     # than the bare vault does -- both spellings resolve to the same vault.
@@ -959,11 +1050,9 @@ def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
     return 0
 
 
-def _cmn_clean_docker(tool: str, rest: list[str]) -> int:
-    """Stop and delete every docker container named `tdd_*` -- the ones the
-    docker-backed systems create -- whether or not a descriptor still points at
-    them. The sweep for a store that lost track of its containers, or a machine
-    to be left clean. Asks first, unless --yes."""
+def _parser_clean_docker(tool: str) -> ArgumentParser:
+    """The parser for this verb, so `config` can read its options without
+    running it (see `common_parsers`)."""
     prefix = constants.DOCKER_CONTAINER_PREFIX
     p = ArgumentParser(
         prog=f"tdd {tool} {constants.V_CLEAN_DOCKER}",
@@ -976,6 +1065,16 @@ def _cmn_clean_docker(tool: str, rest: list[str]) -> int:
         help="do not ask; without it the containers are listed and a confirmation is read from the terminal (an error when there is none)",
     )
     cli.add_format_verbose(p)
+    return p
+
+
+def _cmn_clean_docker(tool: str, rest: list[str]) -> int:
+    """Stop and delete every docker container named `tdd_*` -- the ones the
+    docker-backed systems create -- whether or not a descriptor still points at
+    them. The sweep for a store that lost track of its containers, or a machine
+    to be left clean. Asks first, unless --yes."""
+    prefix = constants.DOCKER_CONTAINER_PREFIX
+    p = _parser_clean_docker(tool)
     a = p.parse_args(rest)
     shell.require_docker()
     found = shell.list_containers(prefix)
@@ -1022,6 +1121,40 @@ def _cmn_clean_docker(tool: str, rest: list[str]) -> int:
         f"stopped and deleted {len(removed)} docker container(s) named {prefix}*"
     )
     return 0
+
+
+#: The parser each common verb takes -- the same function its handler builds it
+#: with, so `config` describes what the verb really accepts and cannot drift
+#: from it. A verb handled by a command module declares its options in that
+#: module's `add_arguments` instead; these are the ones handled here, which had
+#: no table at all until they were reachable without running the verb.
+_COMMON_PARSERS = {
+    constants.SYS_TOOL: {
+        constants.V_TYPES: _parser_types,
+        constants.V_1P_TEMPLATE: _parser_1p_template,
+        constants.V_1P_SET: _parser_1p_set,
+        constants.V_LIST: _parser_sys_list,
+        constants.V_INFO: _parser_sys_info,
+        constants.V_MANIFEST: _parser_sys_manifest,
+        constants.V_UPGRADE: _parser_sys_upgrade,
+        constants.V_SECRETS: _parser_secrets,
+        constants.V_CRYPTO_KEY: _parser_crypto_key,
+        constants.V_CLEAN_DOCKER: _parser_clean_docker,
+    },
+    constants.DOM_TOOL: {
+        constants.V_TYPES: _parser_types,
+        constants.V_LIST: _parser_dom_list,
+        constants.V_INFO: _parser_dom_info,
+        constants.V_MANIFEST: _parser_dom_manifest,
+        constants.V_UPGRADE: _parser_dom_upgrade,
+    },
+}
+
+
+def common_parsers(tool: str) -> dict:
+    """verb -> a parser for it, for the verbs handled here. The twin of
+    `verb_modules`, which answers the same question for the delegated ones."""
+    return _COMMON_PARSERS.get(_family(tool), {})
 
 
 _COMMON = {

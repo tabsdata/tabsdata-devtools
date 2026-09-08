@@ -484,6 +484,39 @@ def test_the_data_plane_gets_the_root_cert_a_verifying_mode_needs(tmp_path):
         assert uri == pdom["EXTERNAL_SQLALCHEMY_URI"]
 
 
+def test_config_describes_every_verb_the_tool_has():
+    """`config --show` and the file it writes are only as good as the options
+    they know about, and ten of `system`'s seventeen verbs were invisible to
+    them: a verb handled in `dispatch` builds its parser inline, so there was
+    nothing for `config` to read without running the verb.
+
+    Each of those now has a builder the handler and `config` share, which is
+    what keeps the two from drifting -- the alternative, a second list of
+    options kept by hand, is the thing this repo already refuses elsewhere.
+    """
+    from tabsdata_dev.common.systems import dispatch, main as family
+
+    for tool in (constants.SYS_TOOL, constants.DOM_TOOL):
+        doc = family.config_doc(tool)
+        _, fields = dispatch.top_help(tool)
+        verbs = {c["name"] for c in fields["commands"]} - {"config"}
+        # `types` takes nothing but --format/--verbose, which the shared table
+        # above already holds; everything else describes itself
+        assert verbs - set(doc.actions) == {constants.V_TYPES}, tool
+        # and no verb repeats what the shared table says
+        for verb, options in doc.actions.items():
+            if verb:
+                assert not {"format", "verbose"} & set(options), f"{tool} {verb}"
+
+    # the defaults are the real ones, not placeholders -- this is the point of
+    # reading the parser rather than keeping a list
+    system = family.config_doc(constants.SYS_TOOL)
+    crypto = {k: v for k, (v, _) in system.actions[constants.V_CRYPTO_KEY].items()}
+    assert crypto["field"] == "TD_BACKENDS_CRYPTO_KEY"
+    assert crypto["vault"] and crypto["item"]
+    assert set(system.actions[constants.V_1P_SET]) == {"vault", "entry"}
+
+
 def test_a_domain_owner_is_given_the_schema_its_tables_go_in():
     """Creating a database owned by a role does not let that role put a table in
     it. Since PostgreSQL 15 `public` belongs to `pg_database_owner` -- implicitly
