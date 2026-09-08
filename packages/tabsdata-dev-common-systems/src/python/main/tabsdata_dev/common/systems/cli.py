@@ -56,7 +56,7 @@ def add_verbose(parser: argparse.ArgumentParser) -> None:
     """``-v`` alone, for a command that renders one shape and so has no
     ``--format`` to offer (the runner still reads both from raw argv)."""
     parser.add_argument(
-        "-v", constants.OPT_VERBOSE, action="store_true", help="show debug events too"
+        constants.OPT_VERBOSE, "-v", action="store_true", help="show debug events too"
     )
 
 
@@ -198,8 +198,8 @@ def add_domain_dir(parser: argparse.ArgumentParser) -> None:
 
 def add_force(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "-f",
         constants.OPT_FORCE,
+        "-f",
         action="store_true",
         help="overwrite / drop-first if present",
     )

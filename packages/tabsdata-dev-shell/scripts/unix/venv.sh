@@ -113,7 +113,7 @@ options:
   --name NAME  the venv
   --type {pyenv,uv,conda}  the tool that creates it (default: pyenv). A pyenv venv is a plain `python -m venv` on a pyenv interpreter; conda gets its shell hook installed on the fly when the rc did not
   --python VERSION  the interpreter (default: 3.12.13, what a tdkserver instance builds its own environments with). pyenv needs it installed already (pyenv install VERSION); uv and conda fetch it
-  -f, --force  delete NAME first if it exists, leaving it if it is the active one
+  --force, -f  delete NAME first if it exists, leaving it if it is the active one
 HELP
 }
 
@@ -138,7 +138,7 @@ Leave the active managed venv and restore the prompt. A venv tdd did not activat
 record (recorded, nothing active), is an error that says so.
 
 options:
-  -f, --force  leave it anyway, best effort -- venv and uv through their own deactivate, pyenv-virtualenv through `pyenv deactivate`, conda through `conda deactivate` -- or drop the stale record
+  --force, -f  leave it anyway, best effort -- venv and uv through their own deactivate, pyenv-virtualenv through `pyenv deactivate`, conda through `conda deactivate` -- or drop the stale record
 HELP
 }
 

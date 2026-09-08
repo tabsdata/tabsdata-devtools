@@ -158,7 +158,7 @@ _tdd_help_text() {
             m = index(l, ":")
             return bold substr(l, 1, m) off substr(l, m + 1)
         }
-        if (match(l, /^ {1,6}[^ ]/)) {
+        if (match(l, /^  \* [^ ]/) || match(l, /^ {1,6}[^ ]/)) {
             start = RSTART + RLENGTH - 1
             stop = start
             while (stop < length(l) && substr(l, stop + 1, 2) != "  ") stop++
@@ -189,28 +189,32 @@ _tdd_help_text() {
     # argparse indents a subcommand four and keeps the description column, so
     # `positional arguments:` reads as a list under its SUBCOMMAND heading.
     function entry4(term, help,   pad) { indented(4, term, help) }
-    function indented(n, term, help,   pad) {
-        if (help == "") { print paint(sp(n) term); return }
+    # `pre` replaces the plain indent for an entry that carries a marker. It has
+    # to be exactly n wide, so the names stay in one column whether or not they
+    # are marked -- the marker sits in the margin, not in the name.
+    function indented(n, term, help, pre,   pad) {
+        if (pre == "") pre = sp(n)
+        if (help == "") { print paint(pre term); return }
         if (length(term) <= HC - n - 2) {
             pad = sprintf("%-" (HC - n) "s", term)
-            print paint(wrap(help, sp(n) pad, sp(HC), W))
+            print paint(wrap(help, pre pad, sp(HC), W))
         } else {
-            print sp(n) term
+            print pre term
             print wrap(help, sp(HC), sp(HC), W)
         }
     }
     function newblock(type, text, gap) { btype[nb] = type; btext[nb] = text; bgap[nb] = gap; return nb++ }
     function flushpara() { if (para != "") { newblock("para", para, paragap); para = "" } }
     function common() {
-        entry("-h, --help", "show this help message and exit")
-        entry("-v, --verbose", "show debug events too")
+        entry("--help, -h", "show this help message and exit")
+        entry("--verbose, -v", "show debug events too")
         entry("--format {json,view}", "json is JSON Lines, one event per line (default: view)")
     }
     function section(b,   k) {
         print ""; print paint(btext[b])
         if (btext[b] == "options:") common()
         for (k = 0; k < nent[b]; k++) {
-            if (edeep[b, k]) entry4(eterm[b, k], ehelp[b, k])
+            if (edeep[b, k]) indented(4, eterm[b, k], ehelp[b, k], emark[b, k])
             else entry(eterm[b, k], ehelp[b, k])
         }
     }
@@ -230,12 +234,15 @@ _tdd_help_text() {
             }
             if (cur >= 0 && l ~ /^ /) {
                 if (l ~ /^  [^ ]/ || l ~ /^    [^ ]/) {
-                    deep = (l ~ /^    [^ ]/)
+                    # `  * name` is a four-column entry whose first two columns
+                    # hold the marker: same name column as `    name`
+                    mark = (l ~ /^  \* [^ ]/) ? "  * " : ""
+                    deep = (mark != "" || l ~ /^    [^ ]/)
                     t = substr(l, deep ? 5 : 3)
                     if (match(t, /  +/)) { term = substr(t, 1, RSTART - 1); help = substr(t, RSTART + RLENGTH) }
                     else { term = t; help = "" }
                     k = nent[cur]++; eterm[cur, k] = term; ehelp[cur, k] = help
-                    edeep[cur, k] = deep
+                    edeep[cur, k] = deep; emark[cur, k] = mark
                 } else if (nent[cur] > 0) {
                     k = nent[cur] - 1; sub(/^ +/, "", l)
                     ehelp[cur, k] = (ehelp[cur, k] == "" ? l : ehelp[cur, k] " " l)
@@ -619,7 +626,7 @@ options:
                highlighted, with the built-in default beside it (default)
   --default    print the default config, the document --create would write
   --create     write the default config; refuses when the file exists
-  -f, --force  --create: overwrite an existing file
+  --force, -f  --create: overwrite an existing file
 
 example: tdd $1 config --create && tdd $1 config --show
 HELP

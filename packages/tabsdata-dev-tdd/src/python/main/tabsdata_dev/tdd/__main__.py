@@ -163,10 +163,10 @@ def _builtin_help(word: str) -> str:
         add_help=False,
     )
     parser.add_argument(
-        "-h", "--help", action="store_true", help="show this help message and exit"
+        "--help", "-h", action="store_true", help="show this help message and exit"
     )
     parser.add_argument(
-        "-v", "--verbose", action="store_true", help="show debug events too"
+        "--verbose", "-v", action="store_true", help="show debug events too"
     )
     parser.add_argument(
         "--format",

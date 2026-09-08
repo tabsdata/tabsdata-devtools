@@ -68,8 +68,13 @@ def parser(prog: str, description: str) -> argparse.ArgumentParser:
     -- the tools live inside a toolset venv and the front door is `tdd`. The
     shell half has always written its usage that way, so this is also what makes
     the two halves' help read alike."""
-    p = _Parser(prog=f"tdd {prog}", description=description)
-    p.add_argument("-v", "--verbose", action="store_true", help="show debug events too")
+    # add_help=False so the help flag is ours to declare: argparse's own is
+    # `-h, --help`, and every option here reads long form first.
+    p = _Parser(prog=f"tdd {prog}", description=description, add_help=False)
+    p.add_argument(
+        "--help", "-h", action="help", help="show this help message and exit"
+    )
+    p.add_argument("--verbose", "-v", action="store_true", help="show debug events too")
     p.add_argument(
         "--format",
         choices=("json", "view"),

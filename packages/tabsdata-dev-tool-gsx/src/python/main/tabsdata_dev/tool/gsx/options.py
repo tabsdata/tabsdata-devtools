@@ -96,7 +96,7 @@ def _passthrough_epilog(subcommand: str) -> str:
 
 def configure(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "-V", "--version", action="store_true", help="show the version and exit"
+        "--version", "-V", action="store_true", help="show the version and exit"
     )
     subs = parser.add_subparsers(dest="subcommand", metavar="SUBCOMMAND")
 
@@ -109,8 +109,8 @@ def configure(parser: argparse.ArgumentParser) -> None:
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
         sub.add_argument(
-            "-o",
             "--override",
+            "-o",
             action="store_true",
             help="let passthrough flags override the ones gsx derives (yours go last)",
         )
@@ -126,8 +126,8 @@ def configure(parser: argparse.ArgumentParser) -> None:
             help="json is JSON Lines, one event per line (default: view)",
         )
         sub.add_argument(
-            "-v",
             "--verbose",
+            "-v",
             action="store_true",
             default=argparse.SUPPRESS,
             help="show debug events too",
@@ -136,14 +136,14 @@ def configure(parser: argparse.ArgumentParser) -> None:
 
     def text_opts(sub: argparse.ArgumentParser, required: str) -> None:
         sub.add_argument(
-            "-s",
             "--summary",
+            "-s",
             metavar="TEXT",
             help=f"the issue title and the commit subject{required}",
         )
         sub.add_argument(
-            "-m",
             "--message",
+            "-m",
             metavar="TEXT",
             help="the issue body and the commit body; - reads stdin",
         )
@@ -222,16 +222,16 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "dimas` reads the token `aoinokimi.review.pat`.\n\n",
     )
     approve.add_argument(
-        "-a",
         "--approvers",
+        "-a",
         action="append",
         default=[],
         metavar="NAME[,NAME...]",
         help="who to approve as; repeatable, and comma separated (required)",
     )
     approve.add_argument(
-        "-p",
         "--pr",
+        "-p",
         action="append",
         default=[],
         metavar="N[,N...]",

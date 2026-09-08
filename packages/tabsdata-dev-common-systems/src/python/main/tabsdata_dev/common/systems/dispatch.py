@@ -1075,8 +1075,8 @@ def _parser_clean_docker(tool: str) -> ArgumentParser:
         description=f"stop and delete every docker container whose name starts with {prefix}",
     )
     p.add_argument(
-        "-y",
         constants.OPT_YES,
+        "-y",
         action="store_true",
         help="do not ask; without it the containers are listed and a confirmation is read from the terminal (an error when there is none)",
     )

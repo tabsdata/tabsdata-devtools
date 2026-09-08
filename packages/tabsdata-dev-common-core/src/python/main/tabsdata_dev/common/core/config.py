@@ -527,8 +527,8 @@ def run_action(doc: Doc, argv: list[str], out: render.Renderer) -> int:
         help="write the default config; refuses when the file exists",
     )
     parser.add_argument(
-        "-f",
         "--force",
+        "-f",
         action="store_true",
         help="--create: overwrite an existing file",
     )
@@ -539,8 +539,8 @@ def run_action(doc: Doc, argv: list[str], out: render.Renderer) -> int:
         help="json is JSON Lines, one event per line (default: view)",
     )
     parser.add_argument(
-        "-v",
         "--verbose",
+        "-v",
         action="store_true",
         default=argparse.SUPPRESS,
         help="show debug events too",

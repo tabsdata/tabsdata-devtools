@@ -212,7 +212,8 @@ _tdd_help() {
         # Printed, never captured: `[ -t 1 ]` inside a $(...) sees the capture
         # pipe and would paint nothing. Every command's help prints this way.
         _tdd_help_text <<HELP
-usage: tdd [-h] [-v] [--format {json,view}] [--dir TDD_PATH] [-V] [--reqs [TOOL]]
+usage: tdd [--help] [--verbose] [--format {json,view}] [--dir TDD_PATH] [--version]
+           [--reqs [TOOL]]
            SUBCOMMAND ...
        tdd --help full
 
@@ -220,7 +221,7 @@ the front door: run one of the tools, or one of the shell commands that change t
 
 positional arguments:
   SUBCOMMAND
-$(printf '%s\n' "$_tdd_rows" | awk -F'\t' '{ printf "    %s%s  %s\n", ($2 == "*" ? "* " : ""), $1, $3 }')
+$(printf '%s\n' "$_tdd_rows" | awk -F'\t' '{ printf "%s%s  %s\n", ($2 == "*" ? "  * " : "    "), $1, $3 }')
   (a * marks a command that runs in this shell, so that it can change it)
 
 options:

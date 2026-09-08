@@ -27,9 +27,12 @@ def test_a_builtin_helps_like_every_other_command(capsys):
 
     for word in ("doctor", "info"):
         page = main_mod._builtin_help(word)
-        assert page.startswith(f"usage: tdd {word} [-h] [-v] [--format {{json,view}}]")
+        assert page.startswith(
+            f"usage: tdd {word} [--help] [--verbose] [--format {{json,view}}]"
+        )
         assert "\noptions:\n" in page
-        for option in ("-h, --help", "-v, --verbose", "--format {json,view}"):
+        # long form first, then the short one, everywhere options are listed
+        for option in ("--help, -h", "--verbose, -v", "--format {json,view}"):
             assert option in page, f"{word}: {option}"
         # the description is the builtin's own, not its one-line summary
         assert main_mod.BUILTIN_ABOUT[word].split(".")[0][:20] in page

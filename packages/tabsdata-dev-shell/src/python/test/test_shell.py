@@ -202,8 +202,8 @@ def test_help_renders_in_the_argparse_layout():
     assert lines[1:3] == ["", "Does a thing."]
     o = lines.index("options:")
     assert lines.index("commands:") < o
-    assert lines[o + 1] == "  -h, --help            show this help message and exit"
-    assert lines[o + 2] == "  -v, --verbose         show debug events too"
+    assert lines[o + 1] == "  --help, -h            show this help message and exit"
+    assert lines[o + 2] == "  --verbose, -v         show debug events too"
     assert lines[o + 3] == (
         "  --format {json,view}  json is JSON Lines, one event per line (default: view)"
     )
@@ -223,8 +223,8 @@ def test_help_adds_the_options_section_when_the_declaration_has_none():
         "Does.",
         "",
         "options:",
-        "  -h, --help            show this help message and exit",
-        "  -v, --verbose         show debug events too",
+        "  --help, -h            show this help message and exit",
+        "  --verbose, -v         show debug events too",
         "  --format {json,view}  json is JSON Lines, one event per line (default: view)",
     ]
 
@@ -555,11 +555,14 @@ def test_tdd_help_is_laid_out_by_the_same_engine_as_every_command_help():
     assert "config" not in body
     # the commands are a nested block under SUBCOMMAND, indented four, the way
     # argparse lays a subparser list out
-    assert "  SUBCOMMAND\n" in body and 'printf "    %s%s  %s' in body
+    assert "  SUBCOMMAND\n" in body and 'printf "%s%s  %s' in body
+    # the * marking a shell command sits in the margin, never in the name: both
+    # prefixes are four wide, so every command name starts in one column
+    assert '"  * " : "    "' in body
     # its own three; the shared three come from the engine, not from here
     for option in ("--dir TDD_PATH", "--version, -V", "--reqs [TOOL]"):
         assert option in body, option
-    assert "-h, --help" not in body and "-v, --verbose" not in body
+    assert "--help, -h" not in body and "--verbose, -v" not in body
     # nothing paints itself any more
     assert "_tdd_hb" not in body and "\\033[36m" not in body
     # json says the same six

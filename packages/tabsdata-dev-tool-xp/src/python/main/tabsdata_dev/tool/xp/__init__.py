@@ -67,8 +67,8 @@ def _common(c: argparse.ArgumentParser) -> None:
         help="json is JSON Lines, one event per line (default: view)",
     )
     c.add_argument(
-        "-v",
         "--verbose",
+        "-v",
         action="store_true",
         default=argparse.SUPPRESS,
         help="show debug events too",
@@ -86,8 +86,8 @@ def _secret_env(c):
 
 def _force(c):
     c.add_argument(
-        "-f",
         "--force",
+        "-f",
         action="store_true",
         help="carry on (warn) when a backend teardown fails, still removing the local pointer",
     )
@@ -172,7 +172,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         help="destination; gets DIR/suites and DIR/connections",
     )
     c.add_argument(
-        "-f", "--force", action="store_true", help="overwrite an existing copy"
+        "--force", "-f", action="store_true", help="overwrite an existing copy"
     )
     _common(c)
     c.set_defaults(func=project.cmd_export_suites)

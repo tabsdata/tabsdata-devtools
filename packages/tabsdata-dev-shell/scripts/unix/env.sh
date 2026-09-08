@@ -129,7 +129,7 @@ options:
   --item ITEM  --crypto: the item in the vault (default: DevSecrets)
   --field FIELD  --crypto: the field of that item (default: TD_BACKENDS_CRYPTO_KEY)
   --value VALUE  --crypto: this value IS the key (at least 12 characters); nothing is read from 1Password and the variable is replaced whether or not it is set. Not with --vault, --item or --field
-  -f, --force  --crypto: fetch from 1Password even if _TDD_CRYPTO_KEY is already set
+  --force, -f  --crypto: fetch from 1Password even if _TDD_CRYPTO_KEY is already set
 HELP
 }
 

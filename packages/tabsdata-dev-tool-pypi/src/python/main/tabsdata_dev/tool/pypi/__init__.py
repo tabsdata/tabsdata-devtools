@@ -103,8 +103,8 @@ def _common(sub: argparse.ArgumentParser) -> argparse.ArgumentParser:
         help="json is JSON Lines, one event per line (default: view)",
     )
     sub.add_argument(
-        "-v",
         "--verbose",
+        "-v",
         action="store_true",
         default=argparse.SUPPRESS,
         help="show debug events too",
@@ -179,8 +179,8 @@ def configure(p: argparse.ArgumentParser) -> None:
     )
     cc.add_argument("--lane", required=True, choices=SERVING, help="which lane")
     cc.add_argument(
-        "-y",
         "--yes",
+        "-y",
         action="store_true",
         help="do not ask before invalidating (prod requires it)",
     )
@@ -195,8 +195,8 @@ def configure(p: argparse.ArgumentParser) -> None:
     )
     d.add_argument("--version", help="--lane raw: this release only (default: all)")
     d.add_argument(
-        "-f",
         "--force",
+        "-f",
         action="store_true",
         help="--lane raw: overwrite archived filenames whose bytes changed",
     )
@@ -215,8 +215,8 @@ def configure(p: argparse.ArgumentParser) -> None:
         "--dry-run", action="store_true", help="print the plan, write nothing"
     )
     d.add_argument(
-        "-y",
         "--yes",
+        "-y",
         action="store_true",
         help="do not ask before writing (prod requires it)",
     )
@@ -232,8 +232,8 @@ def configure(p: argparse.ArgumentParser) -> None:
     )
     f.add_argument("--version", help="--lane raw: this release only (default: all)")
     f.add_argument(
-        "-f",
         "--force",
+        "-f",
         action="store_true",
         help="re-download even what already matches",
     )
@@ -243,7 +243,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         help="delete local files the lane does not hold; asks first unless --yes",
     )
     f.add_argument(
-        "-y", "--yes", action="store_true", help="do not ask before deleting"
+        "--yes", "-y", action="store_true", help="do not ask before deleting"
     )
     _parallel(f)
 
