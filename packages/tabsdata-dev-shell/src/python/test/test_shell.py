@@ -656,6 +656,30 @@ def test_tdd_help_full_collects_every_command_and_skips_the_launchers():
     assert "unknown help topic" in text
 
 
+def test_a_foreign_venv_refusal_names_a_command_that_works():
+    """`create` and `activate` refuse under a venv tdd did not activate, and
+    used to say "run tdd venv deactivate first" -- which refuses in turn, since
+    that one will not leave a venv it did not enter without --force. The advice
+    cost a round trip to find that out, so it names what works."""
+    text = (shell.scripts_dir() / "venv.sh").read_text()
+    # the refusals themselves, not the help text that describes them
+    foreign = [
+        line
+        for line in text.splitlines()
+        if "_tdd_error" in line and "a venv tdd did not activate is" in line
+    ]
+    assert len(foreign) == 2, foreign  # a foreign venv alone, and one over a managed
+    for line in foreign:
+        assert "tdd venv deactivate --force" in line, line
+    # and the deactivate being pointed at says the same thing when it refuses
+    assert "--force leaves it anyway" in text
+    # plain `deactivate` stays the advice where it works: an ACTIVE MANAGED venv
+    # is exactly what it will leave, and that is what delete complains about
+    for line in text.splitlines():
+        if "run tdd venv deactivate first" in line:
+            assert "is active;" in line and "did not activate" not in line, line
+
+
 def test_the_defaults_command_is_gone_in_favour_of_config():
     assert not (shell.scripts_dir() / "defaults.sh").exists()
     # the old shared file is gone, and so is every mention of it: a command's

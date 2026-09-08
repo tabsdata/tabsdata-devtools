@@ -435,11 +435,11 @@ _tdd_venv_foreign_check() {
     _tdd_current="$(_tdd_venv_current)"
     if [ -n "${_TDD_VENV:-}" ]; then
         if [ -n "$_tdd_current" ] && [ "$_tdd_current" != "$(_tdd_venv_active_dir)" ]; then
-            _tdd_error "a venv tdd did not activate is on top of managed venv $_TDD_VENV ($_tdd_current); run tdd venv deactivate first"
+            _tdd_error "a venv tdd did not activate is on top of managed venv $_TDD_VENV ($_tdd_current); leave it first -- its own tool's deactivate, or \`tdd venv deactivate --force\`"
             return 1
         fi
     elif [ -n "$_tdd_current" ]; then
-        _tdd_error "a venv tdd did not activate is active ($_tdd_current); run tdd venv deactivate first"
+        _tdd_error "a venv tdd did not activate is active ($_tdd_current); leave it first -- its own tool's deactivate, or \`tdd venv deactivate --force\`"
         return 1
     fi
     return 0
