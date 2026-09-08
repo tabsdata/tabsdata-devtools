@@ -10,7 +10,7 @@ from tabsdata_dev.tool import gsx
 from tabsdata_dev.tool.gsx import approve as approve_mod
 from tabsdata_dev.tool.gsx import args as args_mod
 from tabsdata_dev.tool.gsx.version import VERSION
-from tabsdata_dev.tool.gsx import commands, config, gh, labels
+from tabsdata_dev.tool.gsx import commands, config, gh, labels, progress
 
 
 class _Out:
@@ -33,6 +33,9 @@ class _Out:
 
     def messages(self, kind):
         return [m for k, m in self.events if k == kind]
+
+    def lines(self):
+        return [m for _, m in self.events]
 
 
 # ----------------------------------------------------------------- grammar
@@ -355,6 +358,143 @@ def test_defaults_lead_so_an_explicit_op_still_wins():
     assert labels.with_defaults(Repo(), [explicit], disabled=True) == [explicit]
 
 
+# ---------------------------------------------------------------- progress
+def _three_prs():
+    return [
+        {"branch": "A-1", "number": 6, "author": "me", "labels": [], "reviewers": []},
+        {
+            "branch": "A-2",
+            "number": 7,
+            "author": "you",
+            "labels": ["run-ci"],
+            "reviewers": [],
+        },
+        {"branch": "A-3", "number": 8, "author": "me", "labels": [], "reviewers": []},
+    ]
+
+
+def _fake_gh(monkeypatch, tmp_path, snapshot, failing=()):
+    """A whole gsx run with every child process faked: no gh, no git, no
+    network, and a config file of its own under tmp_path."""
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    calls = []
+
+    class FakeRunner:
+        def __init__(self, out, dry_run=False):
+            self.out = out
+            self.dry_run = dry_run
+
+        def run(self, argv, **kwargs):
+            calls.append(argv)
+            if argv[:3] == ["gh", "pr", "edit"] and int(argv[3]) in failing:
+                raise ToolError("gh: could not edit it")
+            return ""
+
+        def json(self, argv):
+            return None
+
+    monkeypatch.setattr(gh, "Runner", FakeRunner)
+    monkeypatch.setattr(gh, "require_tools", lambda runner: None)
+    monkeypatch.setattr(gh, "repo_slug", lambda runner: "o/n")
+    monkeypatch.setattr(gh, "stack_pr_snapshot", lambda runner: snapshot)
+    monkeypatch.setattr(
+        gh,
+        "stack_state",
+        lambda runner: {"branches": [{"name": p["branch"]} for p in snapshot]},
+    )
+    monkeypatch.setattr(labels, "check_values", lambda repo, ops: None)
+    return calls
+
+
+def _counter_lines(text):
+    return [
+        line
+        for line in text.splitlines()
+        if line.startswith("[") and not line.startswith("[dry-run")
+    ]
+
+
+def test_the_counter_pads_to_the_total_and_invents_none_when_there_is_no_total():
+    out = _Out()
+    known = progress.Counter(out, total=10)
+    for _ in range(9):
+        known.step("a unit")
+    known.failed("the tenth")
+    open_ended = progress.Counter(out)
+    open_ended.step("a unit")
+    lines = out.lines()
+    assert lines[0] == "[ 1/10] a unit"  # padded, so the column never moves
+    assert lines[9] == "[10/10] the tenth"
+    assert out.messages("warn") == ["[10/10] the tenth"]  # a failure is a warn
+    assert lines[10] == "[1] a unit"  # no total, no denominator invented
+
+
+def test_apply_numbers_every_pr_of_the_stack_and_keeps_counting_past_a_failure(
+    tmp_path, monkeypatch, capsys
+):
+    """The total is the snapshot: a PR that needs no call and a PR that fails
+    each spend their number, so the last line reaches it."""
+    _fake_gh(monkeypatch, tmp_path, _three_prs(), failing={8})
+    assert gsx.main(["apply", "--label:all", "run-ci", "--no-defaults"]) == 1
+    captured = capsys.readouterr()
+    assert _counter_lines(captured.err) == [
+        "[1/3] updated #6: +label run-ci",
+        "[2/3] #7 already as asked",
+        "[3/3] #8 could not be updated: gh: could not edit it",
+    ]
+    # the failures are still collected and reported together at the end
+    assert "1 PR(s) could not be updated: PR #8" in captured.err
+
+
+def test_the_same_run_in_json_carries_the_counter_in_the_fields(
+    tmp_path, monkeypatch, capsys
+):
+    _fake_gh(monkeypatch, tmp_path, _three_prs(), failing={8})
+    argv = ["apply", "--label:all", "run-ci", "--no-defaults", "--format", "json"]
+    assert gsx.main(argv) == 1
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    steps = [event for event in events if "n" in event]
+    assert [
+        (event["event"], event["n"], event["total"], event["pr"], event["outcome"])
+        for event in steps
+    ] == [
+        ("info", 1, 3, 6, "updated"),
+        ("info", 2, 3, 7, "unchanged"),
+        ("warn", 3, 3, 8, "failed"),
+    ]
+    # the counter is in the message, the step is in the fields
+    assert steps[0]["message"] == "[1/3] updated #6: +label run-ci"
+    assert steps[0]["edits"] == ["+label run-ci"]
+    assert events[-1]["event"] == "error"
+
+
+def test_submit_counts_without_a_total_because_its_prs_do_not_exist_yet(
+    tmp_path, monkeypatch, capsys
+):
+    """A submit may be opening the PRs it is about to label, so it cannot know
+    how many units it has; it counts [n] rather than guess a denominator."""
+    _fake_gh(monkeypatch, tmp_path, _three_prs())
+    assert gsx.main(["submit", "--label:all", "run-ci", "--no-defaults"]) == 0
+    assert _counter_lines(capsys.readouterr().err) == [
+        "[1] pushed the stack and opened its PRs",
+        "[2] updated #6: +label run-ci",
+        "[3] #7 already as asked",
+        "[4] updated #8: +label run-ci",
+    ]
+
+
+def test_approve_counts_every_approver_against_every_pr(tmp_path, monkeypatch, capsys):
+    _fake_gh(monkeypatch, tmp_path, _three_prs()[:2])
+    argv = ["approve", "--approvers", "tucu0,me", "--pr", "6,7", "--dry-run"]
+    assert gsx.main(argv) == 0
+    assert _counter_lines(capsys.readouterr().err) == [
+        "[1/4] approved #6 as tucu0",
+        "[2/4] approved #7 as tucu0",
+        "[3/4] skipped #6: me wrote it",
+        "[4/4] approved #7 as me",
+    ]
+
+
 # -------------------------------------------------------------------- main
 def test_the_tool_speaks_events_and_exits_1_on_a_usage_error(capsys):
     assert gsx.main(["--format", "json"]) == 1
@@ -482,55 +622,56 @@ def test_an_approver_is_resolved_to_a_login_and_the_token_is_read_by_it():
 
 
 def test_a_pr_the_approver_wrote_is_skipped_not_failed():
-    class Out:
-        def __init__(self):
-            self.said = []
-
-        def info(self, message, **fields):
-            self.said.append(message)
-
-        def debug(self, message, **fields):
-            pass
-
-    out = Out()
+    out = _Out()
     runner = gh.Runner(out=out, dry_run=True)
+    steps = progress.Counter(out, total=2)
     approver = approve_mod.Approver("dimas", "aoinokimi")
     mine = {"number": 6, "branch": "A-1", "author": "aoinokimi"}
     theirs = {"number": 7, "branch": "A-2", "author": "tucu0"}
-    assert approve_mod.approve(runner, "o/n", mine, approver, "") == approve_mod.SKIPPED
     assert (
-        approve_mod.approve(runner, "o/n", theirs, approver, "") == approve_mod.APPROVED
+        approve_mod.approve(runner, "o/n", mine, approver, "", steps)
+        == approve_mod.SKIPPED
     )
-    assert "skipping PR #6: aoinokimi wrote it" in out.said
-    assert any("gh pr review --approve --repo o/n 7" in said for said in out.said)
+    assert (
+        approve_mod.approve(runner, "o/n", theirs, approver, "", steps)
+        == approve_mod.APPROVED
+    )
+    said = out.messages("info")
+    # a skip is an outcome, not an absence: it spends its number and says why
+    assert "[1/2] skipped #6: aoinokimi wrote it" in said
+    assert "[2/2] approved #7 as aoinokimi (dimas)" in said
+    assert any("gh pr review --approve --repo o/n 7" in message for message in said)
 
 
 def test_the_self_approval_error_is_a_skip_and_any_other_is_a_failure():
-    class Out:
-        def info(self, message, **fields):
-            pass
-
-        def debug(self, message, **fields):
-            pass
-
     class Runner:
         dry_run = False
-        out = Out()
 
         def __init__(self, message):
             self.message = message
+            self.out = _Out()
 
         def run(self, argv, **kwargs):
             raise ToolError(self.message)
 
     approver = approve_mod.Approver("dimas", "aoinokimi")
     pull = {"number": 7, "branch": "A-2", "author": ""}
+    runner = Runner(f"`gh` failed: {approve_mod.SELF_APPROVAL}")
     skipped = approve_mod.approve(
-        Runner(f"`gh` failed: {approve_mod.SELF_APPROVAL}"), "o/n", pull, approver, "x"
+        runner, "o/n", pull, approver, "x", progress.Counter(runner.out, total=1)
     )
     assert skipped == approve_mod.SKIPPED
-    failed = approve_mod.approve(Runner("gh: 404"), "o/n", pull, approver, "x")
+    assert runner.out.messages("info") == ["[1/1] skipped #7: it is aoinokimi's own"]
+
+    runner = Runner("gh: 404")
+    failed = approve_mod.approve(
+        runner, "o/n", pull, approver, "x", progress.Counter(runner.out, total=1)
+    )
     assert failed.startswith("PR #7 as aoinokimi (dimas): ")
+    # the failure is a warn as it happens, and still spends its number
+    assert runner.out.messages("warn") == [
+        "[1/1] #7 was not approved as aoinokimi (dimas): gh: 404"
+    ]
 
 
 def test_config_is_listed_and_auto_config_is_not_a_subcommand(capsys):

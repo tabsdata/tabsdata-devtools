@@ -9,12 +9,15 @@ difference, which has three consequences worth keeping: a PR already in the
 desired state gets no call at all, two ops touching one PR cost one call, and
 every PR is attempted even when one fails (the failures are collected, not
 raised, because aborting at the first left stacks half-labelled).
+
+Each PR of the snapshot is one numbered unit of progress -- see `progress`.
 """
 
 from __future__ import annotations
 
 from . import config as config_mod
 from . import gh
+from . import progress
 from .args import LrOp
 from .version import VERSION
 
@@ -217,11 +220,22 @@ def targets(op: LrOp, snapshot: list[dict], login: str) -> list[dict]:
 
 
 def apply(
-    runner: gh.Runner, repo: Repo, ops: list[LrOp], extra: list[str], out
+    runner: gh.Runner,
+    repo: Repo,
+    ops: list[LrOp],
+    extra: list[str],
+    out,
+    counter: progress.Counter | None = None,
 ) -> tuple[int, list[str]]:
     """Fold the ops into a desired state per PR and write the difference.
 
     Returns (changed, failures); the caller decides what a failure means.
+
+    Every PR of the snapshot is one counted unit, the ones needing no call
+    included -- `submit` hands in the counter it has been using since the push
+    (open-ended, since the PRs did not exist when it started), and `apply`,
+    which knows the snapshot is the whole of the work, gets a counter with the
+    total in it.
     """
     snapshot = gh.stack_pr_snapshot(runner)
     if not snapshot:
@@ -249,27 +263,48 @@ def apply(
                     value for value in op.values if value not in current
                 ]
 
+    steps = counter or progress.Counter(out, total=len(snapshot))
     changed = 0
     failures: list[str] = []
     for pull in snapshot:
         number = pull["number"]
         argv = ["gh", "pr", "edit", str(number)]
-        touched = False
+        edits: list[str] = []
         for kind in ("label", "reviewer"):
             field = FIELD[kind]
             before, after = set(pull[field]), set(desired[number][field])
             for value in sorted(after - before):
                 argv.extend([f"--add-{kind}", value])
-                touched = True
+                edits.append(f"+{kind} {value}")
             for value in sorted(before - after):
                 argv.extend([f"--remove-{kind}", value])
-                touched = True
-        if not touched and not extra:
+                edits.append(f"-{kind} {value}")
+        if not edits and not extra:
+            # A PR in the desired state costs no call, but it still costs a
+            # number: the reader is told it was looked at, and the last line
+            # reaches the total.
+            steps.step(
+                f"#{number} already as asked", pr=number, outcome="unchanged", edits=[]
+            )
             continue
         argv.extend(extra)
+        detail = f": {', '.join(edits)}" if edits else ""
         try:
             runner.run(argv)
             changed += 1
+            steps.step(
+                f"updated #{number}{detail}",
+                pr=number,
+                outcome="updated",
+                edits=edits,
+            )
         except Exception as error:  # noqa: BLE001 -- every PR is attempted
-            failures.append(f"PR #{number}: {str(error).splitlines()[-1]}")
+            reason = str(error).splitlines()[-1]
+            failures.append(f"PR #{number}: {reason}")
+            steps.failed(
+                f"#{number} could not be updated: {reason}",
+                pr=number,
+                outcome="failed",
+                edits=edits,
+            )
     return (changed, failures)

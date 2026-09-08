@@ -18,7 +18,7 @@ labels them. Ported from the standalone `~/gsx` (1.5.0).
 - Modules: `args` (the two grammars argparse cannot express), `options` (the parser, which the
   config template is derived from), `gh` (every child process), `labels` (config lookup,
   validation, the edit engine), `commands` (the six bodies), `config` (the repo tables in
-  `<tdd_dir>/gsx.toml`), `version`.
+  `<tdd_dir>/gsx.toml`), `progress` (the `[n/N]` counter), `version`.
 
 ## Naming
 
@@ -53,6 +53,9 @@ gets no call; two ops touching one PR cost one call; every PR is attempted even 
 half-labelled). `new` is judged on the snapshot taken before anything is written, so an earlier
 op cannot erase a later one's targets.
 
+Every PR the engine takes up is one numbered unit of progress (below), the ones already in the
+desired state included.
+
 A value that is not valid is refused with **the valid ones listed beside it** (and the aliases,
 when a reviewer was the problem), because the next thing the reader needs is the spelling.
 
@@ -61,6 +64,37 @@ Values are validated against the config first, refreshing it once when one is mi
 fails, so a `replace` with a typo would strip the labels it meant to overwrite. Reviewers
 starting `@` (`@copilot`, `@me`) or containing `/` (`org/team`) are never in a collaborator list
 and pass through unchecked.
+
+## Progress
+
+The commands that repeat themselves over a stack -- `submit`, `apply`, `approve` -- number the
+units of their work. It is `tdd xp`'s Reporter thinking without the parts gsx has no use for
+(`progress.Counter`, some 40 lines: no scratch dir, no timings, no report):
+
+```
+[1/3] updated #6: +label run-ci
+[2/3] #7 already as asked
+[3/3] #8 could not be updated: gh: could not edit it
+```
+
+One unit is **one PR the command takes up** -- for `approve`, one PR per approver, since each
+reviews every one. The unit is reported *as it finishes*, as an `info` event (`warn` when it
+failed) whose message carries the counter and whose fields carry the step (`n`, `total`, `pr`,
+`outcome`, and the `edits`/`approver` behind it), so `--format json` reads the same progress
+without the brackets. Two rules keep it honest:
+
+- **The total is the one that is known before the first unit runs.** `apply` and `approve` know
+  theirs (the snapshot; approvers x PRs) and print `[n/N]`; `submit` may be opening the very PRs it
+  is about to label, so it prints `[n]` and offers no denominator rather than guess one. Its push
+  and its `--sync` are units of it too -- they are the slowest thing gsx does.
+- **Every unit spends its number**, including a PR already in the desired state, a PR its own
+  author was asked to approve, and one that fails -- gsx attempts every PR and reports the
+  failures together, so a skip that consumed nothing would leave the last line short of the
+  total. What happened to that PR is what the line says.
+
+`create`, `update` and `checkout` have no counter: they act on one issue and one PR, in a fixed
+short sequence each step of which already says what it is doing, and a number over that adds no
+information.
 
 ## approve
 

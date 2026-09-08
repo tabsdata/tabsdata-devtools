@@ -15,6 +15,7 @@ from . import approve as approve_mod
 from . import config as config_mod
 from . import gh
 from . import labels as labels_mod
+from . import progress
 from .args import Extras
 
 TRAILER_RE = re.compile(r"^\s*(?:closes|fixes|resolves)\s+#(\d+)\s*$", re.IGNORECASE)
@@ -243,25 +244,31 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     gh.require_tools(runner)
     repo = labels_mod.Repo(runner, out)
 
+    # How many PRs there will be is not known until they have been pushed --
+    # the first submit of a stack opens them -- so this run counts [n] and
+    # never a denominator it would have to guess. The push and the sync are
+    # units of it too: they are the slowest thing gsx does.
+    steps = progress.Counter(out)
+
     if args.sync or extras.passthrough.get("s"):
-        out.info("syncing the stack with the remote")
         runner.run(
             ["gh", "stack", "sync", *extras.passthrough.get("s", [])], capture=False
         )
+        steps.step("synced the stack with the remote", stage="sync")
 
-    out.info("pushing the stack and opening PRs")
     argv = ["gh", "stack", "submit", "--auto"]
     if not args.draft:
         argv.append("--open")
     argv.extend(extras.passthrough.get("p", []))
     runner.run(argv, capture=False)
+    steps.step("pushed the stack and opened its PRs", stage="push")
 
     changed, failures = 0, []
     ops = labels_mod.with_defaults(repo, extras.lr_ops, args.no_defaults)
     if ops or extras.passthrough.get("e"):
         out.info(f"applying {len(ops)} label/reviewer op(s)")
         changed, failures = labels_mod.apply(
-            runner, repo, ops, extras.passthrough.get("e", []), out
+            runner, repo, ops, extras.passthrough.get("e", []), out, steps
         )
     snapshot = gh.stack_pr_snapshot(runner)
     if failures:
@@ -377,13 +384,15 @@ def approve(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         + f": {', '.join('#' + str(p['number']) for p in pulls)}"
     )
 
+    # Every approver reviews every PR, so the whole of the work is known here.
+    steps = progress.Counter(out, total=len(approvers) * len(pulls))
     failures: list[str] = []
     approved = skipped = 0
     for approver in approvers:
         # One fetch per approver serves every PR of the run.
         pat = approve_mod.token(runner, approver, settings)
         for pull in pulls:
-            outcome = approve_mod.approve(runner, repo.slug, pull, approver, pat)
+            outcome = approve_mod.approve(runner, repo.slug, pull, approver, pat, steps)
             if outcome == approve_mod.APPROVED:
                 approved += 1
             elif outcome == approve_mod.SKIPPED:

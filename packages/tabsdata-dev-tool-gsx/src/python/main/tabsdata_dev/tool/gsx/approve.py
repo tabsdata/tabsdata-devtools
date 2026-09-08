@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from tabsdata_dev.common.core import secrets_1p
 from tabsdata_dev.common.core.errors import ToolError
 
-from . import gh
+from . import gh, progress
 
 # What gh says when a token's owner is the PR's author.
 SELF_APPROVAL = "Can not approve your own pull request"
@@ -76,30 +76,58 @@ def approve(
     pull: dict,
     approver: Approver,
     pat: str,
+    counter: progress.Counter,
 ) -> str:
     """Approve one PR as one approver.
 
     Returns APPROVED, SKIPPED (theirs to write, not to approve), or the reason
     it failed -- every PR is attempted, as everywhere else in gsx.
+
+    One approver on one PR is one counted unit, whichever of the three it
+    turns out to be: the line the counter writes IS the outcome, so a skip and
+    a failure say why on the line that spends their number.
     """
-    number = str(pull["number"])
+    number = pull["number"]
     who = approver.login + (
         f" ({approver.name})" if approver.name != approver.login else ""
     )
     if pull.get("author") and pull["author"] == approver.login:
-        runner.out.info(f"skipping PR #{number}: {approver.login} wrote it")
+        counter.step(
+            f"skipped #{number}: {approver.login} wrote it",
+            pr=number,
+            approver=approver.login,
+            outcome=SKIPPED,
+        )
         return SKIPPED
-    argv = ["gh", "pr", "review", "--approve", "--repo", slug, number]
+    argv = ["gh", "pr", "review", "--approve", "--repo", slug, str(number)]
     if runner.dry_run:
         runner.out.info(f"[dry-run] {gh.join(argv)}", dry_run=True, approver=who)
-        return APPROVED
-    try:
-        # The token is the impersonation: everything else about the environment
-        # is this shell's.
-        runner.run(argv, env={**os.environ, "GITHUB_TOKEN": pat})
-    except ToolError as error:
-        if SELF_APPROVAL in str(error):
-            runner.out.info(f"skipping PR #{number}: it is {approver.login}'s own")
-            return SKIPPED
-        return f"PR #{number} as {who}: {str(error).splitlines()[-1]}"
+    else:
+        try:
+            # The token is the impersonation: everything else about the
+            # environment is this shell's.
+            runner.run(argv, env={**os.environ, "GITHUB_TOKEN": pat})
+        except ToolError as error:
+            if SELF_APPROVAL in str(error):
+                counter.step(
+                    f"skipped #{number}: it is {approver.login}'s own",
+                    pr=number,
+                    approver=approver.login,
+                    outcome=SKIPPED,
+                )
+                return SKIPPED
+            reason = str(error).splitlines()[-1]
+            counter.failed(
+                f"#{number} was not approved as {who}: {reason}",
+                pr=number,
+                approver=approver.login,
+                outcome="failed",
+            )
+            return f"PR #{number} as {who}: {reason}"
+    counter.step(
+        f"approved #{number} as {who}",
+        pr=number,
+        approver=approver.login,
+        outcome=APPROVED,
+    )
     return APPROVED
