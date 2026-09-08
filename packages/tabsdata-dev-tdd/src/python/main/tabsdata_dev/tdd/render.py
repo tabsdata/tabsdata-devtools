@@ -33,6 +33,16 @@ KINDS = ("ok", "error", "warn", "info", "debug")
 COLORS = {"ok": "32", "error": "31", "warn": "33", "debug": "37"}
 RESET = "\033[0m"
 
+# Paints for a message that colours its own pieces rather than taking one
+# colour by kind -- `config --show` marks every value it prints this way: green
+# a built-in default, blue what the file sets, white the built-in beside it.
+# Blue is a 256-colour cube entry, not palette 34 or 94: themes remap the
+# sixteen palette colours (34 is a near-black navy on a dark theme, 94 a
+# grey-white under "minimum contrast") but leave the cube alone, so 38;5;33 is
+# the same azure everywhere. The shell half paints with the same three codes
+# (`_tdd_color`) -- keep them in step.
+PAINTS = {"green": "32", "blue": "38;5;33", "white": "37"}
+
 LOG_DIR = pathlib.Path("/tmp")
 
 
@@ -61,7 +71,17 @@ def colored(kind: str, text: str, stream: TextIO) -> str:
     Both formats are coloured -- a JSON line on a terminal is still read by a
     person -- but a pipe never sees an escape code. NO_COLOR is honoured.
     """
-    code = COLORS.get(kind)
+    return _painted(COLORS.get(kind), text, stream)
+
+
+def paint(name: str, text: str, stream: TextIO) -> str:
+    """Wrap text in a named paint (PAINTS), for a message that colours its own
+    pieces. The renderer leaves a message carrying an escape as it is, so what
+    is painted here is never painted a second time by its event kind."""
+    return _painted(PAINTS.get(name), text, stream)
+
+
+def _painted(code: str | None, text: str, stream: TextIO) -> str:
     if not code or os.environ.get("NO_COLOR") or not _isatty(stream):
         return text
     return f"\033[{code}m{text}{RESET}"

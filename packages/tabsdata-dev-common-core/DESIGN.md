@@ -13,7 +13,9 @@ dependencies are declared as ranges; each toolset's lock pins them.
 - `cli.run()` / `render` -- the command contract: `--help`, `--verbose`, `--format json|view`,
   events `ok|error|warn|info|debug` with colours, exit 0/1, the `/tmp/tdd-<cmd>-<stamp>.log`.
   Commands never print; they hand the renderer events, and help is coloured by structure
-  (headings bold, terms cyan) on both halves. `render.py` exists **twice, byte for byte** -- here
+  (headings bold, terms cyan) on both halves. A message that paints its own pieces instead of
+  taking one colour by kind -- `config --show` -- takes them from `render.PAINTS` and is printed
+  as it is. `render.py` exists **twice, byte for byte** -- here
   for the tools and as `tabsdata_dev.tdd.render` for `tdd-exe`, which is standard-library only and
   cannot import this package; a test in `-tdd` fails when the two diverge.
 - `config` -- `<tdd_dir>/<command>.toml`, every command's own file: `[options]` defaults merged
@@ -29,7 +31,10 @@ dependencies are declared as ranges; each toolset's lock pins them.
   survives, which it would not be up in the header, where the text is regenerated on every write.
   Once the command has written real tables, those are what a rewrite carries across.
   `config --show` answers what is in effect: every option with its default, the ones the file sets
-  highlighted, then the tables beyond the options -- merged key by key over the defaults the
+  marked out -- a built-in default is green, a value the file sets is blue with
+  `(built in default: "x")` in white beside it, and `common.sh` paints the same lines with the same
+  codes -- then the tables beyond the options, painted by the same rule (a value shown there IS the
+  default, so nothing is quoted beside it) -- merged key by key over the defaults the
   command ships, so setting one table cannot hide what another defaults to. Sub-tables come from
   the file alone: a default one is a shape to copy (`[repo."OWNER/NAME"]`), named for nothing that
   exists, so it belongs in the template and never in `--show`.

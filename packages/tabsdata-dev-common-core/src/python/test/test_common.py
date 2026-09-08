@@ -357,7 +357,7 @@ def test_config_derives_its_template_from_the_parser_and_writes_atomically(
     assert config.options_in("demo") == {"": {"type": "uv"}, "create": {}}
     message, changed = config.show(doc, io.StringIO())
     assert changed == {"type": "uv"} and 'type = "uv"' in message
-    assert '(default "pyenv")' in message
+    assert 'type = "uv"   (built in default: "pyenv")' in message
 
 
 def test_show_prints_the_tables_a_command_has_beyond_the_options(tmp_path, monkeypatch):
@@ -397,6 +397,66 @@ def test_show_prints_the_tables_a_command_has_beyond_the_options(tmp_path, monke
     config.write("demo", config.render_doc(doc) + '\n[demo]\nvault = "mine"\n')
     message, _ = config.show(doc, io.StringIO())
     assert 'vault = "mine"' in message
+
+
+def test_show_paints_a_built_in_green_and_what_the_file_sets_blue(
+    tmp_path, monkeypatch
+):
+    """The rendering both halves owe, to the escape: a value at its built-in
+    default is green, a value this file sets is blue with that built-in named
+    in white beside it, and every line carries its own paint -- headers
+    included, so the message reads the same whether or not the file sets
+    anything. `common.sh:_tdd_config_show` prints exactly these lines; a
+    difference between the two is a bug.
+    """
+    import argparse
+    import io
+
+    from tabsdata_dev.common.core import config, render
+
+    class TTY(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    parser = argparse.ArgumentParser(prog="demo")
+    parser.add_argument("--type", default="pyenv")
+    parser.add_argument("--greeting", default="hello")
+    doc = config.from_parser("demo", parser, tables='# [demo]\n# vault = "dev_ci"\n')
+    config.write(
+        "demo",
+        config.render_doc(doc, {"": {"greeting": "hello again"}})
+        + "\n[demo]\nkeep = true\n",
+    )
+
+    green = f"\033[{render.PAINTS['green']}m"
+    blue = f"\033[{render.PAINTS['blue']}m"
+    white = f"\033[{render.PAINTS['white']}m"
+    off = render.RESET
+
+    painted, changed = config.show(doc, TTY())
+    assert changed == {"greeting": "hello again"}
+    assert (
+        f'  {blue}greeting = "hello again"{off}'
+        f'   {white}(built in default: "hello"){off}'
+    ) in painted
+    assert f'  {green}type = "pyenv"{off}' in painted
+    assert f"{green}[options]{off}" in painted
+    assert f"{green}beyond the options:{off}" in painted
+    # the same two paints beyond the options, and no built-in quoted there:
+    # the value shown IS the default, so there is no second one to name
+    beyond = painted.split("beyond the options:")[1]
+    assert f'  {green}vault = "dev_ci"{off}' in beyond
+    assert f"  {blue}keep = true{off}" in beyond
+    assert "built in default" not in beyond
+
+    # a pipe and NO_COLOR get the same lines with no escape at all
+    plain, _ = config.show(doc, io.StringIO())
+    assert "\033" not in plain
+    assert 'greeting = "hello again"   (built in default: "hello")' in plain
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert config.show(doc, TTY())[0] == plain
 
 
 def test_config_rewrites_the_template_but_keeps_what_the_command_keeps(

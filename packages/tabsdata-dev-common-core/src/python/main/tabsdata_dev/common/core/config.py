@@ -43,7 +43,14 @@ from .errors import ToolError
 # The options every command gets from the shared layer; they belong in the file
 # like any other, so they are not special-cased away.
 OPTIONS_TABLE = "options"
-HIGHLIGHT = "36"  # cyan: a value the file sets, next to the defaults around it
+
+# What `--show` paints (render.PAINTS): a value at its built-in default is
+# green, a value this file sets is blue, and the built-in it stands in for is
+# white beside it. The shell half paints the same three in `_tdd_config_show`;
+# a difference between them is a bug.
+BUILT_IN = "green"
+SET_HERE = "blue"
+BESIDE = "white"
 
 
 def path(command: str) -> pathlib.Path:
@@ -284,10 +291,20 @@ def update(
 
 
 # -------------------------------------------------------------- the action
-def _highlight(text: str, stream) -> str:
-    if os.environ.get("NO_COLOR") or not render._isatty(stream):  # noqa: SLF001
-        return text
-    return f"\033[{HIGHLIGHT}m{text}{render.RESET}"
+def _set_line(name: str, value: Any, default: Any, stream) -> str:
+    """A value this file sets: the value in blue, then the built-in it stands
+    in for, in white, beside it.
+
+    The built-in is printed even when the file sets exactly that: the paint
+    says who is responsible for the value, and the parenthesis says what it
+    would be if the line were removed -- which is the question `--show`
+    answers, whatever the two happen to be.
+    """
+    return (
+        render.paint(SET_HERE, f"{name} = {toml_value(value)}", stream)
+        + "   "
+        + render.paint(BESIDE, f"(built in default: {toml_value(default)})", stream)
+    )
 
 
 def _table_lines(
@@ -299,18 +316,22 @@ def _table_lines(
 ) -> list[str]:
     """A table dict as `[name]` headers and `key = value` lines, sub-tables and
     all -- `{"repo": {"o/n": {...}}}` is `[repo."o/n"]`. Scalars come first, so
-    a table's own keys are not buried under its children, and a value the file
-    itself sets is highlighted the way a set option is."""
+    a table's own keys are not buried under its children, and a value is
+    painted the way an option is: blue where the file sets it, green where it
+    is what the command ships. No built-in is quoted beside it -- here the
+    value shown IS the default, and there is no second one to name."""
     lines: list[str] = []
     scalars = {k: v for k, v in data.items() if not isinstance(v, dict)}
     tables = {k: v for k, v in data.items() if isinstance(v, dict)}
     if scalars or (not tables and prefix):
-        lines.append(f"\n[{prefix}]" if prefix else "")
+        if prefix:
+            lines.append("\n" + render.paint(BUILT_IN, f"[{prefix}]", stream))
+        else:
+            lines.append("")
         for key, value in scalars.items():
             text = f"{key} = {toml_value(value)}"
-            lines.append(
-                "  " + (_highlight(text, stream) if path + (key,) in set_here else text)
-            )
+            painted = SET_HERE if path + (key,) in set_here else BUILT_IN
+            lines.append("  " + render.paint(painted, text, stream))
     for name, table in tables.items():
         # A key that is not bare has to be quoted, the way it is in the file.
         part = name if name.replace("_", "").replace("-", "").isalnum() else f'"{name}"'
@@ -392,33 +413,36 @@ def _default_tables(doc: Doc) -> dict[str, Any]:
 
 
 def show(doc: Doc, stream) -> tuple[str, dict[str, Any]]:
-    """What the command's options resolve to now, with the values this file
-    sets highlighted -- everything else is the built-in default."""
+    """What the command's options resolve to now: a value at its built-in
+    default in green, a value this file sets in blue with that built-in named
+    in white beside it.
+
+    Every line carries its own paint, headers included, so the message reads
+    the same whether or not the file sets anything -- the renderer prints a
+    message that paints itself as it is, and would otherwise wrap the whole of
+    one in the ok colour and none of the other. The shell half prints the same
+    lines; keep the two in step.
+    """
     file = path(doc.command)
     configured = options_in(doc.command)
-    lines = [f"{file}{'' if file.is_file() else '  (no file yet)'}"]
+    head = f"{file}{'' if file.is_file() else '  (no file yet)'}"
+    lines = [render.paint(BUILT_IN, head, stream)]
     changed: dict[str, Any] = {}
     for action in sorted(doc.actions, key=lambda a: (a != "", a)):
         options = doc.actions[action]
         if not options:
             continue
-        lines.append(f"\n[{OPTIONS_TABLE}{'.' + action if action else ''}]")
+        table = f"[{OPTIONS_TABLE}{'.' + action if action else ''}]"
+        lines.append("\n" + render.paint(BUILT_IN, table, stream))
         for name, (default, _) in sorted(options.items()):
             set_to = configured.get(action, {}).get(name)
             if set_to is None:
-                lines.append(f"  {name} = {toml_value(default)}")
+                text = f"{name} = {toml_value(default)}"
+                lines.append("  " + render.paint(BUILT_IN, text, stream))
             else:
                 key = f"{action}.{name}" if action else name
                 changed[key] = set_to
-                lines.append(
-                    "  "
-                    + _highlight(f"{name} = {toml_value(set_to)}", stream)
-                    + (
-                        f"   (default {toml_value(default)})"
-                        if set_to != default
-                        else ""
-                    )
-                )
+                lines.append("  " + _set_line(name, set_to, default, stream))
     # What the command keeps of its own. The file's tables when it has them --
     # that is the real state, the repositories gsx has learnt and so on -- and
     # otherwise the defaults it ships, so the reader sees they exist at all.
@@ -429,7 +453,7 @@ def show(doc: Doc, stream) -> tuple[str, dict[str, Any]]:
         # No claim about who owns them: some are the reader's to set and some
         # the command writes, and only the command knows which. The file says so
         # per table, next to the table itself.
-        lines.append("\nbeyond the options:")
+        lines.append("\n" + render.paint(BUILT_IN, "beyond the options:", stream))
         lines.extend(_table_lines(merged, set_here, stream))
     return ("\n".join(lines), changed)
 
@@ -467,7 +491,10 @@ def run_action(doc: Doc, argv: list[str], out: render.Renderer) -> int:
     group.add_argument(
         "--show",
         action="store_true",
-        help="what the options resolve to now; what this file sets is highlighted (default)",
+        help=(
+            "what the options resolve to now; what this file sets is "
+            "highlighted, with the built-in default beside it (default)"
+        ),
     )
     group.add_argument(
         "--default",

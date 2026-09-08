@@ -18,8 +18,9 @@ executable cannot do -- change the calling shell (venvs, variables, prompt).
   `<name>.bin-reqs.txt`, and `<name>.design.md`.
 - `common.sh` is the shared layer every command sources through `$_TDD_COMMON_SH`: option
   parsing, the event model rendered with `jq`, colours, the failure log, `_tdd_help_text`
-  (argparse-layout help), `_tdd_ps1_wrap` (prompt colours). `common.bin-reqs.txt` (`jq`, `awk`)
-  is folded into every command's requirements.
+  (argparse-layout help), `_tdd_ps1_wrap` (prompt colours), and the `config` action
+  (`_tdd_config_action`), whose `--show` paints every row the way `common.core.config.show` does.
+  `common.bin-reqs.txt` (`jq`, `awk`) is folded into every command's requirements.
 
 ## How it works
 
@@ -39,5 +40,10 @@ executable cannot do -- change the calling shell (venvs, variables, prompt).
 - Prompt: sourcing puts a red `* ` first (replacing the marker of an earlier source, remembered
   in `_TDD_PROMPT_MARK`); `venv` inserts its green `(<type>/<python>/<name>)` after it.
 - Everything runs unmodified in bash 3.2 and zsh: no arrays, quoted expansions, `_tdd_`
-  temporaries unset before return, `return` never `exit`.
+  temporaries unset before return, `return` never `exit`, and `${var}` braces wherever text
+  follows a variable -- `$var[options]` is an array subscript in zsh, and a bad one is a fatal
+  "bad math expression".
+- A colour is decided where fd 1 is still the command's stdout: inside `$(...)` it is the capture
+  pipe, so `[ -t 1 ]` there always says "no terminal". `_tdd_color` therefore takes the answer as
+  an argument.
 - `tddsrc.sh` is not live in an editable install (it is copied at install); the command files are.

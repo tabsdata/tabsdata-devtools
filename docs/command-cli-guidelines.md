@@ -30,8 +30,10 @@ options winning, and announces the resolved line -- commands do nothing for it.
 
 `config` is an action, not an option, and comes from the shared layer on both sides
 (`common.core.config` / `_tdd_config_action`): its template is built from the command's own
-options, so it cannot drift. `--show` prints what the options resolve to now with the values the
-file sets highlighted; `--default` prints the document `--create` would write; `--create` writes
+options, so it cannot drift. `--show` prints what the options resolve to now, one paint per value:
+a built-in default in green, a value the file sets in blue with `(built in default: "x")` in white
+beside it -- on a terminal only, plain in a pipe and under `NO_COLOR`, and the same lines on both
+halves. `--default` prints the document `--create` would write; `--create` writes
 it, refusing an existing file unless `--force`, always through a temporary file and one rename.
 
 Everything after the command word belongs to the command, and `--help` is shown even when its

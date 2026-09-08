@@ -276,11 +276,14 @@ _tdd_color() {
         warn) printf '\033[33m' ;;
         debug) printf '\033[37m' ;;
         # Not event kinds: paints for a command that colours rows inside its
-        # ok message (tdd defaults: white = built-in, blue = customized).
+        # ok message (`config --show`: green = built-in default, blue = what
+        # the file sets, white = the built-in named beside it). The Python
+        # half paints with the same three codes (render.PAINTS).
         # Blue is a 256-colour entry, not palette 34/94: themes remap the 16
         # palette colours (34 becomes a near-black navy on dark themes, 94 a
         # grey-white under "minimum contrast" settings) but leave the cube
         # alone, so 38;5;33 is the same azure everywhere.
+        green) printf '\033[32m' ;;
         white) printf '\033[37m' ;;
         blue) printf '\033[38;5;33m' ;;
     esac
@@ -290,7 +293,7 @@ _tdd_color_end() {
     [ -z "${NO_COLOR:-}" ] || return 0
     [ "$2" = 1 ] || return 0
     case "$1" in
-        ok | error | warn | debug | white | blue) printf '\033[0m' ;;
+        ok | error | warn | debug | green | white | blue) printf '\033[0m' ;;
     esac
 }
 
@@ -386,20 +389,6 @@ _tdd_error() {
     fi
     unset _tdd_logf
     return 1
-}
-
-# Cyan, for a value that is not the default -- next to the plain ones around it.
-_tdd_color_cyan() {
-    [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && printf '\033[36m'
-}
-
-_tdd_color_off() {
-    [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && printf '\033[0m'
-}
-
-# No-op: keeps the row's leading spaces out of the colour run.
-_tdd_ps1_noop() {
-    :
 }
 
 # ---------------------------------------------------------------- config
@@ -543,12 +532,26 @@ _tdd_config_action() {
     esac
 }
 
-# What the options resolve to now: the built-in value, or -- highlighted -- the
-# one the file sets. The file is read by tdd-exe, which has the TOML parser.
+# What the options resolve to now: a value at its built-in default in green, a
+# value the file sets in blue with that built-in named in white beside it. The
+# twin of common.core.config.show -- edit both. The file is read by tdd-exe,
+# which has the TOML parser this side lacks.
 _tdd_config_show() {
     _tdd_cfg_file="$TDD_DIR/$1.toml"
     _tdd_cfg_doc="$(tdd-exe --dir "$TDD_DIR" --defaults-doc "$1" 2>/dev/null)"
-    _tdd_cfg_rows="$_tdd_cfg_file$([ -f "$_tdd_cfg_file" ] || printf '  (no file yet)')
+    # The paints are resolved here, where fd 1 is still the command's stdout:
+    # inside the $(...) that builds a row it is the capture pipe, so a helper
+    # testing `-t 1` there always says "no terminal" -- which is why the value
+    # the file sets was never painted at all. Every row carries its own paint
+    # and _TDD_PRECOLORED tells the renderer so, exactly as the Python half
+    # leaves a message that holds an escape alone.
+    _tdd_cfg_tty=0
+    [ -t 1 ] && _tdd_cfg_tty=1
+    _tdd_cfg_green="$(_tdd_color green "$_tdd_cfg_tty")"
+    _tdd_cfg_blue="$(_tdd_color blue "$_tdd_cfg_tty")"
+    _tdd_cfg_white="$(_tdd_color white "$_tdd_cfg_tty")"
+    _tdd_cfg_off="$(_tdd_color_end green "$_tdd_cfg_tty")"  # every paint ends the same
+    _tdd_cfg_rows="${_tdd_cfg_green}$_tdd_cfg_file$([ -f "$_tdd_cfg_file" ] || printf '  (no file yet)')${_tdd_cfg_off}
 "
     _tdd_cfg_json=""
     _tdd_cfg_last=""
@@ -557,12 +560,13 @@ _tdd_config_show() {
         while IFS='|' read -r _tdd_cfg_sub _tdd_cfg_opt _tdd_cfg_val; do
             [ -n "$_tdd_cfg_opt" ] || continue
             if [ "$_tdd_cfg_sub" != "$_tdd_cfg_last" ]; then
+                # Braces around the paint: `$var[` is an array subscript in zsh.
                 case "$_tdd_cfg_sub" in
                     - | "") _tdd_cfg_rows="$_tdd_cfg_rows
-[options]
+${_tdd_cfg_green}[options]${_tdd_cfg_off}
 " ;;
                     *) _tdd_cfg_rows="$_tdd_cfg_rows
-[options.$_tdd_cfg_sub]
+${_tdd_cfg_green}[options.$_tdd_cfg_sub]${_tdd_cfg_off}
 " ;;
                 esac
                 _tdd_cfg_last="$_tdd_cfg_sub"
@@ -574,17 +578,23 @@ _tdd_config_show() {
             esac
             _tdd_cfg_set="$(printf '%s' "$_tdd_cfg_doc" | jq -r "$_tdd_cfg_path.\"$_tdd_cfg_key\" // empty | tostring" 2>/dev/null)"
             if [ -n "$_tdd_cfg_set" ]; then
-                _tdd_cfg_rows="$_tdd_cfg_rows  $(_tdd_ps1_noop)$(_tdd_color_cyan)$_tdd_cfg_key = $(_tdd_config_toml "$_tdd_cfg_set")$(_tdd_color_off)   (default $(_tdd_config_toml "$_tdd_cfg_val"))
+                # The built-in is named even when the file sets exactly that:
+                # the paint says who is responsible for the value, and the
+                # parenthesis what it would be without the line.
+                _tdd_cfg_rows="$_tdd_cfg_rows  ${_tdd_cfg_blue}$_tdd_cfg_key = $(_tdd_config_toml "$_tdd_cfg_set")${_tdd_cfg_off}   ${_tdd_cfg_white}(built in default: $(_tdd_config_toml "$_tdd_cfg_val"))${_tdd_cfg_off}
 "
                 _tdd_cfg_json="$_tdd_cfg_json${_tdd_cfg_json:+,}\"$_tdd_cfg_key\":\"$(_tdd_json_str "$_tdd_cfg_set")\""
             else
-                _tdd_cfg_rows="$_tdd_cfg_rows  $_tdd_cfg_key = $(_tdd_config_toml "$_tdd_cfg_val")
+                _tdd_cfg_rows="$_tdd_cfg_rows  ${_tdd_cfg_green}$_tdd_cfg_key = $(_tdd_config_toml "$_tdd_cfg_val")${_tdd_cfg_off}
 "
             fi
         done
+        _TDD_PRECOLORED=1
         _tdd_ok "${_tdd_cfg_rows%
 }" "\"config\":\"$(_tdd_json_str "$_tdd_cfg_file")\",\"action\":\"show\",\"changed\":{$_tdd_cfg_json}"
+        unset _TDD_PRECOLORED
     }
+    unset _tdd_cfg_tty _tdd_cfg_green _tdd_cfg_blue _tdd_cfg_white _tdd_cfg_off
 }
 
 _tdd_config_help() {
@@ -596,8 +606,8 @@ this command's options default to ([options.ACTION] for one action); typed
 options always win. Whatever else the command keeps lives in the same file.
 
 options:
-  --show       what the options resolve to now; what the file sets is
-               highlighted, everything else is the built-in default (default)
+  --show       what the options resolve to now; what this file sets is
+               highlighted, with the built-in default beside it (default)
   --default    print the default config, the document --create would write
   --create     write the default config; refuses when the file exists
   -f, --force  --create: overwrite an existing file

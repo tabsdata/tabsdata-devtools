@@ -131,6 +131,10 @@ def test_common_sh_defines_the_event_api_and_colours():
         assert f"{fn}()" in text, f"common.sh lacks {fn}"
     for kind, code in (("ok", "32"), ("error", "31"), ("warn", "33"), ("debug", "37")):
         assert f"{kind}) printf '\\033[{code}m'" in text, f"{kind} is not colour {code}"
+    # and the paints a command uses inside its own message, the same three the
+    # Python half keeps in render.PAINTS
+    for paint, code in (("green", "32"), ("blue", "38;5;33"), ("white", "37")):
+        assert f"{paint}) printf '\\033[{code}m'" in text, f"{paint} is not {code}"
 
 
 def test_common_sh_declares_jq_for_every_command():
@@ -436,6 +440,94 @@ def test_the_config_template_is_tables_only_and_cannot_fail_on_its_last_test():
     assert "printf '# %s = %s" not in common
     assert "only for `tdd" not in common
     assert body.rstrip().endswith("return 0")
+
+
+def _config_show(shell_bin: str, tty: bool, no_color: bool = False) -> str:
+    """Run the shared `config --show` for a made-up command and return what it
+    wrote, with a stub `tdd-exe` standing in for the TOML parser: it says the
+    file sets `type = "uv"`. TDD_DIR names a directory that does not exist --
+    `--show` reads and writes nothing but the file it reports on.
+    """
+    import os
+    import pty
+    import select
+    import subprocess
+
+    script = (
+        f'. "{shell.scripts_dir() / COMMON}"\n'
+        "_tdd_cmd_reset\n"
+        'tdd-exe() { printf \'%s\' \'{"options":{"":{"type":"uv"}}}\'; }\n'
+        "tdd_defaults_demo() { printf '%s\\n' '-|--type|pyenv'"
+        " 'create|--python|3.12'; }\n"
+        "_tdd_config_show demo\n"
+    )
+    env = {**os.environ, "TDD_DIR": "/no/such/dir"}
+    env.pop("NO_COLOR", None)
+    if no_color:
+        env["NO_COLOR"] = "1"
+    if not tty:
+        done = subprocess.run(
+            [shell_bin, "-c", script], capture_output=True, text=True, env=env
+        )
+        assert done.returncode == 0, done.stderr
+        return done.stdout
+    # a real terminal, because every paint is a terminal's alone
+    master, slave = pty.openpty()
+    child = subprocess.Popen(
+        [shell_bin, "-c", script],
+        stdout=slave,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+        env=env,
+    )
+    os.close(slave)
+    out = b""
+    while select.select([master], [], [], 30)[0]:
+        try:
+            chunk = os.read(master, 65536)
+        except OSError:  # the child closed its end
+            break
+        if not chunk:
+            break
+        out += chunk
+    assert child.wait() == 0, child.stderr.read().decode()
+    os.close(master)
+    return out.decode().replace("\r\n", "\n")
+
+
+def test_config_show_paints_a_built_in_green_and_what_the_file_sets_blue():
+    """The twin of common.core.config.show, to the escape: a value at its
+    built-in default in green, a value the file sets in blue with that built-in
+    named in white beside it, and every line -- headers included -- carrying
+    its own paint, so the message reads the same either way.
+
+    Two traps this pins. A paint decided inside `$(...)` is never emitted (fd 1
+    there is the capture pipe, so `[ -t 1 ]` says "no terminal"), which is how
+    the highlight was invisible for as long as it existed; and `$var[options]`
+    is an array subscript in zsh, which is fatal rather than merely wrong.
+    """
+    import shutil
+
+    green, blue, white, off = "\033[32m", "\033[38;5;33m", "\033[37m", "\033[0m"
+    painted = _config_show("bash", tty=True)
+    # the message paints itself, so the renderer must not wrap it a second time
+    assert painted.startswith(f"{green}/no/such/dir/demo.toml  (no file yet){off}\n")
+    assert f"{green}[options]{off}" in painted
+    assert f"{green}[options.create]{off}" in painted
+    assert f'  {green}python = "3.12"{off}\n' in painted
+    assert (
+        f'  {blue}type = "uv"{off}   {white}(built in default: "pyenv"){off}\n'
+    ) in painted
+
+    # a pipe and NO_COLOR get the same lines with no escape at all
+    plain = _config_show("bash", tty=False)
+    assert "\033" not in plain
+    assert 'type = "uv"   (built in default: "pyenv")\n' in plain
+    assert 'python = "3.12"\n' in plain
+    assert _config_show("bash", tty=True, no_color=True) == plain
+
+    if shutil.which("zsh"):  # the other shell tdd is sourced into
+        assert _config_show("zsh", tty=True) == painted
 
 
 def test_the_defaults_command_is_gone_in_favour_of_config():
