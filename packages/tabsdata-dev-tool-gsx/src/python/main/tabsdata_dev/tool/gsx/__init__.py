@@ -32,7 +32,7 @@ from tabsdata_dev.common.core.errors import ToolError
 from . import args as args_mod
 from . import commands, gh
 from .args import NATIVES, TAKES_LR
-from .options import DESCRIPTION, NAME, CONFIG_PREAMBLE, configure
+from .options import DESCRIPTION, NAME, CONFIG_PREAMBLE, CONFIG_TABLES, configure
 
 HANDLERS = {
     "create": commands.create,
@@ -83,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         argv=rest,
         configure=configure,
         config_preamble=CONFIG_PREAMBLE,
+        config_tables=CONFIG_TABLES,
     )
 
 

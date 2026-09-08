@@ -102,7 +102,15 @@ def render_tables(config: dict) -> str:
         lines.append(
             f"{common.toml_value(name).strip(chr(34))} = {common.toml_value(aliases[name])}"
         )
-    for slug in sorted(config.get("repos", {})):
+    repos = sorted(config.get("repos", {}))
+    if repos:
+        lines.append(
+            "\n# One table per repository, WRITTEN AND MAINTAINED BY gsx: `fetched`,"
+            "\n# `labels` and `reviewers` are refreshed automatically and any edit to"
+            "\n# them is overwritten. The two default_* lists are yours -- what"
+            "\n# submit/apply put on that repository's PRs that have none yet."
+        )
+    for slug in repos:
         entry = config["repos"][slug]
         defaults = entry.get("defaults") or {}
         lines.append(f"\n[{REPO}.{common.toml_value(slug)}]")

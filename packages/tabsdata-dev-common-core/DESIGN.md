@@ -24,6 +24,10 @@ dependencies are declared as ranges; each toolset's lock pins them.
   goes in them. Writing every option at its built-in value would leave a copy of today's defaults
   in the reader's file, where a later change to one would never reach them, and discovery is
   `config --show`'s job: it prints every option with its default and marks the ones the file sets.
+  A command that keeps tables of its own supplies them commented at their defaults
+  (`config_tables`), written **after** the options -- there, uncommenting one is valid TOML and
+  survives, which it would not be up in the header, where the text is regenerated on every write.
+  Once the command has written real tables, those are what a rewrite carries across.
   Writes are a temporary file in the same directory and one `os.replace`, so an interrupted write
   leaves the previous file rather than half of one. The `config` action itself
   (`--show`/`--default`/`--create [--force]`) is built here from the command's options, which is

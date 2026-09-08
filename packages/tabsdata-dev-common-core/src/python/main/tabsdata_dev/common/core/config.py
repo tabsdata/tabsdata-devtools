@@ -87,6 +87,12 @@ class Doc:
     # action ("" for the command itself) -> option name -> (default, help)
     actions: dict[str, dict[str, tuple[Any, str]]] = field(default_factory=dict)
     preamble: str = ""
+    #: The tables the command keeps of its own, at their defaults, commented
+    #: out -- written at the END of the document, where uncommenting one is
+    #: valid TOML and survives every later rewrite. Used only while the file
+    #: has none of its own; once the command has written real ones, those are
+    #: what a rewrite carries across.
+    tables: str = ""
 
     def defaults(self) -> dict[str, dict[str, Any]]:
         return {
@@ -99,7 +105,10 @@ _SKIP_ACTIONS = {"help", "version"}
 
 
 def from_parser(
-    command: str, parser: argparse.ArgumentParser, preamble: str = ""
+    command: str,
+    parser: argparse.ArgumentParser,
+    preamble: str = "",
+    tables: str = "",
 ) -> Doc:
     """Read the command's own parser: every option that HAS a default.
 
@@ -107,7 +116,7 @@ def from_parser(
     -- there is nothing to put in the file and a blank one would be merged in
     as an empty value.
     """
-    doc = Doc(command=command, preamble=preamble)
+    doc = Doc(command=command, preamble=preamble, tables=tables)
     doc.actions[""] = _options_of(parser)
     for action in parser._actions:  # noqa: SLF001 -- argparse exposes no other way
         if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
@@ -171,6 +180,14 @@ def render_doc(doc: Doc, values: dict[str, dict[str, Any]] | None = None) -> str
             if set_to is not None:
                 lines.append(f"{name} = {toml_value(set_to)}")
     return "\n".join(lines) + "\n"
+
+
+def document(doc: Doc, values: dict[str, dict[str, Any]] | None = None) -> str:
+    """The whole file: the option tables, then whatever tables belong after them
+    -- the command's real ones when the file has them, else its commented
+    defaults, so a reader can see they exist at all."""
+    tail = kept_tables(doc.command) or doc.tables.strip("\n")
+    return render_doc(doc, values) + (f"\n{tail}\n" if tail else "")
 
 
 def read(command: str) -> dict[str, Any]:
@@ -262,6 +279,7 @@ def update(
     whatever the file has now)."""
     values = options_in(command) if values is None else values
     tail = kept_tables(command) if keep is None else keep.strip("\n")
+    tail = tail or doc.tables.strip("\n")
     return write(command, render_doc(doc, values) + (f"\n{tail}\n" if tail else ""))
 
 
@@ -381,7 +399,7 @@ def run_action(doc: Doc, argv: list[str], out: render.Renderer) -> int:
 
     file = path(doc.command)
     if args.default:
-        return out.ok(render_doc(doc), config=str(file), action="default")
+        return out.ok(document(doc), config=str(file), action="default")
     if args.create:
         if file.is_file() and not args.force:
             raise ToolError(f"{file} already exists; --force overwrites it")

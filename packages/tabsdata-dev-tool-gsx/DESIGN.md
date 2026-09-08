@@ -83,7 +83,9 @@ and `gtx`'s): downstack is towards the trunk. `--stack` is every PR of the stack
 
 `<tdd_dir>/gsx.toml` -- every command's config file (`common.core.config`), so its `[options]`
 table is what gsx's own options default to and the `config` action comes from the shared layer.
-gsx adds two things of its own to the same file:
+A fresh file carries gsx's own tables commented at their defaults, after the options, so a reader
+can see they exist; gsx replaces that block with the real ones the first time it writes. Three
+tables of its own:
 
 - `[gsx] version` -- the gsx that last refreshed the tables below. A version that differs from
   the running gsx forces one refresh, so what is cached is never older than the tool.

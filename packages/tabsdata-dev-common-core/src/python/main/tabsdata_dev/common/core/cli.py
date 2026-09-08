@@ -79,6 +79,7 @@ def run(
     argv: list[str] | None = None,
     configure: Callable[[argparse.ArgumentParser], None] | None = None,
     config_preamble: str = "",
+    config_tables: str = "",
 ) -> int:
     """Parse, render, run, and map everything onto exit 0 or 1.
 
@@ -86,7 +87,9 @@ def run(
     The body's return value is the exit code (None counts as 0); anything else
     it raises becomes an error event with the traceback in the log.
     `config_preamble` is TOML the command's own `config --create` template
-    carries above the options (what it keeps of its own, explained).
+    carries above the options (what it keeps of its own, explained), and
+    `config_tables` the tables it keeps of its own, commented at their
+    defaults, written after them -- see `config.Doc.tables`.
     """
     p = parser(prog, description)
     if configure is not None:
@@ -104,7 +107,9 @@ def run(
     if raw[:1] == ["config"]:
         try:
             return config.run_action(
-                config.from_parser(prog, p, config_preamble), raw[1:], out
+                config.from_parser(prog, p, config_preamble, config_tables),
+                raw[1:],
+                out,
             )
         except errors.ToolError as exc:
             return out.error(str(exc))

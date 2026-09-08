@@ -158,10 +158,40 @@ def test_the_repo_tables_round_trip_and_leave_the_options_alone(tmp_path, monkey
     # the shared option template is written too, and survives a repo refresh
     assert "[options]" in text and "[options.submit]" in text
     # the template writes no option line, so setting one means adding it
-    config.path().write_text(text.replace("[options]\n", "[options]\nverbose = true\n", 1))
+    config.path().write_text(
+        text.replace("[options]\n", "[options]\nverbose = true\n", 1)
+    )
     config.write(config.read())
     assert common.options_in("gsx")[""] == {"verbose": True}
     assert config.read()["repos"]["o/n"]["defaults"]["labels"] == ["skip-ci"]
+
+
+def test_the_commented_tables_are_valid_toml_once_uncommented(tmp_path, monkeypatch):
+    """The template shows gsx's own tables at their defaults so a reader knows
+    they exist. Each has to survive being uncommented, which rules out the
+    tempting layout: an aligned explanation trailing the value is inside the
+    line, and taking the `# ` off leaves prose after the value."""
+    import tomllib
+
+    from tabsdata_dev.tool.gsx.options import CONFIG_TABLES
+
+    text = "\n".join(
+        line[2:] if line.startswith("# ") else line
+        for line in CONFIG_TABLES.splitlines()
+        if line.startswith("# [") or " = " in line
+    )
+    document = tomllib.loads(text)
+    assert document["gsx"]["approve_vault"] == config.APPROVE_DEFAULTS["approve_vault"]
+    assert document[config.ALIASES]  # an example alias to copy
+    assert document[config.REPO]["OWNER/NAME"] == {
+        "default_labels": [],
+        "default_reviewers": [],
+    }
+    # the two the tool owns are described, never offered as a line to uncomment
+    assert "fetched = " not in text and "labels = [" not in text.replace(
+        "default_labels = []", ""
+    )
+    assert "MAINTAINED BY gsx" in CONFIG_TABLES
 
 
 # ------------------------------------------------------------------ engine
