@@ -422,6 +422,72 @@ def test_config_rewrites_the_template_but_keeps_what_the_command_keeps(
     assert config.kept_tables("demo").startswith('[repos."o/n"]')
 
 
+def test_a_vault_sweep_skips_the_items_titled_for_the_reader(monkeypatch):
+    """A shared vault is also where people keep notes to themselves, and every
+    field of it lands in the caller's shell as a variable. An item titled `_...`
+    says it is not config, and is skipped before it is even read -- one `op item
+    get` per item, so a vault of scratch notes would pay for each of them.
+
+    The title is checked as 1Password shows it, before normalisation: `_norm`
+    maps a leading `-` to `_` as well, and checking after would hide items
+    nobody meant to hide.
+    """
+    import json as json_mod
+    import subprocess
+
+    from tabsdata_dev.common.core import secrets_1p
+    from tabsdata_dev.common.core.errors import ToolError
+
+    vault = [
+        {"title": "S3"},
+        {"title": "_scratch"},
+        {"title": "-dashes"},
+        {"title": "GCPPOSTGRES"},
+    ]
+    read: list[str] = []
+
+    class _Done:
+        def __init__(self, out):
+            self.returncode = 0
+            self.stdout = out
+            self.stderr = ""
+
+    def fake_run(argv, **kwargs):
+        if argv[0] == "which":
+            return _Done("")
+        if "list" in argv:
+            return _Done(json_mod.dumps(vault))
+        title = argv[argv.index("get") + 1]
+        read.append(title)
+        return _Done(
+            json_mod.dumps(
+                {
+                    "title": title,
+                    "fields": [
+                        {"id": "bucket", "value": f"{title}-b"},
+                        {"id": "expires", "value": "2099-12-31"},
+                        {"id": "empty", "value": None},
+                    ],
+                }
+            )
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    found = secrets_1p.fetch("dev_xp")
+
+    assert sorted(read) == ["-dashes", "GCPPOSTGRES", "S3"]  # `_scratch` never read
+    assert set(found) == {"S3__BUCKET", "GCPPOSTGRES__BUCKET", "_DASHES__BUCKET"}
+    assert found["S3__BUCKET"] == "S3-b"
+    # an expires field is bookkeeping and a null one has nothing to export
+    assert not [k for k in found if k.endswith(("EXPIRES", "EMPTY"))]
+
+    # a vault of nothing but those says so, rather than handing back an empty
+    # environment somebody then has to explain to themselves
+    vault[:] = [{"title": "_one"}, {"title": "_two"}]
+    with pytest.raises(ToolError, match="nothing to load"):
+        secrets_1p.fetch("dev_xp")
+
+
 def test_the_argv_mapping_covers_flags_lists_and_values():
     from tabsdata_dev.common.core import config
 

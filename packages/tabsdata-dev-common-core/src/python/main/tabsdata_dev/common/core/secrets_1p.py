@@ -9,6 +9,11 @@ ordered ``{<ITEM_TITLE>__<FIELD_ID>: <value>}`` dict for every non-null,
 non-``expires`` field. Names are normalised to valid env-var names, matching the
 ``<PREFIX>__<KEY>`` convention a system's env-sourced options read. Prints
 nothing itself — the caller renders the result to stdout.
+
+An item whose title starts with ``_`` is skipped: a shared vault is also where
+people keep notes to themselves, and everything here lands in the caller's shell
+as an environment variable. The underscore is how an item says it is not one of
+those.
 """
 
 from __future__ import annotations
@@ -18,6 +23,12 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 from .errors import ToolError
+
+
+#: An item titled this way is the reader's own business, not a system's config.
+#: Checked on the title as 1Password shows it, before `_norm` -- which maps a
+#: leading `-` to `_` too, and would then hide items nobody meant to hide.
+PRIVATE_PREFIX = "_"
 
 
 def _norm(s: str) -> str:
@@ -36,8 +47,9 @@ def _require(cmd: str) -> None:
 
 def fetch(vault: str) -> dict[str, str]:
     """Read every item/field in `vault` via ``op`` (items fetched concurrently),
-    returning an ordered ``{<ITEM>__<FIELD>: value}`` dict. Skips null values,
-    ``expires`` fields, and any item that can't be read. Prints nothing."""
+    returning an ordered ``{<ITEM>__<FIELD>: value}`` dict. Skips items titled
+    ``_*``, null values, ``expires`` fields, and any item that can't be read.
+    Prints nothing."""
     _require("op")
     cp = subprocess.run(
         ["op", "--vault", vault, "item", "list", "--format=json"],
@@ -53,7 +65,16 @@ def fetch(vault: str) -> dict[str, str]:
     if not items:
         raise ToolError(f"vault '{vault}' returned no items")
 
-    titles = [it.get("title", "") for it in items if it.get("title", "")]
+    # Filtered before the reads, not after: an item nobody is going to use is
+    # not worth an `op item get`, and a vault of scratch notes would otherwise
+    # cost one round trip each to throw away.
+    all_titles = [it.get("title", "").strip() for it in items]
+    titles = [t for t in all_titles if t and not t.startswith(PRIVATE_PREFIX)]
+    if not titles:
+        raise ToolError(
+            f"every item in vault '{vault}' is titled '{PRIVATE_PREFIX}...', which "
+            f"means 'not config' — nothing to load"
+        )
 
     def get_item(title: str) -> dict | None:
         cp = subprocess.run(

@@ -48,7 +48,10 @@ dependencies are declared as ranges; each toolset's lock pins them.
   `DIR/bin/CMD` with `bin/` first on `PATH`; refuses when the program is not in that venv.
 - `secrets` / `secrets_1p` (1Password through the `op` CLI: every field of a vault as
   `<ITEM_TITLE>__<FIELD_ID>`, normalised to valid env-var names, which is the `<PREFIX>__<KEY>`
-  a system's env-sourced options read; plus `_TDD_SYSTEMS`, the prefix list),
+  a system's env-sourced options read; plus `_TDD_SYSTEMS`, the prefix list). An item titled
+  `_*` is skipped, and skipped before it is read: a shared vault is also where people keep notes
+  to themselves, and everything swept lands in the caller's shell as a variable.
+  
   `ports`, `passwords`, `docker` (the CLI wrapped rather than an SDK, so it stays standard-library
   only and identical to what a person would type; every failure is a `ToolError` carrying docker's
   own message), `ssh`, `datadir.data_dir()` (`<tdd_dir>/data/<command>`), `latch`, `errors`.

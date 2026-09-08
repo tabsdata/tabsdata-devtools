@@ -12,7 +12,9 @@ crypto key, the 1Password secrets, tabsdata's `TD_*` settings and the Python ind
   (`1p:Employee`, `DevSecrets`, `TD_BACKENDS_CRYPTO_KEY`) -- or `--value KEY` sets the variable
   verbatim, at least `crypto.MIN_SECRET_LEN` characters, no 1Password and no `--force` dance.
   `set --secrets [--vault 1p:V]` (default `1p:dev_xp`) evals `tdd system secrets --format export`,
-  which also writes `_TDD_SYSTEMS`, the prefix list `unset --secrets` reads back.
+  which also writes `_TDD_SYSTEMS`, the prefix list `unset --secrets` reads back. An item of that
+  vault titled `_*` is ignored -- everything swept becomes a variable in this shell, and that is
+  how an item says it is somebody's note rather than a system's config.
 - `--vault` is one form for both, the provider ref `1p:NAME`, and both defaults are **literals**:
   no `ONE_PASSWORD_*` variable decides which vault a key comes from. `crypto-key` names the vault
   itself, so the ref sheds its `1p:` on the way (that verb takes either spelling).
