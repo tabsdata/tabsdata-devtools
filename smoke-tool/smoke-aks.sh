@@ -3,7 +3,15 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-# Tabsdata EKS smoke test.
+# Tabsdata AKS smoke test.
+#
+# The EKS flavour (smoke-eks.sh) against an Azure Kubernetes Service
+# cluster: storage is an Azure Blob container prefix instead of S3, and the
+# database is whatever --db-domain names -- azpostgres, the flexible server in
+# the same subscription as the cluster, which is what an AKS run should be
+# exercising. The five postgres types record one info block, so --db-domain
+# awspostgres (or gcppostgres) reads the same keys and is a flag rather than an
+# edit.
 #
 # Every name this run creates starts with sm_<NAME> (--name): the instance and
 # the venv ARE sm_<NAME>; domains and xp instances/projects are sm_<NAME>__<what>;
@@ -19,18 +27,27 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # namespace and installs from a named index, and the wrong default for any of
 # them is a confusing failure -- or a quiet success somewhere nobody meant to
 # touch. These are the options common_help paints red.
-REQUIRED_OPTIONS="--name --kube-config --kube-context --kube-namespace --td-version --uv-index"
+REQUIRED_OPTIONS="--name --kube-config --kube-context --td-version"
 
 usage() {
     cat <<'HELP' | common_help "$REQUIRED_OPTIONS"
-usage: smoke-eks.sh --name NAME --kube-config FILE --kube-context NAME
-                   --kube-namespace NAME --td-version VERSION --uv-index URI
-                   [--tabsdata-extras EXTRAS] [--venv-type pyenv|uv|conda]
-                   [--python-version VERSION] [--suites LIST]
-                   [--llm anthropic|openai] [--expect-pods LIST] [--force] [--keep]
-                   [--stop-after STAGE] [--log FILE] [--tdd-dir DIR] [--verbose]
+usage: smoke-aks.sh --name NAME --kube-config FILE --kube-context NAME --td-version VERSION
+                   [--kube-namespace NAME] [--uv-index URI] [--db-domain SYSTEM]
+                   [--storage-domain SYSTEM] [--llm-domain SYSTEM] [--provider NAME]
+                   [--td-extras EXTRAS] [--venv-type pyenv|uv|conda] [--py-version VERSION]
+                   [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep]
+                   [--start-from STAGE] [--stop-after STAGE] [--log FILE] [--tdd-dir DIR] [--verbose]
 
-Tabsdata EKS smoke test.
+Tabsdata AKS smoke test: a tdkserver instance on an Azure Kubernetes Service
+cluster, its storage a prefix of the `azureblob` system's container and its
+database a domain of --db-domain, exercised with xp suites.
+
+Get a kubeconfig for the cluster first:
+  az aks get-credentials --subscription 9dd049b8-201a-41da-88e5-d6123d9f157a \
+      --resource-group tabsdata-dev --name tabsdata-aks-dev
+That writes a context named after the cluster -- tabsdata-aks-dev -- which is
+what --context defaults to. The subscription is spelled out because the cluster
+lives in Developer while `az account show` reports CI.
 
 options:
   --name NAME         REQUIRED: the run's name, alphanumeric. Everything created
@@ -39,30 +56,46 @@ options:
   --kube-config FILE  REQUIRED: the kubeconfig holding the cluster. It is never
                       modified: the run copies it and works on the copy
   --kube-context NAME
-                      REQUIRED: the context in that file to run against. The file
-                      chooses nothing on its own -- one kubeconfig holds every
-                      cluster a developer has, and the context picks among them
+                      REQUIRED: the context in that file to run against. `az aks
+                      get-credentials` names it after the cluster; the file
+                      chooses nothing on its own, the context picks the cluster
   --kube-namespace NAME
-                      REQUIRED: the namespace to create and run in, RFC 1123
-                      (lowercase, digits, hyphens)
+                      the namespace to create and run in, RFC 1123 (lowercase,
+                      digits, hyphens). Default: sm-<name>, lowercased
   --td-version VERSION
                       REQUIRED: the tabsdata release to install, tabsdata[EXTRAS]==VERSION
-  --uv-index URI      REQUIRED: the Python package index, used by the tabsdata
-                      install and written into tabsdata.yaml (UV_INDEX) for the pods
-  --tabsdata-extras EXTRAS
+  --td-extras EXTRAS
                       the extras to install (default: all)
   --venv-type TYPE    pyenv, uv or conda (default: pyenv)
-  --python-version VERSION
+  --py-version VERSION
                       interpreter for the venv (default: 3.12.13 -- the exact
                       version the instance builds its own environments with)
-  --suites LIST       comma-separated xp suite selectors, one stage each
+  --provider NAME     the tdkserver init provider for this cluster (default: aks).
+                      It is an option because the provider name is tdkserver's to
+                      define: if `init` refuses it, name the one it accepts here
+  --db-domain SYSTEM  the system the instance's database is created on (default:
+                      azpostgres). Every domain this run creates is named
+                      sm_NAME__<system>, and --force recreates it. Any of the
+                      five postgres types: they share one info block
+                      (default: azpostgres -- the flexible server beside the
+                      cluster; awspostgres or gcppostgres to cross clouds)
+  --uv-index URI      the Python package index, used by the tabsdata install and
+                      written into tabsdata.yaml (UV_INDEX) for the pods
+                      (default: none -- whatever uv is already configured with)
+  --xp-suites LIST    comma-separated xp suite selectors, one stage each
                       (default: test,tableframe_api,dataquality,grok/s3_examples,
-                      grok/s3_world_csv,cloud-connectors -- container-connectors and
-                      the fs-backed grok suites stay out: docker systems and local
-                      paths are unreachable from function pods running in EKS)
-  --llm anthropic|openai
-                      create a domain on that system (sm_NAME__llm_<llm>), read its
-                      API key and write it into aiagent.yaml (default: no LLM)
+                      grok/s3_world_csv,cloud-connectors/az -- az is the object-store
+                      suite of this cloud; container-connectors and the fs-backed
+                      grok suites stay out: docker systems and local paths are
+                      unreachable from function pods running in AKS)
+  --storage-domain SYSTEM
+                      the system the instance's storage comes from (default:
+                      azureblob). The config filling knows this cloud's option
+                      keys; another cloud's storage leaves placeholders the run
+                      then refuses
+  --llm-domain SYSTEM
+                      create a domain on that system too, read its API key and
+                      write it into aiagent.yaml (default: no LLM)
   --expect-pods LIST  service names whose pods must be Running and Ready after
                       every start, per `tdkserver status` (default: srv-apiserver)
   -f, --force         a venv, instance or namespace of this name already existing
@@ -75,9 +108,13 @@ options:
                       (default: no -- domains destroyed, instance deleted,
                       namespace deleted, venv deleted; a failed run always
                       leaves everything standing)
+  --start-from STAGE  skip the stages before STAGE -- their commands, not the
+                      values they read, so the run still knows its domains. Only
+                      meaningful against what a previous --keep left standing:
+                      nothing is recreated
   --stop-after STAGE  stop (exit 0, everything left standing) after the named
-                      stage -- any name the screen prints, e.g. systems, configure,
-                      forward-1, xp-<suite> (/ replaced by _), cleanup
+                      stage -- any name the screen prints, e.g. cluster, systems,
+                      configure, forward-1, xp-<suite> (/ replaced by _), cleanup
   --log FILE          log file (default: /tmp/smoke-sm_NAME-<start time>.log)
   --tdd-dir DIR       the tdd dir to source (default: $TDD_DIR, else ~/.tdd)
   --verbose           show every command's output as it happens (default: a
@@ -90,23 +127,34 @@ HELP
 }
 
 NAME=""                  # required; everything is sm_$NAME
-LLM=""                   # anthropic | openai | empty
+STORAGE_SYSTEM="azureblob"   # --storage-domain: the system the instance's storage comes from
+LLM_SYSTEM=""            # --llm-domain: none unless asked for
 EXPECT_PODS="srv-apiserver"
 VENV_TYPE="pyenv"
 PYTHON="3.12.13"
 TD_VERSION=""            # required
-TABSDATA_EXTRAS="all"
+TD_EXTRAS="all"
 KUBECONFIG_OPT=""        # required
 CONTEXT=""               # required
 NAMESPACE=""             # required
+PROVIDER="aks"           # tdkserver's name for this kind of cluster
+DB_SYSTEM="azpostgres"   # the flexible server beside the cluster; --db-domain crosses clouds
 PORT="2457"              # tdkserver's apiserver port; the port-forward mirrors it locally
 UV_INDEX_URI=""
 # grok only through its s3 sub-suites: the fs-backed ones stage files on a local
-# path the EKS function pods cannot see.
-SUITES="test,tableframe_api,dataquality,grok/s3_examples,grok/s3_world_csv,cloud-connectors"
+# path the AKS function pods cannot see, and there is no az-backed grok suite.
+# S3 itself the pods reach over the internet, same as any other cloud's run.
+#
+# cloud-connectors by SUB-SUITE, unlike the gke flavour: the family also holds
+# bigquery, clickhouse, databricks, snowflake and starrocks, whose systems are
+# not in the store, and `xp list-systems --suite cloud-connectors` exits 1 for
+# the five -- the systems stage would fail before anything is built. az is the
+# object-store suite of this cloud, which is what an AKS run is here to prove.
+SUITES="test,tableframe_api,dataquality,grok/s3_examples,grok/s3_world_csv,cloud-connectors/az"
 FORCE=""                 # 1 with --force; empty otherwise
 KEEP=""                  # 1 with --keep; empty otherwise (so ${KEEP:+--keep} works)
 STOP_AFTER=""
+START_FROM=""
 LOG=""
 VERBOSE=0
 TDD_DIR_OPT="${TDD_DIR:-$HOME/.tdd}"
@@ -117,17 +165,21 @@ oracledb==3.2.0"
 while [ $# -gt 0 ]; do
     case "$1" in
         --name) NAME="$2"; shift 2 ;;
-        --llm) LLM="$2"; shift 2 ;;
+        --storage-domain) STORAGE_SYSTEM="$2"; shift 2 ;;
+        --llm-domain) LLM_SYSTEM="$2"; shift 2 ;;
+        --start-from) START_FROM="$2"; shift 2 ;;
         --expect-pods) EXPECT_PODS="$2"; shift 2 ;;
         --venv-type) VENV_TYPE="$2"; shift 2 ;;
-        --python-version) PYTHON="$2"; shift 2 ;;
+        --py-version) PYTHON="$2"; shift 2 ;;
         --td-version) TD_VERSION="$2"; shift 2 ;;
-        --tabsdata-extras) TABSDATA_EXTRAS="$2"; shift 2 ;;
+        --td-extras) TD_EXTRAS="$2"; shift 2 ;;
         --kube-config) KUBECONFIG_OPT="$2"; shift 2 ;;
         --kube-context) CONTEXT="$2"; shift 2 ;;
         --kube-namespace) NAMESPACE="$2"; shift 2 ;;
+        --provider) PROVIDER="$2"; shift 2 ;;
+        --db-domain) DB_SYSTEM="$2"; shift 2 ;;
         --uv-index) UV_INDEX_URI="$2"; shift 2 ;;
-        --suites) SUITES="$2"; shift 2 ;;
+        --xp-suites) SUITES="$2"; shift 2 ;;
         --force | -f) FORCE=1; shift ;;
         --keep) KEEP=1; shift ;;
         --stop-after) STOP_AFTER="$2"; shift 2 ;;
@@ -135,30 +187,31 @@ while [ $# -gt 0 ]; do
         --tdd-dir) TDD_DIR_OPT="$2"; shift 2 ;;
         --verbose) VERBOSE=1; shift ;;
         -h | --help) usage; exit 0 ;;
-        *) echo "smoke-eks: unknown option: $1 (see --help)" >&2; exit 1 ;;
+        *) echo "smoke-aks: unknown option: $1 (see --help)" >&2; exit 1 ;;
     esac
 done
-case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "smoke-eks: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
-case "$LLM" in "" | anthropic | openai) ;; *) echo "smoke-eks: --llm must be anthropic or openai" >&2; exit 1 ;; esac
+case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "smoke-aks: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
 missing=""
 for _need in $REQUIRED_OPTIONS; do
     case "$_need" in
         --name) [ -n "$NAME" ] || missing="$missing $_need" ;;
         --kube-config) [ -n "$KUBECONFIG_OPT" ] || missing="$missing $_need" ;;
         --kube-context) [ -n "$CONTEXT" ] || missing="$missing $_need" ;;
-        --kube-namespace) [ -n "$NAMESPACE" ] || missing="$missing $_need" ;;
         --td-version) [ -n "$TD_VERSION" ] || missing="$missing $_need" ;;
-        --uv-index) [ -n "$UV_INDEX_URI" ] || missing="$missing $_need" ;;
     esac
 done
 if [ -n "$missing" ]; then
-    echo "smoke-eks: missing required option(s):$missing (see --help)" >&2
+    echo "smoke-aks: missing required option(s):$missing (see --help)" >&2
     exit 1
 fi
-case "$NAME" in *[!A-Za-z0-9]*) echo "smoke-eks: --name must be alphanumeric (it becomes part of domain and xp names)" >&2; exit 1 ;; esac
-case "$NAMESPACE" in *[!a-z0-9-]* | -* | *-) echo "smoke-eks: --kube-namespace must be RFC 1123: lowercase letters, digits and inner hyphens" >&2; exit 1 ;; esac
+case "$NAME" in *[!A-Za-z0-9]*) echo "smoke-aks: --name must be alphanumeric (it becomes part of domain and xp names)" >&2; exit 1 ;; esac
+case "$NAMESPACE" in *[!a-z0-9-]* | -* | *-) echo "smoke-aks: --kube-namespace must be RFC 1123: lowercase letters, digits and inner hyphens" >&2; exit 1 ;; esac
+# The one command this script never runs and always names: the kubeconfig is
+# the user's to fetch, and a failure that is really a missing one says how.
+AZ_CREDENTIALS="az aks get-credentials --subscription <ID> --resource-group <GROUP> --name <CLUSTER>"
 if [ ! -r "$KUBECONFIG_OPT" ]; then
-    echo "smoke-eks: no kubeconfig at $KUBECONFIG_OPT (pass --kube-config)" >&2
+    echo "smoke-aks: no kubeconfig at $KUBECONFIG_OPT (pass --kube-config)" >&2
+    echo "smoke-aks: get one with: $AZ_CREDENTIALS" >&2
     exit 1
 fi
 # --kube-config picks the FILE; the context is what picks the cluster, and one
@@ -166,25 +219,29 @@ fi
 # nothing to infer here -- only to check, before anything is built.
 KUBE_NAMES="$(kubectl --kubeconfig "$KUBECONFIG_OPT" config view -o jsonpath='{range .contexts[*]}{.name}{"\n"}{end}' 2>/dev/null)"
 if ! printf '%s\n' "$KUBE_NAMES" | grep -qxF -- "$CONTEXT"; then
-    echo "smoke-eks: no context '$CONTEXT' in $KUBECONFIG_OPT; it has:" >&2
+    echo "smoke-aks: no context '$CONTEXT' in $KUBECONFIG_OPT; it has:" >&2
     printf '%s\n' "$KUBE_NAMES" | sed 's/^/  /' >&2
+    echo "smoke-aks: get a kubeconfig with: $AZ_CREDENTIALS" >&2
     exit 1
 fi
+# not required: the run's own name makes a good namespace, and RFC 1123 only
+# needs it lowercased
+NAMESPACE="${NAMESPACE:-sm-$(printf '%s' "$NAME" | tr 'A-Z' 'a-z')}"
 BASE="sm_$NAME"
 NAMES_PREFIX="$BASE"     # what the failure summary tells the reader to look for
 INSTANCE="$BASE"
 VENV="$BASE"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-RDS_DOMAIN="${BASE}__rds"
-S3_DOMAIN="${BASE}__s3"
-LLM_DOMAIN="${LLM:+${BASE}__llm_${LLM}}"
+DB_DOMAIN="${BASE}__${DB_SYSTEM}"
+STORAGE_DOMAIN="${BASE}__${STORAGE_SYSTEM}"
+LLM_DOMAIN="${LLM_SYSTEM:+${BASE}__llm_${LLM}}"
 XP_PROJECTS=""           # the xp instance/project names this run creates, for --keep and failures
-SMOKE_DOMAINS="$RDS_DOMAIN $S3_DOMAIN $LLM_DOMAIN"
+SMOKE_DOMAINS="$DB_DOMAIN $STORAGE_DOMAIN $LLM_DOMAIN"
 EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
 LOG="${LOG:-/tmp/smoke-$INSTANCE-$STAMP.log}"
 WORK="$(mktemp -d "/tmp/smoke-$INSTANCE-$STAMP.XXXX")"
 SERVER="http://127.0.0.1:$PORT"
-TABSDATA_SPEC="tabsdata[$TABSDATA_EXTRAS]==$TD_VERSION"
+TABSDATA_SPEC="tabsdata[$TD_EXTRAS]==$TD_VERSION"
 TDK_OPTS=(-y --accept-terms y)
 CONFIGS="$HOME/.tabsdata/instances/$INSTANCE/init/input/configs"
 # tdkserver resolves the cluster and the namespace from the kubeconfig's CURRENT
@@ -201,7 +258,7 @@ KUBECTL=(kubectl --kubeconfig "$RUN_KUBECONFIG" --context "$CONTEXT")
 SUITE_LIST=()
 for suite in $(printf '%s' "$SUITES" | tr ',' ' '); do SUITE_LIST[${#SUITE_LIST[@]}]="$suite"; done
 if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
-    echo "smoke-eks: --suites needs at least one selector" >&2
+    echo "smoke-aks: --xp-suites needs at least one selector" >&2
     exit 1
 fi
 STAGE_NAMES=(unset-td unset-pypi set-crypto cluster systems pycache clean-previous create-venv install)
@@ -223,8 +280,8 @@ if [ -z "$FORCE" ]; then
     [ -e "$HOME/.tabsdata/instances/$INSTANCE" ] && EXISTING="$EXISTING instance:$HOME/.tabsdata/instances/$INSTANCE"
     "${KUBECTL[@]}" get namespace "$NAMESPACE" >/dev/null 2>&1 && EXISTING="$EXISTING namespace:$NAMESPACE"
     if [ -n "$EXISTING" ]; then
-        echo "smoke-eks: already exists:$EXISTING" >&2
-        echo "smoke-eks: pass --force to delete and recreate them, or pick another --name" >&2
+        echo "smoke-aks: already exists:$EXISTING" >&2
+        echo "smoke-aks: pass --force to delete and recreate them, or pick another --name" >&2
         exit 1
     fi
 fi
@@ -232,7 +289,7 @@ fi
 common_init "$LOG" "$VERBOSE"
 trap common_kubeportforward_stop EXIT      # the forward never outlives the script
 
-# the generic failure block plus the EKS pieces
+# the generic failure block plus the AKS pieces
 common_on_stage_failed() {
     common_screen ""
     common_screen "$(basename "$0"): left for you to look at"
@@ -246,21 +303,39 @@ common_on_stage_failed() {
     common_k8s_report "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"
 }
 
-# fill_storage FILE -- the twelve positional ${{secret}} of apiserver.storage.yaml:
-# per mount (ROOT/BUNDLES/IMAGES) the uri under the s3 domain's URI, and the s3
-# system's region/credentials on every mount. Values travel in the environment
-# (they are credentials); python because awk/sed would fight the &/\ a secret may hold.
+# fill_storage FILE -- the per-mount ${{secret}} of apiserver.storage.yaml: the
+# uri under the azureblob domain's URI, and the container credentials on every
+# mount.
+#
+# There is one way into a container from a config file -- the storage account's
+# shared key -- so unlike the GKE flavour there is no second credential shape to
+# choose between. What is still open is the SPELLING: tabsdata canonicalises the
+# short account_name/account_key onto object_store's azure_storage_* names, so a
+# template may carry either. Fill whichever keys the generated file actually has
+# and report the ones met. A key neither spelling covers is left alone --
+# common_placeholders_left then fails the stage naming it, which is a one-line
+# fix here rather than a broken instance.
+#
+# Values travel in the environment (they are credentials); python because
+# awk/sed would fight the &/\ an account key may hold.
 fill_storage() {
     ST_FILE="$1" python3 - <<'PYEOF'
 import json, os, re
+
 path = os.environ["ST_FILE"]
-uri = os.environ["S3D__URI"].rstrip("/")
+uri = os.environ["STORD__URI"].rstrip("/")
 sub = {"ROOT": f"{uri}/data/", "BUNDLES": f"{uri}/bundles/", "IMAGES": f"{uri}/images/"}
+
+account = os.environ.get("STORD__ACCOUNT_NAME", "")
+account_key = os.environ.get("STORD__ACCOUNT_KEY", "")
 fixed = {
-    "aws_region": os.environ.get("S3S__REGION", ""),
-    "aws_access_key_id": os.environ.get("S3S__ACCESS_KEY", ""),
-    "aws_secret_access_key": os.environ.get("S3S__SECRET_KEY", ""),
+    # object_store's own names, and the short ones tabsdata maps onto them
+    "azure_storage_account_name": account,
+    "account_name": account,
+    "azure_storage_account_key": account_key,
+    "account_key": account_key,
 }
+
 
 def scalar(value):
     """VALUE as a YAML double-quoted scalar. JSON's string escaping is a subset
@@ -273,8 +348,8 @@ def scalar(value):
     return json.dumps(value)
 
 
-out, mount = [], None
-for line in open(path):
+out, mount, filled, unknown, empty = [], None, [], [], []
+for line in open(path, encoding="utf-8"):
     m = re.match(r"\s*- id: (\w+)", line)
     if m:
         mount = m.group(1)
@@ -282,28 +357,46 @@ for line in open(path):
         key = line.split(":", 1)[0].strip()
         if key == "uri" and mount in sub:
             line = line.replace("${{secret}}", scalar(sub[mount]))
+            filled.append(f"{mount}.uri")
         elif key in fixed:
-            line = line.replace("${{secret}}", scalar(fixed[key]))
+            if fixed[key]:
+                line = line.replace("${{secret}}", scalar(fixed[key]))
+                filled.append(key)
+            else:
+                empty.append(key)
+        else:
+            unknown.append(key)
     out.append(line)
-open(path, "w").write("".join(out))
+open(path, "w", encoding="utf-8").write("".join(out))
+
+print("filled:", ", ".join(sorted(set(filled))) or "(nothing)")
+if empty:
+    print("no value for:", ", ".join(sorted(set(empty))), "-- the azureblob system has none set")
+if unknown:
+    print("not filled (unknown to fill_storage):", ", ".join(sorted(set(unknown))))
 PYEOF
 }
 
-common_screen "smoke-eks: effective options"
+common_screen "smoke-aks: effective options"
 common_screen "  --name              $NAME   -> instance and venv $BASE, namespace $NAMESPACE, domains ${BASE}__<what>"
 common_screen "  --venv-type         $VENV_TYPE"
-common_screen "  --python-version    $PYTHON"
+common_screen "  --py-version    $PYTHON"
 common_screen "  --td-version        $TD_VERSION"
-common_screen "  --tabsdata-extras   $TABSDATA_EXTRAS   -> installs $TABSDATA_SPEC"
+common_screen "  --td-extras   $TD_EXTRAS   -> installs $TABSDATA_SPEC"
 common_screen "  --kube-config       $KUBECONFIG_OPT   (read only; the run works on a copy)"
 common_screen "  --kube-context      $CONTEXT"
 common_screen "  --kube-namespace    $NAMESPACE"
+common_screen "  --provider          $PROVIDER   -> tdkserver init --provider $PROVIDER"
+common_screen "  --db-domain         $DB_SYSTEM   -> domain $DB_DOMAIN"
+common_screen "  storage             azureblob   -> domain $STORAGE_DOMAIN (a prefix of the azureblob system's container)"
 common_screen "  --uv-index          $(common_display "${UV_INDEX_URI:-(none)}")"
-common_screen "  --suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
-common_screen "  --llm               ${LLM:-(none)}${LLM:+   -> domain $LLM_DOMAIN}"
+common_screen "  --xp-suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
+common_screen "  --storage-domain    $STORAGE_SYSTEM   -> domain $STORAGE_DOMAIN"
+common_screen "  --llm-domain        ${LLM_SYSTEM:-(none)}${LLM_SYSTEM:+   -> domain $LLM_DOMAIN}"
 common_screen "  --expect-pods       $EXPECT_PODS"
 common_screen "  --force             $([ -n "$FORCE" ] && echo "yes (replace an existing venv/instance/namespace)" || echo "no (an existing one is an error)")"
 common_screen "  --keep              $([ -n "$KEEP" ] && echo "yes (also: xp one-shot --keep)" || echo "no (domains, instance, namespace and venv deleted at the end)")"
+common_screen "  --start-from        ${START_FROM:-(from the first stage)}"
 common_screen "  --stop-after        ${STOP_AFTER:-(run everything)}"
 common_screen "  --log               $LOG"
 common_screen "  --tdd-dir           $TDD_DIR_OPT"
@@ -311,7 +404,7 @@ common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "n
 common_screen "  server              $SERVER through kubectl port-forward service/net-apiserver"
 common_screen "  drivers for fn/ag   $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
 if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
-    common_screen "${RED}smoke-eks: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
+    common_screen "${RED}smoke-aks: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
     exit 1
 fi
 # shellcheck disable=SC1090
@@ -331,16 +424,21 @@ common_checkpoint set-crypto
 
 common_stage cluster "make $CONTEXT current and check it reaches the cluster"
 # In front of everything that costs time: pointed at another cloud's context, or
-# with no usable credentials, kubectl fails deep inside a later stage with a
+# with credentials az never wrote, kubectl fails deep inside a later stage with a
 # message about credentials rather than about which cluster it was talking to.
 # Pinning here is also what carries --context to tdkserver, which resolves the
 # cluster and the namespace from the current context itself, not from our flags.
 common_note "the run's own kubeconfig is $RUN_KUBECONFIG, on context $CONTEXT"
+# An AKS context name says nothing about the cloud it reaches, so show the
+# endpoint it resolves to: an AKS one is *.azmk8s.io (or the sovereign clouds'
+# azk8s.cn / containerservice.azure.us). Shown, never matched on -- the reader
+# can see they are on the right cluster without the script pretending to know.
+common_note "cluster endpoint: $("${KUBECTL[@]}" config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null)"
 common_run "${KUBECTL[@]}" version --output=yaml
 common_run "${KUBECTL[@]}" get namespaces
 common_checkpoint cluster
 
-common_stage systems "dev and fs, awspostgres, s3 (and --llm) plus every system the suites need must be in the tdd store"
+common_stage systems "dev and fs, $DB_SYSTEM, azureblob (and --llm) plus every system the suites need must be in the tdd store"
 # checked UPFRONT: a run missing one must fail before anything is built
 common_run tdd system create --type dev --sys dev --force
 # fs needs an explicit absolute root: its default is target/backends/<name>
@@ -349,9 +447,9 @@ common_run tdd system create --type fs --sys fs --sys-path "$TDD_DIR_OPT/data/fs
 for suite in "${SUITE_LIST[@]}"; do
     common_run tdd xp list-systems --suite "$suite"
 done
-common_run tdd system status --sys awspostgres
-common_run tdd system status --sys s3
-[ -z "$LLM" ] || common_run tdd system status --sys "$LLM"
+common_run tdd system status --sys "$DB_SYSTEM"
+common_run tdd system status --sys azureblob
+[ -z "$LLM_SYSTEM" ] || common_run tdd system status --sys "$LLM_SYSTEM"
 common_checkpoint systems
 
 common_stage pycache "purge tabsdata from the uv and pip caches"
@@ -402,31 +500,31 @@ if [ "$TD_VERSION" = "2.0.2" ]; then
     common_remark "workaround: tabsdata 2.0.2 ships no psycopg2 with its Postgres connector; psycopg2-binary was installed into $VENV so the CDC plugin loads"
 fi
 
-common_stage domains "domains $RDS_DOMAIN, $S3_DOMAIN${LLM:+, $LLM_DOMAIN} -- the instance's database, storage${LLM:+ and LLM key}"
+common_stage domains "domains $DB_DOMAIN, $STORAGE_DOMAIN${LLM_SYSTEM:+, $LLM_DOMAIN} -- the instance's database, storage${LLM_SYSTEM:+ and LLM key}"
 # Each domain is this run's slice of the shared system. Values are eval'd into
 # THIS shell, never echoed; they fill the config files below.
-common_run tdd domain create --sys awspostgres --domain "$RDS_DOMAIN" --force
-common_note "eval \$(tdd domain info --domain $RDS_DOMAIN --format export --prefix RDS)   (values not shown)"
-eval "$(tdd domain info --domain "$RDS_DOMAIN" --format export --prefix RDS 2>/dev/null)"
-common_run test -n "${RDS__EXTERNAL_HOST:+set}${RDS__PORT:+set}${RDS__DATABASE:+set}${RDS__USER:+set}${RDS__PASSWORD:+set}"
+common_run tdd domain create --sys "$DB_SYSTEM" --domain "$DB_DOMAIN" --force
+common_note "eval \$(tdd domain info --domain $DB_DOMAIN --format export --prefix DB)   (values not shown)"
+eval "$(tdd domain info --domain "$DB_DOMAIN" --format export --prefix DB 2>/dev/null)"
+common_run test -n "${DB__EXTERNAL_HOST:+set}${DB__PORT:+set}${DB__DATABASE:+set}${DB__USER:+set}${DB__PASSWORD:+set}"
 # A postgres domain names both networks its instance answers on, and the address
-# that matters here is the pods', not this laptop's: the function pods reach the
-# instance from inside the VPC, which is what INTERNAL_HOST holds. Falling back
-# to the external one covers an RDS endpoint that is reachable either way (the
-# usual case, and the single endpoint that worked before the split).
-RDS_POD_HOST="${RDS__INTERNAL_HOST:-$RDS__EXTERNAL_HOST}"
-if [ -n "${RDS__INTERNAL_HOST:-}" ]; then
-    common_note "database: the pods get awspostgres's INTERNAL_HOST (its in-VPC address)"
+# that matters here is the pods', not this laptop's: the function pods reach a
+# flexible server over its private endpoint / VNet address, which is what
+# INTERNAL_HOST holds. Falling back to the external one covers a server with
+# public access on (or a store that never recorded the private name) -- the same
+# single endpoint that worked before the split.
+DB_POD_HOST="${DB__INTERNAL_HOST:-$DB__EXTERNAL_HOST}"
+if [ -n "${DB__INTERNAL_HOST:-}" ]; then
+    common_note "database: the pods get $DB_SYSTEM's INTERNAL_HOST (its private-network address)"
 else
-    common_remark "awspostgres records no INTERNAL_HOST; the pods get EXTERNAL_HOST ($RDS__EXTERNAL_HOST) -- fine if that endpoint routes from inside the cluster, and the reason to record the private one if it does not"
+    common_remark "$DB_SYSTEM records no INTERNAL_HOST; the pods get EXTERNAL_HOST ($DB__EXTERNAL_HOST) -- fine if that address routes from inside the cluster, and the reason to record the private one if it does not"
 fi
-common_run tdd domain create --sys s3 --domain "$S3_DOMAIN" --force
-common_note "eval \$(tdd domain info --domain $S3_DOMAIN --format export --prefix S3D; tdd system info --sys s3 --format export --prefix S3S)"
-eval "$(tdd domain info --domain "$S3_DOMAIN" --format export --prefix S3D 2>/dev/null)"
-eval "$(tdd system info --sys s3 --format export --prefix S3S 2>/dev/null)"
-common_run test -n "${S3D__URI:+set}${S3S__REGION:+set}"
-if [ -n "$LLM" ]; then
-    common_run tdd domain create --sys "$LLM" --domain "$LLM_DOMAIN" --force
+common_run tdd domain create --sys "$STORAGE_SYSTEM" --domain "$STORAGE_DOMAIN" --force
+common_note "eval \$(tdd domain info --domain $STORAGE_DOMAIN --format export --prefix STORD)   (the account key is not shown)"
+eval "$(tdd domain info --domain "$STORAGE_DOMAIN" --format export --prefix STORD 2>/dev/null)"
+common_run test -n "${STORD__URI:+set}${STORD__CONTAINER:+set}${STORD__ACCOUNT_NAME:+set}"
+if [ -n "$LLM_SYSTEM" ]; then
+    common_run tdd domain create --sys "$LLM_SYSTEM" --domain "$LLM_DOMAIN" --force
     common_note "eval \$(tdd domain info --domain $LLM_DOMAIN --format export --prefix LLM)   (the key is not shown)"
     eval "$(tdd domain info --domain "$LLM_DOMAIN" --format export --prefix LLM 2>/dev/null)"
     common_run test -n "${LLM__API_KEY:+set}"
@@ -441,25 +539,34 @@ common_run "${KUBECTL[@]}" create namespace "$NAMESPACE"
 common_run "${KUBECTL[@]}" config set-context "$CONTEXT" --namespace "$NAMESPACE"
 common_checkpoint namespace
 
-common_stage init "tdkserver init --provider eks --instance $INSTANCE (the editable config folder)"
-common_run tdd tdkserver init --provider eks --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}"
+common_stage init "tdkserver init --provider $PROVIDER --instance $INSTANCE (the editable config folder)"
+common_run tdd tdkserver init --provider "$PROVIDER" --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}"
 common_run test -d "$CONFIGS"
 common_checkpoint init
 
 common_stage configure "fill the config files from the domains: database, storage, LLM key, uv index"
 # Named placeholders are shared across files; the storage file's ${{secret}}
 # are positional. Values travel in the environment, never on a command line.
-common_note "database: \${{literal:tdk_database_*}} and \${{secret:postgres_system_*}} from $RDS_DOMAIN"
-common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_host}}' "$RDS_POD_HOST"
-common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_port}}' "$RDS__PORT"
-common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_name}}' "$RDS__DATABASE"
-common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_user}}' "$RDS__USER"
-common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_password}}' "$RDS__PASSWORD"
-common_note "storage: the ROOT/BUNDLES/IMAGES mounts under ${S3D__URI%/}/ with the s3 system's credentials"
-fill_storage "$CONFIGS/apiserver.storage.yaml"
-if [ -n "$LLM" ]; then
-    common_note "aiagent: the $LLM key from $LLM_DOMAIN"
-    common_fill_placeholder "$CONFIGS/aiagent.yaml" -- "\${{secret:$LLM-key?}}" "$LLM__API_KEY"
+common_note "database: \${{literal:tdk_database_*}} and \${{secret:postgres_system_*}} from $DB_DOMAIN"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_host}}' "$DB_POD_HOST"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_port}}' "$DB__PORT"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_name}}' "$DB__DATABASE"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_user}}' "$DB__USER"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_password}}' "$DB__PASSWORD"
+# Nothing to fill for TLS, and nothing to fill it with: Azure signs a flexible
+# server with a public root, so the bundle is baked into the image and aks's
+# dbmanager template names a PATH to it. Both ssl_mode and ssl_root_cert are
+# `system:` placeholders tdkserver resolves itself (verify-ca,
+# /tabsdata/certs/ca-azure.pem), which common_placeholders_left leaves alone.
+# The gke flavour is the exception, not this one: Cloud SQL's per-instance CA
+# has no bundle, so it asks for the certificate inline and the domain carries
+# the PEM. azpostgres keeps only the URL Azure publishes the root at.
+common_note "database TLS: tdkserver's own verify-ca against /tabsdata/certs/ca-azure.pem ($DB_SYSTEM asks for $DB__SSLMODE)"
+common_note "storage: the ROOT/BUNDLES/IMAGES mounts under ${STORD__URI%/}/ with the azureblob system's account credentials"
+common_run fill_storage "$CONFIGS/apiserver.storage.yaml"
+if [ -n "$LLM_SYSTEM" ]; then
+    common_note "aiagent: the $LLM_SYSTEM key from $LLM_DOMAIN"
+    common_fill_placeholder "$CONFIGS/aiagent.yaml" -- "\${{secret:$LLM_SYSTEM-key?}}" "$LLM__API_KEY"
 fi
 if [ -n "$UV_INDEX_URI" ]; then
     common_note "tabsdata.yaml: UV_INDEX -> $(common_display "$UV_INDEX_URI")"
@@ -547,11 +654,11 @@ if [ -n "$KEEP" ]; then
 else
     common_stage cleanup "destroy the domains, delete the instance, the namespace $NAMESPACE and the venv"
     common_kubeportforward_stop
-    # xp (no --keep) destroyed its own domains; ours go youngest first -- the RDS
-    # database and the bucket prefix disappear with them
+    # xp (no --keep) destroyed its own domains; ours go youngest first -- the
+    # database and the container prefix disappear with them
     [ -z "$LLM_DOMAIN" ] || common_run tdd domain destroy --domain "$LLM_DOMAIN" --force
-    common_run tdd domain destroy --domain "$S3_DOMAIN" --force
-    common_run tdd domain destroy --domain "$RDS_DOMAIN" --force
+    common_run tdd domain destroy --domain "$STORAGE_DOMAIN" --force
+    common_run tdd domain destroy --domain "$DB_DOMAIN" --force
     # delete works here: the cluster is external, so it survives the workload
     # and configmap removal (unlike kminus, where delete stops the cluster first)
     common_run tdd tdkserver delete --instance "$INSTANCE" --trash true "${TDK_OPTS[@]}"

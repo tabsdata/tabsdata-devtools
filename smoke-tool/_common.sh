@@ -283,12 +283,29 @@ common_stage() {
     fi
     STAGE_I=$((STAGE_I + 1))
     CURRENT="$1"
+    # --start-from NAME: skip the DOING of every stage before NAME, but keep the
+    # reading -- a stage's `eval $(tdd domain info ...)` still runs, so the
+    # variables later stages need are there. That is what makes it a resume
+    # rather than a rerun, and it only means anything against what a previous
+    # --keep left standing: nothing here recreates what was skipped.
+    if [ -n "${START_FROM:-}" ] && [ "${SKIPPING:-1}" = 1 ]; then
+        if [ "$1" = "$START_FROM" ]; then
+            SKIPPING=0
+        else
+            SKIPPING=1
+            STAGE_STATUS[$STAGE_I]="skipped"
+            STAGE_SECONDS[$STAGE_I]=0
+            common_screen ""
+            common_screen "${DIM}==> [$((STAGE_I + 1))] $1 -- skipped (--start-from $START_FROM)${RESET}"
+            return 0
+        fi
+    fi
     STAGE_T0="$(date +%s)"
     STAGE_LINES=0
     STAGE_CMDS=()
     STAGE_CMD_STATUS=()
     common_screen ""
-    # No "/total": stages are conditional (--llm, --keep, --suites), and a count
+    # No "/total": stages are conditional (--llm-domain, --keep, --xp-suites), and a count
     # promised upfront reads as a lie when the run legitimately skips some.
     common_screen "${BLUE}==> [$((STAGE_I + 1))] $1 -- $2${RESET}   ${DIM}$(date +%H:%M:%S)${RESET}"
 }
@@ -355,6 +372,10 @@ common_run() {
 common_run_shown() {
     local shown="$1" rc
     shift
+    # inside a skipped stage nothing is run: see --start-from in common_stage
+    if [ "${SKIPPING:-0}" = 1 ]; then
+        return 0
+    fi
     STAGE_CMDS[${#STAGE_CMDS[@]}]="$shown"
     STAGE_CMD_STATUS[${#STAGE_CMD_STATUS[@]}]="running"
     common_note "${DIM}\$${RESET} $shown"
@@ -847,6 +868,7 @@ common_report() {
             ok) common_screen "  ${GREEN}✓${RESET} $name${secs:+ (${secs}s)}" ;;
             failed) common_screen "  ${RED}✗${RESET} $name (failed${secs:+ after ${secs}s})" ;;
             continued) common_screen "  ${YELLOW}✗${RESET} $name (failed after ${secs}s, continued)" ;;
+            skipped) common_screen "  ${DIM}-${RESET} $name (skipped, --start-from)" ;;
             *) common_screen "  ${YELLOW}·${RESET} $name (not done)" ;;
         esac
         i=$((i + 1))

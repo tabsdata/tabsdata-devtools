@@ -31,9 +31,28 @@ from tabsdata_dev.common.core import cli, render
 SHARED = "_common.sh"
 
 
+#: The checkout keeps them here, at the repo root, where they are edited and
+#: run; a wheel build copies them in beside this module (force-include).
+CHECKOUT_DIR = "smoke-tool"
+
+
 def scripts_dir() -> pathlib.Path:
-    """The packaged scripts, found the way every resource here is found."""
-    return pathlib.Path(str(resources.files("tabsdata_dev.tool.smoke") / "scripts"))
+    """Where the scripts actually are.
+
+    A wheel install has them beside this module. An editable install copies
+    nothing -- a link has no build step to hook -- so there they are still at
+    the repo root, which is where they are meant to be read and edited anyway.
+    Both layouts are normal; check for the shared engine to tell them apart.
+    """
+    beside = pathlib.Path(str(resources.files("tabsdata_dev.tool.smoke") / "scripts"))
+    if (beside / SHARED).is_file():
+        return beside
+    # .../packages/<pkg>/src/python/main/tabsdata_dev/tool/smoke -> the repo
+    checkout = pathlib.Path(str(resources.files("tabsdata_dev.tool.smoke")))
+    repo = checkout.parents[7] / CHECKOUT_DIR
+    if (repo / SHARED).is_file():
+        return repo
+    raise FileNotFoundError(f"smoke scripts not found beside {beside} nor at {repo}")
 
 
 def scripts() -> list[pathlib.Path]:

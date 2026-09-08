@@ -97,19 +97,12 @@ def test_every_cluster_smoke_runs_on_its_own_copy_of_the_kubeconfig():
 
 
 def test_every_cluster_smoke_requires_the_options_it_cannot_guess():
-    """A cluster run reaches a named cluster in a named namespace and installs
-    from a named index. A default for any of those is either a confusing failure
-    or a quiet success somewhere nobody meant to touch, so all six are required
-    -- and common_help paints them red on the page."""
+    """A cluster run reaches a named cluster, and there is no sane default for
+    which one -- so the four that name it are required and common_help paints
+    them red. The namespace and the index are not among them: the run's own
+    --name makes a namespace, and no index means whatever uv already uses."""
     root = smoke.scripts_dir()
-    needed = {
-        "--name",
-        "--kube-config",
-        "--kube-context",
-        "--kube-namespace",
-        "--td-version",
-        "--uv-index",
-    }
+    needed = {"--name", "--kube-config", "--kube-context", "--td-version"}
     for path in sorted(root.glob("smoke-*.sh")):
         text = path.read_text()
         if "KUBECTL=(" not in text:

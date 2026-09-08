@@ -17,16 +17,15 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # The same contract as the cluster flavours, minus the three that name a cluster
 # a kminus run does not have: it brings its own. A default for what is left is
 # either a confusing failure or a quiet install from the wrong index.
-REQUIRED_OPTIONS="--name --td-version --uv-index"
+REQUIRED_OPTIONS="--name --td-version"
 
 usage() {
     cat <<'HELP' | common_help "$REQUIRED_OPTIONS"
-usage: smoke-km.sh --name NAME --td-version VERSION --uv-index URI
-                   [--tabsdata-extras EXTRAS] [--venv-type pyenv|uv|conda]
-                   [--python-version VERSION] [--port PORT]
-                   [--suites LIST] [--llm anthropic|openai]
-                   [--expect-pods LIST] [--force] [--keep] [--stop-after STAGE] [--log FILE]
-                   [--tdd-dir DIR] [--verbose]
+usage: smoke-km.sh --name NAME --td-version VERSION
+                   [--uv-index URI] [--llm-domain SYSTEM] [--td-extras EXTRAS]
+                   [--venv-type pyenv|uv|conda] [--py-version VERSION] [--port PORT]
+                   [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep]
+                   [--start-from STAGE] [--stop-after STAGE] [--log FILE] [--tdd-dir DIR] [--verbose]
 
 Tabsdata Kminus smoke test.
 
@@ -36,24 +35,25 @@ options:
                       sm_NAME__<what>: the domains and the xp instances/projects
   --td-version VERSION
                       REQUIRED: the tabsdata release to install, tabsdata[EXTRAS]==VERSION
-  --tabsdata-extras EXTRAS
+  --td-extras EXTRAS
                       the extras to install (default: all). tabsdata is a
                       meta-package: without the right extras (server, cli,
                       conn-*, ...) the venv has no working tdkserver
   --venv-type TYPE    pyenv, uv or conda (default: pyenv)
-  --python-version VERSION
+  --py-version VERSION
                       interpreter for the venv (default: 3.12.13)
   --port PORT         base port for the instance (default: 10000)
-  --uv-index URI      REQUIRED: the Python package index, used by the tabsdata
-                      install (uv --index, unsafe-best-match) and passed to
-                      tdkserver quickstart --uv-index for the instance's pods
-  --suites LIST       comma-separated xp suite selectors to run, one stage each;
+  --uv-index URI      the Python package index, used by the tabsdata install
+                      (uv --index, unsafe-best-match) and passed to tdkserver
+                      quickstart --uv-index for the instance's pods
+                      (default: none -- whatever uv is already configured with)
+  --xp-suites LIST    comma-separated xp suite selectors to run, one stage each;
                       <type>/<name> for one definition, <type> for every
                       definition in that dir -- see `tdd xp list-suites`
                       (default: test,tableframe_api,dataquality,grok,
                       container-connectors,cloud-connectors)
-  --llm anthropic|openai
-                      create a domain on that system (sm_NAME__llm_<llm>; the system
+  --llm-domain SYSTEM
+                      create a domain on that system (sm_NAME__<system>; the system
                       must be in the tdd store), read its API key and hand it to
                       quickstart as --<llm>-key, so the aiagent works; the domain
                       is destroyed at the end unless --keep (default: no LLM)
@@ -70,6 +70,9 @@ options:
                       (default: no -- the running instance is deleted, tdkserver
                       delete tearing it down and trashing its folder, and the venv
                       deleted; a failed run always leaves everything standing)
+  --start-from STAGE  skip the stages before STAGE -- their commands, not the
+                      values they read. Only meaningful against what a previous
+                      --keep left standing: nothing is recreated
   --stop-after STAGE  stop (exit 0, everything left standing) after the named
                       stage -- any name the screen prints, e.g. systems,
                       quickstart, xp-<suite> (/ replaced by _), cleanup
@@ -86,18 +89,19 @@ HELP
 }
 
 NAME=""                  # required; everything is sm_$NAME
-LLM=""                   # anthropic | openai | empty
+LLM_SYSTEM=""            # --llm-domain: none unless asked for
 EXPECT_PODS="srv-apiserver,srv-database"
 VENV_TYPE="pyenv"
 PYTHON="3.12.13"
 TD_VERSION=""     # required
-TABSDATA_EXTRAS="all"
+TD_EXTRAS="all"
 PORT="10000"
 UV_INDEX_URI=""
 SUITES="test,tableframe_api,dataquality,grok,container-connectors,cloud-connectors"
 FORCE=""                 # 1 with --force; empty otherwise
 KEEP=""                  # 1 with --keep; empty otherwise (so ${KEEP:+--keep} works)
 STOP_AFTER=""
+START_FROM=""
 LOG=""
 VERBOSE=0
 TDD_DIR_OPT="${TDD_DIR:-$HOME/.tdd}"
@@ -108,17 +112,18 @@ oracledb==3.2.0"
 while [ $# -gt 0 ]; do
     case "$1" in
         --name) NAME="$2"; shift 2 ;;
-        --llm) LLM="$2"; shift 2 ;;
+        --llm-domain) LLM_SYSTEM="$2"; shift 2 ;;
         --expect-pods) EXPECT_PODS="$2"; shift 2 ;;
         --venv-type) VENV_TYPE="$2"; shift 2 ;;
-        --python-version) PYTHON="$2"; shift 2 ;;
+        --py-version) PYTHON="$2"; shift 2 ;;
         --td-version) TD_VERSION="$2"; shift 2 ;;
-        --tabsdata-extras) TABSDATA_EXTRAS="$2"; shift 2 ;;
+        --td-extras) TD_EXTRAS="$2"; shift 2 ;;
         --port) PORT="$2"; shift 2 ;;
         --uv-index) UV_INDEX_URI="$2"; shift 2 ;;
-        --suites) SUITES="$2"; shift 2 ;;
+        --xp-suites) SUITES="$2"; shift 2 ;;
         --force | -f) FORCE=1; shift ;;
         --keep) KEEP=1; shift ;;
+        --start-from) START_FROM="$2"; shift 2 ;;
         --stop-after) STOP_AFTER="$2"; shift 2 ;;
         --log) LOG="$2"; shift 2 ;;
         --tdd-dir) TDD_DIR_OPT="$2"; shift 2 ;;
@@ -128,13 +133,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "smoke-km: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
-case "$LLM" in "" | anthropic | openai) ;; *) echo "smoke-km: --llm must be anthropic or openai" >&2; exit 1 ;; esac
 missing=""
 for _need in $REQUIRED_OPTIONS; do
     case "$_need" in
         --name) [ -n "$NAME" ] || missing="$missing $_need" ;;
         --td-version) [ -n "$TD_VERSION" ] || missing="$missing $_need" ;;
-        --uv-index) [ -n "$UV_INDEX_URI" ] || missing="$missing $_need" ;;
     esac
 done
 if [ -n "$missing" ]; then
@@ -147,24 +150,24 @@ NAMES_PREFIX="$BASE"     # what the failure summary tells the reader to look for
 INSTANCE="$BASE"
 VENV="$BASE"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-LLM_DOMAIN="${LLM:+${BASE}__llm_${LLM}}"
+LLM_DOMAIN="${LLM_SYSTEM:+${BASE}__${LLM_SYSTEM}}"
 XP_PROJECTS=""           # the xp instance/project names this run creates, for --keep and failures
 SMOKE_DOMAINS="$LLM_DOMAIN"   # domains this run creates outside xp (common_tabsdata_setup_info lists them)
 EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
 LOG="${LOG:-/tmp/smoke-$INSTANCE-$STAMP.log}"
 WORK="$(mktemp -d "/tmp/smoke-$INSTANCE-$STAMP.XXXX")"
 SERVER="localhost:$PORT"
-TABSDATA_SPEC="tabsdata[$TABSDATA_EXTRAS]==$TD_VERSION"
+TABSDATA_SPEC="tabsdata[$TD_EXTRAS]==$TD_VERSION"
 TDK_OPTS=(-y --accept-terms y)       # after `rm -rf ~/.tabsdata` every tdkserver call must accept the terms again
 SUITE_LIST=()
 for suite in $(printf '%s' "$SUITES" | tr ',' ' '); do SUITE_LIST[${#SUITE_LIST[@]}]="$suite"; done
 if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
-    echo "smoke-km: --suites needs at least one selector" >&2
+    echo "smoke-km: --xp-suites needs at least one selector" >&2
     exit 1
 fi
 STAGE_NAMES=(unset-td unset-pypi set-crypto systems pycache clean-previous create-venv install)
 [ "$TD_VERSION" = "2.0.2" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="cdc-driver"
-[ -n "$LLM" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="llm-domain"
+[ -n "$LLM_SYSTEM" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="llm-domain"
 for stage in quickstart pods-1 login-1 stop-1 venv-update start pods-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
 for suite in "${SUITE_LIST[@]}"; do STAGE_NAMES[${#STAGE_NAMES[@]}]="xp-$(printf '%s' "$suite" | tr '/' '_')"; done
 STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
@@ -193,16 +196,17 @@ common_init "$LOG" "$VERBOSE"
 common_screen "smoke-km: effective options"
 common_screen "  --name              $NAME   -> instance and venv $BASE, domains and xp names ${BASE}__<what>"
 common_screen "  --venv-type         $VENV_TYPE"
-common_screen "  --python-version    $PYTHON"
+common_screen "  --py-version    $PYTHON"
 common_screen "  --td-version        $TD_VERSION"
-common_screen "  --tabsdata-extras   $TABSDATA_EXTRAS   -> installs $TABSDATA_SPEC"
+common_screen "  --td-extras   $TD_EXTRAS   -> installs $TABSDATA_SPEC"
 common_screen "  --port              $PORT   -> server $SERVER"
 common_screen "  --uv-index          $(common_display "${UV_INDEX_URI:-(none)}")"
-common_screen "  --suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
-common_screen "  --llm               ${LLM:-(none)}${LLM:+   -> domain $LLM_DOMAIN}"
+common_screen "  --xp-suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
+common_screen "  --llm-domain        ${LLM_SYSTEM:-(none)}${LLM_SYSTEM:+   -> domain $LLM_DOMAIN}"
 common_screen "  --expect-pods       $EXPECT_PODS"
 common_screen "  --force             $([ -n "$FORCE" ] && echo "yes (replace an existing venv/instance)" || echo "no (an existing venv/instance is an error)")"
 common_screen "  --keep              $([ -n "$KEEP" ] && echo "yes (also: xp one-shot --keep)" || echo "no (domains, instance and venv deleted at the end)")"
+common_screen "  --start-from        ${START_FROM:-(from the first stage)}"
 common_screen "  --stop-after        ${STOP_AFTER:-(run everything)}"
 common_screen "  --log               $LOG"
 common_screen "  --tdd-dir           $TDD_DIR_OPT"
@@ -240,7 +244,7 @@ for suite in "${SUITE_LIST[@]}"; do
     common_run tdd xp list-systems --suite "$suite"
 done
 # status checks the LLM credential is there without printing it
-[ -z "$LLM" ] || common_run tdd system status --sys "$LLM"
+[ -z "$LLM_SYSTEM" ] || common_run tdd system status --sys "$LLM_SYSTEM"
 common_checkpoint systems
 
 common_stage pycache "purge tabsdata from the uv and pip caches"
@@ -290,20 +294,20 @@ if [ "$TD_VERSION" = "2.0.2" ]; then
     common_remark "workaround: tabsdata 2.0.2 ships no psycopg2 with its Postgres connector; psycopg2-binary was installed into $VENV so the CDC plugin loads"
 fi
 
-if [ -n "$LLM" ]; then
-    common_stage llm-domain "domain $LLM_DOMAIN on $LLM, its API key for quickstart"
+if [ -n "$LLM_SYSTEM" ]; then
+    common_stage llm-domain "domain $LLM_DOMAIN on $LLM_SYSTEM, its API key for quickstart"
     # The key is eval'd into THIS shell, never echoed; the quickstart command
     # line masks --<llm>-key when displayed.
-    common_run tdd domain create --sys "$LLM" --domain "$LLM_DOMAIN" --force
+    common_run tdd domain create --sys "$LLM_SYSTEM" --domain "$LLM_DOMAIN" --force
     common_note "eval \$(tdd domain info --domain $LLM_DOMAIN --format export --prefix LLM)   (the key is not shown)"
     eval "$(tdd domain info --domain "$LLM_DOMAIN" --format export --prefix LLM 2>/dev/null)"
     common_run test -n "${LLM__API_KEY:+set}"
     common_checkpoint llm-domain
 fi
 
-common_stage quickstart "tdkserver quickstart --instance $INSTANCE (kminus${LLM:+, $LLM key from $LLM_DOMAIN}${LLM:-, no LLM key})"
+common_stage quickstart "tdkserver quickstart --instance $INSTANCE (kminus${LLM_SYSTEM:+, $LLM_SYSTEM key from $LLM_DOMAIN}${LLM_SYSTEM:-, no LLM key})"
 # shellcheck disable=SC2086
-common_run tdd tdkserver quickstart --instance "$INSTANCE" --provider kminus --port "$PORT" ${UV_INDEX_URI:+--uv-index "$UV_INDEX_URI"} ${LLM:+--$LLM-key "$LLM__API_KEY"} "${TDK_OPTS[@]}"
+common_run tdd tdkserver quickstart --instance "$INSTANCE" --provider kminus --port "$PORT" ${UV_INDEX_URI:+--uv-index "$UV_INDEX_URI"} ${LLM_SYSTEM:+--$LLM_SYSTEM-key "$LLM__API_KEY"} "${TDK_OPTS[@]}"
 common_run common_tdkserver_expect "$INSTANCE" running
 common_checkpoint quickstart
 
