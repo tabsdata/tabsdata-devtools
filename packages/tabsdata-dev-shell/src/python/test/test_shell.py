@@ -548,8 +548,11 @@ def test_tdd_help_is_laid_out_by_the_same_engine_as_every_command_help():
     assert '"$(_tdd_help_text' not in body
     # plain text in, so the sections are bare `word:` lines the engine knows --
     # and the same ones argparse prints, `positional arguments:` included
-    for heading in ("positional arguments:", "options:", "command config:"):
+    for heading in ("positional arguments:", "options:"):
         assert f"\n{heading}\n" in body, heading
+    # and nothing about a command's config file: `config` is a command's own
+    # action, not something the front door takes or explains
+    assert "config" not in body
     # the commands are a nested block under SUBCOMMAND, indented four, the way
     # argparse lays a subparser list out
     assert "  SUBCOMMAND\n" in body and 'printf "    %s%s  %s' in body
@@ -628,8 +631,12 @@ def test_env_can_resource_the_generated_source_file():
 
 def test_the_defaults_command_is_gone_in_favour_of_config():
     assert not (shell.scripts_dir() / "defaults.sh").exists()
+    # the old shared file is gone, and so is every mention of it: a command's
+    # defaults live in its own <command>.toml, reached through its own `config`
     text = shell.source_template()
-    assert "config --create" in text and "default-opts" not in text
+    assert "default-opts" not in text and "defaults.sh" not in text
+    for name in ("venv", "env", "pycache", "tdd-env"):
+        assert "_tdd_config_action" in (shell.scripts_dir() / f"{name}.sh").read_text()
 
 
 def test_the_shell_paints_help_the_way_the_python_half_does():

@@ -198,7 +198,7 @@ _tdd_help() {
     _tdd_rows="$(_tdd_help_rows)"
     if [ "$_TDD_FORMAT" = json ]; then
         _tdd_ok "$(printf '%s\n' "$_tdd_rows" | grep -c .) commands" \
-            "\"tdd_dir\":\"$(_tdd_json_str "$TDD_DIR")\",\"options\":[\"--dir\",\"--format\",\"--verbose\",\"--help\",\"--version\",\"--reqs\"],\"commands\":$(_tdd_rows_json "$_tdd_rows"),\"config\":{\"file\":\"$(_tdd_json_str "$TDD_DIR/<command>.toml")\",\"tables\":[\"options\",\"options.<action>\"],\"syntax\":\"a TOML key per option, typed options win\",\"action\":\"tdd <command> config --create|--default|--show\"}"
+            "\"tdd_dir\":\"$(_tdd_json_str "$TDD_DIR")\",\"options\":[\"--dir\",\"--format\",\"--verbose\",\"--help\",\"--version\",\"--reqs\"],\"commands\":$(_tdd_rows_json "$_tdd_rows")"
     else
         # Laid out and painted by `_tdd_help_text`, the engine every command's
         # help goes through -- which is what keeps the front door from looking
@@ -227,10 +227,6 @@ options:
   --version, -V  the version stamped into that dir
   --reqs [TOOL]  report the external binaries every tool needs; exit 1 if one is missing
   (--dir, --format and --verbose come before the command word)
-
-command config:
-  <command>.toml  in $TDD_DIR: its [options] and [options.<action>] tables are what that command's options default to, and a typed option wins over them
-  config --create  writes that file; config --show says what applies now
 
 TDD_DIR=$TDD_DIR
 HELP

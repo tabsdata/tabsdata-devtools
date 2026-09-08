@@ -28,9 +28,10 @@ executable cannot do -- change the calling shell (venvs, variables, prompt).
 ## How it works
 
 - `tdd -h` is the front door's own help, built here rather than by `tdd-exe`, and laid out by
-  `_tdd_help_text` like every command's: commands, then `options:` (`--dir`, `--version`,
-  `--reqs`, plus the three the engine supplies for everyone), then where a command's config file
-  is. Going through the engine rather than painting by hand is what keeps the front door from
+  `_tdd_help_text` like every command's: the commands, then `options:` (`--dir`, `--version`,
+  `--reqs`, plus the three the engine supplies for everyone). Nothing about a command's config
+  file: `config` is an action each command has, not one the front door takes.
+  Going through the engine rather than painting by hand is what keeps the front door from
   looking like a different program; it is **printed, never captured**, since `[ -t 1 ]` inside a
   `$(...)` sees the capture pipe. The options block matters at all because the front door is a
   shell function -- nothing else documents what it takes before the command word.
