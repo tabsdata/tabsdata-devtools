@@ -56,24 +56,35 @@ tddfn_pycache() {
 
 _tdd_pycache_help() {
     _tdd_help_text <<'HELP'
-usage: tdd pycache clean [--package-prefixes PREFIX[,PREFIX...]] [--all]
+usage: tdd pycache [-h] [-v] [--format {json,view}] SUBCOMMAND ...
 
-Remove packages from the uv cache and the pip cache. Package names come from
-the versioned entries the caches hold; `uv cache clean` skips editable builds
-(keyed by source path, not name) and their unpacked archives, so those are
-swept too. Entries inside cached environments are reported, not removed.
+purge packages from the uv and pip caches, so a rebuilt wheel of the same version is never
+served stale
 
-commands:
-  clean     purge the caches
-  config    this command's config file: --show, --default, --create [--force]
-
-options:
-  --package-prefixes PREFIXES
-            comma-separated name prefixes; every cached package whose name
-            starts with one is purged (default: tabsdata)
-  --all     purge both caches entirely instead
+positional arguments:
+  SUBCOMMAND
+    clean  purge the caches, by package name prefix or entirely
+    config  this command's config file: --show, --default, --create [--force]
 
 example: tdd pycache clean --package-prefixes tabsdata,td-
+HELP
+}
+
+_tdd_pycache_help_clean() {
+    _tdd_help_text <<'HELP'
+usage: tdd pycache clean [--package-prefixes PREFIX[,PREFIX...]] [--all]
+
+Remove packages from the uv cache and the pip cache. Package names come from the versioned
+entries the caches hold, since `uv cache clean` wants exact names; editable and path builds
+are keyed by source hash rather than by name, so uv skips them and they are swept by hand,
+along with their unpacked archives. An entry inside a cached environment uv still references
+is reported, not removed (`uv cache prune` takes those once unused, and --all takes
+everything). pip is done by prefix too, in both the - and _ spellings, and no pip on PATH is
+a warning and a uv-only clean.
+
+options:
+  --package-prefixes PREFIXES  comma-separated name prefixes; every cached package whose name starts with one is purged (default: tabsdata)
+  --all  purge both caches entirely instead
 HELP
 }
 
@@ -107,7 +118,7 @@ _tdd_pycache_clean() {
         esac
     done
     if [ "$_TDD_HELP" = 1 ]; then
-        _tdd_pycache_help
+        _tdd_pycache_help_clean
         return 0
     fi
     _tdd_cmd_check || return 1

@@ -185,13 +185,17 @@ _tdd_help_text() {
         }
         return out ind line
     }
-    function entry(term, help,   pad) {
-        if (help == "") { print paint("  " term); return }
-        if (length(term) <= HC - 4) {
-            pad = sprintf("%-" (HC - 2) "s", term)
-            print paint(wrap(help, "  " pad, sp(HC), W))
+    function entry(term, help,   pad) { indented(2, term, help) }
+    # argparse indents a subcommand four and keeps the description column, so
+    # `positional arguments:` reads as a list under its SUBCOMMAND heading.
+    function entry4(term, help,   pad) { indented(4, term, help) }
+    function indented(n, term, help,   pad) {
+        if (help == "") { print paint(sp(n) term); return }
+        if (length(term) <= HC - n - 2) {
+            pad = sprintf("%-" (HC - n) "s", term)
+            print paint(wrap(help, sp(n) pad, sp(HC), W))
         } else {
-            print "  " term
+            print sp(n) term
             print wrap(help, sp(HC), sp(HC), W)
         }
     }
@@ -205,7 +209,10 @@ _tdd_help_text() {
     function section(b,   k) {
         print ""; print paint(btext[b])
         if (btext[b] == "options:") common()
-        for (k = 0; k < nent[b]; k++) entry(eterm[b, k], ehelp[b, k])
+        for (k = 0; k < nent[b]; k++) {
+            if (edeep[b, k]) entry4(eterm[b, k], ehelp[b, k])
+            else entry(eterm[b, k], ehelp[b, k])
+        }
     }
     BEGIN { W = width - 2; if (W < 40) W = 40; HC = 24; n = 0; nb = 0; para = "" }
     { lines[n++] = $0 }
@@ -222,11 +229,13 @@ _tdd_help_text() {
                 gap = 0; continue
             }
             if (cur >= 0 && l ~ /^ /) {
-                if (l ~ /^  [^ ]/) {
-                    t = substr(l, 3)
+                if (l ~ /^  [^ ]/ || l ~ /^    [^ ]/) {
+                    deep = (l ~ /^    [^ ]/)
+                    t = substr(l, deep ? 5 : 3)
                     if (match(t, /  +/)) { term = substr(t, 1, RSTART - 1); help = substr(t, RSTART + RLENGTH) }
                     else { term = t; help = "" }
                     k = nent[cur]++; eterm[cur, k] = term; ehelp[cur, k] = help
+                    edeep[cur, k] = deep
                 } else if (nent[cur] > 0) {
                     k = nent[cur] - 1; sub(/^ +/, "", l)
                     ehelp[cur, k] = (ehelp[cur, k] == "" ? l : ehelp[cur, k] " " l)

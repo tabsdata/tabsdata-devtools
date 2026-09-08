@@ -87,64 +87,72 @@ tddfn_env() {
 
 _tdd_vars_help() {
     _tdd_help_text <<'HELP'
-usage: tdd env set (--crypto | --secrets | --py-idx URL | --py-default-idx URL)...
-                   [--vault 1p:VAULT] [--item ITEM] [--field FIELD]
-                   [--value VALUE] [--force]
-       tdd env unset (--crypto | --secrets | --td | --vars PREFIX | --py-idx
-                     | --py-default-idx)...
-       tdd env show [--reveal]
+usage: tdd env [-h] [-v] [--format {json,view}] SUBCOMMAND ...
 
-Set, unset or show the environment variables tdd manages, in THIS shell: the
-descriptor crypto key, the 1Password secrets, the TD_ variables and the Python
-package index variables. Several selections may be combined in one call.
+set, unset or show the variables tdd manages in this shell: the descriptor crypto key, the
+1Password secrets, tabsdata's TD_ settings and the Python index variables
 
-commands:
-  set        export the selected variables; the crypto key and the secrets come
-             from 1Password through `tdd system crypto-key` and `tdd system
-             secrets` (--format export, eval'd here; nothing is written to disk)
-  unset      remove the selected variables
-  show       every variable these commands handle, NAME=value when set, -NAME
-             when not, in three sorted groups: TD (every variable starting with
-             TD), PyPi (the index variables) and Secrets
-
-  config     this command's config file: --show, --default, --create [--force]
-options:
-  --crypto             _TDD_CRYPTO_KEY, the key that encrypts the system
-                       and domain descriptors; set reads op://VAULT/ITEM/FIELD --
-                       only when the variable is not already set, unless --force
-                       (or --value, which reads nothing)
-  --secrets            every <PREFIX>__<KEY> secret of a shared vault plus
-                       _TDD_SYSTEMS, the list of prefixes -- which is what
-                       unset reads to know what to remove
-  --vault 1p:VAULT     set: the vault to read from, as a provider ref
-                       (1p is the only provider today). Defaults: --crypto
-                       1p:Employee, --secrets 1p:dev_xp; no variable of the
-                       environment is consulted
-  --item ITEM          set --crypto: item in the vault (default: DevSecrets)
-  --field FIELD        set --crypto: field of the item (default:
-                       TD_BACKENDS_CRYPTO_KEY, the 1Password field's name)
-  --value VALUE        set --crypto: this value IS the key (at least 12
-                       characters); nothing is read from 1Password and the
-                       variable is replaced whether or not it is set. Not with
-                       --vault, --item or --field
-  -f, --force          set --crypto: fetch from 1Password even if
-                       _TDD_CRYPTO_KEY is already set
-  --td                 unset: every variable starting with TD_ (tabsdata's);
-                       tdd's own _TDD_SYSTEMS and _TDD_CRYPTO_KEY are not
-                       among them -- --secrets and --crypto remove those
-  --vars PREFIX        unset: every variable starting with PREFIX (repeatable).
-                       TDD_DIR, the tdd dir itself, is never unset
-  --py-idx [URL]       the extra Python package index: UV_INDEX and
-                       PIP_EXTRA_INDEX_URL, plus UV_INDEX_STRATEGY=unsafe-best-match
-                       so uv considers it (set needs URL; unset also clears the
-                       legacy UV_EXTRA_INDEX_URL)
-  --py-default-idx [URL]
-                       the default Python package index: UV_DEFAULT_INDEX and
-                       PIP_INDEX_URL (set needs URL; unset also clears the
-                       legacy UV_INDEX_URL)
-  --reveal             show: print credential values instead of masking them
+positional arguments:
+  SUBCOMMAND
+    set  export the selected variables, in this shell
+    unset  remove the selected variables
+    show  every variable these commands handle, set or not
+    config  this command's config file: --show, --default, --create [--force]
 
 example: tdd env set --crypto --secrets && tdd env show
+HELP
+}
+
+_tdd_vars_help_set() {
+    _tdd_help_text <<'HELP'
+usage: tdd env set (--crypto | --secrets | --py-idx URL | --py-default-idx URL)...
+                   [--vault 1p:VAULT] [--item ITEM] [--field FIELD] [--value VALUE] [--force]
+
+Export the selected variables in THIS shell; several selections combine in one call. The
+crypto key and the secrets come from 1Password, through `tdd system crypto-key` and `tdd
+system secrets` (--format export, eval'd here), so nothing is written to disk. Both vault
+defaults are literals: no variable of the environment decides which vault a key comes from.
+
+options:
+  --crypto  _TDD_CRYPTO_KEY, the key that encrypts the system and domain descriptors; read only when the variable is not already set, unless --force (or --value, which reads nothing)
+  --secrets  every <PREFIX>__<KEY> secret of a shared vault, plus _TDD_SYSTEMS, the prefix list that `unset --secrets` reads back
+  --py-idx URL  the extra Python package index: UV_INDEX and PIP_EXTRA_INDEX_URL, plus UV_INDEX_STRATEGY=unsafe-best-match so uv considers it
+  --py-default-idx URL  the default Python package index: UV_DEFAULT_INDEX and PIP_INDEX_URL
+  --vault 1p:VAULT  the vault to read from, as a provider ref (1p is the only provider today). Defaults: --crypto 1p:Employee, --secrets 1p:dev_xp
+  --item ITEM  --crypto: the item in the vault (default: DevSecrets)
+  --field FIELD  --crypto: the field of that item (default: TD_BACKENDS_CRYPTO_KEY)
+  --value VALUE  --crypto: this value IS the key (at least 12 characters); nothing is read from 1Password and the variable is replaced whether or not it is set. Not with --vault, --item or --field
+  -f, --force  --crypto: fetch from 1Password even if _TDD_CRYPTO_KEY is already set
+HELP
+}
+
+_tdd_vars_help_unset() {
+    _tdd_help_text <<'HELP'
+usage: tdd env unset (--crypto | --secrets | --td | --vars PREFIX | --py-idx | --py-default-idx)...
+
+Remove the selected variables from THIS shell; several selections combine in one call.
+
+options:
+  --crypto  _TDD_CRYPTO_KEY
+  --secrets  every secret _TDD_SYSTEMS names, and the list itself
+  --td  every variable starting with TD_ -- tabsdata's own. tdd's _TDD_SYSTEMS and _TDD_CRYPTO_KEY are not among them; --secrets and --crypto remove those
+  --vars PREFIX  every variable starting with PREFIX (repeatable). TDD_DIR, the tdd dir itself, is never unset
+  --py-idx  UV_INDEX and PIP_EXTRA_INDEX_URL, and the legacy UV_EXTRA_INDEX_URL with them
+  --py-default-idx  UV_DEFAULT_INDEX and PIP_INDEX_URL, and the legacy UV_INDEX_URL with them
+HELP
+}
+
+_tdd_vars_help_show() {
+    _tdd_help_text <<'HELP'
+usage: tdd env show [--reveal]
+
+Every variable these commands handle, NAME=value when set and -NAME when not, in three sorted
+groups: TD (every variable starting with TD, plus _TDD_CRYPTO_KEY, and _TDD_SYSTEMS while it
+is set), PyPi (the index variables) and Secrets. A value whose name says PASSWORD, SECRET,
+TOKEN, KEY, PASS or _PAT is masked in every group.
+
+options:
+  --reveal  print those values instead of masking them
 HELP
 }
 
@@ -215,7 +223,7 @@ _tdd_vars_set() {
         esac
     done
     if [ "$_TDD_HELP" = 1 ]; then
-        _tdd_vars_help
+        _tdd_vars_help_set
         return 0
     fi
     _tdd_cmd_check || return 1
@@ -326,7 +334,7 @@ _tdd_vars_unset() {
         esac
     done
     if [ "$_TDD_HELP" = 1 ]; then
-        _tdd_vars_help
+        _tdd_vars_help_unset
         return 0
     fi
     _tdd_cmd_check || return 1
@@ -431,7 +439,7 @@ _tdd_vars_show() {
         esac
     done
     if [ "$_TDD_HELP" = 1 ]; then
-        _tdd_vars_help
+        _tdd_vars_help_show
         return 0
     fi
     _tdd_cmd_check || return 1

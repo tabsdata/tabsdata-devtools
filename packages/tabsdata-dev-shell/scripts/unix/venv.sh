@@ -79,51 +79,88 @@ _tdd_venv_root() {
 
 _tdd_venv_help() {
     _tdd_help_text <<'HELP'
-usage: tdd venv create --name NAME [--type {pyenv,uv,conda}]
-                       [--python VERSION] [--force]
-       tdd venv activate --name NAME
-       tdd venv deactivate [--force]
-       tdd venv delete (--name NAME | --all)
-       tdd venv list
+usage: tdd venv [-h] [-v] [--format {json,view}] SUBCOMMAND ...
 
-Managed virtualenvs, all under $TDD_DIR/managed-venvs/<type>/<name>. A
-<name>.env file beside them records the type, so every subcommand -- and the
-tdk launchers -- know which tool to use. The active one is named by _TDD_VENV;
-a managed venv found active without that record (a shell from before a
-reinstall, bin/activate sourced by hand) is adopted as the active one.
+managed virtualenvs (pyenv, uv or conda) under $TDD_DIR/managed-venvs, entered and left in the
+calling shell
 
-commands:
-  create        make a venv and enter it. Refuses while a venv tdd did not
-                activate is active; switches from a managed one. With --force
-                an existing NAME is deleted first, even the active one
-  activate      enter it, in this shell: the prompt shows (<type>/PYTHON/NAME) in green and
-                _TDD_VENV=NAME is exported, which `tdd tdk` and `tdd tdkserver`
-                read. Switches if another managed venv is active; refuses if a
-                venv tdd did not activate is (deactivate that one first)
-  deactivate    leave the active managed venv. A venv tdd did not activate,
-                or a stale record (recorded, nothing active), is an error
-                that says so; with --force the venv is left anyway -- best
-                effort: venv/uv through its deactivate, pyenv-virtualenv
-                through pyenv deactivate, conda through conda deactivate --
-                or the stale record dropped
-  delete        remove it and its marker; refuses while it is active. --all
-                removes every managed venv, none of which may be active
-  list          every managed venv with its type and path
-  config        this command's config file: --show, --default, --create [--force]
+positional arguments:
+  SUBCOMMAND
+    create  make a venv and enter it
+    activate  enter one, in this shell
+    deactivate  leave the active managed venv
+    delete  remove a venv, or every one of them
+    list  every managed venv with its type and path
+    config  this command's config file: --show, --default, --create [--force]
 
-options:
-  --name NAME              the venv
-  --all                    delete: every managed venv instead of one
-  -f, --force              create: delete NAME first if it exists (leaving it
-                           if it is the active one); deactivate: leave a venv
-                           tdd did not activate, or drop a stale record
-  --type {pyenv,uv,conda}  the tool that creates it (default: pyenv)
-  --python VERSION         interpreter for create: pyenv needs it installed
-                           already (pyenv install VERSION), uv and conda fetch
-                           it (default: 3.12.13, what a tdkserver instance
-                           builds its own environments with)
+A <name>.env file beside them records the type, so every subcommand -- and the tdk launchers
+-- know which tool to use. The active one is named by _TDD_VENV; a managed venv found active
+without that record (a shell from before a reinstall, bin/activate sourced by hand) is adopted
+as the active one.
 
 example: tdd venv create --name scratch --type uv --python 3.12.13
+HELP
+}
+
+_tdd_venv_help_create() {
+    _tdd_help_text <<'HELP'
+usage: tdd venv create --name NAME [--type {pyenv,uv,conda}] [--python VERSION] [--force]
+
+Make a venv and enter it. Refuses while a venv tdd did not activate is active; switches from a
+managed one. With --force an existing NAME is deleted first, even the active one.
+
+options:
+  --name NAME  the venv
+  --type {pyenv,uv,conda}  the tool that creates it (default: pyenv). A pyenv venv is a plain `python -m venv` on a pyenv interpreter; conda gets its shell hook installed on the fly when the rc did not
+  --python VERSION  the interpreter (default: 3.12.13, what a tdkserver instance builds its own environments with). pyenv needs it installed already (pyenv install VERSION); uv and conda fetch it
+  -f, --force  delete NAME first if it exists, leaving it if it is the active one
+HELP
+}
+
+_tdd_venv_help_activate() {
+    _tdd_help_text <<'HELP'
+usage: tdd venv activate --name NAME
+
+Enter it, in this shell: the prompt shows (<type>/PYTHON/NAME) in green and _TDD_VENV=NAME is
+exported, which `tdd tdk`, `tdd tdkserver` and `tdd km` read. Switches if another managed venv
+is active; refuses if a venv tdd did not activate is -- deactivate that one first.
+
+options:
+  --name NAME  the venv
+HELP
+}
+
+_tdd_venv_help_deactivate() {
+    _tdd_help_text <<'HELP'
+usage: tdd venv deactivate [--force]
+
+Leave the active managed venv and restore the prompt. A venv tdd did not activate, or a stale
+record (recorded, nothing active), is an error that says so.
+
+options:
+  -f, --force  leave it anyway, best effort -- venv and uv through their own deactivate, pyenv-virtualenv through `pyenv deactivate`, conda through `conda deactivate` -- or drop the stale record
+HELP
+}
+
+_tdd_venv_help_delete() {
+    _tdd_help_text <<'HELP'
+usage: tdd venv delete (--name NAME | --all)
+
+Remove a venv and its marker. Refuses while it is active: the shell would be left standing in
+a deleted venv.
+
+options:
+  --name NAME  the venv
+  --all  every managed venv instead of one, and none of them may be active
+HELP
+}
+
+_tdd_venv_help_list() {
+    _tdd_help_text <<'HELP'
+usage: tdd venv list
+
+Every managed venv with its type and path. The only subcommand that touches neither the shell
+nor the disk.
 HELP
 }
 
@@ -209,7 +246,7 @@ _tdd_venv_create() {
         esac
     done
     if [ "$_TDD_HELP" = 1 ]; then
-        _tdd_venv_help
+        _tdd_venv_help_create
         return 0
     fi
     _tdd_cmd_check || return 1
@@ -462,7 +499,7 @@ _tdd_venv_enter() {
 _tdd_venv_activate() {
     _tdd_venv_parse_name "$@" || return 1
     if [ "$_TDD_HELP" = 1 ]; then
-        _tdd_venv_help
+        _tdd_venv_help_activate
         return 0
     fi
     _tdd_cmd_check || return 1
@@ -555,7 +592,7 @@ _tdd_venv_deactivate() {
         esac
     done
     if [ "$_TDD_HELP" = 1 ]; then
-        _tdd_venv_help
+        _tdd_venv_help_deactivate
         return 0
     fi
     _tdd_cmd_check || return 1
@@ -635,7 +672,7 @@ _tdd_venv_delete() {
         esac
     done
     if [ "$_TDD_HELP" = 1 ]; then
-        _tdd_venv_help
+        _tdd_venv_help_delete
         return 0
     fi
     _tdd_cmd_check || return 1
@@ -688,7 +725,7 @@ _tdd_venv_list() {
         shift "$_TDD_CONSUMED"
     done
     if [ "$_TDD_HELP" = 1 ]; then
-        _tdd_venv_help
+        _tdd_venv_help_list
         return 0
     fi
     _tdd_cmd_check || return 1

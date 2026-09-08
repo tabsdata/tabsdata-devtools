@@ -212,16 +212,19 @@ _tdd_help() {
         # Printed, never captured: `[ -t 1 ]` inside a $(...) sees the capture
         # pipe and would paint nothing. Every command's help prints this way.
         _tdd_help_text <<HELP
-usage: tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
-       tdd [--dir TDD_PATH] (--help | --version | --reqs [TOOL])
+usage: tdd [-h] [-v] [--format {json,view}] [--dir TDD_PATH] [-V] [--reqs [TOOL]]
+           SUBCOMMAND ...
 
-commands:
-$(printf '%s\n' "$_tdd_rows" | awk -F'\t' '{ printf "  %s%s  %s\n", ($2 == "*" ? "* " : ""), $1, $3 }')
+the front door: run one of the tools, or one of the shell commands that change this shell
+
+positional arguments:
+  SUBCOMMAND
+$(printf '%s\n' "$_tdd_rows" | awk -F'\t' '{ printf "    %s%s  %s\n", ($2 == "*" ? "* " : ""), $1, $3 }')
   (a * marks a command that runs in this shell, so that it can change it)
 
 options:
   --dir TDD_PATH  the tdd dir to use (default: \$TDD_DIR, else ~/.tdd)
-  --version, -V  the version stamped into the tdd dir
+  --version, -V  the version stamped into that dir
   --reqs [TOOL]  report the external binaries every tool needs; exit 1 if one is missing
   (--dir, --format and --verbose come before the command word)
 

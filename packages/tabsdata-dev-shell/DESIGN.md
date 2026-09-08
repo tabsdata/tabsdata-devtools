@@ -15,10 +15,13 @@ executable cannot do -- change the calling shell (venvs, variables, prompt).
   module in a wheel. Installed into `<tdd_dir>/tdd-venvs/shells`.
 - Each command: `<name>.sh` (registers with `tdd_fn_register`, defines `tddfn_<name>`, declares
   `tdd_defaults_<name>`, which is also the `config` action's template), optional
-  `<name>.bin-reqs.txt`, and `<name>.design.md`.
+  `<name>.bin-reqs.txt`, and `<name>.design.md`. Help is one document per subcommand as well as
+  one for the command, since `-h` after a subcommand word answers about that subcommand -- which
+  is what lets the listing be one line each, as argparse's is.
 - `common.sh` is the shared layer every command sources through `$_TDD_COMMON_SH`: option
   parsing, the event model rendered with `jq`, colours, the failure log, `_tdd_help_text`
-  (argparse-layout help), `_tdd_ps1_wrap` (prompt colours), and the `config` action
+  (argparse's page, laid out and painted -- `positional arguments:` with the subcommands
+  nested under `SUBCOMMAND`, then `options:` with the three every command shares supplied), `_tdd_ps1_wrap` (prompt colours), and the `config` action
   (`_tdd_config_action`), whose `--show` paints every row the way `common.core.config.show` does.
   `common.bin-reqs.txt` (`jq`, `awk`) is folded into every command's requirements.
 

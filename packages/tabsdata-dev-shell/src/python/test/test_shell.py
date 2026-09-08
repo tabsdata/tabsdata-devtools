@@ -546,9 +546,13 @@ def test_tdd_help_is_laid_out_by_the_same_engine_as_every_command_help():
     assert "_tdd_help_text <<HELP" in body
     # printed, never captured: inside $(...) the tty test sees the capture pipe
     assert '"$(_tdd_help_text' not in body
-    # plain text in, so the sections are bare `word:` lines the engine knows
-    for heading in ("commands:", "options:", "command config:"):
+    # plain text in, so the sections are bare `word:` lines the engine knows --
+    # and the same ones argparse prints, `positional arguments:` included
+    for heading in ("positional arguments:", "options:", "command config:"):
         assert f"\n{heading}\n" in body, heading
+    # the commands are a nested block under SUBCOMMAND, indented four, the way
+    # argparse lays a subparser list out
+    assert "  SUBCOMMAND\n" in body and 'printf "    %s%s  %s' in body
     # its own three; the shared three come from the engine, not from here
     for option in ("--dir TDD_PATH", "--version, -V", "--reqs [TOOL]"):
         assert option in body, option
@@ -557,6 +561,40 @@ def test_tdd_help_is_laid_out_by_the_same_engine_as_every_command_help():
     assert "_tdd_hb" not in body and "\\033[36m" not in body
     # json says the same six
     assert '\\"options\\":' in body
+
+
+def test_every_shell_command_helps_the_way_argparse_does(tmp_path):
+    """One shape for every help in the repo, `tdd gsx`'s: a usage line naming
+    the command as it is run, a description, the subcommands as a nested block
+    under SUBCOMMAND, then options.
+
+    And a subcommand answers -h for itself. The shell half used to print the
+    whole command's help whatever you asked about, which is why its listing
+    carried paragraphs -- there was nowhere else for them. Now the listing is
+    one line per subcommand and the paragraph is that subcommand's description.
+    """
+    # the help function's stem is the command's own, and predates the names
+    helps = {"venv": "_tdd_venv_help", "env": "_tdd_vars_help",
+             "pycache": "_tdd_pycache_help", "tdd-env": "_tdd_env_help"}
+    for name, stem in helps.items():
+        text = (shell.scripts_dir() / f"{name}.sh").read_text()
+        top = text.split(f"{stem}() {{", 1)
+        assert len(top) == 2, name
+        top = top[1].split("HELP\n}", 1)[0]
+        assert f"usage: tdd {name} [-h] [-v] [--format {{json,view}}] SUBCOMMAND ..." in top, name
+        assert "\npositional arguments:\n  SUBCOMMAND\n" in top, name
+        # every subcommand in the listing is one line: no continuation under it
+        listing = top.split("positional arguments:\n  SUBCOMMAND\n", 1)[1]
+        listing = listing.split("\n\n", 1)[0]
+        assert listing.strip(), name
+        for line in listing.splitlines():
+            assert line.startswith("    ") and line[4] != " ", f"{name}: {line!r}"
+        # and each of those has a help function of its own
+        for line in listing.splitlines():
+            sub = line.strip().split("  ", 1)[0]
+            if sub == "config":  # the shared layer answers for that one
+                continue
+            assert f"_help_{sub.replace('-', '_')}()" in text, f"{name} {sub}"
 
 
 def test_the_defaults_command_is_gone_in_favour_of_config():

@@ -56,22 +56,41 @@ tddfn_tdd-env() {
 
 _tdd_env_help() {
     _tdd_help_text <<'HELP'
-usage: tdd tdd-env activate --toolset TOOLSET
-       tdd tdd-env deactivate
+usage: tdd tdd-env [-h] [-v] [--format {json,view}] SUBCOMMAND ...
 
-Enter or leave one of the toolset venvs under $TDD_DIR/tdd-venvs -- the envs
-the Python tools run in. Useful while developing a tool: the toolset's bin/
-goes on PATH exactly as `tdd <tool>` would arrange it.
+enter or leave a toolset venv in this shell -- the envs the Python tools run in
 
-commands:
-  activate      put the toolset's bin/ first on PATH, in this shell
-  deactivate    restore PATH
-  config        this command's config file: --show, --default, --create [--force]
-
-options:
-  --toolset TOOLSET   the toolset to enter (`tdd help` lists them)
+positional arguments:
+  SUBCOMMAND
+    activate  put a toolset's bin/ first on PATH, in this shell
+    deactivate  restore PATH
+    config  this command's config file: --show, --default, --create [--force]
 
 example: tdd tdd-env activate --toolset systems
+HELP
+}
+
+_tdd_env_help_activate() {
+    _tdd_help_text <<'HELP'
+usage: tdd tdd-env activate --toolset TOOLSET
+
+Put the toolset's bin/ first on PATH, in this shell, exactly as `tdd <tool>`
+would arrange it -- which is what makes it useful while developing a tool: the
+tool's entry point and its pinned binaries are there without `tdd` in front. It
+sources the venv's own bin/activate rather than reimplementing activation.
+
+options:
+  --toolset TOOLSET  the toolset to enter (`tdd help` lists them)
+HELP
+}
+
+_tdd_env_help_deactivate() {
+    _tdd_help_text <<'HELP'
+usage: tdd tdd-env deactivate
+
+Leave the venv active in this shell and restore PATH. What it calls is the
+venv's own `deactivate`, so it leaves whatever is active, toolset or not, and
+says so when nothing is.
 HELP
 }
 
@@ -91,7 +110,7 @@ _tdd_env_activate() {
         esac
     done
     if [ "$_TDD_HELP" = 1 ]; then
-        _tdd_env_help
+        _tdd_env_help_activate
         return 0
     fi
     _tdd_cmd_check || return 1
@@ -116,7 +135,7 @@ _tdd_env_deactivate() {
         shift "$_TDD_CONSUMED"
     done
     if [ "$_TDD_HELP" = 1 ]; then
-        _tdd_env_help
+        _tdd_env_help_deactivate
         return 0
     fi
     _tdd_cmd_check || return 1
