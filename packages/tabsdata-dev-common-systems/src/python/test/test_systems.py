@@ -1037,3 +1037,45 @@ def test_db_failure_never_raises_on_a_driver_it_does_not_know():
     assert db_failure(Awkward("plain")).strip()
     assert redact_url("not-a-url") == "not-a-url"
     assert "***" in redact_url("postgresql://u:p@h/d")
+
+
+def test_a_managed_domain_can_grant_the_cross_project_marker_onward():
+    """tabsdata's dbmanager connects as the domain's own user, not as an
+    administrator, and its schemas' `across_projects` policies are granted TO one
+    cluster-global role. Only a holder of ADMIN on that role may grant it onward,
+    so `db upgrade` refuses with "a database administrator has to run ..." -- and
+    on a managed instance we are that administrator. The marker is created once
+    per server and handed to each domain WITH ADMIN OPTION."""
+    from tabsdata_dev.common.systems.systems._common.managed_postgres import (
+        ACROSS_PROJECTS_ROLE,
+    )
+
+    for slug in ("awspostgres", "azpostgres", "gcppostgres"):
+        backend = systems.get(slug)
+        sql = backend.create_domain_sql("d1", "d1", "pw")
+        ensure = [s for s in sql if "CREATE ROLE" in s and ACROSS_PROJECTS_ROLE in s]
+        assert ensure, slug
+        # once per server, so a second domain must not trip over the first
+        assert "IF NOT EXISTS" in ensure[0], slug
+        assert f'GRANT "{ACROSS_PROJECTS_ROLE}" TO "d1" WITH ADMIN OPTION' in sql, slug
+        # a driver placeholder would eat a literal % in any of them
+        assert not [s for s in sql if "%" in s], slug
+
+
+def test_destroying_a_domain_leaves_the_shared_marker_alone():
+    """Destroy drops the per-schema roles tabsdata created under the domain, and
+    it finds them by ADMIN membership. The domain holds ADMIN on the server-wide
+    marker too, and dropping that would take every other domain's row-level
+    security with it -- so the roles are matched by the domain's own name, which
+    is what actually says a role belongs to it."""
+    from tabsdata_dev.common.systems.systems._common.managed_postgres import (
+        ACROSS_PROJECTS_ROLE,
+    )
+
+    for slug in ("awspostgres", "azpostgres", "gcppostgres"):
+        sql = systems.get(slug).delete_domain_sql("d1")
+        drops = [s for s in sql if "DROP ROLE" in s]
+        assert drops, slug
+        assert "starts_with(g.rolname, 'd1')" in drops[0], slug
+        assert ACROSS_PROJECTS_ROLE not in " ".join(sql), slug
+        assert not [s for s in sql if "%" in s], slug

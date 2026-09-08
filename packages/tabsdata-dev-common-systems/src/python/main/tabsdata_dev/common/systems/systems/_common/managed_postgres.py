@@ -69,6 +69,11 @@ VERIFYING_SSL_MODES = ("verify-ca", "verify-full")
 
 PEM_HEADER = "-----BEGIN CERTIFICATE-----"
 
+#: tabsdata's cluster-global row-level-security marker. Its `across_projects`
+#: policies are granted TO this role, so every schema on the server shares the
+#: one role -- which is exactly why a domain may never drop it.
+ACROSS_PROJECTS_ROLE = "td_across_projects"
+
 #: One download per URL per run. A published root rotates on the provider's
 #: clock, not ours, so nothing is cached between runs -- but a create that
 #: probes, then lists, then loads a model should not fetch the same bundle
@@ -451,16 +456,34 @@ class ManagedPostgres(Postgres):
         return meta
 
     def create_domain_sql(self, db: str, user: str, password: str) -> list[str]:
+        # The marker exists once per server and is granted WITH ADMIN OPTION, so
+        # tabsdata's dbmanager -- which connects as this domain's own user, not
+        # as an administrator -- can grant it onward to the per-schema roles it
+        # creates. Without it `db upgrade` refuses: only a role holding ADMIN on
+        # a cluster-global role may grant it, so the server's owner has to, and
+        # on a managed instance that is us. Creating it here rather than leaving
+        # it to whoever runs first also makes the ownership deliberate.
         return [
             f"CREATE USER \"{user}\" WITH PASSWORD '{password}' CREATEROLE",
             f'GRANT "{user}" TO CURRENT_USER',
             f'CREATE DATABASE "{db}" OWNER "{user}"',
             f'GRANT ALL PRIVILEGES ON DATABASE "{db}" TO "{user}"',
+            "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = "
+            f"'{ACROSS_PROJECTS_ROLE}') THEN CREATE ROLE "
+            f'"{ACROSS_PROJECTS_ROLE}" NOBYPASSRLS NOLOGIN; END IF; END $$',
+            f'GRANT "{ACROSS_PROJECTS_ROLE}" TO "{user}" WITH ADMIN OPTION',
         ]
 
     def delete_domain_sql(self, name: str) -> list[str]:
         # No '%' in any statement: the driver would read it as a placeholder.
         user = self._login(name)
+        # The per-schema roles tabsdata created under this domain -- and only
+        # those. They are named after the domain, so the prefix is what says a
+        # role belongs to it; ADMIN alone does not, because the domain also
+        # holds ADMIN on the server-wide ACROSS_PROJECTS_ROLE it shares with
+        # every other domain, and dropping that would take the others'
+        # row-level security with it. `starts_with` rather than LIKE: no '%' in
+        # any statement, the driver would read it as a placeholder.
         drop_administered_roles = (
             "DO $$ DECLARE r text; BEGIN "
             "FOR r IN "
@@ -468,6 +491,7 @@ class ManagedPostgres(Postgres):
             "JOIN pg_roles g ON g.oid = m.roleid "
             "JOIN pg_roles o ON o.oid = m.member "
             f"WHERE o.rolname = '{user}' AND m.admin_option "
+            f"AND starts_with(g.rolname, '{user}') "
             "LOOP EXECUTE 'DROP ROLE ' || quote_ident(r); END LOOP; "
             "END $$"
         )

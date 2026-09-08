@@ -76,7 +76,18 @@ is what shapes the DDL. A domain is a DATABASE owned by a dedicated role, and a 
 master may only create a database owned by a role it belongs to -- so the owner role is created and
 granted to the master *before* the database, and gets `CREATEROLE` so a test can add roles of its
 own. Dropping a domain therefore drops the roles the owner administers between the database and the
-owner: it is their recorded grantor and (PostgreSQL 16+) cannot be dropped while they exist.
+owner: it is their recorded grantor and (PostgreSQL 16+) cannot be dropped while they exist -- but
+only those **named after the domain**, never every role it administers, because of the next
+paragraph.
+
+A managed domain is also handed `td_across_projects` WITH ADMIN OPTION, creating it once per server
+if it is absent. tabsdata's schemas grant their `across_projects` row-level-security policies TO
+that one cluster-global role, and its dbmanager connects as the *domain's* user rather than as an
+administrator: only a holder of ADMIN may grant a cluster-global role onward, so without this
+`db upgrade` stops with "a database administrator has to run ...", and on a managed instance that
+administrator is us. The role is shared with every other domain on the server, which is why destroy
+matches the roles to drop by the domain's own name (`starts_with`) instead of by ADMIN membership --
+dropping the marker would take every other domain's row-level security with it.
 
 Two consequences worth keeping in view. Owner roles the master belongs to are listed as domain
 entities, so a purge that died half way leaves a visible remnant that the next purge cleans rather
