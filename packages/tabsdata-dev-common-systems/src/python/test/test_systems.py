@@ -215,7 +215,14 @@ INFO_BLOCK = (
 FAMILY_EXTRAS = {
     "postgres": {"DOCKER_CONTAINER_NAME", "IMAGE"},
     "postgrescdc": {"DOCKER_CONTAINER_NAME", "IMAGE"},
-    "awspostgres": {"SSLMODE", "SERVER_CA_CERT_PEM", "AWS_ACCOUNT_ID", "AWS_REGION"},
+    "awspostgres": {
+        "SSLMODE",
+        "SERVER_CA_CERT_PEM",
+        "AWS_SERVER_CA_CERT_PEM_URL",
+        "AWS_ACCOUNT_ID",
+        "AWS_REGION",
+        "AWS_DB_INSTANCE",
+    },
     "gcppostgres": {
         "SSLMODE",
         "SERVER_CA_CERT_PEM",
@@ -223,7 +230,13 @@ FAMILY_EXTRAS = {
         "GCP_REGION",
         "GCP_INSTANCE_ID",
     },
-    "azpostgres": {"SSLMODE", "SERVER_CA_CERT_PEM", "AZ_SERVER_NAME", "AZ_REGION"},
+    "azpostgres": {
+        "SSLMODE",
+        "SERVER_CA_CERT_PEM",
+        "AZ_SERVER_CA_CERT_PEM_URL",
+        "AZ_SERVER_NAME",
+        "AZ_REGION",
+    },
 }
 MANAGED = ("awspostgres", "gcppostgres", "azpostgres")
 
@@ -368,10 +381,21 @@ def test_the_managed_three_differ_only_where_their_provider_does():
         assert f"starts_with(r.rolname, '{own}')" in sql
         assert "starts_with(r.rolname, 'pg_')" in sql
         assert other not in sql  # none borrows another's provider names
-    # a Cloud SQL leaf has no IP SAN, so verify-full cannot work against one;
-    # an RDS or Azure leaf names its host, so the strict mode is the useful one
-    assert gcp.ssl_mode == "verify-ca"
-    assert aws.ssl_mode == az.ssl_mode == "verify-full"
+    # One posture for the three: verify the chain, skip the name. A Cloud SQL
+    # leaf has no IP SAN at all, and while an RDS or Azure leaf does name its
+    # host, an instance reached at any other address would fail verify-full for
+    # a reason that has nothing to do with trust.
+    assert aws.ssl_mode == gcp.ssl_mode == az.ssl_mode == "verify-ca"
+    # Where the root comes from is the difference: Cloud SQL signs each instance
+    # with a CA of its own, so the certificate is stored; the other two publish
+    # theirs, so a URL is stored and the root is fetched from it.
+    assert not gcp.ca_url_key
+    assert aws.ca_url_key == "AWS_SERVER_CA_CERT_PEM_URL"
+    assert az.ca_url_key == "AZ_SERVER_CA_CERT_PEM_URL"
+    for backend in (aws, az):
+        assert backend.ca_url_default.startswith("https://")
+        # and the URL is in the descriptor, so `info` says what this system trusts
+        assert backend.ca_url_key in _plan(backend.slug)
 
 
 def test_the_managed_three_store_the_ca_itself_and_give_a_connection_a_file(tmp_path):
@@ -460,6 +484,80 @@ def test_the_data_plane_gets_the_root_cert_a_verifying_mode_needs(tmp_path):
         assert uri == pdom["EXTERNAL_SQLALCHEMY_URI"]
 
 
+def test_a_published_root_is_fetched_once_and_reaches_every_connection(monkeypatch):
+    """RDS and Azure sign with roots their provider publishes and rotates, so the
+    descriptor keeps the URL and never a copy: a copy is the one thing that goes
+    stale without anyone touching it. It is fetched once per run and written to a
+    temporary file for the length of each connection -- the admin ones and the
+    loader's alike, since a domain's model, data and change sets go over exactly
+    the TLS its system was created with."""
+    from urllib.parse import parse_qs, urlsplit
+
+    from tabsdata_dev.common.systems.systems._common import managed_postgres as mp
+
+    pem = "-----BEGIN CERTIFICATE-----\nMIIBpublished\n-----END CERTIFICATE-----\n"
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return pem.encode()
+
+    fetched: list[str] = []
+
+    def fake_urlopen(url, timeout=0):
+        fetched.append(url)
+        return _Response()
+
+    monkeypatch.setattr(mp.urllib.request, "urlopen", fake_urlopen)
+    mp._CA_DOWNLOADS.clear()
+
+    for slug in ("awspostgres", "azpostgres"):
+        backend = systems.get(slug)
+        url = backend.ca_url_default
+        meta = _plan(slug, SSLMODE="verify-ca", **{backend.ca_url_key: url})
+        # what is kept is where the root comes from, not the root
+        assert meta[backend.ca_url_key] == url and not meta["SERVER_CA_CERT_PEM"]
+
+        # the domain inherits both, so it needs no back-ref to the system
+        dom = backend.domain_meta(meta, "d1", "secret")
+        assert dom[backend.ca_url_key] == url and dom["SSLMODE"] == "verify-ca"
+
+        # an admin connection gets a real file, for as long as it is connecting
+        admin = backend._admin(dom)
+        assert admin.ca_pem == pem and admin.sslmode == "verify-ca"
+        with backend._ca_file(admin) as connectable:
+            written = pathlib.Path(connectable.sslrootcert)
+            assert written.read_text() == pem
+        assert not written.exists()
+
+        # and so does the loader, on the mode the system was created with
+        with backend.data_plane_uri(dom) as uri:
+            params = parse_qs(urlsplit(uri).query)
+            assert params["sslmode"] == ["verify-ca"], params
+            written = pathlib.Path(params["sslrootcert"][0])
+            assert written.read_text() == pem
+        assert not written.exists()
+        # never in a recorded URI: that path belongs to one machine and one run
+        assert "sslrootcert" not in "".join(
+            v for k, v in dom.items() if k.endswith("URI")
+        )
+
+    # once per URL for the whole run, however many connections wanted it
+    assert sorted(fetched) == sorted(
+        {systems.get(s).ca_url_default for s in ("awspostgres", "azpostgres")}
+    )
+
+    # a certificate handed in directly still wins, and asks for no download
+    fetched.clear()
+    direct = _plan("awspostgres", SSLMODE="verify-ca", SERVER_CA_CERT_PEM=pem)
+    assert direct["SERVER_CA_CERT_PEM"] == pem and not fetched
+
+
 def test_a_verifying_sslmode_without_a_root_is_refused_with_the_way_to_get_one():
     """libpq reports a missing root as a bare 'certificate verify failed' long
     after create, and it is not guessable from that -- so create refuses first,
@@ -477,16 +575,26 @@ def test_a_verifying_sslmode_without_a_root_is_refused_with_the_way_to_get_one()
         )
     assert "describe k8sdb --project td-dev" in str(named.value)
 
+    # The two that publish a root refuse only when told not to use it: with the
+    # URL they default to, a verifying mode has somewhere to get one.
     with pytest.raises(TdxError) as az_missing:
-        _plan("azpostgres", SSLMODE="verify-full", AZ_SERVER_NAME="k8sdb")
+        _plan(
+            "azpostgres",
+            SSLMODE="verify-full",
+            AZ_SERVER_NAME="k8sdb",
+            AZ_SERVER_CA_CERT_PEM_URL="",
+        )
     assert "k8sdb" in str(az_missing.value) and "learn.microsoft.com" in str(
         az_missing.value
     )
+    with pytest.raises(TdxError) as aws_missing:
+        _plan("awspostgres", SSLMODE="verify-ca", AWS_SERVER_CA_CERT_PEM_URL="")
+    assert "truststore.pki.rds.amazonaws.com" in str(aws_missing.value)
 
-    for slug in ("gcppostgres", "azpostgres"):
-        with pytest.raises(TdxError) as no_root:
-            _plan(slug, SSLMODE="verify-ca")
-        assert "--sslmode require" in str(no_root.value)
+    with pytest.raises(TdxError) as no_root:
+        _plan("gcppostgres", SSLMODE="verify-ca")
+    assert "--sslmode require" in str(no_root.value)
+    for slug in MANAGED:
         with pytest.raises(TdxError, match="unknown sslmode"):
             _plan(slug, SSLMODE="verify-most")
         # require encrypts without verifying: no certificate to supply
@@ -638,13 +746,16 @@ def test_the_managed_items_carry_the_certificate_but_not_the_path_to_it():
     # the same thing twice -- an item carrying both would break every create
     assert "server_ca_cert_path" not in ids
 
-    # RDS fetches a current bundle every run, so neither belongs in a vault
+    # The two that publish a root carry the URL instead: a copy of the bundle
+    # would freeze in the vault while the provider rotates on its own clock.
     aws_ids = [f["id"] for f in onepassword.item(systems.get("awspostgres"))["fields"]]
     assert not [i for i in aws_ids if i.startswith("server_ca_cert")]
-    assert {"aws_account_id", "aws_region"} <= set(aws_ids)
+    assert "aws_server_ca_cert_pem_url" in aws_ids
+    assert {"aws_account_id", "aws_region", "aws_db_instance"} <= set(aws_ids)
 
     az_ids = [f["id"] for f in onepassword.item(systems.get("azpostgres"))["fields"]]
-    assert {"az_server_name", "az_region", "server_ca_cert_pem"} <= set(az_ids)
+    assert not [i for i in az_ids if i.startswith("server_ca_cert")]
+    assert {"az_server_ca_cert_pem_url", "az_server_name", "az_region"} <= set(az_ids)
 
     # a computed default is written out, never left as a placeholder: read back
     # from the vault, "?" would be refused as an sslmode -- and `database` is

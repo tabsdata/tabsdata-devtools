@@ -26,31 +26,38 @@ its master service roles of its own -- ``rds_*`` on RDS, ``cloudsql*`` on Cloud
 SQL -- which are memberships, not domains. A subclass that forgets its provider's
 prefix does not merely list them: ``purge`` drops what it lists.
 
-TLS is per provider. Both verify by default and neither chains to the public
-trust store, so what a subclass supplies is the root certificate
-(:meth:`_ca_pem`, PEM text) and, where the instance rather than the class decides
-it, an ``SSLMODE`` in its meta. Where that certificate cannot be re-fetched on
-demand it is the descriptor that holds it, as the certificate itself rather than
-a path into somebody's home directory -- the system stays self-contained and the
-domain descriptor inherits it. libpq wants a path, so :meth:`_ca_file` writes one
-into a temporary directory for exactly as long as the connection needs it. The
-cert rides only on tdx's own admin connections: the URIs in a descriptor carry
-the mode alone, since a connector-under-test brings its own root
-(``$PGSSLROOTCERT``, else ``~/.postgresql/root.crt``).
+TLS is per provider, and all three default to ``verify-ca``: verify the chain,
+skip the name. None of these leaves is reliably issued for the address the
+instance is reached at -- a Cloud SQL leaf carries no IP SAN at all -- so
+``verify-full`` is available but never assumed.
 
-There is no tdx data plane (``supports_models=False``): a domain is an empty
-database for a connector-under-test to fill.
+Where the root comes from is what differs, and it decides what the descriptor
+keeps. Cloud SQL signs each instance with a CA of its own, published nowhere, so
+the certificate itself is stored -- never a path into somebody's home directory,
+which the system could not stay self-contained across nor a domain descriptor
+inherit. RDS and Azure publish theirs, so the descriptor keeps the URL
+(:attr:`ca_url_key`) and :func:`download_ca` fetches it once per run: a stored
+copy would freeze at create while the provider rotates on its own clock.
+
+Either way libpq wants a path, so :meth:`_ca_file` writes the certificate into a
+temporary directory for exactly as long as the connection needs it, and
+:meth:`data_plane_uri` does the same for the loader -- a domain's model, data and
+change sets go over the TLS its system was created with. The path rides only on
+tdx's own connections: the URIs in a descriptor carry the mode alone, since a
+connector-under-test brings its own root (``$PGSSLROOTCERT``, else
+``~/.postgresql/root.crt``).
 """
 
 from __future__ import annotations
 
 import tempfile
+import urllib.request
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlencode
 
-from tabsdata_dev.common.systems import constants, options
+from tabsdata_dev.common.systems import console, constants, options
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.systems._common.sql import Admin
 from tabsdata_dev.common.systems.systems.postgres.backend import Postgres
@@ -61,6 +68,29 @@ SSL_MODES = ("disable", "allow", "prefer", "require", "verify-ca", "verify-full"
 VERIFYING_SSL_MODES = ("verify-ca", "verify-full")
 
 PEM_HEADER = "-----BEGIN CERTIFICATE-----"
+
+#: One download per URL per run. A published root rotates on the provider's
+#: clock, not ours, so nothing is cached between runs -- but a create that
+#: probes, then lists, then loads a model should not fetch the same bundle
+#: four times.
+_CA_DOWNLOADS: dict[str, str] = {}
+
+
+def download_ca(url: str, what: str) -> str:
+    """The PEM at `url`, fetched once per run. Raises when it cannot be had: a
+    verifying sslmode with no root is a failure to state, not to work around."""
+    if url in _CA_DOWNLOADS:
+        return _CA_DOWNLOADS[url]
+    console.debug(f"fetching the {what} root CA from {url}")
+    try:
+        with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
+            pem = response.read().decode("utf-8")
+    except OSError as exc:
+        raise TdxError(f"could not fetch the {what} root CA from {url}: {exc}") from exc
+    if not pem.lstrip().startswith(PEM_HEADER):
+        raise TdxError(f"{url} did not return a PEM certificate")
+    _CA_DOWNLOADS[url] = pem
+    return pem
 
 
 class ManagedPostgres(Postgres):
@@ -78,8 +108,16 @@ class ManagedPostgres(Postgres):
     supports_data = True
     supports_changes = True
 
-    # The default posture, used when the system's meta names no SSLMODE.
-    ssl_mode = "verify-full"
+    # The default posture, used when the system's meta names no SSLMODE. All
+    # three managed providers verify the chain and skip the name: the leaf of a
+    # managed instance is not reliably issued for the host it is reached at.
+    ssl_mode = "verify-ca"
+    #: A provider that PUBLISHES its roots names the meta key holding the URL
+    #: they are downloaded from (RDS's bundle, Azure's public roots). One that
+    #: does not -- Cloud SQL signs each instance with a CA of its own -- leaves
+    #: this empty, and the certificate itself is stored as SERVER_CA_CERT_PEM.
+    ca_url_key: str = ""
+    ca_url_default: str = ""
     # Role-name prefixes the provider owns: memberships the master is given by
     # the service, never domains. 'pg_' is filtered for every provider.
     role_prefixes: tuple[str, ...] = ()
@@ -170,7 +208,22 @@ class ManagedPostgres(Postgres):
             return self.ssl_mode
         if name == "DATABASE":
             return self.admin_db
+        if name and name == self.ca_url_key:
+            return self.ca_url_default
         raise TdxError(f"{self.slug}: no synth default for {name}")
+
+    def ca_url_option(self, doc: str) -> options.Option:
+        """The URL the provider publishes its root at, as an option: it lands in
+        the descriptor (so `info` says which root this system trusts) and in the
+        vault item (so an instance behind a different root is a field rather than
+        a code change), defaulting to the one published today."""
+        return options.Option(
+            self.ca_url_key,
+            self.ca_url_key.lower().replace("_", "-"),
+            options.SYNTH,
+            f"{self.ca_url_default} ({doc})",
+            required=False,
+        )
 
     def docker_images(self) -> list[tuple[str, str]]:
         return []
@@ -182,9 +235,25 @@ class ManagedPostgres(Postgres):
 
     def _ca_pem(self, meta: dict[str, str]) -> str:
         """The root certificate a verifying mode validates against, as PEM text,
-        or ``""`` when there is none. The descriptor carries it by default;
-        AwsPostgres overrides, because RDS publishes a bundle to download."""
-        return meta.get("SERVER_CA_CERT_PEM", "")
+        or ``""`` when there is none.
+
+        A certificate handed in directly always wins -- the escape hatch for an
+        instance whose root is neither published nor Cloud SQL's. Failing that, a
+        provider with ``ca_url_key`` downloads the root it publishes, which is
+        why those descriptors keep a URL and not a certificate: a stored copy
+        freezes at create while the provider rotates on its own clock.
+        """
+        stored = meta.get("SERVER_CA_CERT_PEM", "")
+        if stored:
+            return stored
+        if not self.ca_url_key:
+            return ""
+        # Present and empty is a decision -- somebody blanked the field to say
+        # "not from there" -- and is answered with the refusal, not with the
+        # built-in URL behind their back. Absent is a descriptor written before
+        # the URL existed, which the published root is the right answer for.
+        url = meta.get(self.ca_url_key, self.ca_url_default)
+        return download_ca(url, self.label) if url else ""
 
     def _read_ca(self, meta: dict[str, str]) -> None:
         """Resolve the two inputs into ``SERVER_CA_CERT_PEM`` -- the certificate

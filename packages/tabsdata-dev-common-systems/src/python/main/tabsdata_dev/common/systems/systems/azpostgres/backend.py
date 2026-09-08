@@ -23,18 +23,21 @@ administrator -- ``azure_pg_admin`` is one it holds, so without the prefix filte
 a listing would offer it as a domain and a purge would drop it.
 
 **TLS.** Unlike Cloud SQL, an Azure leaf carries the server's own name
-(``<server>.postgres.database.azure.com``) as a SAN, so ``verify-full`` is the
-default and works against the host you actually connect to. What it needs is the
-root: Azure signs with public CAs (DigiCert Global Root G2 and Microsoft RSA Root
-CA 2017 at the time of writing) which libpq will not find on its own, so the root
-is supplied the same way Cloud SQL's is -- ``--server-ca-cert-path FILE``, or the
-PEM itself in ``$AZPOSTGRES__SERVER_CA_CERT_PEM`` -- and the descriptor stores
-the certificate rather than a path belonging to one machine. Azure rotates these
-and publishes the current ones; the stored copy is frozen at create, so a
-rotation means ``system create --force``, which is only a probe.
+(``<server>.postgres.database.azure.com``) as a SAN, so the host it is reached at
+is one the certificate names. What it needs is the root: Azure signs with public
+CAs (DigiCert Global Root G2 today, Microsoft RSA Root CA 2017 for some servers)
+which libpq will not find on its own. So the descriptor keeps the URL Azure
+publishes the root at (``AZ_SERVER_CA_CERT_PEM_URL``) and not a copy of it --
+Azure rotates these, and a copy taken at create is the one thing that goes stale
+without anyone touching it. It is downloaded once per run and written to a
+temporary file for exactly as long as a connection needs it. A server behind the
+other root is a field in the vault item, not a code change; a PEM handed in
+directly still wins over the download.
 
 ``--sslmode require`` encrypts without verifying and needs no cert -- available,
-never the default.
+never the default. ``verify-full`` is available too and does work here, the leaf
+being named for the host; ``verify-ca`` is the default the three managed
+providers share.
 """
 
 from __future__ import annotations
@@ -43,7 +46,10 @@ from tabsdata_dev.common.systems import options
 from tabsdata_dev.common.systems.systems._common.managed_postgres import ManagedPostgres
 from tabsdata_dev.common.systems.systems.postgres.backend import Postgres
 
-# Where Azure publishes the roots its servers chain to.
+#: The root Azure signs a flexible server with today. A server on the other one
+#: (Microsoft RSA Root CA 2017) is a different URL in the item, not a patch.
+CA_PEM_URL = "https://cacerts.digicert.com/DigiCertGlobalRootG2.crt.pem"
+# Where Azure documents which roots its servers chain to.
 CA_DOC_URL = (
     "https://learn.microsoft.com/azure/postgresql/flexible-server/"
     "concepts-networking-ssl-tls"
@@ -54,34 +60,38 @@ class AzPostgres(ManagedPostgres):
     slug = "azpostgres"
     label = "Azure Database for PostgreSQL"
     env_prefix = "AZPOSTGRES"
-    # The leaf carries the server's name, so the strict mode is the useful one.
-    ssl_mode = "verify-full"
     # Azure's own service databases — never domains.
     system_schemas = Postgres.system_schemas | {"azure_maintenance", "azure_sys"}
     role_prefixes = ("azure_",)
     # A model is the plain system's; only the server differs.
     ddl_from_slug = "postgres"
-    # The vault carries the certificate, never the path to a copy of it: that
-    # path is one machine's, and an item holding both would be refused at create.
-    onepassword_skip = ("SERVER_CA_CERT_PATH",)
+    # Azure publishes its roots, so the descriptor keeps the URL and not a copy.
+    ca_url_key = "AZ_SERVER_CA_CERT_PEM_URL"
+    ca_url_default = CA_PEM_URL
+    # The vault carries neither the certificate nor a path to one: the root is a
+    # download, and a path is one machine's.
+    onepassword_skip = ("SERVER_CA_CERT_PEM", "SERVER_CA_CERT_PATH")
 
     def provider_options(self) -> tuple[options.Option, ...]:
         # Which server this is, in Azure's terms. Not part of reaching it (that
         # is the host, `<server>.postgres.database.azure.com`), but it is what
         # names the server to `az postgres flexible-server`.
         return (
+            self.ca_url_option("the root Azure signs a flexible server with"),
             self.provider_option("AZ_SERVER_NAME", "the flexible server"),
             self.provider_option("AZ_REGION", "the region it runs in"),
         )
 
     def missing_ca_message(self, meta: dict[str, str], mode: str) -> str:
+        # Reached only when the URL is blanked out: with one, _ca_pem downloads
+        # and raises with the URL in it rather than returning nothing.
         server = meta.get("AZ_SERVER_NAME") or "SERVER"
         return (
             f"{self.slug}: sslmode '{mode}' verifies the server, so it needs the "
             f"root Azure signs '{server}' with — a public CA that libpq will not "
-            f"find on its own. Download the current root(s) from\n"
-            f"  {CA_DOC_URL}\n"
-            f"then pass --server-ca-cert-path FILE (or hand the PEM itself in "
-            f"${self.env_prefix}__SERVER_CA_CERT_PEM).\n"
+            f"find on its own. Leave --az-server-ca-cert-pem-url at {CA_PEM_URL}, "
+            f"or set it to the root this server uses (Azure lists them at\n"
+            f"  {CA_DOC_URL} ),\n"
+            f"or hand the PEM itself in ${self.env_prefix}__SERVER_CA_CERT_PEM.\n"
             f"(or --sslmode require to encrypt without verifying the server)"
         )

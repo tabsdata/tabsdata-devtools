@@ -67,14 +67,21 @@ than an invisible one a create collides with. And that same listing is why a sub
 its provider's `role_prefixes` (`rds_*`, `cloudsql*`, `azure_*`): those memberships are the
 service's, not domains, and **purge drops what it lists**.
 
-TLS is the per-provider part. All three verify by default and none chains to the public trust
-store, so a subclass supplies the root certificate and, where the instance rather than the class
-decides it, an `SSLMODE`. What the descriptor stores is the **certificate itself, never a path** --
-a path into one machine's home directory is not something a domain descriptor can inherit -- and
-since libpq wants a path, one is written to a temporary directory for exactly as long as the
-connection needs it. The copy is frozen at create, so a CA rotation means `system create --force`,
-which is only a probe. The modes differ for real reasons: Cloud SQL's per-instance CA issues a leaf
-with no IP SAN, so `verify-ca` is the default and `verify-full` works only against the
-`.sql.goog` name; an Azure leaf carries the server's own hostname, so `verify-full` is the default
-there. None of these systems has a data plane (`supports_models=False`): a domain is an empty
-database for a connector-under-test to fill.
+TLS is the per-provider part, and all three default to **`verify-ca`**: verify the chain, skip the
+name. None of these leaves is reliably issued for the address the instance is reached at -- a Cloud
+SQL leaf carries no IP SAN at all -- so `verify-full` is available but never assumed.
+
+Where the root comes from is what actually differs, and it decides what the descriptor keeps. Cloud
+SQL signs each instance with a CA of its own, published nowhere: the **certificate itself** is
+stored (`SERVER_CA_CERT_PEM`), never a path, because a path into one machine's home directory is
+not something a domain descriptor can inherit. RDS and Azure publish theirs, so what is stored is
+the **URL** (`ca_url_key` -- `AWS_SERVER_CA_CERT_PEM_URL`, `AZ_SERVER_CA_CERT_PEM_URL`) and the root
+is fetched from it, once per run: a copy taken at create is the one thing that goes stale without
+anyone touching it, since both providers rotate on their own clock. A PEM handed in directly still
+wins over the download, and a URL blanked on purpose is answered with the refusal rather than the
+built-in one behind the reader's back.
+
+Either way libpq wants a path, so the certificate is written into a temporary directory for exactly
+as long as the connection needs it -- the admin connections and the loader's alike, so a domain's
+model, data and change sets go over the same TLS its system was created with. That path never
+reaches a recorded URI: it belongs to one machine and one run.
