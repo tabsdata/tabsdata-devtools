@@ -488,3 +488,36 @@ def test_list_systems_reports_each_required_system_and_fails_on_a_missing_one(
     # the table still came out, MISSING marked, before the failure
     notes = " ".join(e["message"] for e in events if e["event"] == "info")
     assert "MISSING" in notes and needed[0] in notes
+
+
+def test_a_plan_name_fits_tabsdatas_hundred_characters():
+    """tabsdata's ExecutionName is max_len 100 and the trigger is refused
+    outright above it. xp names a project `<instance>_<lane>`, so putting both
+    in spent the instance twice -- which is what took a real EKS smoke run two
+    characters over and failed the only xp stage of an otherwise green run."""
+    from tabsdata_dev.tool.xp.project import PLAN_NAME_MAX, plan_name
+
+    ts = "20260908_204308"
+    # a one-shot lane: `pointers.load_instance(load_project(...))` gives the
+    # lane's own instance, which carries the project's name exactly
+    project = "sm_t210a__xp_20260908T204250_test_test"
+    instance = project
+
+    # the run that failed, at 102 characters the old way
+    assert len(f"{ts}_{instance}_{project}_test_pub") > PLAN_NAME_MAX
+    name = plan_name(ts, instance, project, "test_pub")
+    assert len(name) <= PLAN_NAME_MAX
+    assert name == f"{ts}_{project}_test_pub"  # the instance is not repeated
+    assert len(name) == 63 and project in name and "test_pub" in name
+
+    # an instance that is not a prefix of the project is still named
+    other = plan_name(ts, "inst", "proj", "fn")
+    assert other == f"{ts}_inst_proj_fn"
+
+    # and a name that overflows anyway keeps the ends and stays unique
+    long_project = f"{instance}_" + "x" * 200
+    a = plan_name(ts, instance, long_project, "fn_one")
+    b = plan_name(ts, instance, long_project + "y", "fn_one")
+    assert len(a) <= PLAN_NAME_MAX and len(b) <= PLAN_NAME_MAX
+    assert a.startswith(ts) and a.endswith("fn_one")
+    assert a != b, "two truncated plans must not collide"

@@ -10,6 +10,7 @@ verbs.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -567,6 +568,38 @@ def trigger_batches(triggers: list) -> list[list]:
     return batches
 
 
+#: tabsdata's ExecutionName is `max_len = 100` and it refuses the trigger
+#: outright: "ExecutionName '...' longer than max_len 100".
+PLAN_NAME_MAX = 100
+
+
+def plan_name(ts: str, instance: str, project: str, function: str) -> str:
+    """The `--plan-name` for one trigger: when it ran, what ran, and enough of
+    where to tell two runs apart -- inside tabsdata's 100 characters.
+
+    xp names a project `<instance>_<lane>`, so naming both spends the instance
+    twice; a smoke run, whose names carry a timestamp of their own, went two
+    characters over the limit that way. The instance is therefore named only
+    when the project does not already start with it.
+
+    That alone is no guarantee -- a long `--project` or function name can still
+    overflow -- so the result is capped. What identifies a plan to a person sits
+    at the ends (when it started, which function ran), so the middle is what
+    gives way, and a digest of the full name takes its place: two plans
+    truncated to the same prefix must not come out with the same name.
+    """
+    where = project if project.startswith(instance) else f"{instance}_{project}"
+    name = f"{ts}_{where}_{function}"
+    if len(name) <= PLAN_NAME_MAX:
+        return name
+    digest = hashlib.sha256(name.encode()).hexdigest()[:8]
+    room = PLAN_NAME_MAX - len(ts) - len(function) - len(digest) - 3
+    if room < 1:
+        # the ends alone do not fit; the timestamp and the digest still name it
+        return f"{ts}_{digest}"[:PLAN_NAME_MAX]
+    return f"{ts}_{where[:room]}_{digest}_{function}"
+
+
 def cmd_run_project(args) -> None:
     with reporting(
         args, "run-project", args.project, suite=pointers.suite_of_project(args.project)
@@ -602,7 +635,7 @@ def cmd_run_project(args) -> None:
             with rep().step(
                 "trigger-fn", f"{args.project}/{t.collection}/{t.function}"
             ) as step:
-                plan = f"{ts}_{inst.name}_{args.project}_{t.function}"
+                plan = plan_name(ts, inst.name, args.project, t.function)
                 cmd = [
                     "fn",
                     "trigger",
