@@ -102,7 +102,7 @@ gsx refreshes this repository's two lists and `fetched` itself -- when the file 
 it, when another gsx wrote it, and once more when a value is missing, since the list may simply
 be stale. There is no verb for it: nobody has to remember to run one. The write goes through the
 shared writer, which re-renders the option template and carries the rest across: other
-repositories' tables, every `default_*`, and whatever the reader uncommented under `[options]`. The version is the devtools
+repositories' tables, every `default_*`, and every option the reader set under `[options]`. The version is the devtools
 version, from the installed distribution's metadata: one number for the whole repo (invariant
 10).
 

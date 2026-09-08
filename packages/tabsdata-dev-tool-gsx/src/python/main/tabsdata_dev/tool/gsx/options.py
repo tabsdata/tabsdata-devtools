@@ -24,32 +24,17 @@ DESCRIPTION = (
 
 # What gsx keeps of its own in the file, above the options.
 CONFIG_PREAMBLE = """\
-# What gsx keeps here besides the options: one table per repository, because
-# labels and collaborators differ per repository -- a flat list would validate
-# one repository's names against another's. gsx keeps them itself.
+# Besides the options, gsx keeps three tables of its own here:
 #
-#   [gsx]
-#   version            the gsx that last refreshed the tables below
+#   [gsx]                version of the gsx that last refreshed the tables below
+#   [reviewer-aliases]   <alias> = "<login>", your own name for someone, usable
+#                        wherever a --reviewer: or --approvers value is
+#   [repo."OWNER/NAME"]  per repository: labels, reviewers, fetched, and the
+#                        default_labels / default_reviewers submit and apply
+#                        put on that repository's PRs that have none
 #
-#   [reviewer-aliases]
-#   <alias> = "<login>"  a name of your own for someone, usable anywhere a
-#                      --reviewer: or --approvers value is; file-wide, because
-#                      a login is a person rather than a property of one
-#                      repository. `approve` reads their token by login, so an
-#                      alias names the 1Password field too
-#
-#   [repo."OWNER/NAME"]
-#   fetched            when the two lists below were last refreshed
-#   labels             valid label names, from `gh label list`
-#   reviewers          valid logins, from collaborators + assignable users
-#   default_labels     applied by `submit`/`apply` to PRs of THIS repository
-#                      that have no label yet, before any explicit --label: op,
-#                      so an explicit op still wins; --no-defaults skips them
-#   default_reviewers  the same, for reviewers
-#
-# gsx refreshes `labels`, `reviewers` and `fetched` itself, whenever what it
-# holds cannot answer a --label:/--reviewer: value; the two `default_*` keys
-# are yours and are never touched.
+# gsx refreshes labels, reviewers and fetched itself; the default_* keys and the
+# aliases are yours and are never touched.
 """
 
 

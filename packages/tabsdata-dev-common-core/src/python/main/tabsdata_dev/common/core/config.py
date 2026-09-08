@@ -13,12 +13,14 @@ Every command keeps one file, named after itself, holding two kinds of thing:
 * whatever else the command needs to remember (``gsx`` keeps a table per
   repository), written by the command itself.
 
-The default document is derived from the command's argparse parser, so it can
-never drift from the options themselves, and it is written **commented out**:
-the file is a template of what could be set, and a line only becomes a default
-once the reader uncomments it. Without that, `--create` would silently pin
-every current default and a later change to one of them would not reach the
-user who ran it.
+The document is derived from the command's argparse parser, so the tables it
+offers can never drift from the options themselves -- but it lists **no
+options**: only the `[options]` and `[options.<action>]` headers, plus whatever
+the file already sets. Listing every option at its built-in value would put a
+copy of today's defaults in the reader's file, where a later change to one of
+them would never reach them; and it is not needed for discovery, since
+`config --show` prints every option with its default and marks the ones this
+file sets.
 
 Writes go through a temporary file in the same directory and one ``os.replace``
 -- an interrupted write leaves the previous file, never half a file.
@@ -134,42 +136,40 @@ HEADER = """\
 #
 # Copyright 2026 Tabsdata Inc.
 #
+"""
 
-# {command} configuration -- {path}
-#
-# Written by `tdd {command} config --create`; `--default` prints this document
-# without writing it, `--show` compares it with what is here now.
-#
-# Every option below is commented out at the value {command} uses when you do
-# not say otherwise. UNCOMMENT a line to make it the default for every
-# `tdd {command}` run: typed options always win over it, and an [options.ACTION]
-# table wins over [options].
+#: The only thing the document explains. The options themselves are not listed:
+#: `config --show` prints every one with its default and marks what this file
+#: sets, which is a better answer than a wall of commented lines that go stale
+#: in the reader's copy the moment a default changes.
+OPTIONS_NOTE = """\
+# Each subcommand may have an [options.<SUBCOMMAND>] table setting user
+# defaults: key is the option, value is its value, strings in double quotes.
 """
 
 
 def render_doc(doc: Doc, values: dict[str, dict[str, Any]] | None = None) -> str:
-    """The file's text: every option commented at its default, plus whatever
-    `values` says is actually set (uncommented, where it differs)."""
+    """The file's text: the `[options]` tables, holding only what `values` says
+    is actually set. No option is written at its built-in default."""
     values = values or {}
-    lines = [HEADER.format(command=doc.command, path=path(doc.command))]
+    lines = [HEADER]
     if doc.preamble:
-        lines.append(doc.preamble.rstrip("\n"))
+        # The trailing newline is the blank line before the note: the join adds
+        # one of its own, and a preamble butting against it reads as one block.
+        lines.append(doc.preamble.rstrip("\n") + "\n")
+    lines.append(OPTIONS_NOTE.rstrip("\n"))
     for action in sorted(doc.actions, key=lambda a: (a != "", a)):
         options = doc.actions[action]
         if not options:
             continue
         table = OPTIONS_TABLE if action == "" else f"{OPTIONS_TABLE}.{action}"
         lines.append(f"\n[{table}]")
-        if action:
-            lines.append(f"# only for `tdd {doc.command} {action}`")
-        for name, (default, help_) in sorted(options.items()):
-            if help_:
-                lines.append(f"# {help_}")
+        # Only what the file actually sets. An empty table is the normal state
+        # and is left in place: it says which subcommands take defaults at all.
+        for name, (_default, _help) in sorted(options.items()):
             set_to = values.get(action, {}).get(name)
             if set_to is not None:
                 lines.append(f"{name} = {toml_value(set_to)}")
-            else:
-                lines.append(f"# {name} = {toml_value(default)}")
     return "\n".join(lines) + "\n"
 
 

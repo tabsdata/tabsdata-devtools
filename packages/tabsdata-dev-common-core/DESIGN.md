@@ -18,13 +18,16 @@ dependencies are declared as ranges; each toolset's lock pins them.
   cannot import this package; a test in `-tdd` fails when the two diverge.
 - `config` -- `<tdd_dir>/<command>.toml`, every command's own file: `[options]` defaults merged
   under what was typed (`[options.<action>]` for one action), plus whatever else the command keeps
-  there itself. The default document is **derived from the command's argparse parser**, so it
-  cannot drift from the options, and it is written **commented out**: a `--create` that pinned
-  every current default would freeze them, and a later change to one would never reach the reader
-  who ran it. Writes are a temporary file in the same directory and one `os.replace`, so an
-  interrupted write leaves the previous file rather than half of one. The `config` action itself
+  there itself. The document is **derived from the command's argparse parser**, so the tables it
+  offers cannot drift from the options -- but it **lists none of them**: the `[options]` and
+  `[options.<action>]` headers, whatever the file already sets, and a two-line note saying what
+  goes in them. Writing every option at its built-in value would leave a copy of today's defaults
+  in the reader's file, where a later change to one would never reach them, and discovery is
+  `config --show`'s job: it prints every option with its default and marks the ones the file sets.
+  Writes are a temporary file in the same directory and one `os.replace`, so an interrupted write
+  leaves the previous file rather than half of one. The `config` action itself
   (`--show`/`--default`/`--create [--force]`) is built here from the command's options, which is
-  why no command implements one.
+  why no command implements one -- and `common.sh` renders the same document for the shell half.
 - `proc` -- `run()` refuses a binary that is neither pinned by the toolset nor declared in the
   tool's `bin-reqs.txt` (`UndeclaredRequirement`; skipped when `_TDD_TOOL` is unset so tests
   import freely); `tool_argv()`/`run_tool()` reach a sibling tool through `tdd-exe`, never an import.

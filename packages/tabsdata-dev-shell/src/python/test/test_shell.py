@@ -421,6 +421,23 @@ def test_every_shell_command_with_defaults_has_the_config_action():
         assert f"tdd_defaults_{name}()" in text, name
 
 
+def test_the_config_template_is_tables_only_and_cannot_fail_on_its_last_test():
+    """The template lists no option at its built-in default -- that would put
+    today's defaults in the reader's copy -- and it says so once, in two lines.
+
+    The `return 0` is not decoration: the function ends on a conditional that is
+    false whenever the file keeps no tables of its own, and the caller reads that
+    status as "cannot write". Without it, `config --create --force` fails on any
+    config that is nothing but options, which is most of them."""
+    common = (shell.scripts_dir() / COMMON).read_text()
+    body = common.split("_tdd_config_template() {", 1)[1].split("\n}\n", 1)[0]
+    assert "[options.<SUBCOMMAND>]" in body and "double quotes" in body
+    # no `# key = default` line, and no per-option help comment above one
+    assert "printf '# %s = %s" not in common
+    assert "only for `tdd" not in common
+    assert body.rstrip().endswith("return 0")
+
+
 def test_the_defaults_command_is_gone_in_favour_of_config():
     assert not (shell.scripts_dir() / "defaults.sh").exists()
     text = shell.source_template()

@@ -337,20 +337,23 @@ def test_config_derives_its_template_from_the_parser_and_writes_atomically(
         "create": {"python": "3.12"},
     }
     text = config.render_doc(doc)
-    # a template: every option commented at its default, so nothing is pinned
-    assert '# type = "pyenv"' in text and "# force = false" in text
-    assert "[options.create]" in text and '# python = "3.12"' in text
-    assert "name" not in text.split("[options]")[1].split("[options.create]")[0]
+    # the tables and nothing else: no option is written down, so the reader's
+    # file never holds a stale copy of today's defaults
+    assert "[options]" in text and "[options.create]" in text
+    assert "pyenv" not in text and "force" not in text and "3.12" not in text
+    # the one thing it explains, and the copyright: no other commentary
+    assert "[options.<SUBCOMMAND>]" in text and "double quotes" in text
+    assert len([ln for ln in text.splitlines() if ln.startswith("#")]) == 5
 
     config.write("demo", text)
     assert config.path("demo") == tmp_path / "demo.toml"
-    # every option is commented out, so the tables are there but empty
+    # empty tables: the file sets nothing until the reader writes a line
     assert config.options_in("demo") == {"": {}, "create": {}}
     # nothing of the temporary file survives a successful write
     assert [p.name for p in tmp_path.iterdir()] == ["demo.toml"]
 
-    # uncommenting one line makes it a default, and --show says so
-    config.path("demo").write_text(text.replace('# type = "pyenv"', 'type = "uv"'))
+    # writing a line makes it a default, and --show says so
+    config.path("demo").write_text(text.replace("[options]", '[options]\ntype = "uv"'))
     assert config.options_in("demo") == {"": {"type": "uv"}, "create": {}}
     message, changed = config.show(doc, io.StringIO())
     assert changed == {"type": "uv"} and 'type = "uv"' in message
@@ -370,7 +373,7 @@ def test_config_rewrites_the_template_but_keeps_what_the_command_keeps(
     doc = config.from_parser("demo", parser)
     config.write("demo", config.render_doc(doc) + '\n[repos."o/n"]\nlabels = ["bug"]\n')
     config.path("demo").write_text(
-        config.path("demo").read_text().replace('# type = "pyenv"', 'type = "uv"')
+        config.path("demo").read_text().replace("[options]", '[options]\ntype = "uv"')
     )
 
     config.update("demo", doc)  # what --create --force does

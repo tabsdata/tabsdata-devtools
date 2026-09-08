@@ -157,7 +157,8 @@ def test_the_repo_tables_round_trip_and_leave_the_options_alone(tmp_path, monkey
     assert "[reviewer-aliases]" in text and 'dimas = "aoinokimi"' in text
     # the shared option template is written too, and survives a repo refresh
     assert "[options]" in text and "[options.submit]" in text
-    config.path().write_text(text.replace("# verbose = false", "verbose = true"))
+    # the template writes no option line, so setting one means adding it
+    config.path().write_text(text.replace("[options]\n", "[options]\nverbose = true\n", 1))
     config.write(config.read())
     assert common.options_in("gsx")[""] == {"verbose": True}
     assert config.read()["repos"]["o/n"]["defaults"]["labels"] == ["skip-ci"]

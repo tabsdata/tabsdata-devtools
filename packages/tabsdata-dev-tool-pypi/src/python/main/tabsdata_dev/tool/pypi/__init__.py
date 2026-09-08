@@ -69,14 +69,6 @@ from .tree import lane_tree, load_index
 
 SERVING = tuple(POLICY)  # staging, prod
 
-CONFIG_PREAMBLE = """\
-# pypi-repo is the remote of the repository holding config/, raw-wheels/ and
-# pypi-wheels/. Every subcommand runs at the root of a clone of it and refuses
-# anywhere else, so the tree a command reads and the release record a prod push
-# checks are always the same repository. It defaults to the one below; set it
-# only to work against a fork or a replacement.
-"""
-
 
 def _serve(tree: Path, port: int, out: Renderer) -> int:
     load_index(tree)  # refuses if the tree is incomplete
@@ -369,5 +361,4 @@ def main(argv: list[str] | None = None) -> int:
         body,
         argv=argv,
         configure=configure,
-        config_preamble=CONFIG_PREAMBLE,
     )

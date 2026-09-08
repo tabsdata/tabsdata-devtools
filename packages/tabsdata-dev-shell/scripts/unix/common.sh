@@ -412,25 +412,22 @@ _tdd_ps1_noop() {
 #
 #     _tdd_config_action <command> "$@"
 
-# The document `--create` writes and `--default` prints: every option commented
-# out at its built-in value, so the file is a template and a line only becomes a
-# default once uncommented. With --current, whatever the file sets already is
-# written uncommented instead, and whatever tables the file keeps of its own are
-# carried across -- that is what makes `--create --force` a rewrite of the
-# template rather than a loss of the reader's file.
+# The document `--create` writes and `--default` prints: the [options] tables
+# and nothing else, plus whatever the file already sets (--current). No option
+# is listed at its built-in value -- that would put today's defaults in the
+# reader's copy, where a later change to one would never reach them; `config
+# --show` is what lists them. Whatever tables the file keeps of its own are
+# carried across, which is what makes `--create --force` a rewrite of the
+# template rather than a loss of the reader's file. The twin of
+# common.core.config.render_doc -- edit both.
 #     _tdd_config_template <command> [--current]
 _tdd_config_template() {
     _tdd_cfg_file="$TDD_DIR/$1.toml"
     _tdd_cfg_cur=""
     [ "${2:-}" = --current ] && _tdd_cfg_cur="$(tdd-exe --dir "$TDD_DIR" --defaults-doc "$1" 2>/dev/null)"
     printf '#\n# Copyright 2026 Tabsdata Inc.\n#\n\n'
-    printf '# %s configuration -- %s\n#\n' "$1" "$_tdd_cfg_file"
-    printf '# Written by `tdd %s config --create`; `--default` prints this document\n' "$1"
-    printf '# without writing it, `--show` compares it with what is here now.\n#\n'
-    printf '# Every option below is commented out at the value %s uses when you do\n' "$1"
-    printf '# not say otherwise. UNCOMMENT a line to make it the default for every\n'
-    printf '# `tdd %s` run: typed options always win over it, and an [options.ACTION]\n' "$1"
-    printf '# table wins over [options].\n'
+    printf '# Each subcommand may have an [options.<SUBCOMMAND>] table setting user\n'
+    printf '# defaults: key is the option, value is its value, strings in double quotes.\n'
     printf '\n[options]\n'
     _tdd_config_line "$1" - --format view "json is JSON Lines, one event per line (default: view)"
     _tdd_config_line "$1" - --verbose false "show debug events too"
@@ -440,7 +437,7 @@ _tdd_config_template() {
             if [ "$_tdd_cfg_sub" != "$_tdd_cfg_last" ]; then
                 case "$_tdd_cfg_sub" in
                     - | "") ;;
-                    *) printf '\n[options.%s]\n# only for `tdd %s %s`\n' "$_tdd_cfg_sub" "$1" "$_tdd_cfg_sub" ;;
+                    *) printf '\n[options.%s]\n' "$_tdd_cfg_sub" ;;
                 esac
                 _tdd_cfg_last="$_tdd_cfg_sub"
             fi
@@ -455,11 +452,16 @@ _tdd_config_template() {
             keep { print }' "$_tdd_cfg_file")"
         [ -n "$_tdd_cfg_kept" ] && printf '\n%s\n' "$_tdd_cfg_kept"
     fi
+    # Explicit: the status of the last conditional is not the status of the
+    # template. Without this, a file with no tables of its own to carry across
+    # ends on a false test, and `--create --force` refuses with "cannot write".
+    return 0
 }
 
-# One line of the template: `# key = default`, or `key = value` when the file
-# sets it (--current). $1 command, $2 subcommand or -, $3 option, $4 default,
-# $5 the help comment to put above it.
+# One line of the template: `key = value` when the file sets it (--current),
+# nothing at all otherwise -- the built-in default is not written down.
+# $1 command, $2 subcommand or -, $3 option, $4 default (unused, kept so the
+# call sites stay the declaration they read from), $5 unused.
 _tdd_config_line() {
     _tdd_cfg_key="$(_tdd_config_key "$3")"
     case "$2" in
@@ -468,12 +470,8 @@ _tdd_config_line() {
     esac
     _tdd_cfg_set=""
     [ -n "$_tdd_cfg_cur" ] && _tdd_cfg_set="$(printf '%s' "$_tdd_cfg_cur" | jq -r "$_tdd_cfg_path.\"$_tdd_cfg_key\" // empty | tostring" 2>/dev/null)"
-    [ -n "${5:-}" ] && printf '# %s\n' "$5"
-    if [ -n "$_tdd_cfg_set" ]; then
-        printf '%s = %s\n' "$_tdd_cfg_key" "$(_tdd_config_toml "$_tdd_cfg_set")"
-    else
-        printf '# %s = %s\n' "$_tdd_cfg_key" "$(_tdd_config_toml "$4")"
-    fi
+    [ -n "$_tdd_cfg_set" ] && printf '%s = %s\n' "$_tdd_cfg_key" "$(_tdd_config_toml "$_tdd_cfg_set")"
+    return 0
 }
 
 # `--type` -> `type`: a TOML key is the option's dest, as on the Python side.
