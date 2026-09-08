@@ -51,10 +51,14 @@ def config_path(dir_: pathlib.Path, command: str) -> pathlib.Path:
 
 def to_argv(name: str, value: Any) -> list[str]:
     """The tokens a configured default contributes. Twin of
-    `common.core.config.to_argv`."""
+    `common.core.config.to_argv` -- an empty string contributes nothing, so a
+    line copied out of `config --show` for an option with no built-in default
+    leaves that option alone instead of passing it an empty argument."""
     option = f"--{name.replace('_', '-')}"
     if isinstance(value, bool):
         return [option] if value else []
+    if value == "":
+        return []
     if isinstance(value, (list, tuple)):
         return [token for item in value for token in (option, str(item))]
     return [option, str(value)]

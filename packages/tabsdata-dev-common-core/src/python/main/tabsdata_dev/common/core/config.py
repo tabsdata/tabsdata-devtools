@@ -76,10 +76,18 @@ def to_argv(name: str, value: Any) -> list[str]:
     A flag is its presence (``true`` -> ``--flag``, ``false`` -> nothing: a
     store_true option cannot be turned off from a command line either), a list
     repeats the option, everything else is ``--name value``.
+
+    An empty string contributes nothing. `--show` lists an option with no
+    built-in default as ``name = ""``, and a reader who copies that line into
+    the file means "leave it alone", not ``--name ''`` on every run. The cost is
+    that an argument which really is the empty string cannot come from the file;
+    it is a command line away.
     """
     option = f"--{name.replace('_', '-')}"
     if isinstance(value, bool):
         return [option] if value else []
+    if value == "":
+        return []
     if isinstance(value, (list, tuple)):
         return [token for item in value for token in (option, str(item))]
     return [option, str(value)]
@@ -117,11 +125,20 @@ def from_parser(
     preamble: str = "",
     tables: str = "",
 ) -> Doc:
-    """Read the command's own parser: every option that HAS a default.
+    """Read the command's own parser: every option it takes.
 
-    An option with no default (a required value, a path to act on) is left out
-    -- there is nothing to put in the file and a blank one would be merged in
-    as an empty value.
+    Including the ones with no built-in default, which are recorded as empty and
+    are most of the ones worth configuring -- `--sys-dir`, `--ports`,
+    `--sys-prefix`, `--identity`. Leaving them out made `config --show` a list of
+    the boolean flags and nothing else, and disagreed with the shell half, which
+    has always shown an option with no default as `name = ""`.
+
+    Nothing is merged from an empty value (see :func:`to_argv`), so a table that
+    shows one is describing an option that is simply unset.
+
+    ``SUPPRESS`` is still skipped: that is how a command puts the same option on
+    every subcommand without the copies overwriting what was typed before the
+    subcommand word, and each copy would otherwise arrive here as a duplicate.
     """
     doc = Doc(command=command, preamble=preamble, tables=tables)
     doc.actions[""] = _options_of(parser)
@@ -141,9 +158,12 @@ def _options_of(parser: argparse.ArgumentParser) -> dict[str, tuple[Any, str]]:
             continue
         if not action.option_strings or action.dest in ("help", argparse.SUPPRESS):
             continue
-        if action.dest in _SKIP_ACTIONS or action.default in (None, argparse.SUPPRESS):
+        if action.dest in _SKIP_ACTIONS or action.default is argparse.SUPPRESS:
             continue
-        found[action.dest] = (action.default, (action.help or "").strip())
+        # No built-in default reads as empty, which is what the shell half has
+        # always written for one and what `to_argv` declines to pass on.
+        default = "" if action.default is None else action.default
+        found[action.dest] = (default, (action.help or "").strip())
     return found
 
 

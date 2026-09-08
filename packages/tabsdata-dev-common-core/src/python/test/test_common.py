@@ -332,10 +332,17 @@ def test_config_derives_its_template_from_the_parser_and_writes_atomically(
     create.add_argument("--python", default="3.12", help="interpreter")
 
     doc = config.from_parser("demo", parser)
+    # every option the command takes, the ones with no built-in default read as
+    # empty -- those are most of what is worth configuring (a directory, a
+    # prefix), and the shell half has always shown them that way
     assert doc.defaults() == {
-        "": {"type": "pyenv", "force": False},  # --name has no default: left out
+        "": {"type": "pyenv", "force": False, "name": ""},
         "create": {"python": "3.12"},
     }
+    # ... and an empty one is not passed on, so a line copied out of `--show`
+    # leaves the option alone rather than handing it an empty argument
+    assert config.to_argv("name", "") == []
+    assert config.to_argv("name", "x") == ["--name", "x"]
     text = config.render_doc(doc)
     # the tables and nothing else: no option is written down, so the reader's
     # file never holds a stale copy of today's defaults
