@@ -142,7 +142,7 @@ def _suites_dir(c):
 
 
 def configure(p: argparse.ArgumentParser) -> None:
-    sub = p.add_subparsers(dest="cmd", required=True, metavar="<command>")
+    sub = p.add_subparsers(dest="cmd", required=True, metavar="SUBCOMMAND")
 
     c = sub.add_parser(
         "list-suites",

@@ -137,7 +137,7 @@ def configure(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--tree", type=Path, default=DEFAULT_TREE, help="pypi-wheels/, holding <lane>/"
     )
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd", required=True, metavar="SUBCOMMAND")
 
     g = sub.add_parser(
         "generate",

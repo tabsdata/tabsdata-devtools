@@ -61,7 +61,14 @@ class UsageError(Exception):
 
 
 def parser(prog: str, description: str) -> argparse.ArgumentParser:
-    p = _Parser(prog=prog, description=description)
+    """The command's parser, named the way the command is run.
+
+    `tdd <tool>`, not `<tool>`: argparse would otherwise put the bare executable
+    in every usage line and every subcommand's, which is a command nobody types
+    -- the tools live inside a toolset venv and the front door is `tdd`. The
+    shell half has always written its usage that way, so this is also what makes
+    the two halves' help read alike."""
+    p = _Parser(prog=f"tdd {prog}", description=description)
     p.add_argument("-v", "--verbose", action="store_true", help="show debug events too")
     p.add_argument(
         "--format",

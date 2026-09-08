@@ -222,8 +222,24 @@ def _require_verb(tool: str, slug: str, verb: str) -> None:
 
 
 def _summary(module: ModuleType) -> str:
+    """A verb's one-line summary, in the shape argparse help is written in: a
+    lower-case fragment with no full stop, so the listing reads the same whether
+    the verb is delegated or handled here.
+
+    A module docstring is a sentence -- "Provision a system." -- and should stay
+    one; this is the single place it becomes help text, so the conversion
+    belongs here rather than in eighteen docstrings written for a reader of the
+    module. Only an ordinary first word is lower-cased: one that keeps capitals
+    of its own (`PostgreSQL`, `AWS`) is left alone.
+    """
     doc = (module.__doc__ or "").strip()
-    return doc.splitlines()[0] if doc else ""
+    if not doc:
+        return ""
+    first = doc.splitlines()[0].rstrip(".")
+    head = first.split(" ", 1)[0]
+    if head[:1].isupper() and head[1:].islower():
+        first = first[:1].lower() + first[1:]
+    return first
 
 
 def _command_module(tool: str, slug: str, verb: str) -> ModuleType:
@@ -1463,6 +1479,23 @@ def _add_store_dir(tool: str, p: ArgumentParser) -> str:
     return "domain_dir"
 
 
+#: What each tool of the family is, in one line -- the description argparse puts
+#: under the usage, the way every other command has one.
+DESCRIPTIONS = {
+    constants.SYS_TOOL: (
+        "manage external systems for testing: databases, object stores, "
+        "services (docker, cloud, remote)"
+    ),
+    constants.DOM_TOOL: (
+        "manage domains inside systems: schemas, generated data, change sets"
+    ),
+    constants.DOM_SF_TOOL: (
+        "manage domains inside systems: schemas, generated data, change sets "
+        "(the salesforce data plane)"
+    ),
+}
+
+
 def top_help(tool: str) -> tuple[str, dict]:
     """The tool's help: text for view, and the same as fields for json."""
     family = _family(tool)
@@ -1485,22 +1518,36 @@ def top_help(tool: str) -> tuple[str, dict]:
     # `config` is every command's, from the shared layer rather than this table.
     verbs.append(constants.V_CONFIG)
     summaries[constants.V_CONFIG] = core_config.SUMMARY
-    lines = [
-        f"usage: tdd {tool} <command> [options]   (tdd {tool} <command> -h for the options)",
-        "",
-        "commands:",
-        *(f"  {v:14} {summaries.get(v, '')}" for v in verbs),
-        "",
-        "every command: --format json|view, --verbose/-v, --help/-h",
-        "",
-        "environment:",
-        *(
-            f"  {ev.name:24} {ev.help} [default: {ev.default}]"
-            for ev in constants.ENV_VARS
-        ),
-        "",
-        f"store: {store.system_dir()} and {store.domain_dir()} (--sys-dir / --domain-dir override)",
-    ]
+    # Laid out by argparse, not by hand: this family builds a parser per verb
+    # rather than one with subparsers, so its help was written out line by line
+    # and drifted from every other command's -- a different usage line, no
+    # `options:` section at all. A throwaway parser carrying the same verbs and
+    # the same shared options produces the shape argparse gives `tdd gsx`, from
+    # the one formatter, so the two cannot read differently again.
+    import argparse
+
+    from tabsdata_dev.common.core import cli as core_cli
+
+    epilog = "\n".join(
+        [
+            "environment:",
+            *(
+                f"  {ev.name:24} {ev.help} [default: {ev.default}]"
+                for ev in constants.ENV_VARS
+            ),
+            "",
+            f"store: {store.system_dir()}",
+            f"       {store.domain_dir()}",
+            "       (--sys-dir / --domain-dir override)",
+        ]
+    )
+    p = core_cli.parser(tool, DESCRIPTIONS[tool])
+    p.epilog = epilog
+    p.formatter_class = argparse.RawDescriptionHelpFormatter
+    subs = p.add_subparsers(dest="verb", metavar="SUBCOMMAND")
+    for verb in verbs:
+        subs.add_parser(verb, help=summaries.get(verb, ""))
+    lines = [p.format_help().rstrip("\n")]
     fields = {
         "commands": [{"name": v, "summary": summaries.get(v, "")} for v in verbs],
         "environment": [
