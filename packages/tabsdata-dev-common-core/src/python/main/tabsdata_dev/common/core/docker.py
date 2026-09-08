@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import textwrap
 
 from .errors import ToolError
 
@@ -48,6 +49,52 @@ def container_state(name: str) -> str | None:
     if cp.returncode != 0:
         return None
     return cp.stdout.strip() or None
+
+
+def container_failure(name: str, tail: int = 40) -> str:
+    """What the container has to say, for a failure log: its state, why it
+    exited if it did, and its last `tail` log lines.
+
+    A server that never came up wrote the reason to its own stdout -- an initdb
+    that refused the data directory, a licence prompt, a port already taken --
+    and "did not become ready within 60s" is the one thing that does not say it.
+    Best effort by design: this runs while something is already going wrong.
+    """
+    lines: list[str] = []
+    try:
+        fmt = "{{.State.Status}}|{{.State.ExitCode}}|{{.State.Error}}|{{.State.OOMKilled}}"
+        cp = subprocess.run(
+            ["docker", "container", "inspect", "-f", fmt, name],
+            capture_output=True,
+            encoding="utf-8",
+        )
+        if cp.returncode != 0:
+            return f"container {name}: {cp.stderr.strip() or 'not inspectable'}"
+        status, code, err, oom = (cp.stdout.strip().split("|", 3) + ["", "", "", ""])[
+            :4
+        ]
+        lines.append(f"container:  {name}")
+        lines.append(
+            f"state:      {status}"
+            + (f" (exit {code})" if code not in ("", "0") else "")
+        )
+        if err:
+            lines.append(f"state error: {err}")
+        if oom == "true":
+            lines.append("OOM killed:  yes")
+        logs = subprocess.run(
+            ["docker", "logs", "--tail", str(tail), name],
+            capture_output=True,
+            encoding="utf-8",
+        )
+        # docker sends a container's stderr to our stderr, and that is usually
+        # where a refusing server writes; both streams belong in the log.
+        body = "\n".join(p for p in (logs.stdout.strip(), logs.stderr.strip()) if p)
+        if body:
+            lines += [f"last {tail} log lines:", textwrap.indent(body, "  ")]
+    except Exception as collecting:  # noqa: BLE001 -- never mask the real failure
+        lines.append(f"(container diagnostics unavailable: {collecting})")
+    return "\n".join(lines)
 
 
 def container_id(name: str) -> str | None:

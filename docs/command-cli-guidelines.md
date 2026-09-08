@@ -48,6 +48,16 @@ line, cwd, `TDD_DIR`, version, time, error, traceback, complete subprocess outpu
 `details: <path>` on stderr in view, the `log` field of the `error` line in json. The terminal
 keeps *what* went wrong; the file has the *why*.
 
+**The why includes what the failing system said.** A driver's one-line summary is what the
+terminal gets; the log gets everything behind it, pulled at the raise site and carried as
+`ToolError(message, details)`. A database: SQLSTATE, the server's DETAIL/HINT/CONTEXT, the
+schema/table/constraint it named, the statement that failed, and the connection target with the
+password stripped (`common.systems.diagnostics.db_failure`). A container: its state, exit code
+and last log lines (`core.docker.container_failure`) -- a server that never came up wrote the
+reason to its own stdout, and "did not become ready" is the one thing that cannot say it.
+Collecting diagnostics never raises: it runs while something is already going wrong, and an
+exception there would replace the failure it was explaining.
+
 ## Events
 
 Everything a command says is an event -- `command` (the `-`-joined qualified name the log uses,

@@ -31,9 +31,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tabsdata_dev.common.systems import datagen, emit, options
+from tabsdata_dev.common.systems.diagnostics import db_failure
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import (
     container_exists,
+    container_failure,
     container_id,
     container_state,
     docker_exec_check,
@@ -271,9 +273,13 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
             if self.check_ready(container, password):
                 return
             time.sleep(2)
+        # The container is up and refusing connections, so it is running the
+        # server and the server is saying why on its own stdout -- which is the
+        # one thing this message cannot say.
         raise TdxError(
             f"{self.label} did not become ready within {timeout}s "
-            f"(container {container} is up but not accepting connections)"
+            f"(container {container} is up but not accepting connections)",
+            container_failure(container),
         )
 
     def destroy_system(self, meta: dict[str, str]) -> None:
@@ -423,31 +429,42 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
     def _run_admin(self, admin: Admin, statements: list[str]) -> None:
         from sqlalchemy import create_engine
 
-        engine = create_engine(self._admin_url(admin))
+        url = self._admin_url(admin)
+        engine = create_engine(url)
+        running = ""
         try:
             if self.admin_autocommit:
                 with engine.connect() as conn:
                     conn = conn.execution_options(isolation_level="AUTOCOMMIT")
                     for st in statements:
+                        running = st
                         conn.exec_driver_sql(st)
             else:
                 with engine.begin() as conn:
                     for st in statements:
+                        running = st
                         conn.exec_driver_sql(st)
         except Exception as exc:  # noqa: BLE001 - surface the DB's own message
-            raise TdxError(f"{self.label} admin SQL failed: {exc}") from exc
+            raise TdxError(
+                f"{self.label} admin SQL failed: {exc}",
+                db_failure(exc, statement=running, url=url, label="admin SQL"),
+            ) from exc
         finally:
             engine.dispose()
 
     def _query_admin(self, admin: Admin, query: str) -> list[str]:
         from sqlalchemy import create_engine
 
-        engine = create_engine(self._admin_url(admin))
+        url = self._admin_url(admin)
+        engine = create_engine(url)
         try:
             with engine.connect() as conn:
                 rows = conn.exec_driver_sql(query).fetchall()
         except Exception as exc:  # noqa: BLE001
-            raise TdxError(f"{self.label} admin query failed: {exc}") from exc
+            raise TdxError(
+                f"{self.label} admin query failed: {exc}",
+                db_failure(exc, statement=query, url=url, label="admin query"),
+            ) from exc
         finally:
             engine.dispose()
         return [str(r[0]).strip() for r in rows if r and r[0] is not None]

@@ -9,13 +9,16 @@
 each), preserving the per-transaction boundaries a change-data-capture consumer
 sees as distinct transactions. DBAPI / SQLAlchemy errors are converted to
 ``TdxError`` so the top-level handler prints the database's own message instead
-of a Python traceback.
+of a Python traceback -- carrying the server's full diagnostics (SQLSTATE,
+DETAIL, HINT, the failing statement) as the log's detail block, since the one
+line on the terminal is rarely enough to tell what to change.
 """
 
 from __future__ import annotations
 
 import re
 
+from tabsdata_dev.common.systems.diagnostics import db_failure
 from tabsdata_dev.common.systems.errors import TdxError
 
 _SQL_COMMENT_RE = re.compile(r"/\*.*?\*/|--[^\n]*", re.DOTALL)
@@ -56,15 +59,20 @@ def run_sql_text(uri: str, sql: str, label: str = "sql") -> None:
 
     statements = split_sql_statements(sql)
     engine = create_engine(uri)
+    running = ""
     try:
         with engine.begin() as conn:
             for stmt in statements:
                 stmt = stmt.rstrip(";").strip()
                 if stmt:
+                    running = stmt
                     conn.exec_driver_sql(stmt)
     except SQLAlchemyError as exc:
         orig = getattr(exc, "orig", None) or exc
-        raise TdxError(f"SQL error while running {label}: {orig}") from None
+        raise TdxError(
+            f"SQL error while running {label}: {orig}",
+            db_failure(exc, statement=running, url=uri, label=label),
+        ) from None
     finally:
         # Dispose the pool so no connection lingers to block a later DROP DATABASE.
         engine.dispose()
@@ -83,17 +91,27 @@ def run_sql_transactions(
 
     engine = create_engine(uri)
     applied = 0
+    running = ""
     try:
         for stmts in transactions:
             with engine.begin() as conn:
                 for stmt in stmts:
                     stmt = stmt.rstrip(";").strip()
                     if stmt:
+                        running = stmt
                         conn.exec_driver_sql(stmt)
             applied += 1
     except SQLAlchemyError as exc:
         orig = getattr(exc, "orig", None) or exc
-        raise TdxError(f"SQL error while running {label}: {orig}") from None
+        raise TdxError(
+            f"SQL error while running {label}: {orig}",
+            db_failure(
+                exc,
+                statement=running,
+                url=uri,
+                label=f"{label}, transaction {applied + 1}",
+            ),
+        ) from None
     finally:
         engine.dispose()
     return applied

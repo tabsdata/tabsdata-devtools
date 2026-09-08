@@ -11,6 +11,7 @@ from tabsdata_dev.common.core.docker import (  # noqa: F401 - re-exports
     list_containers,
     compose_container_ids,
     container_exists,
+    container_failure,
     container_id,
     container_state,
     docker_compose,

@@ -984,3 +984,56 @@ def test_1p_set_uploads_only_what_a_create_may_carry(tmp_path):
 
     item = onepassword.item(_s.get("gcppostgres"))
     assert onepassword.for_upload(item) == item
+
+
+def test_db_failure_collects_what_the_server_said():
+    """psycopg2 hands back everything the server sent -- SQLSTATE plus the DETAIL,
+    HINT and the schema/table/constraint it names -- and none of it reaches the
+    one line the terminal prints. This is the block the log gets instead."""
+    from tabsdata_dev.common.systems.diagnostics import db_failure
+
+    class Diag:
+        severity = "ERROR"
+        message_primary = 'duplicate key value violates unique constraint "t_pkey"'
+        message_detail = "Key (id)=(1) already exists."
+        message_hint = None
+        schema_name = "public"
+        table_name = "t"
+        constraint_name = "t_pkey"
+
+    class Orig(Exception):
+        pgcode = "23505"
+        diag = Diag()
+
+    class Wrapped(Exception):
+        orig = Orig("duplicate key value violates unique constraint")
+
+    text = db_failure(
+        Wrapped(),
+        statement="INSERT INTO t VALUES (1)",
+        url="postgresql+psycopg2://u:s3cret@h:5432/d?sslmode=verify-ca",
+        label="a duplicate key",
+    )
+    assert "sqlstate: 23505" in text
+    assert "detail: Key (id)=(1) already exists." in text
+    assert "constraint: t_pkey" in text
+    assert "statement: INSERT INTO t VALUES (1)" in text
+    assert "while: a duplicate key" in text
+    # the target belongs in the log; the credential does not
+    assert "s3cret" not in text
+    assert "sslmode=verify-ca" in text
+
+
+def test_db_failure_never_raises_on_a_driver_it_does_not_know():
+    """It runs while a command is already failing: an exception here would
+    replace the failure it was trying to explain."""
+    from tabsdata_dev.common.systems.diagnostics import db_failure, redact_url
+
+    class Awkward(Exception):
+        @property
+        def diag(self):
+            raise RuntimeError("no diagnostics for you")
+
+    assert db_failure(Awkward("plain")).strip()
+    assert redact_url("not-a-url") == "not-a-url"
+    assert "***" in redact_url("postgresql://u:p@h/d")

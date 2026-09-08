@@ -59,7 +59,11 @@ dependencies are declared as ranges; each toolset's lock pins them.
   
   `ports`, `passwords`, `docker` (the CLI wrapped rather than an SDK, so it stays standard-library
   only and identical to what a person would type; every failure is a `ToolError` carrying docker's
-  own message), `ssh`, `datadir.data_dir()` (`<tdd_dir>/data/<command>`), `latch`, `errors`.
+  own message, and `container_failure()` adds the container's state and last log lines for the
+  failure log -- a server that never came up said why on its own stdout), `ssh`,
+  `datadir.data_dir()` (`<tdd_dir>/data/<command>`), `latch`, `errors` (`ToolError(message,
+  details)`: the message is the terminal's one line, `details` is what the failing system said,
+  written to the log under it).
   `ports` never hands out an ephemeral port: its generic range is 30000-32767 (random start),
   20000-29999 being the systems' slots -- [docs/ports.md](../../docs/ports.md).
 

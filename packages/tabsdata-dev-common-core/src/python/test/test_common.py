@@ -622,3 +622,52 @@ def test_generated_password_carries_every_class_and_nothing_that_bites():
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         ), p
     assert gen_password(8)  # a short one still returns something usable
+
+
+def test_a_tool_error_carries_diagnostics_into_the_log_and_not_the_terminal(capsys):
+    """The terminal keeps one line of what went wrong; the log gets what the
+    failing system said. A raise site that pulled the database's DETAIL or a
+    container's last log lines puts them on the error, and the runner writes them
+    under the message -- without widening the one line a person reads."""
+    from tabsdata_dev.common.core.errors import ToolError
+
+    def body(args, out):
+        raise ToolError(
+            "permission denied for schema public", "DETAIL: it is owned by x"
+        )
+
+    assert cli.run("probe", "d", body, argv=[]) == 1
+    shown = capsys.readouterr().err
+    # the diagnostics are NOT on the terminal, only the pointer to the log
+    assert "permission denied for schema public" in shown
+    assert "DETAIL: it is owned by x" not in shown
+    path = shown.split("details: ", 1)[1].strip().splitlines()[0]
+    written = open(path).read()
+    assert "error:   permission denied for schema public" in written
+    assert "DETAIL: it is owned by x" in written
+    os.unlink(path)
+
+
+def test_a_plain_tool_error_still_writes_a_log_without_a_details_block(capsys):
+    """Nothing has to change at a raise site that has nothing extra to say."""
+    from tabsdata_dev.common.core.errors import ToolError
+
+    assert ToolError("just the message").details == ""
+
+    def body(args, out):
+        raise ToolError("just the message")
+
+    assert cli.run("probe", "d", body, argv=[]) == 1
+    path = capsys.readouterr().err.split("details: ", 1)[1].strip().splitlines()[0]
+    written = open(path).read()
+    assert "just the message" in written and "\ndetails:" not in written
+    os.unlink(path)
+
+
+def test_container_failure_explains_itself_when_there_is_no_container():
+    """It runs while something is already going wrong, so it never raises: an
+    unusable container has to come back as text, not as a second exception."""
+    from tabsdata_dev.common.core.docker import container_failure
+
+    text = container_failure("tdd-no-such-container-probe")
+    assert isinstance(text, str) and text

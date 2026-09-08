@@ -38,6 +38,11 @@ with per-system DDL. The tools `system`, `domain` and `domain-sf` are thin entry
   parsers were built inline.
 - Output follows the guidelines through the `console` adapter; chatty verbs log to
   `/tmp/tdd-<tool>-<verb>-<name>-<stamp>.log`, which is also the failure log.
+- `diagnostics.py`: what the database said, for that log. Every SQL failure path
+  (`sql_runner`, the backends' `_run_admin`/`_query_admin`) attaches `db_failure()` to the
+  `TdxError` -- SQLSTATE, the server's DETAIL/HINT/CONTEXT, the schema/table/constraint it
+  named, the failing statement, the target with the password stripped. The one line a person
+  reads is the driver's summary; the answer is almost always in what the summary dropped.
 - Domain names are `<user>_<build>` from `TD_BUILD_USER`/`TD_BUILD_NUMBER` (else login/0).
 - Host ports: every system type owns a slot of 100 from 20000, by registry order (append-only);
   a create walks its slot for free ports, `--ports` pins them --
