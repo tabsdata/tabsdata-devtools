@@ -530,6 +530,19 @@ def test_config_show_paints_a_built_in_green_and_what_the_file_sets_blue():
         assert _config_show("zsh", tty=True) == painted
 
 
+def test_tdd_help_lists_tdd_own_options():
+    """`tdd -h` is the front door's help, and it named the commands without ever
+    naming what `tdd` itself takes -- not even --help. The usage line mentioned
+    three of the six and the rest were undiscoverable."""
+    text = shell.source_template()
+    body = text.split("_tdd_help() {", 1)[1].split("\n}\n", 1)[0]
+    for option in ("--dir", "--format", "--verbose", "--help", "--version", "--reqs"):
+        assert option in body, option
+    # the view listing has an options block, and json says the same
+    assert "${_tdd_hb}options:${_tdd_ho}" in body
+    assert '\\"options\\":' in body
+
+
 def test_the_defaults_command_is_gone_in_favour_of_config():
     assert not (shell.scripts_dir() / "defaults.sh").exists()
     text = shell.source_template()

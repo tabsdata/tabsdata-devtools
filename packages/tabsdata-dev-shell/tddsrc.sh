@@ -198,7 +198,7 @@ _tdd_help() {
     _tdd_rows="$(_tdd_help_rows)"
     if [ "$_TDD_FORMAT" = json ]; then
         _tdd_ok "$(printf '%s\n' "$_tdd_rows" | grep -c .) commands" \
-            "\"tdd_dir\":\"$(_tdd_json_str "$TDD_DIR")\",\"commands\":$(_tdd_rows_json "$_tdd_rows"),\"config\":{\"file\":\"$(_tdd_json_str "$TDD_DIR/<command>.toml")\",\"tables\":[\"options\",\"options.<action>\"],\"syntax\":\"a TOML key per option, typed options win\",\"action\":\"tdd <command> config --create|--default|--show\"}"
+            "\"tdd_dir\":\"$(_tdd_json_str "$TDD_DIR")\",\"options\":[\"--dir\",\"--format\",\"--verbose\",\"--help\",\"--version\",\"--reqs\"],\"commands\":$(_tdd_rows_json "$_tdd_rows"),\"config\":{\"file\":\"$(_tdd_json_str "$TDD_DIR/<command>.toml")\",\"tables\":[\"options\",\"options.<action>\"],\"syntax\":\"a TOML key per option, typed options win\",\"action\":\"tdd <command> config --create|--default|--show\"}"
     else
         # The listing paints itself the way every help does -- a heading bold, a
         # command name cyan -- so the ok event must not wrap it in green. The
@@ -214,6 +214,17 @@ _tdd_help() {
         _tdd_head="commands (* runs in this shell):"
         _TDD_PRECOLORED=1
         _tdd_ok "${_tdd_hb}usage:${_tdd_ho} tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
+       tdd [--dir TDD_PATH] (--help | --version | --reqs [TOOL])
+
+${_tdd_hb}options:${_tdd_ho}  (before the command word; --format and --verbose travel on to it)
+  --dir TDD_PATH   the tdd dir to use (default: \$TDD_DIR, else ~/.tdd)
+  --format json|view
+                   json is one event per line (default: view)
+  --verbose, -v    show debug events too
+  --help, -h       this listing
+  --version, -V    the version stamped into the tdd dir
+  --reqs [TOOL]    report the external binaries the tools need; exit 1 if any
+                   is missing
 
 ${_tdd_hb}${_tdd_head}${_tdd_ho}
 $(printf '%s\n' "$_tdd_rows" | awk -F'\t' -v c="$_tdd_hc" -v o="$_tdd_ho" '{ printf "  %s %s%-13s%s %s\n", $2, c, $1, o, $3 }')

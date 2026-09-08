@@ -24,6 +24,11 @@ executable cannot do -- change the calling shell (venvs, variables, prompt).
 
 ## How it works
 
+- `tdd -h` is the front door's own help, built here rather than by `tdd-exe`: `tdd`'s options
+  (`--dir`, `--format`, `--verbose`, `--help`, `--version`, `--reqs`), then every command with a
+  `*` on the ones that run in this shell, then where a command's config file is. The options
+  block matters because the front door is a shell function -- nothing else documents what it
+  takes before the command word.
 - `tdd-source.sh` locates itself (so `TDD_DIR` follows a moved dir), loads `common.sh`, sources
   every command file and builds a `name|summary|kind|reqs` registry -- a string, so bash 3.2 and
   zsh both work; summaries may not contain `|`. Sourcing never fails and checks nothing; in an
