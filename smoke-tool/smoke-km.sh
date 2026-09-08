@@ -60,7 +60,7 @@ options:
   --expect-pods LIST  comma-separated service names whose pods must be Running
                       and Ready after quickstart and after start, per
                       `tdkserver status` (default: srv-apiserver,srv-database)
-  -f, --force         a venv or instance named sm_NAME already existing is an
+  --force, -f         a venv or instance named sm_NAME already existing is an
                       error unless this is given: then the venv is recreated and
                       the previous instance stopped and removed first (default: fail)
   --keep              on success, leave the whole setup as it is at the end:
@@ -81,7 +81,7 @@ options:
   --verbose           show every command's output on the screen as it happens
                       (default: a rolling window of the last 10 log lines,
                       and a stage's commands collapse into `ok` when it passes)
-  -h, --help          this help
+  --help, -h          this help
 
 The drivers added to the instance's fn and ag venvs (tdkserver venv update):
   mysql-connector-python==9.6.0  psycopg2-binary==2.9.12  oracledb==3.2.0

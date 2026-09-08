@@ -227,3 +227,30 @@ def test_the_gke_smoke_fills_the_database_ca_before_checking_placeholders():
 
     assert "tdk_database_ssl_root_cert_pem" in "\n".join(lines)
     assert called("common_fill_pem") < called("common_placeholders_left")
+
+
+def test_the_help_reads_long_form_first_and_paints_only_terms():
+    """Two things a hand-aligned page gets wrong on its own. An option with both
+    forms reads long then short, as everywhere else in tdd. And the closing prose
+    block -- "The drivers added ...", whose indented line lists three packages --
+    is a paragraph, not a term list: painting its first package cyan said it was
+    an option."""
+    for path in smoke.scripts_dir().glob("smoke-*.sh"):
+        text = path.read_text()
+        assert "  -f, --force" not in text, path.name
+        assert "  -h, --help" not in text, path.name
+        assert "  --force, -f" in text and "  --help, -h" in text, path.name
+
+    common = (smoke.scripts_dir() / "_common.sh").read_text()
+    engine = common.split("common_help() {", 1)[1].split("\n}\n", 1)[0]
+    # a term is only a term inside a section, and a column-1 line ends one
+    assert "section = 0" in engine and "section && match(" in engine
+    # The awk program is single-quoted by the shell, so an apostrophe anywhere in
+    # it -- a comment saying "the paragraph's" was the one that did -- closes the
+    # quote early and the rest becomes shell. Extract it the way the shell would
+    # and check the tail survived.
+    body = engine.split("awk -v required=", 1)[1]
+    # up to the NEXT quote, which is where the shell ends it -- not the last one,
+    # or a stray apostrophe in the middle would be swallowed and this would pass
+    program = body.split("'")[1]
+    assert "{ print painted($0) }" in program, "the awk program is cut short"

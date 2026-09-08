@@ -603,12 +603,19 @@ common_help() {
     }
     function painted(l,   start, stop, term, name, colour, m) {
         if (!tty) return l
-        if (l ~ /^[a-z][a-z0-9 \/_-]*:$/) return bold l off
+        if (l ~ /^[a-z][a-z0-9 \/_-]*:$/) { section = 1; return bold l off }
         if (l ~ /^(usage|examples?|options?):( |$)/) {
             m = index(l, ":")
+            section = 0
             return bold substr(l, 1, m) off substr(l, m + 1)
         }
-        if (match(l, /^ {1,6}[^ ]/)) {
+        # A line starting at column 1 ends the section it followed: what is
+        # indented under a prose paragraph belongs to the paragraph, not to a
+        # term list. The closing "drivers added ..." block is exactly that, and
+        # its first package name was being painted as if it were an option.
+        # (No apostrophes in here: the awk program is inside single quotes.)
+        if (l !~ /^ / && l != "") section = 0
+        if (section && match(l, /^ {1,6}[^ ]/)) {
             start = RSTART + RLENGTH - 1
             stop = start
             while (stop < length(l) && substr(l, stop + 1, 2) != "  ") stop++

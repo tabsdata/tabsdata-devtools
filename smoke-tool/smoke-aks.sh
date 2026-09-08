@@ -98,7 +98,7 @@ options:
                       write it into aiagent.yaml (default: no LLM)
   --expect-pods LIST  service names whose pods must be Running and Ready after
                       every start, per `tdkserver status` (default: srv-apiserver)
-  -f, --force         a venv, instance or namespace of this name already existing
+  --force, -f         a venv, instance or namespace of this name already existing
                       is an error unless this is given: then they are removed and
                       recreated (default: fail)
   --keep              on success, leave everything as it is: instance running,
@@ -119,7 +119,7 @@ options:
   --tdd-dir DIR       the tdd dir to source (default: $TDD_DIR, else ~/.tdd)
   --verbose           show every command's output as it happens (default: a
                       rolling window of the running command's last lines)
-  -h, --help          this help
+  --help, -h          this help
 
 The drivers added to the instance's fn and ag venvs (tdkserver venv update):
   mysql-connector-python==9.6.0  psycopg2-binary==2.9.12  oracledb==3.2.0
