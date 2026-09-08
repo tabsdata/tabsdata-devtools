@@ -36,8 +36,8 @@ CONFIG_TABLES = """\
 # it to set one -- every line below is valid TOML with the `# ` taken off.
 #
 # Where `approve` reads an approver's review token: op://VAULT/ITEM/FIELD, the
-# field being <login> + the suffix. `version` is gsx's own and is rewritten.
-# [gsx]
+# field being <login> + the suffix.
+# [approver-credentials]
 # approve_vault = "dev_ci"
 # approve_item = "GitHub"
 # approve_pat_suffix = ".review.pat"
@@ -58,7 +58,8 @@ CONFIG_TABLES = """\
 #
 # One table per repository, WRITTEN AND MAINTAINED BY gsx: `fetched`, `labels`
 # and `reviewers` are refreshed on their own whenever what they hold cannot
-# answer a --label:/--reviewer:, and an edit to them is overwritten. The two
+# answer a --label:/--reviewer:, and an edit to them is overwritten. So is
+# `version` on [repo] itself, which is the gsx that last refreshed them. The two
 # default_* lists are yours and are never touched -- the labels and reviewers
 # submit/apply put on that repository's PRs that have none yet.
 # [repo."OWNER/NAME"]
@@ -214,7 +215,8 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "approve PRs as one or more people, each with their own review token",
         "example:\n  tdd gsx approve --approvers dimas,tucu --down-stack\n\n"
         "an approver is impersonated with the review token 1Password holds for\n"
-        "their GitHub username ([gsx] approve_* in the config); a PR they wrote\n"
+        "their GitHub username ([approver-credentials] in the config); a PR\n"
+        "they wrote\n"
         "is skipped, since GitHub refuses a self-approval. A [reviewer-aliases]\n"
         'name is resolved first, so with `dimas = "aoinokimi"`, `--approvers\n'
         "dimas` reads the token `aoinokimi.review.pat`.\n\n",

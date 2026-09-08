@@ -6,8 +6,8 @@
 
 An approver is impersonated with their own review token, read from 1Password
 by **GitHub username**: vault `dev_ci`, item `GitHub`, field
-`<login>.review.pat` by default -- all three live in the config's `[gsx]`
-table. A `[reviewer-aliases]` name is resolved to that login first, so your own
+`<login>.review.pat` by default -- all three live in the config's
+`[approver-credentials]` table. A `[reviewer-aliases]` name is resolved to that login first, so your own
 name for someone works here as it does for `--reviewer:`. One fetch per
 approver serves every PR of the run, and a PR the token's owner wrote is
 skipped rather than failed: GitHub refuses a self-approval, and refusing it is

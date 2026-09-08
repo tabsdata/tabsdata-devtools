@@ -29,8 +29,10 @@ dependencies are declared as ranges; each toolset's lock pins them.
   survives, which it would not be up in the header, where the text is regenerated on every write.
   Once the command has written real tables, those are what a rewrite carries across.
   `config --show` answers what is in effect: every option with its default, the ones the file sets
-  highlighted, and then the tables the command keeps of its own -- the file's when it has them,
-  else the defaults it ships.
+  highlighted, then the tables beyond the options -- merged key by key over the defaults the
+  command ships, so setting one table cannot hide what another defaults to. Sub-tables come from
+  the file alone: a default one is a shape to copy (`[repo."OWNER/NAME"]`), named for nothing that
+  exists, so it belongs in the template and never in `--show`.
   Writes are a temporary file in the same directory and one `os.replace`, so an interrupted write
   leaves the previous file rather than half of one. The `config` action itself
   (`--show`/`--default`/`--create [--force]`) is built here from the command's options, which is

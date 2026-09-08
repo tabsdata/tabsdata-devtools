@@ -6,7 +6,7 @@
 
 The file is every command's config file (`common.core.config`): its
 ``[options]`` table holds what gsx's own options default to, and gsx adds
-``[gsx]`` and one ``[repo."OWNER/NAME"]`` table per repository. Labels and
+``[approver-credentials]`` and one ``[repo."OWNER/NAME"]`` table per repository. Labels and
 collaborators differ per repository -- a flat list would validate one
 repository's names against another's -- and so do the two ``default_*`` lists,
 which are the labels and reviewers `submit`/`apply` put on PRs *of that
@@ -29,9 +29,10 @@ from .options import doc
 from .version import VERSION
 
 COMMAND = "gsx"
-REPO = "repo"  # [repo."OWNER/NAME"], one per repository
+REPO = "repo"  # [repo."OWNER/NAME"], one per repository; [repo] carries version
 ALIASES = "reviewer-aliases"  # nickname -> login, file-wide: a login is a person
-SELF = "gsx"  # the [gsx] table: what gsx knows about the file itself
+CREDS = "approver-credentials"  # where `approve` reads a review token from
+_OLD_SELF = "gsx"  # both of those lived in a [gsx] table first; read, never written
 # Where `approve` reads an approver's review token from: 1Password, the way
 # gtx does it -- vault dev_ci, item GitHub, field <approver>.review.pat.
 # Literals with a home in the file, so a different vault is an edit, not a
@@ -81,6 +82,10 @@ def read() -> dict:
                 "reviewers": [str(v) for v in table.get("default_reviewers", [])],
             },
         }
+    # `version` marks how fresh the repo tables are, so it sits on [repo] with
+    # them; it was in [gsx] first, which is read for a file written before this.
+    legacy = document.get(_OLD_SELF) or {}
+    version = str((document.get(REPO) or {}).get("version", legacy.get("version", "")))
     aliases = {
         **ALIAS_DEFAULTS,
         **{
@@ -89,9 +94,9 @@ def read() -> dict:
             if isinstance(login, str)
         },
     }
-    table = document.get(SELF) or {}
+    table = document.get(CREDS) or legacy
     return {
-        "version": str(table.get("version", "")),
+        "version": version,
         "approve": {
             key: str(table.get(key, default))
             for key, default in APPROVE_DEFAULTS.items()
@@ -102,10 +107,14 @@ def read() -> dict:
 
 
 def render_tables(config: dict) -> str:
-    """gsx's own tables as TOML: `[gsx]`, the aliases, then one per repository."""
-    lines = [f"[{SELF}]", f"version = {common.toml_value(VERSION)}"]
+    """gsx's own tables as TOML: `[approver-credentials]`, the aliases, then
+    `[repo]` with its version and one sub-table per repository."""
     approve = config.get("approve") or {}
-    lines.append("# where `approve` reads an approver's review token from")
+    lines = [
+        f"[{CREDS}]",
+        "# where `approve` reads an approver's review token from:",
+        "# op://<vault>/<item>/<login><suffix>",
+    ]
     for key, default in APPROVE_DEFAULTS.items():
         lines.append(f"{key} = {common.toml_value(approve.get(key, default))}")
     aliases = config.get("aliases") or {}
@@ -123,13 +132,15 @@ def render_tables(config: dict) -> str:
             f"{common.toml_value(name).strip(chr(34))} = {common.toml_value(aliases[name])}"
         )
     repos = sorted(config.get("repos", {}))
-    if repos:
-        lines.append(
-            "\n# One table per repository, WRITTEN AND MAINTAINED BY gsx: `fetched`,"
-            "\n# `labels` and `reviewers` are refreshed automatically and any edit to"
-            "\n# them is overwritten. The two default_* lists are yours -- what"
-            "\n# submit/apply put on that repository's PRs that have none yet."
-        )
+    lines.append(
+        "\n# One table per repository, WRITTEN AND MAINTAINED BY gsx: `fetched`,"
+        "\n# `labels` and `reviewers` are refreshed automatically and any edit to"
+        "\n# them is overwritten. The two default_* lists are yours -- what"
+        "\n# submit/apply put on that repository's PRs that have none yet."
+        "\n# `version` is the gsx that last refreshed them."
+    )
+    lines.append(f"\n[{REPO}]")
+    lines.append(f"version = {common.toml_value(VERSION)}")
     for slug in repos:
         entry = config["repos"][slug]
         defaults = entry.get("defaults") or {}

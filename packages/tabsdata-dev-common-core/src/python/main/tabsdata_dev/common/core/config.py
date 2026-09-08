@@ -290,22 +290,88 @@ def _highlight(text: str, stream) -> str:
     return f"\033[{HIGHLIGHT}m{text}{render.RESET}"
 
 
-def _table_lines(data: dict[str, Any], prefix: str = "") -> list[str]:
+def _table_lines(
+    data: dict[str, Any],
+    set_here: set[tuple[str, ...]],
+    stream,
+    prefix: str = "",
+    path: tuple[str, ...] = (),
+) -> list[str]:
     """A table dict as `[name]` headers and `key = value` lines, sub-tables and
     all -- `{"repo": {"o/n": {...}}}` is `[repo."o/n"]`. Scalars come first, so
-    a table's own keys are not buried under its children."""
+    a table's own keys are not buried under its children, and a value the file
+    itself sets is highlighted the way a set option is."""
     lines: list[str] = []
     scalars = {k: v for k, v in data.items() if not isinstance(v, dict)}
     tables = {k: v for k, v in data.items() if isinstance(v, dict)}
     if scalars or (not tables and prefix):
         lines.append(f"\n[{prefix}]" if prefix else "")
         for key, value in scalars.items():
-            lines.append(f"  {key} = {toml_value(value)}")
+            text = f"{key} = {toml_value(value)}"
+            lines.append(
+                "  " + (_highlight(text, stream) if path + (key,) in set_here else text)
+            )
     for name, table in tables.items():
         # A key that is not bare has to be quoted, the way it is in the file.
         part = name if name.replace("_", "").replace("-", "").isalnum() else f'"{name}"'
-        lines.extend(_table_lines(table, f"{prefix}.{part}" if prefix else part))
+        lines.extend(
+            _table_lines(
+                table,
+                set_here,
+                stream,
+                f"{prefix}.{part}" if prefix else part,
+                path + (name,),
+            )
+        )
     return lines
+
+
+def _merge_tables(
+    defaults: dict[str, Any], present: dict[str, Any]
+) -> tuple[dict[str, Any], set[tuple[str, ...]]]:
+    """The command's own tables as they are in effect, and which values the file
+    is responsible for.
+
+    Key by key, so a file that names one alias does not hide the six shipped
+    beside it, and a table it says nothing about still shows its defaults --
+    which is the thing `--show` is for.
+
+    Sub-tables come from the file alone. A default one is a shape to copy, named
+    for nothing that exists -- `[repo."OWNER/NAME"]` -- and `--show` reports what
+    is in effect, where a placeholder has no place. A table left with nothing at
+    all after that is dropped rather than printed empty.
+    """
+    set_here: set[tuple[str, ...]] = set()
+
+    def walk(
+        default: dict[str, Any], have: dict[str, Any], path: tuple[str, ...]
+    ) -> dict[str, Any]:
+        merged: dict[str, Any] = {}
+        d_scalars = {k: v for k, v in default.items() if not isinstance(v, dict)}
+        p_scalars = {k: v for k, v in have.items() if not isinstance(v, dict)}
+        for key, value in {**d_scalars, **p_scalars}.items():
+            merged[key] = value
+            if key in p_scalars:
+                set_here.add(path + (key,))
+        d_tables = {k: v for k, v in default.items() if isinstance(v, dict)}
+        p_tables = {k: v for k, v in have.items() if isinstance(v, dict)}
+        if path:
+            # Inside a table, only the file's sub-tables are real.
+            for name, table in p_tables.items():
+                merged[name] = walk(d_tables.get(name, {}), table, path + (name,))
+        else:
+            # At the document root every table is its own subject: one the file
+            # says nothing about still shows what it defaults to, which is the
+            # whole point. Defaults first, so the order is the template's.
+            for name in {**d_tables, **p_tables}:
+                sub = walk(
+                    d_tables.get(name, {}), p_tables.get(name, {}), path + (name,)
+                )
+                if sub:  # a table whose only default was a placeholder
+                    merged[name] = sub
+        return merged
+
+    return walk(defaults, present, ()), set_here
 
 
 def _default_tables(doc: Doc) -> dict[str, Any]:
@@ -356,15 +422,15 @@ def show(doc: Doc, stream) -> tuple[str, dict[str, Any]]:
     # What the command keeps of its own. The file's tables when it has them --
     # that is the real state, the repositories gsx has learnt and so on -- and
     # otherwise the defaults it ships, so the reader sees they exist at all.
-    other = {k: v for k, v in read(doc.command).items() if k != OPTIONS_TABLE}
-    if other:
-        lines.append(f"\nkept by `tdd {doc.command}` itself:")
-        lines.extend(_table_lines(other))
-    elif _default_tables(doc):
-        lines.append(
-            f"\nkept by `tdd {doc.command}` itself (defaults; not set here yet):"
-        )
-        lines.extend(_table_lines(_default_tables(doc)))
+    present = {k: v for k, v in read(doc.command).items() if k != OPTIONS_TABLE}
+    defaults = _default_tables(doc)
+    merged, set_here = _merge_tables(defaults, present)
+    if merged:
+        # No claim about who owns them: some are the reader's to set and some
+        # the command writes, and only the command knows which. The file says so
+        # per table, next to the table itself.
+        lines.append("\nbeyond the options:")
+        lines.extend(_table_lines(merged, set_here, stream))
     return ("\n".join(lines), changed)
 
 

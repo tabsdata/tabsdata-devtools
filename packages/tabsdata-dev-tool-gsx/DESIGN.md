@@ -66,7 +66,7 @@ and pass through unchecked.
 
 `approve --approvers NAME[,NAME...]` with `--pr N,...`, `--down-stack` or `--stack`. Each approver
 is impersonated: their review token comes from 1Password **by GitHub username** (vault `dev_ci`,
-item `GitHub`, field `<login>.review.pat`; all three are `[gsx] approve_*` in the config), one
+item `GitHub`, field `<login>.review.pat`; all three are `[approver-credentials]`), one
 fetch per approver for the whole run, and `gh pr review --approve` runs with it in `GITHUB_TOKEN`.
 A `[reviewer-aliases]` name is resolved to the login first, so it names the token too.
 
@@ -87,8 +87,11 @@ A fresh file carries gsx's own tables commented at their defaults, after the opt
 can see they exist; gsx replaces that block with the real ones the first time it writes. Three
 tables of its own:
 
-- `[gsx] version` -- the gsx that last refreshed the tables below. A version that differs from
-  the running gsx forces one refresh, so what is cached is never older than the tool.
+- `[approver-credentials]` -- where `approve` reads a review token: `approve_vault`,
+  `approve_item`, `approve_pat_suffix`, the field being `<login>` plus the suffix.
+- `[repo] version` -- the gsx that last refreshed the tables below it. A version that differs
+  from the running gsx forces one refresh, so what is cached is never older than the tool; it
+  sits on `[repo]` because that is what it dates.
 - `[reviewer-aliases]` -- `<alias> = "<login>"`, a name of your own for a reviewer, usable
   anywhere a `--reviewer:` value is and resolved before anything looks at the value (validation,
   the desired state, the `gh pr edit` argument all see the login). File-wide: a login is a person,

@@ -183,7 +183,8 @@ def test_the_commented_tables_are_valid_toml_once_uncommented(tmp_path, monkeypa
         if line.startswith("# [") or " = " in line
     )
     document = tomllib.loads(text)
-    assert document["gsx"]["approve_vault"] == config.APPROVE_DEFAULTS["approve_vault"]
+    creds = document[config.CREDS]
+    assert creds["approve_vault"] == config.APPROVE_DEFAULTS["approve_vault"]
     # every shipped alias is listed, and at the login it actually resolves to
     assert document[config.ALIASES] == config.ALIAS_DEFAULTS
     assert document[config.REPO]["OWNER/NAME"] == {
@@ -214,6 +215,28 @@ def test_the_shipped_aliases_work_without_a_file_and_yield_to_one(
     assert aliases["tucu"] == "elsewhere"  # the file wins
     assert aliases["david"] == config.ALIAS_DEFAULTS["david"]  # the rest survive
     assert aliases["new"] == "newlogin"
+
+
+def test_a_file_written_before_the_rename_still_reads_and_migrates(
+    tmp_path, monkeypatch
+):
+    """`[gsx]` held the approve settings and the version. It is now
+    `[approver-credentials]`, and the version sits on `[repo]` -- what it dates
+    -- so an existing file has to be read either way and written the new way."""
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    config.path().write_text(
+        '[options]\n\n[gsx]\nversion = "0.0.9"\napprove_vault = "old_vault"\n'
+    )
+    old = config.read()
+    assert old["version"] == "0.0.9"
+    assert old["approve"]["approve_vault"] == "old_vault"  # a custom one survives
+
+    config.write(old)
+    text = config.path().read_text()
+    assert f"[{config.CREDS}]" in text and 'approve_vault = "old_vault"' in text
+    assert f"[{config.REPO}]\nversion = " in text
+    assert "\n[gsx]\n" not in text  # the old table is not written again
+    assert config.read()["approve"]["approve_vault"] == "old_vault"
 
 
 # ------------------------------------------------------------------ engine

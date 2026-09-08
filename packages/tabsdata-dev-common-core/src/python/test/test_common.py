@@ -360,11 +360,15 @@ def test_config_derives_its_template_from_the_parser_and_writes_atomically(
     assert '(default "pyenv")' in message
 
 
-def test_show_prints_the_tables_the_command_keeps_of_its_own(tmp_path, monkeypatch):
-    """`--show` answers "what is in effect", which includes what the command
-    keeps besides options -- naming the tables was not an answer. The file's own
-    are the real state; with none, the defaults it ships are shown instead, so a
-    reader learns they exist before anything has written them."""
+def test_show_prints_the_tables_a_command_has_beyond_the_options(tmp_path, monkeypatch):
+    """`--show` answers "what is in effect", which includes the tables a command
+    has besides options -- naming them was not an answer.
+
+    Two rules the wording of that answer depends on. Every table is its own
+    subject, so setting one in the file cannot hide what another defaults to.
+    And a default SUB-table is a shape to copy, `[repo."OWNER/NAME"]`, named for
+    nothing that exists: it belongs in the template and never in `--show`.
+    """
     import argparse
     import io
 
@@ -377,20 +381,22 @@ def test_show_prints_the_tables_the_command_keeps_of_its_own(tmp_path, monkeypat
     doc = config.from_parser("demo", parser, tables=tables)
 
     message, _ = config.show(doc, io.StringIO())
-    assert "defaults; not set here yet" in message
+    assert "beyond the options:" in message
     assert "[demo]" in message and 'vault = "dev_ci"' in message
-    assert '[repo."OWNER/NAME"]' in message and "labels = []" in message
+    assert "OWNER/NAME" not in message  # the placeholder is not state
 
-    # once the file has real ones, those are what it shows -- nested table and all
-    config.write(
-        "demo",
-        config.render_doc(doc)
-        + '\n[demo]\nvault = "mine"\n\n[repo."o/n"]\nlabels = ["bug"]\n',
-    )
+    # a file that sets one table leaves the others at their defaults, and a real
+    # sub-table is shown where the placeholder never was
+    config.write("demo", config.render_doc(doc) + '\n[repo."o/n"]\nlabels = ["bug"]\n')
     message, _ = config.show(doc, io.StringIO())
-    assert "defaults" not in message.split("kept by")[1]
-    assert 'vault = "mine"' in message and '[repo."o/n"]' in message
-    assert 'labels = ["bug"]' in message
+    assert 'vault = "dev_ci"' in message  # [demo] untouched by the file
+    assert '[repo."o/n"]' in message and 'labels = ["bug"]' in message
+    assert "OWNER/NAME" not in message
+
+    # and a key the file sets wins, key by key
+    config.write("demo", config.render_doc(doc) + '\n[demo]\nvault = "mine"\n')
+    message, _ = config.show(doc, io.StringIO())
+    assert 'vault = "mine"' in message
 
 
 def test_config_rewrites_the_template_but_keeps_what_the_command_keeps(
