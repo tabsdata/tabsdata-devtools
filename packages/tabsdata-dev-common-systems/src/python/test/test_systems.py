@@ -484,6 +484,34 @@ def test_the_data_plane_gets_the_root_cert_a_verifying_mode_needs(tmp_path):
         assert uri == pdom["EXTERNAL_SQLALCHEMY_URI"]
 
 
+def test_a_domain_owner_is_given_the_schema_its_tables_go_in():
+    """Creating a database owned by a role does not let that role put a table in
+    it. Since PostgreSQL 15 `public` belongs to `pg_database_owner` -- implicitly
+    the database's owner, which is why a stock server appears to need nothing --
+    but Azure Flexible Server ships a template where it belongs to
+    `azure_pg_admin` and everyone else gets USAGE alone. So every one of the five
+    says it outright, on a connection to the new database rather than the
+    maintenance one, which is the part `create_domain_sql` cannot express.
+    """
+    for slug in POSTGRES_FAMILY:
+        backend = systems.get(slug)
+        assert backend.own_public_schema_sql("d1") == [
+            'ALTER SCHEMA public OWNER TO "d1"'
+        ], slug
+
+        ran: list[tuple[str, list[str]]] = []
+        backend._run_admin = lambda admin, sql: ran.append((admin.db, sql))  # noqa: SLF001
+        try:
+            backend._do_create(backend._admin(_plan(slug)), "d1", "d1", "pw")  # noqa: SLF001
+        finally:
+            del backend._run_admin
+        # the domain SQL on the maintenance database, then the schema on the new
+        # one -- a database that does not exist yet cannot be connected to
+        assert len(ran) == 2, slug
+        assert ran[0][0] != "d1" and 'CREATE DATABASE "d1"' in " ".join(ran[0][1])
+        assert ran[1] == ("d1", ['ALTER SCHEMA public OWNER TO "d1"']), slug
+
+
 def test_a_published_root_is_fetched_once_and_reaches_every_connection(monkeypatch):
     """RDS and Azure sign with roots their provider publishes and rotates, so the
     descriptor keeps the URL and never a copy: a copy is the one thing that goes

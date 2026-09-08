@@ -38,6 +38,7 @@ model's data -- goes over the external plane, since that is where tdx is.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import replace
 from urllib.parse import quote
 
 from tabsdata_dev.common.systems.systems._common import container_info
@@ -253,6 +254,34 @@ class Postgres(SqlContainerBackend):
             f'ALTER DATABASE "{db}" OWNER TO "{user}"',
             f'GRANT ALL PRIVILEGES ON DATABASE "{db}" TO "{user}"',
         ]
+
+    def own_public_schema_sql(self, user: str) -> list[str]:
+        """Run inside the new database, once it exists: give its owner the
+        schema its tables go in."""
+        return [f'ALTER SCHEMA public OWNER TO "{user}"']
+
+    def _do_create(self, admin: Admin, db: str, user: str, password: str) -> None:
+        """Create the database and its owner, then hand that owner `public`.
+
+        Creating a database owned by a role is NOT enough to let that role put a
+        table in it. Since PostgreSQL 15, `public` is no longer writable by
+        everyone: it belongs to `pg_database_owner`, whose one implicit member is
+        whoever owns the database -- which is why a stock server, and Cloud SQL,
+        appear to work without this. Azure Flexible Server ships a template where
+        `public` belongs to `azure_pg_admin` instead and grants the rest of the
+        world USAGE alone, so the domain's own role could read its database and
+        not write to it: `create-model` was the first command to find out, with a
+        bare `permission denied for schema public`.
+
+        Taking ownership rather than granting CREATE says the same thing about
+        every one of the five, on any server and whatever its template does: the
+        database exists for this domain, so the domain owns what is in it. It
+        needs its own connection -- to the new database rather than the
+        maintenance one -- which is why it is here and not another line of
+        `create_domain_sql`.
+        """
+        super()._do_create(admin, db, user, password)
+        self._run_admin(replace(admin, db=db), self.own_public_schema_sql(user))
 
     def delete_domain_sql(self, name: str) -> list[str]:
         # WITH (FORCE) (PG 13+) drops even with a lingering client session.

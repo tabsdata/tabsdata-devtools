@@ -42,6 +42,13 @@ with per-system DDL. The tools `system`, `domain` and `domain-sf` are thin entry
 
 ## The two backend bases
 
+All five postgres types hand a new domain's owner the `public` schema of its own database
+(`ALTER SCHEMA public OWNER TO`, on a connection to that database). Creating a database owned by a
+role is not enough to let it put a table there: since PostgreSQL 15 `public` belongs to
+`pg_database_owner` -- implicitly the database's owner, which is why a stock server and Cloud SQL
+appear to need nothing -- while Azure Flexible Server's template gives it to `azure_pg_admin` and
+everyone else USAGE alone. Saying it outright makes the five behave alike on any server.
+
 **`SqlContainerBackend`** (`_common/sql.py`) for the docker-container SQL databases -- mysql,
 postgres, oracle, db2, mssqlserver, clickhouse, starrocks. A subclass supplies only its dialect
 hooks: image and server flags, the readiness probe, the SQLAlchemy driver and identifier quote,
