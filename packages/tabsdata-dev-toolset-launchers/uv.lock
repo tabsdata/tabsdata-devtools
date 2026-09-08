@@ -146,6 +146,20 @@ requires-dist = [
 ]
 
 [[package]]
+name = "tabsdata-dev-tool-smoke"
+source = { editable = "../tabsdata-dev-tool-smoke" }
+dependencies = [
+    { name = "tabsdata-dev-common-core" },
+    { name = "tabsdata-dev-deps-launchers" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "tabsdata-dev-common-core", editable = "../tabsdata-dev-common-core" },
+    { name = "tabsdata-dev-deps-launchers", editable = "../tabsdata-dev-deps-launchers" },
+]
+
+[[package]]
 name = "tabsdata-dev-tool-tdk"
 source = { editable = "../tabsdata-dev-tool-tdk" }
 dependencies = [
@@ -181,6 +195,7 @@ dependencies = [
     { name = "tabsdata-dev-deps-launchers" },
     { name = "tabsdata-dev-tool-gsx" },
     { name = "tabsdata-dev-tool-km" },
+    { name = "tabsdata-dev-tool-smoke" },
     { name = "tabsdata-dev-tool-tdk" },
     { name = "tabsdata-dev-tool-tdkserver" },
 ]
@@ -190,6 +205,7 @@ requires-dist = [
     { name = "tabsdata-dev-deps-launchers", editable = "../tabsdata-dev-deps-launchers" },
     { name = "tabsdata-dev-tool-gsx", editable = "../tabsdata-dev-tool-gsx" },
     { name = "tabsdata-dev-tool-km", editable = "../tabsdata-dev-tool-km" },
+    { name = "tabsdata-dev-tool-smoke", editable = "../tabsdata-dev-tool-smoke" },
     { name = "tabsdata-dev-tool-tdk", editable = "../tabsdata-dev-tool-tdk" },
     { name = "tabsdata-dev-tool-tdkserver", editable = "../tabsdata-dev-tool-tdkserver" },
 ]

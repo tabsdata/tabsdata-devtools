@@ -35,7 +35,8 @@ Packages, all `tabsdata-dev-*` under the `tabsdata_dev` namespace: `-tdd` (stdli
 `-shell` (shell files as data), `-common-*` (shared code, third-party ranges), `-deps-*`
 (pins; its name is the toolset), `-tool-*` (one tool; exactly one `-deps-*`), `-toolset-*`
 (**generated**, committed `uv.lock`). Tools: `system`, `domain`, `domain-sf` (hidden), `xp`, `gsx`,
-`tdk`, `tdkserver`, `km`; shell: `venv`, `env`, `tdd-env`, `pycache`; samples
+`tdk`, `tdkserver`, `km`, `smoke` (the end-to-end scripts, exported with
+`tdd smoke export-scripts --dir DIR`); shell: `venv`, `env`, `tdd-env`, `pycache`; samples
 Details: the design docs.
 
 Never run the real `tdk`/`tdkserver` from an agent session: `tdk` refuses under an AI agent
@@ -111,4 +112,4 @@ in wheels mode, a reinstall to see source changes.
   (`--show`/`--default`/`--create [--force]`) comes from the shared layer on both sides and is
   built from the command's own options; writes are a temporary file and one rename. User state:
   `tdd-install` never writes or removes it. There is no shared config file.
-- Commit only when asked; the smoke scripts under `scripts/` stay uncommitted until asked.
+- Commit only when asked.

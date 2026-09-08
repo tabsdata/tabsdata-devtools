@@ -1,11 +1,12 @@
 {
-  "fingerprint": "cf6b131bbb248996",
+  "fingerprint": "0156045e33994437",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
       "tabsdata-dev-deps-launchers",
       "tabsdata-dev-tool-gsx",
       "tabsdata-dev-tool-km",
+      "tabsdata-dev-tool-smoke",
       "tabsdata-dev-tool-tdk",
       "tabsdata-dev-tool-tdkserver"
     ],
@@ -150,6 +151,17 @@
       ],
       "summary": "build and publish pypi.tabsdata.com, the static index of Tabsdata's own wheels",
       "toolset": "pypi"
+    },
+    "smoke": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "hidden": false,
+      "launcher": false,
+      "package": "tabsdata-dev-tool-smoke",
+      "reqs": [],
+      "summary": "the end-to-end smoke test scripts: export them somewhere to run them",
+      "toolset": "launchers"
     },
     "system": {
       "commons": [

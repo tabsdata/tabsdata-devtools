@@ -3,11 +3,18 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-# Tabsdata EKS smoke test.
+# Tabsdata GKE smoke test.
+#
+# The EKS flavour (smoke-eks.sh) against a Google Kubernetes Engine
+# cluster: storage is a GCS bucket prefix instead of S3, and the database is
+# whatever --db-system names -- gcppostgres, the Cloud SQL instance in the same
+# project as the cluster, which is what a GKE run should be exercising. The five
+# postgres types record one info block, so --db-system awspostgres (or
+# azpostgres) reads the same keys and is a flag rather than an edit.
 #
 # Every name this run creates starts with sm_<NAME> (--name): the instance and
 # the venv ARE sm_<NAME>; domains and xp instances/projects are sm_<NAME>__<what>;
-# the k8s namespace is sm-<name>. The kminus flavour is tabsdata-km-smoke.sh.
+# the k8s namespace is --kube-namespace. The kminus flavour is smoke-km.sh.
 
 set -o pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -23,14 +30,21 @@ REQUIRED_OPTIONS="--name --kube-config --kube-context --kube-namespace --td-vers
 
 usage() {
     cat <<'HELP' | common_help "$REQUIRED_OPTIONS"
-usage: tabsdata-eks-smoke.sh --name NAME --kube-config FILE --kube-context NAME
+usage: smoke-gke.sh --name NAME --kube-config FILE --kube-context NAME
                    --kube-namespace NAME --td-version VERSION --uv-index URI
                    [--tabsdata-extras EXTRAS] [--venv-type pyenv|uv|conda]
-                   [--python-version VERSION] [--suites LIST]
+                   [--python-version VERSION] [--provider NAME] [--db-system NAME]
+                   [--suites LIST]
                    [--llm anthropic|openai] [--expect-pods LIST] [--force] [--keep]
                    [--stop-after STAGE] [--log FILE] [--tdd-dir DIR] [--verbose]
 
-Tabsdata EKS smoke test.
+Tabsdata GKE smoke test: a tdkserver instance on a Google Kubernetes Engine
+cluster, its storage a prefix of the `gcs` system's bucket and its database a
+domain of --db-system, exercised with xp suites.
+
+Get a kubeconfig for the cluster first:
+  gcloud container clusters get-credentials CLUSTER --region REGION --project PROJECT
+which needs gke-gcloud-auth-plugin on PATH (gcloud components install gke-gcloud-auth-plugin).
 
 options:
   --name NAME         REQUIRED: the run's name, alphanumeric. Everything created
@@ -47,19 +61,27 @@ options:
                       (lowercase, digits, hyphens)
   --td-version VERSION
                       REQUIRED: the tabsdata release to install, tabsdata[EXTRAS]==VERSION
-  --uv-index URI      REQUIRED: the Python package index, used by the tabsdata
-                      install and written into tabsdata.yaml (UV_INDEX) for the pods
   --tabsdata-extras EXTRAS
                       the extras to install (default: all)
   --venv-type TYPE    pyenv, uv or conda (default: pyenv)
   --python-version VERSION
                       interpreter for the venv (default: 3.12.13 -- the exact
                       version the instance builds its own environments with)
+  --provider NAME     the tdkserver init provider for this cluster (default: gke).
+                      It is an option because the provider name is tdkserver's to
+                      define: if `init` refuses it, name the one it accepts here
+  --db-system NAME    the system the instance's database domain comes from: any
+                      of the five postgres types, which share one info block
+                      (default: gcppostgres -- the Cloud SQL instance beside the
+                      cluster; awspostgres or azpostgres to cross clouds)
+  --uv-index URI      REQUIRED: the Python package index, used by the tabsdata
+                      install and written into tabsdata.yaml (UV_INDEX) for the pods
   --suites LIST       comma-separated xp suite selectors, one stage each
                       (default: test,tableframe_api,dataquality,grok/s3_examples,
-                      grok/s3_world_csv,cloud-connectors -- container-connectors and
-                      the fs-backed grok suites stay out: docker systems and local
-                      paths are unreachable from function pods running in EKS)
+                      grok/s3_world_csv,cloud-connectors -- cloud-connectors covers
+                      cloud-connectors/gcs; container-connectors and the fs-backed
+                      grok suites stay out: docker systems and local paths are
+                      unreachable from function pods running in GKE)
   --llm anthropic|openai
                       create a domain on that system (sm_NAME__llm_<llm>), read its
                       API key and write it into aiagent.yaml (default: no LLM)
@@ -76,8 +98,8 @@ options:
                       namespace deleted, venv deleted; a failed run always
                       leaves everything standing)
   --stop-after STAGE  stop (exit 0, everything left standing) after the named
-                      stage -- any name the screen prints, e.g. systems, configure,
-                      forward-1, xp-<suite> (/ replaced by _), cleanup
+                      stage -- any name the screen prints, e.g. cluster, systems,
+                      configure, forward-1, xp-<suite> (/ replaced by _), cleanup
   --log FILE          log file (default: /tmp/smoke-sm_NAME-<start time>.log)
   --tdd-dir DIR       the tdd dir to source (default: $TDD_DIR, else ~/.tdd)
   --verbose           show every command's output as it happens (default: a
@@ -99,10 +121,12 @@ TABSDATA_EXTRAS="all"
 KUBECONFIG_OPT=""        # required
 CONTEXT=""               # required
 NAMESPACE=""             # required
+PROVIDER="gke"           # tdkserver's name for this kind of cluster
+DB_SYSTEM="gcppostgres"  # Cloud SQL, beside the cluster; --db-system crosses clouds
 PORT="2457"              # tdkserver's apiserver port; the port-forward mirrors it locally
 UV_INDEX_URI=""
 # grok only through its s3 sub-suites: the fs-backed ones stage files on a local
-# path the EKS function pods cannot see.
+# path the GKE function pods cannot see. S3 itself they reach over the internet.
 SUITES="test,tableframe_api,dataquality,grok/s3_examples,grok/s3_world_csv,cloud-connectors"
 FORCE=""                 # 1 with --force; empty otherwise
 KEEP=""                  # 1 with --keep; empty otherwise (so ${KEEP:+--keep} works)
@@ -126,6 +150,8 @@ while [ $# -gt 0 ]; do
         --kube-config) KUBECONFIG_OPT="$2"; shift 2 ;;
         --kube-context) CONTEXT="$2"; shift 2 ;;
         --kube-namespace) NAMESPACE="$2"; shift 2 ;;
+        --provider) PROVIDER="$2"; shift 2 ;;
+        --db-system) DB_SYSTEM="$2"; shift 2 ;;
         --uv-index) UV_INDEX_URI="$2"; shift 2 ;;
         --suites) SUITES="$2"; shift 2 ;;
         --force | -f) FORCE=1; shift ;;
@@ -135,11 +161,11 @@ while [ $# -gt 0 ]; do
         --tdd-dir) TDD_DIR_OPT="$2"; shift 2 ;;
         --verbose) VERBOSE=1; shift ;;
         -h | --help) usage; exit 0 ;;
-        *) echo "tabsdata-eks-smoke: unknown option: $1 (see --help)" >&2; exit 1 ;;
+        *) echo "smoke-gke: unknown option: $1 (see --help)" >&2; exit 1 ;;
     esac
 done
-case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "tabsdata-eks-smoke: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
-case "$LLM" in "" | anthropic | openai) ;; *) echo "tabsdata-eks-smoke: --llm must be anthropic or openai" >&2; exit 1 ;; esac
+case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "smoke-gke: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
+case "$LLM" in "" | anthropic | openai) ;; *) echo "smoke-gke: --llm must be anthropic or openai" >&2; exit 1 ;; esac
 missing=""
 for _need in $REQUIRED_OPTIONS; do
     case "$_need" in
@@ -152,13 +178,14 @@ for _need in $REQUIRED_OPTIONS; do
     esac
 done
 if [ -n "$missing" ]; then
-    echo "tabsdata-eks-smoke: missing required option(s):$missing (see --help)" >&2
+    echo "smoke-gke: missing required option(s):$missing (see --help)" >&2
     exit 1
 fi
-case "$NAME" in *[!A-Za-z0-9]*) echo "tabsdata-eks-smoke: --name must be alphanumeric (it becomes part of domain and xp names)" >&2; exit 1 ;; esac
-case "$NAMESPACE" in *[!a-z0-9-]* | -* | *-) echo "tabsdata-eks-smoke: --kube-namespace must be RFC 1123: lowercase letters, digits and inner hyphens" >&2; exit 1 ;; esac
+case "$NAME" in *[!A-Za-z0-9]*) echo "smoke-gke: --name must be alphanumeric (it becomes part of domain and xp names)" >&2; exit 1 ;; esac
+case "$NAMESPACE" in *[!a-z0-9-]* | -* | *-) echo "smoke-gke: --kube-namespace must be RFC 1123: lowercase letters, digits and inner hyphens" >&2; exit 1 ;; esac
 if [ ! -r "$KUBECONFIG_OPT" ]; then
-    echo "tabsdata-eks-smoke: no kubeconfig at $KUBECONFIG_OPT (pass --kube-config)" >&2
+    echo "smoke-gke: no kubeconfig at $KUBECONFIG_OPT (pass --kube-config)" >&2
+    echo "smoke-gke: get one with: gcloud container clusters get-credentials CLUSTER --region REGION --project PROJECT" >&2
     exit 1
 fi
 # --kube-config picks the FILE; the context is what picks the cluster, and one
@@ -166,7 +193,7 @@ fi
 # nothing to infer here -- only to check, before anything is built.
 KUBE_NAMES="$(kubectl --kubeconfig "$KUBECONFIG_OPT" config view -o jsonpath='{range .contexts[*]}{.name}{"\n"}{end}' 2>/dev/null)"
 if ! printf '%s\n' "$KUBE_NAMES" | grep -qxF -- "$CONTEXT"; then
-    echo "tabsdata-eks-smoke: no context '$CONTEXT' in $KUBECONFIG_OPT; it has:" >&2
+    echo "smoke-gke: no context '$CONTEXT' in $KUBECONFIG_OPT; it has:" >&2
     printf '%s\n' "$KUBE_NAMES" | sed 's/^/  /' >&2
     exit 1
 fi
@@ -175,11 +202,11 @@ NAMES_PREFIX="$BASE"     # what the failure summary tells the reader to look for
 INSTANCE="$BASE"
 VENV="$BASE"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-RDS_DOMAIN="${BASE}__rds"
-S3_DOMAIN="${BASE}__s3"
+DB_DOMAIN="${BASE}__db"
+GCS_DOMAIN="${BASE}__gcs"
 LLM_DOMAIN="${LLM:+${BASE}__llm_${LLM}}"
 XP_PROJECTS=""           # the xp instance/project names this run creates, for --keep and failures
-SMOKE_DOMAINS="$RDS_DOMAIN $S3_DOMAIN $LLM_DOMAIN"
+SMOKE_DOMAINS="$DB_DOMAIN $GCS_DOMAIN $LLM_DOMAIN"
 EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
 LOG="${LOG:-/tmp/smoke-$INSTANCE-$STAMP.log}"
 WORK="$(mktemp -d "/tmp/smoke-$INSTANCE-$STAMP.XXXX")"
@@ -201,7 +228,7 @@ KUBECTL=(kubectl --kubeconfig "$RUN_KUBECONFIG" --context "$CONTEXT")
 SUITE_LIST=()
 for suite in $(printf '%s' "$SUITES" | tr ',' ' '); do SUITE_LIST[${#SUITE_LIST[@]}]="$suite"; done
 if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
-    echo "tabsdata-eks-smoke: --suites needs at least one selector" >&2
+    echo "smoke-gke: --suites needs at least one selector" >&2
     exit 1
 fi
 STAGE_NAMES=(unset-td unset-pypi set-crypto cluster systems pycache clean-previous create-venv install)
@@ -223,8 +250,8 @@ if [ -z "$FORCE" ]; then
     [ -e "$HOME/.tabsdata/instances/$INSTANCE" ] && EXISTING="$EXISTING instance:$HOME/.tabsdata/instances/$INSTANCE"
     "${KUBECTL[@]}" get namespace "$NAMESPACE" >/dev/null 2>&1 && EXISTING="$EXISTING namespace:$NAMESPACE"
     if [ -n "$EXISTING" ]; then
-        echo "tabsdata-eks-smoke: already exists:$EXISTING" >&2
-        echo "tabsdata-eks-smoke: pass --force to delete and recreate them, or pick another --name" >&2
+        echo "smoke-gke: already exists:$EXISTING" >&2
+        echo "smoke-gke: pass --force to delete and recreate them, or pick another --name" >&2
         exit 1
     fi
 fi
@@ -232,7 +259,7 @@ fi
 common_init "$LOG" "$VERBOSE"
 trap common_kubeportforward_stop EXIT      # the forward never outlives the script
 
-# the generic failure block plus the EKS pieces
+# the generic failure block plus the GKE pieces
 common_on_stage_failed() {
     common_screen ""
     common_screen "$(basename "$0"): left for you to look at"
@@ -246,21 +273,48 @@ common_on_stage_failed() {
     common_k8s_report "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"
 }
 
-# fill_storage FILE -- the twelve positional ${{secret}} of apiserver.storage.yaml:
-# per mount (ROOT/BUNDLES/IMAGES) the uri under the s3 domain's URI, and the s3
-# system's region/credentials on every mount. Values travel in the environment
-# (they are credentials); python because awk/sed would fight the &/\ a secret may hold.
+# fill_storage FILE -- the per-mount ${{secret}} of apiserver.storage.yaml: the
+# uri under the gcs domain's URI, and the bucket credentials on every mount.
+#
+# Which credential keys a GCS mount asks for is tabsdata's to decide, and there
+# are two ways to reach a bucket: natively with the service-account key, or over
+# the S3 protocol with the interop HMAC pair (which is why the gcs system carries
+# both). Rather than assume one, fill whichever keys the generated file actually
+# has, and report the ones met. A key neither branch knows is left alone --
+# common_placeholders_left then fails the stage naming it, which is a one-line
+# fix here rather than a broken instance.
+#
+# Values travel in the environment (they are credentials); python because
+# awk/sed would fight the &/\ a service-account key may hold.
 fill_storage() {
     ST_FILE="$1" python3 - <<'PYEOF'
 import json, os, re
+
 path = os.environ["ST_FILE"]
-uri = os.environ["S3D__URI"].rstrip("/")
+uri = os.environ["GCSD__URI"].rstrip("/")
 sub = {"ROOT": f"{uri}/data/", "BUNDLES": f"{uri}/bundles/", "IMAGES": f"{uri}/images/"}
+
+# the service-account key is inline JSON or a path to it (see the gcs backend)
+sa = os.environ.get("GCSD__SERVICE_ACCOUNT_KEY", "")
+if sa and not sa.lstrip().startswith("{"):
+    with open(os.path.expanduser(sa), encoding="utf-8") as fh:
+        sa = fh.read()
+sa = sa.strip()
+
 fixed = {
-    "aws_region": os.environ.get("S3S__REGION", ""),
-    "aws_access_key_id": os.environ.get("S3S__ACCESS_KEY", ""),
-    "aws_secret_access_key": os.environ.get("S3S__SECRET_KEY", ""),
+    # native GCS, whichever spelling the config uses
+    "google_service_account_key": sa,
+    "gcp_service_account_key": sa,
+    "service_account_key": sa,
+    "google_service_account": sa,
+    # GCS over the S3 protocol: the interop HMAC pair against Google's endpoint
+    "aws_access_key_id": os.environ.get("GCSD__HMAC_ACCESS_KEY", ""),
+    "aws_secret_access_key": os.environ.get("GCSD__HMAC_SECRET_KEY", ""),
+    "aws_endpoint": "https://storage.googleapis.com",
+    "aws_endpoint_url": "https://storage.googleapis.com",
+    "aws_region": "auto",
 }
+
 
 def scalar(value):
     """VALUE as a YAML double-quoted scalar. JSON's string escaping is a subset
@@ -273,8 +327,8 @@ def scalar(value):
     return json.dumps(value)
 
 
-out, mount = [], None
-for line in open(path):
+out, mount, filled, unknown, empty = [], None, [], [], []
+for line in open(path, encoding="utf-8"):
     m = re.match(r"\s*- id: (\w+)", line)
     if m:
         mount = m.group(1)
@@ -282,14 +336,27 @@ for line in open(path):
         key = line.split(":", 1)[0].strip()
         if key == "uri" and mount in sub:
             line = line.replace("${{secret}}", scalar(sub[mount]))
+            filled.append(f"{mount}.uri")
         elif key in fixed:
-            line = line.replace("${{secret}}", scalar(fixed[key]))
+            if fixed[key]:
+                line = line.replace("${{secret}}", scalar(fixed[key]))
+                filled.append(key)
+            else:
+                empty.append(key)
+        else:
+            unknown.append(key)
     out.append(line)
-open(path, "w").write("".join(out))
+open(path, "w", encoding="utf-8").write("".join(out))
+
+print("filled:", ", ".join(sorted(set(filled))) or "(nothing)")
+if empty:
+    print("no value for:", ", ".join(sorted(set(empty))), "-- the gcs system has none set")
+if unknown:
+    print("not filled (unknown to fill_storage):", ", ".join(sorted(set(unknown))))
 PYEOF
 }
 
-common_screen "tabsdata-eks-smoke: effective options"
+common_screen "smoke-gke: effective options"
 common_screen "  --name              $NAME   -> instance and venv $BASE, namespace $NAMESPACE, domains ${BASE}__<what>"
 common_screen "  --venv-type         $VENV_TYPE"
 common_screen "  --python-version    $PYTHON"
@@ -298,6 +365,9 @@ common_screen "  --tabsdata-extras   $TABSDATA_EXTRAS   -> installs $TABSDATA_SP
 common_screen "  --kube-config       $KUBECONFIG_OPT   (read only; the run works on a copy)"
 common_screen "  --kube-context      $CONTEXT"
 common_screen "  --kube-namespace    $NAMESPACE"
+common_screen "  --provider          $PROVIDER   -> tdkserver init --provider $PROVIDER"
+common_screen "  --db-system         $DB_SYSTEM   -> domain $DB_DOMAIN"
+common_screen "  storage             gcs   -> domain $GCS_DOMAIN (a prefix of the gcs system's bucket)"
 common_screen "  --uv-index          $(common_display "${UV_INDEX_URI:-(none)}")"
 common_screen "  --suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
 common_screen "  --llm               ${LLM:-(none)}${LLM:+   -> domain $LLM_DOMAIN}"
@@ -311,7 +381,7 @@ common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "n
 common_screen "  server              $SERVER through kubectl port-forward service/net-apiserver"
 common_screen "  drivers for fn/ag   $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
 if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
-    common_screen "${RED}tabsdata-eks-smoke: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
+    common_screen "${RED}smoke-gke: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
     exit 1
 fi
 # shellcheck disable=SC1090
@@ -329,18 +399,18 @@ common_stage set-crypto "set _TDD_CRYPTO_KEY"
 common_run tdd env set --crypto
 common_checkpoint set-crypto
 
-common_stage cluster "make $CONTEXT current and check it reaches the cluster"
-# In front of everything that costs time: pointed at another cloud's context, or
-# with no usable credentials, kubectl fails deep inside a later stage with a
-# message about credentials rather than about which cluster it was talking to.
-# Pinning here is also what carries --context to tdkserver, which resolves the
-# cluster and the namespace from the current context itself, not from our flags.
+common_stage cluster "make $CONTEXT current and check it reaches the cluster (GKE needs gke-gcloud-auth-plugin)"
+# In front of everything that costs time: without the auth plugin, or pointed at
+# another cloud's context, kubectl fails deep inside a later stage with a message
+# about credentials rather than about which cluster it was talking to. Pinning
+# here is also what carries --context to tdkserver, which resolves the cluster
+# and the namespace from the current context itself, not from our flags.
 common_note "the run's own kubeconfig is $RUN_KUBECONFIG, on context $CONTEXT"
 common_run "${KUBECTL[@]}" version --output=yaml
 common_run "${KUBECTL[@]}" get namespaces
 common_checkpoint cluster
 
-common_stage systems "dev and fs, awspostgres, s3 (and --llm) plus every system the suites need must be in the tdd store"
+common_stage systems "dev and fs, $DB_SYSTEM, gcs (and --llm) plus every system the suites need must be in the tdd store"
 # checked UPFRONT: a run missing one must fail before anything is built
 common_run tdd system create --type dev --sys dev --force
 # fs needs an explicit absolute root: its default is target/backends/<name>
@@ -349,8 +419,8 @@ common_run tdd system create --type fs --sys fs --sys-path "$TDD_DIR_OPT/data/fs
 for suite in "${SUITE_LIST[@]}"; do
     common_run tdd xp list-systems --suite "$suite"
 done
-common_run tdd system status --sys awspostgres
-common_run tdd system status --sys s3
+common_run tdd system status --sys "$DB_SYSTEM"
+common_run tdd system status --sys gcs
 [ -z "$LLM" ] || common_run tdd system status --sys "$LLM"
 common_checkpoint systems
 
@@ -402,29 +472,29 @@ if [ "$TD_VERSION" = "2.0.2" ]; then
     common_remark "workaround: tabsdata 2.0.2 ships no psycopg2 with its Postgres connector; psycopg2-binary was installed into $VENV so the CDC plugin loads"
 fi
 
-common_stage domains "domains $RDS_DOMAIN, $S3_DOMAIN${LLM:+, $LLM_DOMAIN} -- the instance's database, storage${LLM:+ and LLM key}"
+common_stage domains "domains $DB_DOMAIN, $GCS_DOMAIN${LLM:+, $LLM_DOMAIN} -- the instance's database, storage${LLM:+ and LLM key}"
 # Each domain is this run's slice of the shared system. Values are eval'd into
 # THIS shell, never echoed; they fill the config files below.
-common_run tdd domain create --sys awspostgres --domain "$RDS_DOMAIN" --force
-common_note "eval \$(tdd domain info --domain $RDS_DOMAIN --format export --prefix RDS)   (values not shown)"
-eval "$(tdd domain info --domain "$RDS_DOMAIN" --format export --prefix RDS 2>/dev/null)"
-common_run test -n "${RDS__EXTERNAL_HOST:+set}${RDS__PORT:+set}${RDS__DATABASE:+set}${RDS__USER:+set}${RDS__PASSWORD:+set}"
+common_run tdd domain create --sys "$DB_SYSTEM" --domain "$DB_DOMAIN" --force
+common_note "eval \$(tdd domain info --domain $DB_DOMAIN --format export --prefix DB)   (values not shown)"
+eval "$(tdd domain info --domain "$DB_DOMAIN" --format export --prefix DB 2>/dev/null)"
+common_run test -n "${DB__EXTERNAL_HOST:+set}${DB__PORT:+set}${DB__DATABASE:+set}${DB__USER:+set}${DB__PASSWORD:+set}"
 # A postgres domain names both networks its instance answers on, and the address
-# that matters here is the pods', not this laptop's: the function pods reach the
-# instance from inside the VPC, which is what INTERNAL_HOST holds. Falling back
-# to the external one covers an RDS endpoint that is reachable either way (the
-# usual case, and the single endpoint that worked before the split).
-RDS_POD_HOST="${RDS__INTERNAL_HOST:-$RDS__EXTERNAL_HOST}"
-if [ -n "${RDS__INTERNAL_HOST:-}" ]; then
-    common_note "database: the pods get awspostgres's INTERNAL_HOST (its in-VPC address)"
+# that matters here is the pods', not this laptop's: the function pods reach a
+# Cloud SQL instance over its private IP, which is what INTERNAL_HOST holds.
+# Falling back to the external one covers an instance that has no private
+# address (or a store that never recorded it) -- the same single endpoint that
+# worked before the split.
+DB_POD_HOST="${DB__INTERNAL_HOST:-$DB__EXTERNAL_HOST}"
+if [ -n "${DB__INTERNAL_HOST:-}" ]; then
+    common_note "database: the pods get $DB_SYSTEM's INTERNAL_HOST (its private-network address)"
 else
-    common_remark "awspostgres records no INTERNAL_HOST; the pods get EXTERNAL_HOST ($RDS__EXTERNAL_HOST) -- fine if that endpoint routes from inside the cluster, and the reason to record the private one if it does not"
+    common_remark "$DB_SYSTEM records no INTERNAL_HOST; the pods get EXTERNAL_HOST ($DB__EXTERNAL_HOST) -- fine if that address routes from inside the cluster, and the reason to record the private one if it does not"
 fi
-common_run tdd domain create --sys s3 --domain "$S3_DOMAIN" --force
-common_note "eval \$(tdd domain info --domain $S3_DOMAIN --format export --prefix S3D; tdd system info --sys s3 --format export --prefix S3S)"
-eval "$(tdd domain info --domain "$S3_DOMAIN" --format export --prefix S3D 2>/dev/null)"
-eval "$(tdd system info --sys s3 --format export --prefix S3S 2>/dev/null)"
-common_run test -n "${S3D__URI:+set}${S3S__REGION:+set}"
+common_run tdd domain create --sys gcs --domain "$GCS_DOMAIN" --force
+common_note "eval \$(tdd domain info --domain $GCS_DOMAIN --format export --prefix GCSD)   (the service-account key is not shown)"
+eval "$(tdd domain info --domain "$GCS_DOMAIN" --format export --prefix GCSD 2>/dev/null)"
+common_run test -n "${GCSD__URI:+set}${GCSD__BUCKET:+set}"
 if [ -n "$LLM" ]; then
     common_run tdd domain create --sys "$LLM" --domain "$LLM_DOMAIN" --force
     common_note "eval \$(tdd domain info --domain $LLM_DOMAIN --format export --prefix LLM)   (the key is not shown)"
@@ -441,22 +511,30 @@ common_run "${KUBECTL[@]}" create namespace "$NAMESPACE"
 common_run "${KUBECTL[@]}" config set-context "$CONTEXT" --namespace "$NAMESPACE"
 common_checkpoint namespace
 
-common_stage init "tdkserver init --provider eks --instance $INSTANCE (the editable config folder)"
-common_run tdd tdkserver init --provider eks --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}"
+common_stage init "tdkserver init --provider $PROVIDER --instance $INSTANCE (the editable config folder)"
+common_run tdd tdkserver init --provider "$PROVIDER" --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}"
 common_run test -d "$CONFIGS"
 common_checkpoint init
 
 common_stage configure "fill the config files from the domains: database, storage, LLM key, uv index"
 # Named placeholders are shared across files; the storage file's ${{secret}}
 # are positional. Values travel in the environment, never on a command line.
-common_note "database: \${{literal:tdk_database_*}} and \${{secret:postgres_system_*}} from $RDS_DOMAIN"
-common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_host}}' "$RDS_POD_HOST"
-common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_port}}' "$RDS__PORT"
-common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_name}}' "$RDS__DATABASE"
-common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_user}}' "$RDS__USER"
-common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_password}}' "$RDS__PASSWORD"
-common_note "storage: the ROOT/BUNDLES/IMAGES mounts under ${S3D__URI%/}/ with the s3 system's credentials"
-fill_storage "$CONFIGS/apiserver.storage.yaml"
+common_note "database: \${{literal:tdk_database_*}} and \${{secret:postgres_system_*}} from $DB_DOMAIN"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_host}}' "$DB_POD_HOST"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_port}}' "$DB__PORT"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_name}}' "$DB__DATABASE"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_user}}' "$DB__USER"
+common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_password}}' "$DB__PASSWORD"
+# Cloud SQL signs with a CA of its own, per instance, so there is no bundle to
+# bake into an image: gke's template is the only one asking for the certificate
+# inline (`secret:`), where eks/aks/fargate name a path tdkserver fills itself.
+# The domain carries the PEM for exactly this reason. ssl_mode stays a `system:`
+# placeholder -- tdkserver puts verify-ca there for every cloud provider, which
+# is what the domain asks for anyway.
+common_note "database TLS: $DB__SSLMODE with the instance's own CA, from $DB_DOMAIN"
+common_fill_pem "$CONFIGS/dbmanager.database.yaml" -- '${{secret:tdk_database_ssl_root_cert_pem}}' "$DB__SERVER_CA_CERT_PEM"
+common_note "storage: the ROOT/BUNDLES/IMAGES mounts under ${GCSD__URI%/}/ with the gcs system's credentials"
+common_run fill_storage "$CONFIGS/apiserver.storage.yaml"
 if [ -n "$LLM" ]; then
     common_note "aiagent: the $LLM key from $LLM_DOMAIN"
     common_fill_placeholder "$CONFIGS/aiagent.yaml" -- "\${{secret:$LLM-key?}}" "$LLM__API_KEY"
@@ -547,11 +625,11 @@ if [ -n "$KEEP" ]; then
 else
     common_stage cleanup "destroy the domains, delete the instance, the namespace $NAMESPACE and the venv"
     common_kubeportforward_stop
-    # xp (no --keep) destroyed its own domains; ours go youngest first -- the RDS
+    # xp (no --keep) destroyed its own domains; ours go youngest first -- the
     # database and the bucket prefix disappear with them
     [ -z "$LLM_DOMAIN" ] || common_run tdd domain destroy --domain "$LLM_DOMAIN" --force
-    common_run tdd domain destroy --domain "$S3_DOMAIN" --force
-    common_run tdd domain destroy --domain "$RDS_DOMAIN" --force
+    common_run tdd domain destroy --domain "$GCS_DOMAIN" --force
+    common_run tdd domain destroy --domain "$DB_DOMAIN" --force
     # delete works here: the cluster is external, so it survives the workload
     # and configmap removal (unlike kminus, where delete stops the cluster first)
     common_run tdd tdkserver delete --instance "$INSTANCE" --trash true "${TDK_OPTS[@]}"

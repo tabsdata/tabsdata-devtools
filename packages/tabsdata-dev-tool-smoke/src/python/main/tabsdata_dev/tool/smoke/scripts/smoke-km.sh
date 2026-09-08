@@ -10,12 +10,21 @@
 
 set -o pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# sourced before the arguments are read, so --help is painted like a tdd command
+# shellcheck disable=SC1091
+. "$HERE/_common.sh"
+
+# The same contract as the cluster flavours, minus the three that name a cluster
+# a kminus run does not have: it brings its own. A default for what is left is
+# either a confusing failure or a quiet install from the wrong index.
+REQUIRED_OPTIONS="--name --td-version --uv-index"
 
 usage() {
-    cat <<'HELP'
-usage: tabsdata-km-smoke.sh --name NAME --tabsdata-version VERSION [--tabsdata-extras EXTRAS]
-                   [--venv-type pyenv|uv|conda] [--python-version VERSION] [--port PORT]
-                   [--uv-index URI] [--suites LIST] [--llm anthropic|openai]
+    cat <<'HELP' | common_help "$REQUIRED_OPTIONS"
+usage: smoke-km.sh --name NAME --td-version VERSION --uv-index URI
+                   [--tabsdata-extras EXTRAS] [--venv-type pyenv|uv|conda]
+                   [--python-version VERSION] [--port PORT]
+                   [--suites LIST] [--llm anthropic|openai]
                    [--expect-pods LIST] [--force] [--keep] [--stop-after STAGE] [--log FILE]
                    [--tdd-dir DIR] [--verbose]
 
@@ -25,7 +34,7 @@ options:
   --name NAME         REQUIRED: the run's name, alphanumeric. Everything created is
                       sm_NAME -- the tdkserver instance and the managed venv -- or
                       sm_NAME__<what>: the domains and the xp instances/projects
-  --tabsdata-version VERSION
+  --td-version VERSION
                       REQUIRED: the tabsdata release to install, tabsdata[EXTRAS]==VERSION
   --tabsdata-extras EXTRAS
                       the extras to install (default: all). tabsdata is a
@@ -35,9 +44,9 @@ options:
   --python-version VERSION
                       interpreter for the venv (default: 3.12.13)
   --port PORT         base port for the instance (default: 10000)
-  --uv-index URI      Python package index (default: none): used by the tabsdata install
-                      (uv --index, unsafe-best-match) and passed to tdkserver
-                      quickstart --uv-index for the instance's pods
+  --uv-index URI      REQUIRED: the Python package index, used by the tabsdata
+                      install (uv --index, unsafe-best-match) and passed to
+                      tdkserver quickstart --uv-index for the instance's pods
   --suites LIST       comma-separated xp suite selectors to run, one stage each;
                       <type>/<name> for one definition, <type> for every
                       definition in that dir -- see `tdd xp list-suites`
@@ -81,7 +90,7 @@ LLM=""                   # anthropic | openai | empty
 EXPECT_PODS="srv-apiserver,srv-database"
 VENV_TYPE="pyenv"
 PYTHON="3.12.13"
-TABSDATA_VERSION=""     # required
+TD_VERSION=""     # required
 TABSDATA_EXTRAS="all"
 PORT="10000"
 UV_INDEX_URI=""
@@ -103,7 +112,7 @@ while [ $# -gt 0 ]; do
         --expect-pods) EXPECT_PODS="$2"; shift 2 ;;
         --venv-type) VENV_TYPE="$2"; shift 2 ;;
         --python-version) PYTHON="$2"; shift 2 ;;
-        --tabsdata-version) TABSDATA_VERSION="$2"; shift 2 ;;
+        --td-version) TD_VERSION="$2"; shift 2 ;;
         --tabsdata-extras) TABSDATA_EXTRAS="$2"; shift 2 ;;
         --port) PORT="$2"; shift 2 ;;
         --uv-index) UV_INDEX_URI="$2"; shift 2 ;;
@@ -115,16 +124,24 @@ while [ $# -gt 0 ]; do
         --tdd-dir) TDD_DIR_OPT="$2"; shift 2 ;;
         --verbose) VERBOSE=1; shift ;;
         -h | --help) usage; exit 0 ;;
-        *) echo "tabsdata-km-smoke: unknown option: $1 (see --help)" >&2; exit 1 ;;
+        *) echo "smoke-km: unknown option: $1 (see --help)" >&2; exit 1 ;;
     esac
 done
-case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "tabsdata-km-smoke: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
-case "$LLM" in "" | anthropic | openai) ;; *) echo "tabsdata-km-smoke: --llm must be anthropic or openai" >&2; exit 1 ;; esac
-case "$NAME" in *[!A-Za-z0-9]*) echo "tabsdata-km-smoke: --name must be alphanumeric (it becomes part of domain names)" >&2; exit 1 ;; "") echo "tabsdata-km-smoke: --name NAME is required (everything created is sm_NAME)" >&2; exit 1 ;; esac
-if [ -z "$TABSDATA_VERSION" ]; then
-    echo "tabsdata-km-smoke: --tabsdata-version VERSION is required (the tabsdata release to install)" >&2
+case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "smoke-km: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
+case "$LLM" in "" | anthropic | openai) ;; *) echo "smoke-km: --llm must be anthropic or openai" >&2; exit 1 ;; esac
+missing=""
+for _need in $REQUIRED_OPTIONS; do
+    case "$_need" in
+        --name) [ -n "$NAME" ] || missing="$missing $_need" ;;
+        --td-version) [ -n "$TD_VERSION" ] || missing="$missing $_need" ;;
+        --uv-index) [ -n "$UV_INDEX_URI" ] || missing="$missing $_need" ;;
+    esac
+done
+if [ -n "$missing" ]; then
+    echo "smoke-km: missing required option(s):$missing (see --help)" >&2
     exit 1
 fi
+case "$NAME" in *[!A-Za-z0-9]*) echo "smoke-km: --name must be alphanumeric (it becomes part of domain names)" >&2; exit 1 ;; esac
 BASE="sm_$NAME"
 NAMES_PREFIX="$BASE"     # what the failure summary tells the reader to look for
 INSTANCE="$BASE"
@@ -137,16 +154,16 @@ EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
 LOG="${LOG:-/tmp/smoke-$INSTANCE-$STAMP.log}"
 WORK="$(mktemp -d "/tmp/smoke-$INSTANCE-$STAMP.XXXX")"
 SERVER="localhost:$PORT"
-TABSDATA_SPEC="tabsdata[$TABSDATA_EXTRAS]==$TABSDATA_VERSION"
+TABSDATA_SPEC="tabsdata[$TABSDATA_EXTRAS]==$TD_VERSION"
 TDK_OPTS=(-y --accept-terms y)       # after `rm -rf ~/.tabsdata` every tdkserver call must accept the terms again
 SUITE_LIST=()
 for suite in $(printf '%s' "$SUITES" | tr ',' ' '); do SUITE_LIST[${#SUITE_LIST[@]}]="$suite"; done
 if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
-    echo "tabsdata-km-smoke: --suites needs at least one selector" >&2
+    echo "smoke-km: --suites needs at least one selector" >&2
     exit 1
 fi
 STAGE_NAMES=(unset-td unset-pypi set-crypto systems pycache clean-previous create-venv install)
-[ "$TABSDATA_VERSION" = "2.0.2" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="cdc-driver"
+[ "$TD_VERSION" = "2.0.2" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="cdc-driver"
 [ -n "$LLM" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="llm-domain"
 for stage in quickstart pods-1 login-1 stop-1 venv-update start pods-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
 for suite in "${SUITE_LIST[@]}"; do STAGE_NAMES[${#STAGE_NAMES[@]}]="xp-$(printf '%s' "$suite" | tr '/' '_')"; done
@@ -165,19 +182,19 @@ if [ -z "$FORCE" ]; then
     [ -e "$HOME/.tabsdata/instances/$INSTANCE" ] && EXISTING="$EXISTING instance:$HOME/.tabsdata/instances/$INSTANCE"
     pgrep -f "instances/$INSTANCE/" >/dev/null 2>&1 && EXISTING="$EXISTING running-instance:$INSTANCE"
     if [ -n "$EXISTING" ]; then
-        echo "tabsdata-km-smoke: already exists:$EXISTING" >&2
-        echo "tabsdata-km-smoke: pass --force to stop/delete and recreate them, or pick another --name" >&2
+        echo "smoke-km: already exists:$EXISTING" >&2
+        echo "smoke-km: pass --force to stop/delete and recreate them, or pick another --name" >&2
         exit 1
     fi
 fi
 
 common_init "$LOG" "$VERBOSE"
 
-common_screen "tabsdata-km-smoke: effective options"
+common_screen "smoke-km: effective options"
 common_screen "  --name              $NAME   -> instance and venv $BASE, domains and xp names ${BASE}__<what>"
 common_screen "  --venv-type         $VENV_TYPE"
 common_screen "  --python-version    $PYTHON"
-common_screen "  --tabsdata-version  $TABSDATA_VERSION"
+common_screen "  --td-version        $TD_VERSION"
 common_screen "  --tabsdata-extras   $TABSDATA_EXTRAS   -> installs $TABSDATA_SPEC"
 common_screen "  --port              $PORT   -> server $SERVER"
 common_screen "  --uv-index          $(common_display "${UV_INDEX_URI:-(none)}")"
@@ -192,7 +209,7 @@ common_screen "  --tdd-dir           $TDD_DIR_OPT"
 common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "no (rolling window of $WINDOW log lines)")"
 common_screen "  drivers for fn/ag   $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
 if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
-    common_screen "${RED}tabsdata-km-smoke: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
+    common_screen "${RED}smoke-km: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
     exit 1
 fi
 # shellcheck disable=SC1090
@@ -265,7 +282,7 @@ common_checkpoint install
 # `test` extra), yet the CDC plugin imports it when tdk loads the connectors, so
 # every postgrescdc collection create fails. Until tabsdata ships it, put it in
 # the client venv for that version -- and say so, since it is not tabsdata's own.
-if [ "$TABSDATA_VERSION" = "2.0.2" ]; then
+if [ "$TD_VERSION" = "2.0.2" ]; then
     common_stage cdc-driver "tabsdata 2.0.2 workaround: psycopg2-binary into $VENV for the Postgres CDC plugin"
     # shellcheck disable=SC2086
     common_run uv pip install ${UV_INDEX_URI:+--index "$UV_INDEX_URI" --index-strategy unsafe-best-match} psycopg2-binary==2.9.11
