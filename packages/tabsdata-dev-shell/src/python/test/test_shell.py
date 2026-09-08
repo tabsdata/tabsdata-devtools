@@ -530,16 +530,32 @@ def test_config_show_paints_a_built_in_green_and_what_the_file_sets_blue():
         assert _config_show("zsh", tty=True) == painted
 
 
-def test_tdd_help_lists_tdd_own_options():
-    """`tdd -h` is the front door's help, and it named the commands without ever
-    naming what `tdd` itself takes -- not even --help. The usage line mentioned
-    three of the six and the rest were undiscoverable."""
+def test_tdd_help_is_laid_out_by_the_same_engine_as_every_command_help():
+    """`tdd -h` named the commands and never what `tdd` itself takes -- not even
+    --help -- and painted itself by hand, so the front door looked like a
+    different program from the commands behind it.
+
+    It goes through `_tdd_help_text` now, which is what a command's help uses:
+    that is where the heading goes bold, the term goes cyan, a long summary
+    wraps, `options:` lands after the commands, and the three options every
+    command shares are supplied. So the two cannot drift -- and what is left
+    here is only what is tdd's own.
+    """
     text = shell.source_template()
     body = text.split("_tdd_help() {", 1)[1].split("\n}\n", 1)[0]
-    for option in ("--dir", "--format", "--verbose", "--help", "--version", "--reqs"):
+    assert "_tdd_help_text <<HELP" in body
+    # printed, never captured: inside $(...) the tty test sees the capture pipe
+    assert '"$(_tdd_help_text' not in body
+    # plain text in, so the sections are bare `word:` lines the engine knows
+    for heading in ("commands:", "options:", "command config:"):
+        assert f"\n{heading}\n" in body, heading
+    # its own three; the shared three come from the engine, not from here
+    for option in ("--dir TDD_PATH", "--version, -V", "--reqs [TOOL]"):
         assert option in body, option
-    # the view listing has an options block, and json says the same
-    assert "${_tdd_hb}options:${_tdd_ho}" in body
+    assert "-h, --help" not in body and "-v, --verbose" not in body
+    # nothing paints itself any more
+    assert "_tdd_hb" not in body and "\\033[36m" not in body
+    # json says the same six
     assert '\\"options\\":' in body
 
 
@@ -557,5 +573,6 @@ def test_the_shell_paints_help_the_way_the_python_half_does():
     assert "bold l off" in common and "termcol substr(l" in common
     # every finished line goes out through it
     assert "print paint(" in common
-    # and the listing tdd itself prints says it paints itself
-    assert "_TDD_PRECOLORED=1" in shell.source_template()
+    # and `tdd -h` is one of its callers rather than a second painter: it prints
+    # the engine's output straight out, the way a command's help does
+    assert "_tdd_help_text <<HELP" in shell.source_template()

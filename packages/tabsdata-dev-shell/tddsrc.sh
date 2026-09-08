@@ -200,41 +200,37 @@ _tdd_help() {
         _tdd_ok "$(printf '%s\n' "$_tdd_rows" | grep -c .) commands" \
             "\"tdd_dir\":\"$(_tdd_json_str "$TDD_DIR")\",\"options\":[\"--dir\",\"--format\",\"--verbose\",\"--help\",\"--version\",\"--reqs\"],\"commands\":$(_tdd_rows_json "$_tdd_rows"),\"config\":{\"file\":\"$(_tdd_json_str "$TDD_DIR/<command>.toml")\",\"tables\":[\"options\",\"options.<action>\"],\"syntax\":\"a TOML key per option, typed options win\",\"action\":\"tdd <command> config --create|--default|--show\"}"
     else
-        # The listing paints itself the way every help does -- a heading bold, a
-        # command name cyan -- so the ok event must not wrap it in green. The
-        # terminal test belongs out here: inside $(...) fd 1 is the capture pipe.
-        _tdd_hb=""
-        _tdd_hc=""
-        _tdd_ho=""
-        if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-            _tdd_hb="$(printf '\033[1m')"
-            _tdd_hc="$(printf '\033[36m')"
-            _tdd_ho="$(printf '\033[0m')"
-        fi
-        _tdd_head="commands (* runs in this shell):"
-        _TDD_PRECOLORED=1
-        _tdd_ok "${_tdd_hb}usage:${_tdd_ho} tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
+        # Laid out and painted by `_tdd_help_text`, the engine every command's
+        # help goes through -- which is what keeps the front door from looking
+        # like a different program. It supplies the three options every command
+        # shares (--help, --verbose, --format), puts `options:` after the
+        # commands the way argparse does, wraps a long summary to the terminal,
+        # and paints a heading bold and a term cyan. Its input is plain text: a
+        # bare `word:` line is a heading, and two spaces, a term, two spaces and
+        # a description is an entry.
+        #
+        # Printed, never captured: `[ -t 1 ]` inside a $(...) sees the capture
+        # pipe and would paint nothing. Every command's help prints this way.
+        _tdd_help_text <<HELP
+usage: tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
        tdd [--dir TDD_PATH] (--help | --version | --reqs [TOOL])
 
-${_tdd_hb}options:${_tdd_ho}  (before the command word; --format and --verbose travel on to it)
-  --dir TDD_PATH   the tdd dir to use (default: \$TDD_DIR, else ~/.tdd)
-  --format json|view
-                   json is one event per line (default: view)
-  --verbose, -v    show debug events too
-  --help, -h       this listing
-  --version, -V    the version stamped into the tdd dir
-  --reqs [TOOL]    report the external binaries the tools need; exit 1 if any
-                   is missing
+commands:
+$(printf '%s\n' "$_tdd_rows" | awk -F'\t' '{ printf "  %s%s  %s\n", ($2 == "*" ? "* " : ""), $1, $3 }')
+  (a * marks a command that runs in this shell, so that it can change it)
 
-${_tdd_hb}${_tdd_head}${_tdd_ho}
-$(printf '%s\n' "$_tdd_rows" | awk -F'\t' -v c="$_tdd_hc" -v o="$_tdd_ho" '{ printf "  %s %s%-13s%s %s\n", $2, c, $1, o, $3 }')
+options:
+  --dir TDD_PATH  the tdd dir to use (default: \$TDD_DIR, else ~/.tdd)
+  --version, -V  the version stamped into the tdd dir
+  --reqs [TOOL]  report the external binaries every tool needs; exit 1 if one is missing
+  (--dir, --format and --verbose come before the command word)
 
-${_tdd_hb}command config:${_tdd_ho} $TDD_DIR/<command>.toml -- its [options] and [options.<action>]
-  tables are what that command's options default to; typed options win
-  \`tdd <command> config --create\` writes one, \`--show\` says what applies
+command config:
+  <command>.toml  in $TDD_DIR: its [options] and [options.<action>] tables are what that command's options default to, and a typed option wins over them
+  config --create  writes that file; config --show says what applies now
 
-TDD_DIR=$TDD_DIR"
-        unset _TDD_PRECOLORED _tdd_hb _tdd_hc _tdd_ho
+TDD_DIR=$TDD_DIR
+HELP
     fi
     unset _tdd_rows _tdd_head
 }
