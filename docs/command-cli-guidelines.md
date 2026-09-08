@@ -56,7 +56,9 @@ password stripped (`common.systems.diagnostics.db_failure`). A container: its st
 and last log lines (`core.docker.container_failure`) -- a server that never came up wrote the
 reason to its own stdout, and "did not become ready" is the one thing that cannot say it.
 Collecting diagnostics never raises: it runs while something is already going wrong, and an
-exception there would replace the failure it was explaining.
+exception there would replace the failure it was explaining. The smoke scripts do the same for a
+cluster (`common_k8s_report`): pods, jobs, the namespace's events and every failed pod's logs --
+init containers included -- into the run's log, while the namespace still exists.
 
 ## Events
 

@@ -29,6 +29,8 @@
 #                                         `kubectl port-forward` in the background, waited for;
 #                                         a stage command on its own, no common_run in front
 #   common_kubeportforward_stop           end it (also on exit: the script traps EXIT to it)
+#   common_k8s_report KUBECONFIG CONTEXT NAMESPACE [TAIL]
+#                                         pods, jobs, events and failed pods' logs, into the log
 #   common_fill_placeholder FILE... -- PLACEHOLDER VALUE
 #                                         replace a `${{kind:name}}` placeholder in config files
 #   common_fill_pem FILE... -- PLACEHOLDER VALUE
@@ -558,6 +560,63 @@ common_kubeportforward_stop() {
     wait "$PORTFORWARD_PID" 2>/dev/null
     echo "port-forward stopped (pid $PORTFORWARD_PID)"
     PORTFORWARD_PID=""
+}
+
+# common_k8s_report KUBECONFIG CONTEXT NAMESPACE [TAIL] -- what the cluster knows
+# about the failure, into the log.
+#
+# A stage fails saying `Init job 'ins-dbmanager' failed` and the reason is inside
+# a pod that the next run's clean-previous deletes. So the whole picture goes to
+# the log while it still exists: every pod and job with its status, the
+# namespace's recent events (an image that would not pull, a volume that would
+# not mount, a quota), and for every pod that did not finish cleanly its events
+# and its logs.
+#
+# --all-containers because a tabsdata pod does its real work in init containers
+# (0000-cabundle, 0010-venvloader) before the main one starts, and plain
+# `kubectl logs` shows only the default container and warns about the rest.
+# --previous as well: a crashlooping pod has already thrown away the log that
+# says why.
+#
+# Never fails and never hangs -- it runs inside a failure report, and a dead
+# cluster must not turn a legible failure into a stuck script.
+common_k8s_report() {
+    local kubeconfig="$1" context="$2" namespace="$3" tail="${4:-60}"
+    local k pod phase ready
+    k=(kubectl --kubeconfig "$kubeconfig" --context "$context" --namespace "$namespace" --request-timeout=20s)
+    echo ""
+    echo "================ kubernetes: namespace $namespace on $context"
+    if ! "${k[@]}" get namespace "$namespace" >/dev/null 2>&1; then
+        echo "(no namespace $namespace on this cluster -- nothing to collect)"
+        return 0
+    fi
+    "${k[@]}" get pods,jobs -o wide 2>&1
+    echo ""
+    echo "---------------- events (oldest first)"
+    "${k[@]}" get events --sort-by=.lastTimestamp 2>&1 | tail -40
+    "${k[@]}" get pods \
+        -o 'jsonpath={range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\t"}{range .status.containerStatuses[*]}{.ready}{","}{end}{range .status.initContainerStatuses[*]}{.ready}{","}{end}{"\n"}{end}' \
+        2>/dev/null |
+        while IFS="$(printf '\t')" read -r pod phase ready; do
+            [ -n "$pod" ] || continue
+            # a pod that ran to completion, or is up with every container ready,
+            # has nothing to explain
+            case "$phase" in
+                Succeeded) continue ;;
+                Running) case "$ready" in *false*) ;; *) continue ;; esac ;;
+            esac
+            echo ""
+            echo "---------------- pod $pod ($phase): events"
+            "${k[@]}" describe pod "$pod" 2>&1 | sed -n '/^Events:/,$p'
+            echo "---------------- pod $pod: last $tail lines, every container"
+            "${k[@]}" logs "$pod" --all-containers=true --prefix --tail="$tail" 2>&1
+            # only a restarted container has a previous log, and that is the one
+            # holding the error the restart erased
+            "${k[@]}" logs "$pod" --all-containers=true --prefix --previous --tail="$tail" 2>/dev/null |
+                sed "1i\\
+---------------- pod $pod: the log before the last restart"
+        done
+    echo "================ end kubernetes"
 }
 
 # common_fill_placeholder FILE... -- PLACEHOLDER VALUE -- replace every literal

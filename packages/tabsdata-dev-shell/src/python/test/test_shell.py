@@ -865,6 +865,29 @@ def test_fill_storage_substitutes_yaml_scalars_in_every_cluster_smoke():
             assert tail.startswith("scalar("), (path.name, tail[:40])
 
 
+def test_every_cluster_smoke_collects_the_cluster_s_account_of_a_failure():
+    """`Init job 'ins-dbmanager' failed` names the job and stops; the reason is in
+    the pod, and the next run's clean-previous deletes the namespace it is in. So
+    the failure hook pulls pods, jobs, events and the failed pods' logs into the
+    log while they still exist -- init containers included, since a tabsdata pod
+    does its real work in them and plain `kubectl logs` shows none of it."""
+    import pathlib as _pathlib
+
+    root = _pathlib.Path(__file__).resolve().parents[5] / "scripts"
+    common = (root / "_common.sh").read_text()
+    assert "common_k8s_report()" in common
+    # the three things that make it usable inside a failure report
+    assert "--all-containers=true" in common and "--prefix" in common
+    assert "--previous" in common
+    assert "--request-timeout=" in common, "a dead cluster must not hang the report"
+    for path in sorted(root.glob("tabsdata-*-smoke.sh")):
+        text = path.read_text()
+        if "KUBECTL=(" not in text:
+            continue
+        hook = text.split("common_on_stage_failed() {", 1)[1].split("\n}", 1)[0]
+        assert "common_k8s_report" in hook, path.name
+
+
 def test_the_defaults_command_is_gone_in_favour_of_config():
     assert not (shell.scripts_dir() / "defaults.sh").exists()
     # the old shared file is gone, and so is every mention of it: a command's

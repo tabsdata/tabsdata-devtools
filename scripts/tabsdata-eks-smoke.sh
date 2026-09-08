@@ -229,6 +229,11 @@ common_on_stage_failed() {
     common_tabsdata_setup_info common_indented
     common_indented "namespace  $NAMESPACE on $CONTEXT -- kubectl delete namespace $NAMESPACE (the kubeconfig is still on that context, pointed at it)"
     common_indented "reach it   kubectl port-forward --kubeconfig $KUBECONFIG_OPT --namespace $NAMESPACE service/net-apiserver $PORT:$PORT &   then: _TDD_VENV=$VENV tdd tdk login --server $SERVER"
+    # the cluster's own account of the failure, collected while the namespace is
+    # still there: `Init job 'ins-dbmanager' failed` names the job, and the
+    # reason is in the pod it left behind
+    common_indented "cluster    the failed pods' logs and the namespace's events are in the log"
+    common_k8s_report "$KUBECONFIG_OPT" "$CONTEXT" "$NAMESPACE"
 }
 
 # fill_storage FILE -- the twelve positional ${{secret}} of apiserver.storage.yaml:
