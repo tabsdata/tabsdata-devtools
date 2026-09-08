@@ -60,6 +60,15 @@ exception there would replace the failure it was explaining. The smoke scripts d
 cluster (`common_k8s_report`): pods, jobs, the namespace's events and every failed pod's logs --
 init containers included -- into the run's log, while the namespace still exists.
 
+The cluster smoke scripts are not commands and take no `<tdd_dir>/<command>.toml`, but their help
+is painted by the same rules (`common_help`): a heading bold, a term cyan -- and an option they
+**require** red, because a page with six mandatory options should say so where the eye already is.
+They require what cannot be guessed (`--name`, `--kube-config`, `--kube-context`,
+`--kube-namespace`, `--td-version`, `--uv-index`) and never write to the kubeconfig they are
+given: the run copies it, makes the copy current on its own context and namespace, and points
+tdkserver at the copy -- because tdkserver reads both from the current context, and its
+`venv update`, `config` and `delete` take no `--context` to say otherwise.
+
 ## Events
 
 Everything a command says is an event -- `command` (the `-`-joined qualified name the log uses,

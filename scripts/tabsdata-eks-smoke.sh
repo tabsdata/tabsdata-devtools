@@ -11,12 +11,22 @@
 
 set -o pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# sourced before the arguments are read, so --help is painted like a tdd command
+# shellcheck disable=SC1091
+. "$HERE/_common.sh"
+
+# Nothing here is guessed. A cluster run reaches a named cluster in a named
+# namespace and installs from a named index, and the wrong default for any of
+# them is a confusing failure -- or a quiet success somewhere nobody meant to
+# touch. These are the options common_help paints red.
+REQUIRED_OPTIONS="--name --kube-config --kube-context --kube-namespace --td-version --uv-index"
 
 usage() {
-    cat <<'HELP'
-usage: tabsdata-eks-smoke.sh --name NAME --tabsdata-version VERSION [--tabsdata-extras EXTRAS]
-                   [--venv-type pyenv|uv|conda] [--python-version VERSION]
-                   [--kubeconfig FILE] [--context NAME] [--uv-index URI] [--suites LIST]
+    cat <<'HELP' | common_help "$REQUIRED_OPTIONS"
+usage: tabsdata-eks-smoke.sh --name NAME --kube-config FILE --kube-context NAME
+                   --kube-namespace NAME --td-version VERSION --uv-index URI
+                   [--tabsdata-extras EXTRAS] [--venv-type pyenv|uv|conda]
+                   [--python-version VERSION] [--suites LIST]
                    [--llm anthropic|openai] [--expect-pods LIST] [--force] [--keep]
                    [--stop-after STAGE] [--log FILE] [--tdd-dir DIR] [--verbose]
 
@@ -25,25 +35,26 @@ Tabsdata EKS smoke test.
 options:
   --name NAME         REQUIRED: the run's name, alphanumeric. Everything created
                       is sm_NAME -- the tdkserver instance and the managed venv --
-                      or sm_NAME__<what> (domains, xp instances/projects); the
-                      k8s namespace is sm-<name> (lowercased: RFC 1123)
-  --tabsdata-version VERSION
+                      or sm_NAME__<what> (domains, xp instances/projects)
+  --kube-config FILE  REQUIRED: the kubeconfig holding the cluster. It is never
+                      modified: the run copies it and works on the copy
+  --kube-context NAME
+                      REQUIRED: the context in that file to run against. The file
+                      chooses nothing on its own -- one kubeconfig holds every
+                      cluster a developer has, and the context picks among them
+  --kube-namespace NAME
+                      REQUIRED: the namespace to create and run in, RFC 1123
+                      (lowercase, digits, hyphens)
+  --td-version VERSION
                       REQUIRED: the tabsdata release to install, tabsdata[EXTRAS]==VERSION
+  --uv-index URI      REQUIRED: the Python package index, used by the tabsdata
+                      install and written into tabsdata.yaml (UV_INDEX) for the pods
   --tabsdata-extras EXTRAS
                       the extras to install (default: all)
   --venv-type TYPE    pyenv, uv or conda (default: pyenv)
   --python-version VERSION
                       interpreter for the venv (default: 3.12.13 -- the exact
                       version the instance builds its own environments with)
-  --kubeconfig FILE   the EKS kubeconfig (default: ~/.kube/config); exported as
-                      KUBECONFIG for tdkserver and passed to every kubectl
-  --context NAME      the context in that file to run against (default: the current
-                      one if it is an EKS context, else the file's only EKS one).
-                      --kubeconfig picks the file, the context picks the cluster.
-                      Made current for the run -- tdkserver reads the current
-                      context itself -- and the previous one is put back at cleanup
-  --uv-index URI      Python package index (default: none): used by the tabsdata
-                      install and written into tabsdata.yaml (UV_INDEX) for the pods
   --suites LIST       comma-separated xp suite selectors, one stage each
                       (default: test,tableframe_api,dataquality,grok/s3_examples,
                       grok/s3_world_csv,cloud-connectors -- container-connectors and
@@ -83,10 +94,11 @@ LLM=""                   # anthropic | openai | empty
 EXPECT_PODS="srv-apiserver"
 VENV_TYPE="pyenv"
 PYTHON="3.12.13"
-TABSDATA_VERSION=""      # required
+TD_VERSION=""            # required
 TABSDATA_EXTRAS="all"
-KUBECONFIG_OPT="$HOME/.kube/config"
-CONTEXT_OPT=""           # empty: resolved from the kubeconfig below
+KUBECONFIG_OPT=""        # required
+CONTEXT=""               # required
+NAMESPACE=""             # required
 PORT="2457"              # tdkserver's apiserver port; the port-forward mirrors it locally
 UV_INDEX_URI=""
 # grok only through its s3 sub-suites: the fs-backed ones stage files on a local
@@ -109,10 +121,11 @@ while [ $# -gt 0 ]; do
         --expect-pods) EXPECT_PODS="$2"; shift 2 ;;
         --venv-type) VENV_TYPE="$2"; shift 2 ;;
         --python-version) PYTHON="$2"; shift 2 ;;
-        --tabsdata-version) TABSDATA_VERSION="$2"; shift 2 ;;
+        --td-version) TD_VERSION="$2"; shift 2 ;;
         --tabsdata-extras) TABSDATA_EXTRAS="$2"; shift 2 ;;
-        --kubeconfig) KUBECONFIG_OPT="$2"; shift 2 ;;
-        --context) CONTEXT_OPT="$2"; shift 2 ;;
+        --kube-config) KUBECONFIG_OPT="$2"; shift 2 ;;
+        --kube-context) CONTEXT="$2"; shift 2 ;;
+        --kube-namespace) NAMESPACE="$2"; shift 2 ;;
         --uv-index) UV_INDEX_URI="$2"; shift 2 ;;
         --suites) SUITES="$2"; shift 2 ;;
         --force | -f) FORCE=1; shift ;;
@@ -127,52 +140,40 @@ while [ $# -gt 0 ]; do
 done
 case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "tabsdata-eks-smoke: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
 case "$LLM" in "" | anthropic | openai) ;; *) echo "tabsdata-eks-smoke: --llm must be anthropic or openai" >&2; exit 1 ;; esac
-case "$NAME" in *[!A-Za-z0-9]*) echo "tabsdata-eks-smoke: --name must be alphanumeric (it becomes part of domain and namespace names)" >&2; exit 1 ;; "") echo "tabsdata-eks-smoke: --name NAME is required (everything created is sm_NAME)" >&2; exit 1 ;; esac
-if [ -z "$TABSDATA_VERSION" ]; then
-    echo "tabsdata-eks-smoke: --tabsdata-version VERSION is required (the tabsdata release to install)" >&2
+missing=""
+for _need in $REQUIRED_OPTIONS; do
+    case "$_need" in
+        --name) [ -n "$NAME" ] || missing="$missing $_need" ;;
+        --kube-config) [ -n "$KUBECONFIG_OPT" ] || missing="$missing $_need" ;;
+        --kube-context) [ -n "$CONTEXT" ] || missing="$missing $_need" ;;
+        --kube-namespace) [ -n "$NAMESPACE" ] || missing="$missing $_need" ;;
+        --td-version) [ -n "$TD_VERSION" ] || missing="$missing $_need" ;;
+        --uv-index) [ -n "$UV_INDEX_URI" ] || missing="$missing $_need" ;;
+    esac
+done
+if [ -n "$missing" ]; then
+    echo "tabsdata-eks-smoke: missing required option(s):$missing (see --help)" >&2
     exit 1
 fi
+case "$NAME" in *[!A-Za-z0-9]*) echo "tabsdata-eks-smoke: --name must be alphanumeric (it becomes part of domain and xp names)" >&2; exit 1 ;; esac
+case "$NAMESPACE" in *[!a-z0-9-]* | -* | *-) echo "tabsdata-eks-smoke: --kube-namespace must be RFC 1123: lowercase letters, digits and inner hyphens" >&2; exit 1 ;; esac
 if [ ! -r "$KUBECONFIG_OPT" ]; then
-    echo "tabsdata-eks-smoke: no kubeconfig at $KUBECONFIG_OPT (pass --kubeconfig)" >&2
+    echo "tabsdata-eks-smoke: no kubeconfig at $KUBECONFIG_OPT (pass --kube-config)" >&2
     exit 1
 fi
-# --kubeconfig picks the FILE; the CONTEXT is what picks the cluster, and one
-# kubeconfig holds every cluster a developer has. Unpinned, an EKS run talks to
-# whatever context happened to be current -- a GKE one, say, which then fails
-# deep inside a later stage complaining about gcloud credentials, rather than
-# about a cluster it was never meant to reach.
-KUBE_CONTEXTS="$(kubectl --kubeconfig "$KUBECONFIG_OPT" config view -o jsonpath='{range .contexts[*]}{.name}{"\t"}{.context.cluster}{"\n"}{end}' 2>/dev/null)"
-KUBE_NAMES="$(printf '%s\n' "$KUBE_CONTEXTS" | awk -F'\t' 'NF { print $1 }')"
-# an EKS context by either name: `aws eks update-kubeconfig` writes the cluster
-# ARN as both, and --alias renames only the context
-KUBE_EKS="$(printf '%s\n' "$KUBE_CONTEXTS" | awk -F'\t' '$1 ~ /^arn:aws:eks:/ || $2 ~ /^arn:aws:eks:/ { print $1 }')"
-CURRENT_CONTEXT="$(kubectl --kubeconfig "$KUBECONFIG_OPT" config current-context 2>/dev/null)"
-CONTEXT_NOTE=""
-if [ -n "$CONTEXT_OPT" ]; then
-    if ! printf '%s\n' "$KUBE_NAMES" | grep -qxF -- "$CONTEXT_OPT"; then
-        echo "tabsdata-eks-smoke: no context '$CONTEXT_OPT' in $KUBECONFIG_OPT; it has:" >&2
-        printf '%s\n' "$KUBE_NAMES" | sed 's/^/  /' >&2
-        exit 1
-    fi
-    CONTEXT="$CONTEXT_OPT"
-elif [ -n "$CURRENT_CONTEXT" ] && printf '%s\n' "$KUBE_EKS" | grep -qxF -- "$CURRENT_CONTEXT"; then
-    CONTEXT="$CURRENT_CONTEXT"
-elif [ "$(printf '%s\n' "$KUBE_EKS" | grep -c .)" = 1 ]; then
-    # one candidate is not a guess: there is nothing else it could have meant
-    CONTEXT="$(printf '%s\n' "$KUBE_EKS" | grep .)"
-    CONTEXT_NOTE="the current context (${CURRENT_CONTEXT:-none}) is not an EKS one; this is the file's only EKS context"
-else
-    echo "tabsdata-eks-smoke: the current context is ${CURRENT_CONTEXT:-(none)}, which is not an EKS one," >&2
-    echo "tabsdata-eks-smoke: and $KUBECONFIG_OPT holds $(printf '%s\n' "$KUBE_EKS" | grep -c .) EKS contexts -- pass --context NAME:" >&2
+# --kube-config picks the FILE; the context is what picks the cluster, and one
+# kubeconfig holds every cluster a developer has. Both are given, so there is
+# nothing to infer here -- only to check, before anything is built.
+KUBE_NAMES="$(kubectl --kubeconfig "$KUBECONFIG_OPT" config view -o jsonpath='{range .contexts[*]}{.name}{"\n"}{end}' 2>/dev/null)"
+if ! printf '%s\n' "$KUBE_NAMES" | grep -qxF -- "$CONTEXT"; then
+    echo "tabsdata-eks-smoke: no context '$CONTEXT' in $KUBECONFIG_OPT; it has:" >&2
     printf '%s\n' "$KUBE_NAMES" | sed 's/^/  /' >&2
     exit 1
 fi
-# the k8s namespace must be RFC 1123 (lowercase, hyphens), hence sm-<name>
 BASE="sm_$NAME"
 NAMES_PREFIX="$BASE"     # what the failure summary tells the reader to look for
 INSTANCE="$BASE"
 VENV="$BASE"
-NAMESPACE="sm-$(printf '%s' "$NAME" | tr 'A-Z' 'a-z')"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 RDS_DOMAIN="${BASE}__rds"
 S3_DOMAIN="${BASE}__s3"
@@ -183,11 +184,20 @@ EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
 LOG="${LOG:-/tmp/smoke-$INSTANCE-$STAMP.log}"
 WORK="$(mktemp -d "/tmp/smoke-$INSTANCE-$STAMP.XXXX")"
 SERVER="http://127.0.0.1:$PORT"
-TABSDATA_SPEC="tabsdata[$TABSDATA_EXTRAS]==$TABSDATA_VERSION"
+TABSDATA_SPEC="tabsdata[$TABSDATA_EXTRAS]==$TD_VERSION"
 TDK_OPTS=(-y --accept-terms y)
 CONFIGS="$HOME/.tabsdata/instances/$INSTANCE/init/input/configs"
-export KUBECONFIG="$KUBECONFIG_OPT"   # start/stop/create resolve the cluster from it; init wants it as --kubeconfig
-KUBECTL=(kubectl --kubeconfig "$KUBECONFIG_OPT" --context "$CONTEXT")
+# tdkserver resolves the cluster and the namespace from the kubeconfig's CURRENT
+# context, and `venv update`, `config` and `delete` take no --context to say
+# otherwise. Rather than move the developer's current context out from under
+# whatever else they have running, the run works on a COPY of the file with its
+# own current context and namespace, and points tdkserver at that. What they
+# passed in is only ever read.
+RUN_KUBECONFIG="$WORK/kubeconfig"
+cp "$KUBECONFIG_OPT" "$RUN_KUBECONFIG"
+kubectl --kubeconfig "$RUN_KUBECONFIG" config use-context "$CONTEXT" >/dev/null
+export KUBECONFIG="$RUN_KUBECONFIG"
+KUBECTL=(kubectl --kubeconfig "$RUN_KUBECONFIG" --context "$CONTEXT")
 SUITE_LIST=()
 for suite in $(printf '%s' "$SUITES" | tr ',' ' '); do SUITE_LIST[${#SUITE_LIST[@]}]="$suite"; done
 if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
@@ -195,7 +205,7 @@ if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
     exit 1
 fi
 STAGE_NAMES=(unset-td unset-pypi set-crypto cluster systems pycache clean-previous create-venv install)
-[ "$TABSDATA_VERSION" = "2.0.2" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="cdc-driver"
+[ "$TD_VERSION" = "2.0.2" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="cdc-driver"
 for stage in domains namespace init configure create start-1 pods-1 forward-1 login-1 stop-1 venv-update start-2 pods-2 forward-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
 for suite in "${SUITE_LIST[@]}"; do STAGE_NAMES[${#STAGE_NAMES[@]}]="xp-$(printf '%s' "$suite" | tr '/' '_')"; done
 STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
@@ -227,13 +237,13 @@ common_on_stage_failed() {
     common_screen ""
     common_screen "$(basename "$0"): left for you to look at"
     common_tabsdata_setup_info common_indented
-    common_indented "namespace  $NAMESPACE on $CONTEXT -- kubectl delete namespace $NAMESPACE (the kubeconfig is still on that context, pointed at it)"
-    common_indented "reach it   kubectl port-forward --kubeconfig $KUBECONFIG_OPT --namespace $NAMESPACE service/net-apiserver $PORT:$PORT &   then: _TDD_VENV=$VENV tdd tdk login --server $SERVER"
+    common_indented "namespace  $NAMESPACE on $CONTEXT -- kubectl --context $CONTEXT delete namespace $NAMESPACE"
+    common_indented "reach it   kubectl --context $CONTEXT --namespace $NAMESPACE port-forward service/net-apiserver $PORT:$PORT &   then: _TDD_VENV=$VENV tdd tdk login --server $SERVER"
     # the cluster's own account of the failure, collected while the namespace is
     # still there: `Init job 'ins-dbmanager' failed` names the job, and the
     # reason is in the pod it left behind
     common_indented "cluster    the failed pods' logs and the namespace's events are in the log"
-    common_k8s_report "$KUBECONFIG_OPT" "$CONTEXT" "$NAMESPACE"
+    common_k8s_report "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"
 }
 
 # fill_storage FILE -- the twelve positional ${{secret}} of apiserver.storage.yaml:
@@ -283,11 +293,11 @@ common_screen "tabsdata-eks-smoke: effective options"
 common_screen "  --name              $NAME   -> instance and venv $BASE, namespace $NAMESPACE, domains ${BASE}__<what>"
 common_screen "  --venv-type         $VENV_TYPE"
 common_screen "  --python-version    $PYTHON"
-common_screen "  --tabsdata-version  $TABSDATA_VERSION"
+common_screen "  --td-version        $TD_VERSION"
 common_screen "  --tabsdata-extras   $TABSDATA_EXTRAS   -> installs $TABSDATA_SPEC"
-common_screen "  --kubeconfig        $KUBECONFIG_OPT   (exported as KUBECONFIG)"
-common_screen "  --context           $CONTEXT   (made current for the run, restored at cleanup)"
-[ -z "$CONTEXT_NOTE" ] || common_screen "                      ($CONTEXT_NOTE)"
+common_screen "  --kube-config       $KUBECONFIG_OPT   (read only; the run works on a copy)"
+common_screen "  --kube-context      $CONTEXT"
+common_screen "  --kube-namespace    $NAMESPACE"
 common_screen "  --uv-index          $(common_display "${UV_INDEX_URI:-(none)}")"
 common_screen "  --suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
 common_screen "  --llm               ${LLM:-(none)}${LLM:+   -> domain $LLM_DOMAIN}"
@@ -325,12 +335,7 @@ common_stage cluster "make $CONTEXT current and check it reaches the cluster"
 # message about credentials rather than about which cluster it was talking to.
 # Pinning here is also what carries --context to tdkserver, which resolves the
 # cluster and the namespace from the current context itself, not from our flags.
-PREV_CONTEXT="$("${KUBECTL[@]}" config current-context 2>/dev/null)"
-common_note "current context: ${PREV_CONTEXT:-(none)} (restored at cleanup)"
-[ -z "$CONTEXT_NOTE" ] || common_note "$CONTEXT_NOTE"
-if [ "$PREV_CONTEXT" != "$CONTEXT" ]; then
-    common_run "${KUBECTL[@]}" config use-context "$CONTEXT"
-fi
+common_note "the run's own kubeconfig is $RUN_KUBECONFIG, on context $CONTEXT"
 common_run "${KUBECTL[@]}" version --output=yaml
 common_run "${KUBECTL[@]}" get namespaces
 common_checkpoint cluster
@@ -389,7 +394,7 @@ common_checkpoint install
 # `test` extra), yet the CDC plugin imports it when tdk loads the connectors, so
 # every postgrescdc collection create fails. Until tabsdata ships it, put it in
 # the client venv for that version -- and say so, since it is not tabsdata's own.
-if [ "$TABSDATA_VERSION" = "2.0.2" ]; then
+if [ "$TD_VERSION" = "2.0.2" ]; then
     common_stage cdc-driver "tabsdata 2.0.2 workaround: psycopg2-binary into $VENV for the Postgres CDC plugin"
     # shellcheck disable=SC2086
     common_run uv pip install ${UV_INDEX_URI:+--index "$UV_INDEX_URI" --index-strategy unsafe-best-match} psycopg2-binary==2.9.11
@@ -428,19 +433,16 @@ if [ -n "$LLM" ]; then
 fi
 common_checkpoint domains
 
-common_stage namespace "create the namespace $NAMESPACE and point $CONTEXT at it"
-# tdkserver reads the namespace from the current context, not a flag. Set by
-# name rather than --current: `config set-context --current` edits whatever the
-# file says is current and ignores the --context we pass everywhere else, so
-# the two are never allowed to drift apart.
-PREV_NAMESPACE="$("${KUBECTL[@]}" config view --minify -o jsonpath='{.contexts[0].context.namespace}' 2>/dev/null)"
-common_note "current context namespace: ${PREV_NAMESPACE:-(none)} (restored at cleanup)"
+common_stage namespace "create the namespace $NAMESPACE and point the run's kubeconfig at it"
+# tdkserver takes the namespace from the current context of the kubeconfig it is
+# given, and this one is the run's own copy -- so nothing the developer's file
+# says is touched, and nothing has to be put back afterwards.
 common_run "${KUBECTL[@]}" create namespace "$NAMESPACE"
 common_run "${KUBECTL[@]}" config set-context "$CONTEXT" --namespace "$NAMESPACE"
 common_checkpoint namespace
 
 common_stage init "tdkserver init --provider eks --instance $INSTANCE (the editable config folder)"
-common_run tdd tdkserver init --provider eks --instance "$INSTANCE" --kubeconfig "$KUBECONFIG_OPT" "${TDK_OPTS[@]}"
+common_run tdd tdkserver init --provider eks --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}"
 common_run test -d "$CONFIGS"
 common_checkpoint init
 
@@ -485,7 +487,7 @@ common_run_retry 30 10 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIS
 common_checkpoint pods-1
 
 common_stage forward-1 "kubectl port-forward service/net-apiserver $PORT:$PORT (background)"
-common_kubeportforward_start "$KUBECONFIG_OPT" "$NAMESPACE" net-apiserver "$PORT"
+common_kubeportforward_start "$RUN_KUBECONFIG" "$NAMESPACE" net-apiserver "$PORT"
 common_checkpoint forward-1
 
 common_stage login-1 "tdk login as admin on $SERVER"
@@ -519,7 +521,7 @@ common_run_retry 30 10 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIS
 common_checkpoint pods-2
 
 common_stage forward-2 "kubectl port-forward service/net-apiserver $PORT:$PORT (re-established after start)"
-common_kubeportforward_start "$KUBECONFIG_OPT" "$NAMESPACE" net-apiserver "$PORT"
+common_kubeportforward_start "$RUN_KUBECONFIG" "$NAMESPACE" net-apiserver "$PORT"
 common_checkpoint forward-2
 
 common_stage login-2 "tdk login as admin on $SERVER"
@@ -538,9 +540,9 @@ done
 if [ -n "$KEEP" ]; then
     common_stage cleanup "keeping the whole setup as it is (--keep; the port-forward is stopped)"
     common_kubeportforward_stop
-    common_note "re-establish: kubectl port-forward --kubeconfig $KUBECONFIG_OPT --namespace $NAMESPACE service/net-apiserver $PORT:$PORT &"
+    common_note "re-establish: kubectl --context $CONTEXT --namespace $NAMESPACE port-forward service/net-apiserver $PORT:$PORT &"
     common_note "then: export _TDD_VENV=$VENV; tdd tdk login --server $SERVER --user admin --password ***"
-    common_note "the kubeconfig is still on $CONTEXT (was: ${PREV_CONTEXT:-none}), namespace $NAMESPACE (was: ${PREV_NAMESPACE:-none})"
+    common_note "your kubeconfig was not touched; the run's copy is $RUN_KUBECONFIG ($CONTEXT, namespace $NAMESPACE)"
     common_tabsdata_setup_info common_note
 else
     common_stage cleanup "destroy the domains, delete the instance, the namespace $NAMESPACE and the venv"
@@ -554,15 +556,6 @@ else
     # and configmap removal (unlike kminus, where delete stops the cluster first)
     common_run tdd tdkserver delete --instance "$INSTANCE" --trash true "${TDK_OPTS[@]}"
     common_run "${KUBECTL[@]}" delete namespace "$NAMESPACE" --wait=true --timeout=300s
-    if [ -n "$PREV_NAMESPACE" ]; then
-        common_run "${KUBECTL[@]}" config set-context "$CONTEXT" --namespace "$PREV_NAMESPACE"
-    else
-        common_run "${KUBECTL[@]}" config unset "contexts.$CONTEXT.namespace"
-    fi
-    # and the shell that ran this gets its cluster back
-    if [ -n "$PREV_CONTEXT" ] && [ "$PREV_CONTEXT" != "$CONTEXT" ]; then
-        common_run "${KUBECTL[@]}" config use-context "$PREV_CONTEXT"
-    fi
     common_run tdd venv deactivate
     common_run tdd venv delete --name "$VENV"
 fi

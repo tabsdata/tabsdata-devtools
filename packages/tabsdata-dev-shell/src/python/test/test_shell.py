@@ -723,44 +723,60 @@ def test_every_smoke_script_leaves_a_foreign_venv_before_creating_one():
         ), path.name
 
 
-def test_every_cluster_smoke_script_pins_its_kubectl_context():
-    """`--kubeconfig` picks the FILE, not the cluster: one kubeconfig holds every
-    cluster a developer has, and the context is what chooses among them. Unpinned,
-    the EKS run reached whatever context happened to be current -- the GKE one,
-    failing nine stages in about gcloud credentials. Each script that talks to a
-    cluster resolves a context up front, passes it on every kubectl, and makes it
-    current, since tdkserver resolves the cluster and namespace from the current
-    context itself rather than from our flags."""
+def test_every_cluster_smoke_runs_on_its_own_copy_of_the_kubeconfig():
+    """`--kube-config` picks the FILE, `--kube-context` picks the cluster, and
+    the run must leave both alone: a developer's current context belongs to
+    whatever else they have open. But tdkserver reads the cluster and namespace
+    from the kubeconfig's CURRENT context, and `venv update`, `config` and
+    `delete` take no --context to say otherwise -- so the run copies the file,
+    makes the copy current on its own context and namespace, and points
+    tdkserver at that. Nothing is borrowed, so nothing has to be given back."""
     import pathlib as _pathlib
 
-    scripts = _pathlib.Path(__file__).resolve().parents[5] / "scripts"
-    cluster = [
-        p
-        for p in sorted(scripts.glob("tabsdata-*-smoke.sh"))
-        if "KUBECTL=(" in p.read_text()
-    ]
-    assert cluster, "no kubectl-using smoke scripts found"
-    for path in cluster:
+    root = _pathlib.Path(__file__).resolve().parents[5] / "scripts"
+    for path in sorted(root.glob("tabsdata-*-smoke.sh")):
         text = path.read_text()
+        if "KUBECTL=(" not in text:
+            continue
+        assert 'cp "$KUBECONFIG_OPT" "$RUN_KUBECONFIG"' in text, path.name
         assert (
-            'KUBECTL=(kubectl --kubeconfig "$KUBECONFIG_OPT" --context "$CONTEXT")'
+            'KUBECTL=(kubectl --kubeconfig "$RUN_KUBECONFIG" --context "$CONTEXT")'
             in text
         ), path.name
-        assert 'config use-context "$CONTEXT"' in text, path.name
-        # every context edit names the context. `set-context --current` ignores
-        # the --context we pass and edits whatever the file says is current, so
-        # the two could be pointed at different clusters -- comments may discuss
-        # it, commands may not use it
+        # what the developer passed in is only ever read
         for line in text.splitlines():
             if line.lstrip().startswith("#"):
                 continue
-            if "config set-context" in line or "config unset" in line:
-                assert '"$CONTEXT"' in line or "$CONTEXT." in line, (
-                    path.name,
-                    line.strip(),
-                )
-        # and the shell that ran it gets its own context back
-        assert 'config use-context "$PREV_CONTEXT"' in text, path.name
+            if "config use-context" in line or "config set-context" in line:
+                assert "$KUBECONFIG_OPT" not in line, (path.name, line.strip())
+        # and with nothing borrowed there is nothing to restore
+        assert "PREV_CONTEXT" not in text and "PREV_NAMESPACE" not in text, path.name
+
+
+def test_every_cluster_smoke_requires_the_options_it_cannot_guess():
+    """A cluster run reaches a named cluster in a named namespace and installs
+    from a named index. A default for any of those is either a confusing failure
+    or a quiet success somewhere nobody meant to touch, so all six are required
+    -- and common_help paints them red on the page."""
+    import pathlib as _pathlib
+
+    root = _pathlib.Path(__file__).resolve().parents[5] / "scripts"
+    needed = {
+        "--name",
+        "--kube-config",
+        "--kube-context",
+        "--kube-namespace",
+        "--td-version",
+        "--uv-index",
+    }
+    for path in sorted(root.glob("tabsdata-*-smoke.sh")):
+        text = path.read_text()
+        if "KUBECTL=(" not in text:
+            continue
+        declared = text.split('REQUIRED_OPTIONS="', 1)[1].split('"', 1)[0].split()
+        assert set(declared) == needed, (path.name, declared)
+        # the page is painted by the same engine every tdd command uses
+        assert 'common_help "$REQUIRED_OPTIONS"' in text, path.name
 
 
 def test_common_fill_pem_writes_a_yaml_block_scalar():

@@ -31,6 +31,7 @@
 #   common_kubeportforward_stop           end it (also on exit: the script traps EXIT to it)
 #   common_k8s_report KUBECONFIG CONTEXT NAMESPACE [TAIL]
 #                                         pods, jobs, events and failed pods' logs, into the log
+#   common_help REQUIRED                  paint a help page from stdin; REQUIRED options in red
 #   common_fill_placeholder FILE... -- PLACEHOLDER VALUE
 #                                         replace a `${{kind:name}}` placeholder in config files
 #   common_fill_pem FILE... -- PLACEHOLDER VALUE
@@ -560,6 +561,48 @@ common_kubeportforward_stop() {
     wait "$PORTFORWARD_PID" 2>/dev/null
     echo "port-forward stopped (pid $PORTFORWARD_PID)"
     PORTFORWARD_PID=""
+}
+
+# common_help REQUIRED -- paint a help page read from stdin the way every tdd
+# command paints one: a heading bold, an entry's term cyan. An option whose name
+# is in REQUIRED (space separated) is painted RED instead: on a page where half
+# a dozen options are mandatory, that belongs where the eye already is and not
+# only in the prose. Colours on a terminal only, and never under NO_COLOR.
+#
+# A painter, not a layout engine: these pages are hand-aligned in the script
+# that owns them, so nothing here moves a column.
+common_help() {
+    # decided HERE, where fd 1 is still the command's stdout: inside $(...) it
+    # is the capture pipe and `[ -t 1 ]` would always answer "no terminal"
+    local _tdd_tty=0
+    [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && _tdd_tty=1
+    awk -v required=" $1 " -v tty="$_tdd_tty" '
+    BEGIN {
+        if (tty) { bold = "\033[1m"; cyan = "\033[36m"; red = "\033[31m"; off = "\033[0m" }
+    }
+    function painted(l,   start, stop, term, name, colour, m) {
+        if (!tty) return l
+        if (l ~ /^[a-z][a-z0-9 \/_-]*:$/) return bold l off
+        if (l ~ /^(usage|examples?|options?):( |$)/) {
+            m = index(l, ":")
+            return bold substr(l, 1, m) off substr(l, m + 1)
+        }
+        if (match(l, /^ {1,6}[^ ]/)) {
+            start = RSTART + RLENGTH - 1
+            stop = start
+            while (stop < length(l) && substr(l, stop + 1, 2) != "  ") stop++
+            # a long term sits on a line of its own, its description on the
+            # next: there is no two-space run, and the term is the whole line
+            if (stop >= length(l)) { stop = length(l); sub(/ +$/, "", l) }
+            term = substr(l, start, stop - start + 1)
+            name = term
+            sub(/[ ,].*/, "", name)
+            colour = (index(required, " " name " ") > 0) ? red : cyan
+            return substr(l, 1, start - 1) colour term off substr(l, stop + 1)
+        }
+        return l
+    }
+    { print painted($0) }'
 }
 
 # common_k8s_report KUBECONFIG CONTEXT NAMESPACE [TAIL] -- what the cluster knows
