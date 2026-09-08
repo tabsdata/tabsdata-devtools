@@ -75,6 +75,32 @@ def _suites_dir(xp_root):
     return ["--suites-dir", str(xp_root / "suites")]
 
 
+def test_a_mistyped_suite_selector_names_the_one_it_meant(tmp_path):
+    """A selector is `<type>/<name>` and the name alone is what a reader
+    remembers -- `--suite s3` for `cloud-connectors/s3`, which is exactly the
+    shape that stopped working when the connectors were split in two. The
+    refusal names the candidate instead of sending them to `list-suites`.
+
+    Offered, never accepted: a bare name is unique today and need not stay so,
+    and resolving one silently would one day run a suite nobody asked for.
+    """
+    from tabsdata_dev.tool.xp import suites
+
+    root = tmp_path / "suites"
+    for rel in ("cloud/s3.json", "cloud/gcs.json", "local/s3_files.json"):
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"domains": [], "collections": [], "functions": []}')
+
+    # the leaf is exact, and one suite has it
+    assert suites._did_you_mean(root, "s3") == "; did you mean cloud/s3?"
+    # no leaf, but the text appears in more than one
+    assert "cloud/gcs" in suites._did_you_mean(root, "c")
+    assert suites._did_you_mean(root, "c").startswith("; did you mean one of ")
+    # nothing like it: the listing is the only advice worth giving
+    assert suites._did_you_mean(root, "zzz") == "; `list-suites` shows what is there"
+
+
 def test_suite_selectors_resolve_under_a_suites_dir_or_as_paths(xp_root):
     from tabsdata_dev.tool.xp import suites
 

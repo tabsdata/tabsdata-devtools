@@ -80,8 +80,34 @@ def resolve(
         if path.suffix == ".json" and path.is_file():
             return path.resolve(), None
     state.die(
-        f"suite {spec!r} not found under {root} (as <type>/<name>, <type>/<name>.json or <type>) nor as a path; `list-suites` shows what is there"
+        f"suite {spec!r} not found under {root} (as <type>/<name>, "
+        f"<type>/<name>.json or <type>) nor as a path" + _did_you_mean(root, spec)
     )
+
+
+def _did_you_mean(root: pathlib.Path, spec: str) -> str:
+    """The suites a mistyped selector was probably reaching for.
+
+    A selector is `<type>/<name>` and the name alone is what a reader remembers
+    -- `--suite s3` for `cloud-connectors/s3`, which is exactly the shape that
+    stopped working when the connectors were split in two. Naming the candidate
+    turns a second round trip into a correction, and it is offered rather than
+    accepted: a bare name is unique today and need not stay so, so resolving it
+    silently would one day pick a suite nobody asked for.
+    """
+    try:
+        every = [row["suite"] for row in list_suites(root)]
+    except OSError:
+        return "; `list-suites` shows what is there"
+    wanted = spec.strip("/").lower()
+    leaf = [s for s in every if pathlib.PurePath(s).name.lower() == wanted]
+    near = leaf or [s for s in every if wanted and wanted in s.lower()]
+    if not near:
+        return "; `list-suites` shows what is there"
+    if len(near) == 1:
+        return f"; did you mean {near[0]}?"
+    shown = ", ".join(near[:6]) + (" ..." if len(near) > 6 else "")
+    return f"; did you mean one of {shown}?"
     raise AssertionError  # unreachable
 
 

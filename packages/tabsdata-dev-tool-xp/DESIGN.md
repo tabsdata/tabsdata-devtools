@@ -55,7 +55,11 @@ provision domains, create the project, register functions and triggers, run, che
 ## Suites, lanes and pointers
 
 A selector is `<type>/<name>` for one definition or `<type>` for a **directory**, which fans out
-to one instance and project per definition file in it -- a "swim lane". Each lane is a normal
+to one instance and project per definition file in it -- a "swim lane". A selector that resolves
+to nothing names the suite it probably meant (`--suite s3` -> `cloud-connectors/s3`) rather than
+only pointing at `list-suites`: the name alone is what a reader remembers, and it is exactly the
+shape that stopped working when the connectors were split in two. Offered, never accepted -- a
+bare name is unique today and need not stay so. Each lane is a normal
 single-lane `xp` child run with `--format json`, so the parent aggregates their event streams
 live under a running total (`TDD_PARALLELISM` bounds them). `--fail-fast` lets the first failure
 kill the rest; without it every lane is attempted, and a multi-phase run records the lanes that
