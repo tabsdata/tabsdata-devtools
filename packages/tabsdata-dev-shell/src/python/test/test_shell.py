@@ -717,6 +717,46 @@ def test_every_smoke_script_leaves_a_foreign_venv_before_creating_one():
         ), path.name
 
 
+def test_every_cluster_smoke_script_pins_its_kubectl_context():
+    """`--kubeconfig` picks the FILE, not the cluster: one kubeconfig holds every
+    cluster a developer has, and the context is what chooses among them. Unpinned,
+    the EKS run reached whatever context happened to be current -- the GKE one,
+    failing nine stages in about gcloud credentials. Each script that talks to a
+    cluster resolves a context up front, passes it on every kubectl, and makes it
+    current, since tdkserver resolves the cluster and namespace from the current
+    context itself rather than from our flags."""
+    import pathlib as _pathlib
+
+    scripts = _pathlib.Path(__file__).resolve().parents[5] / "scripts"
+    cluster = [
+        p
+        for p in sorted(scripts.glob("tabsdata-*-smoke.sh"))
+        if "KUBECTL=(" in p.read_text()
+    ]
+    assert cluster, "no kubectl-using smoke scripts found"
+    for path in cluster:
+        text = path.read_text()
+        assert (
+            'KUBECTL=(kubectl --kubeconfig "$KUBECONFIG_OPT" --context "$CONTEXT")'
+            in text
+        ), path.name
+        assert 'config use-context "$CONTEXT"' in text, path.name
+        # every context edit names the context. `set-context --current` ignores
+        # the --context we pass and edits whatever the file says is current, so
+        # the two could be pointed at different clusters -- comments may discuss
+        # it, commands may not use it
+        for line in text.splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            if "config set-context" in line or "config unset" in line:
+                assert '"$CONTEXT"' in line or "$CONTEXT." in line, (
+                    path.name,
+                    line.strip(),
+                )
+        # and the shell that ran it gets its own context back
+        assert 'config use-context "$PREV_CONTEXT"' in text, path.name
+
+
 def test_the_defaults_command_is_gone_in_favour_of_config():
     assert not (shell.scripts_dir() / "defaults.sh").exists()
     # the old shared file is gone, and so is every mention of it: a command's
