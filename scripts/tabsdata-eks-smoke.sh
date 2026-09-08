@@ -295,7 +295,13 @@ if "${KUBECTL[@]}" get namespace "$NAMESPACE" >/dev/null 2>&1; then
 fi
 common_checkpoint clean-previous
 
-common_stage create-venv "create and activate the managed venv $VENV ($VENV_TYPE, python $PYTHON)"
+common_stage create-venv "leave any active venv, then create and activate the managed venv $VENV ($VENV_TYPE, python $PYTHON)"
+# Whatever this shell was in has to go first: `tdd venv create` refuses under a
+# venv tdd did not activate, and the one a developer is most likely to be
+# standing in -- their project's own -- is exactly that. --force is what leaves
+# one tdd did not enter, and says "no venv was active" rather than failing when
+# the shell is already clean.
+common_run tdd venv deactivate --force
 # shellcheck disable=SC2086
 common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" ${FORCE:+--force}
 common_checkpoint create-venv

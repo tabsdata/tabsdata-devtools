@@ -17,6 +17,11 @@ shell command.
   so); uv and conda fetch it.
   `delete --name NAME` refuses the active one; `delete --all` removes every managed venv and
   refuses while any is active (the shell would be left standing in a deleted venv).
+  `deactivate --force` is idempotent: it asks to be out of any venv, and out is where a shell
+  with none active already is, so that is an `ok`. A script wanting a clean shell can put it in
+  front of what it does without swallowing a failure that means "already fine" -- and swallowing
+  that one hides the failures that mean something, which is how every smoke script used to run a
+  plain `deactivate || true` that could not leave a foreign venv anyway.
 - Activation exports `_TDD_VENV` (what `tdd tdk|tdkserver|km` read), saves the prompt in
   `_TDD_VENV_PS1` and writes `(<type>/<python>/<name>)` in green after the red `* ` of
   `tdd-source.sh`; the managers' own prompt markers are silenced. `deactivate` leaves the

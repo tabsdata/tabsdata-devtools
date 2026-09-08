@@ -198,8 +198,6 @@ fi
 # shellcheck disable=SC1090
 . "$TDD_DIR_OPT/tdd-source.sh"
 
-# an already-active venv would make `tdd venv create` refuse; leave it first
-tdd venv deactivate >/dev/null 2>&1 || true
 
 common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"
 common_run tdd env unset --td
@@ -245,6 +243,11 @@ common_checkpoint clean-previous
 
 common_stage create-venv "create and activate the managed venv $VENV ($VENV_TYPE, python $PYTHON)"
 # shellcheck disable=SC2086
+# Whatever this shell was in has to go first: `tdd venv create` refuses under a
+# venv tdd did not activate. Plain `deactivate` will not leave one of those,
+# which is why this used to be a silent `|| true` that let the create fail
+# anyway; --force leaves it, and succeeds when there was nothing to leave.
+common_run tdd venv deactivate --force
 common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" ${FORCE:+--force}
 common_checkpoint create-venv
 

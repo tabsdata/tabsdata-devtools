@@ -621,6 +621,13 @@ _tdd_venv_deactivate() {
         return 0
     fi
     if [ -z "$_tdd_current" ]; then
+        # --force asks to be out of any venv, and out is where we are: an ok,
+        # so a script can put it in front of whatever needs a clean shell
+        # without having to swallow a failure that means "already fine".
+        if [ "$_tdd_force" = 1 ]; then
+            _tdd_ok "no venv was active" '"managed":false,"already":true'
+            return 0
+        fi
         _tdd_error "no venv is active"
         return 1
     fi

@@ -680,6 +680,43 @@ def test_a_foreign_venv_refusal_names_a_command_that_works():
             assert "is active;" in line and "did not activate" not in line, line
 
 
+def test_deactivate_force_is_idempotent():
+    """`--force` asks to be out of any venv. Out is where you are when none is
+    active, so that is an ok, not "no venv is active" and exit 1 -- otherwise
+    every script that wants a clean shell has to swallow a failure that means
+    "already fine", and swallowing it hides the ones that mean something."""
+    lines = (shell.scripts_dir() / "venv.sh").read_text().splitlines()
+    start = next(
+        i
+        for i, line in enumerate(lines)
+        if line.strip() == 'if [ -z "$_tdd_current" ]; then'
+    )
+    branch = "\n".join(lines[start : start + 12])
+    assert '"$_tdd_force" = 1' in branch and "no venv was active" in branch
+    # and without --force it is still an error worth reporting
+    assert '_tdd_error "no venv is active"' in branch
+
+
+def test_every_smoke_script_leaves_a_foreign_venv_before_creating_one():
+    """A developer runs these from the shell they work in, which is usually
+    standing in a venv -- and `tdd venv create` refuses under one tdd did not
+    activate. Each script leaves it first, with --force, which is the only form
+    that leaves a venv tdd did not enter. km had this already but without
+    --force, so the very case it guarded against still got through."""
+    import pathlib as _pathlib
+
+    scripts = _pathlib.Path(__file__).resolve().parents[5] / "scripts"
+    smoke = sorted(scripts.glob("tabsdata-*-smoke.sh"))
+    assert smoke, "no smoke scripts found"
+    for path in smoke:
+        text = path.read_text()
+        assert "tdd venv deactivate --force" in text, path.name
+        # before the create, not after it
+        assert text.index("tdd venv deactivate --force") < text.index(
+            "tdd venv create --name"
+        ), path.name
+
+
 def test_the_defaults_command_is_gone_in_favour_of_config():
     assert not (shell.scripts_dir() / "defaults.sh").exists()
     # the old shared file is gone, and so is every mention of it: a command's
