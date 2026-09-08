@@ -711,6 +711,9 @@ def test_every_smoke_script_leaves_a_foreign_venv_before_creating_one():
     for path in smoke:
         text = path.read_text()
         assert "tdd venv deactivate --force" in text, path.name
+        # and not the silent unforced form it replaced: with no --force it cannot
+        # leave a venv tdd did not enter, which is the only case worth guarding
+        assert "tdd venv deactivate >/dev/null" not in text, path.name
         # before the create, not after it
         assert text.index("tdd venv deactivate --force") < text.index(
             "tdd venv create --name"
@@ -830,6 +833,26 @@ def test_the_gke_smoke_fills_the_database_ca_before_checking_placeholders():
 
     assert "tdk_database_ssl_root_cert_pem" in "\n".join(lines)
     assert called("common_fill_pem") < called("common_placeholders_left")
+
+
+def test_fill_storage_substitutes_yaml_scalars_in_both_cluster_smokes():
+    """tdkserver compares the filled config's shape against its template's and
+    refuses a value whose shape changed (ResolverError::StructureMismatch). The
+    GCS service-account key is itself JSON, so dropped in bare it reads back as a
+    flow MAPPING where the template holds a scalar -- a run reached `create`
+    before failing on it. Every value goes in as a YAML double-quoted scalar."""
+    import pathlib as _pathlib
+
+    scripts = _pathlib.Path(__file__).resolve().parents[5] / "scripts"
+    marker = 'line.replace("${{secret}}", '
+    for name in ("tabsdata-eks-smoke.sh", "tabsdata-gke-smoke.sh"):
+        text = (scripts / name).read_text()
+        assert "def scalar(value):" in text, name
+        assert "import json" in text, name
+        pieces = text.split(marker)
+        assert len(pieces) > 1, name
+        for tail in pieces[1:]:
+            assert tail.startswith("scalar("), (name, tail[:40])
 
 
 def test_the_defaults_command_is_gone_in_favour_of_config():

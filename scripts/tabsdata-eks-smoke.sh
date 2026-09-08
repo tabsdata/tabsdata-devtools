@@ -237,7 +237,7 @@ common_on_stage_failed() {
 # (they are credentials); python because awk/sed would fight the &/\ a secret may hold.
 fill_storage() {
     ST_FILE="$1" python3 - <<'PYEOF'
-import os, re
+import json, os, re
 path = os.environ["ST_FILE"]
 uri = os.environ["S3D__URI"].rstrip("/")
 sub = {"ROOT": f"{uri}/data/", "BUNDLES": f"{uri}/bundles/", "IMAGES": f"{uri}/images/"}
@@ -246,6 +246,18 @@ fixed = {
     "aws_access_key_id": os.environ.get("S3S__ACCESS_KEY", ""),
     "aws_secret_access_key": os.environ.get("S3S__SECRET_KEY", ""),
 }
+
+def scalar(value):
+    """VALUE as a YAML double-quoted scalar. JSON's string escaping is a subset
+    of YAML's, so json.dumps produces exactly one, and it round-trips to the
+    same string. Left bare, a value that happens to be JSON -- the service
+    account key is -- reads back as a flow MAPPING, and tdkserver compares the
+    filled file's shape against the template's scalar placeholder and refuses
+    the whole config (ResolverError::StructureMismatch). Everything goes through
+    it, so no value can change the file's shape."""
+    return json.dumps(value)
+
+
 out, mount = [], None
 for line in open(path):
     m = re.match(r"\s*- id: (\w+)", line)
@@ -254,9 +266,9 @@ for line in open(path):
     if "${{secret}}" in line:
         key = line.split(":", 1)[0].strip()
         if key == "uri" and mount in sub:
-            line = line.replace("${{secret}}", sub[mount])
+            line = line.replace("${{secret}}", scalar(sub[mount]))
         elif key in fixed:
-            line = line.replace("${{secret}}", fixed[key])
+            line = line.replace("${{secret}}", scalar(fixed[key]))
     out.append(line)
 open(path, "w").write("".join(out))
 PYEOF
@@ -289,8 +301,6 @@ if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
 fi
 # shellcheck disable=SC1090
 . "$TDD_DIR_OPT/tdd-source.sh"
-
-tdd venv deactivate >/dev/null 2>&1 || true
 
 common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"
 common_run tdd env unset --td

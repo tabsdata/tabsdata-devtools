@@ -301,6 +301,18 @@ fixed = {
     "aws_region": "auto",
 }
 
+
+def scalar(value):
+    """VALUE as a YAML double-quoted scalar. JSON's string escaping is a subset
+    of YAML's, so json.dumps produces exactly one, and it round-trips to the
+    same string. Left bare, a value that happens to be JSON -- the service
+    account key is -- reads back as a flow MAPPING, and tdkserver compares the
+    filled file's shape against the template's scalar placeholder and refuses
+    the whole config (ResolverError::StructureMismatch). Everything goes through
+    it, so no value can change the file's shape."""
+    return json.dumps(value)
+
+
 out, mount, filled, unknown, empty = [], None, [], [], []
 for line in open(path, encoding="utf-8"):
     m = re.match(r"\s*- id: (\w+)", line)
@@ -309,11 +321,11 @@ for line in open(path, encoding="utf-8"):
     if "${{secret}}" in line:
         key = line.split(":", 1)[0].strip()
         if key == "uri" and mount in sub:
-            line = line.replace("${{secret}}", sub[mount])
+            line = line.replace("${{secret}}", scalar(sub[mount]))
             filled.append(f"{mount}.uri")
         elif key in fixed:
             if fixed[key]:
-                line = line.replace("${{secret}}", fixed[key])
+                line = line.replace("${{secret}}", scalar(fixed[key]))
                 filled.append(key)
             else:
                 empty.append(key)
@@ -360,8 +372,6 @@ if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
 fi
 # shellcheck disable=SC1090
 . "$TDD_DIR_OPT/tdd-source.sh"
-
-tdd venv deactivate >/dev/null 2>&1 || true
 
 common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"
 common_run tdd env unset --td
