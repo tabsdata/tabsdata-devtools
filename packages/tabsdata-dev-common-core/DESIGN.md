@@ -12,6 +12,19 @@ dependencies are declared as ranges; each toolset's lock pins them.
 
 - `cli.run()` / `render` -- the command contract: `--help`, `--verbose`, `--format json|view`,
   events `ok|error|warn|info|debug` with colours, exit 0/1, the `/tmp/tdd-<cmd>-<stamp>.log`.
+  Commands never print; they hand the renderer events, and help is coloured by structure
+  (headings bold, terms cyan) on both halves. `render.py` exists **twice, byte for byte** -- here
+  for the tools and as `tabsdata_dev.tdd.render` for `tdd-exe`, which is standard-library only and
+  cannot import this package; a test in `-tdd` fails when the two diverge.
+- `config` -- `<tdd_dir>/<command>.toml`, every command's own file: `[options]` defaults merged
+  under what was typed (`[options.<action>]` for one action), plus whatever else the command keeps
+  there itself. The default document is **derived from the command's argparse parser**, so it
+  cannot drift from the options, and it is written **commented out**: a `--create` that pinned
+  every current default would freeze them, and a later change to one would never reach the reader
+  who ran it. Writes are a temporary file in the same directory and one `os.replace`, so an
+  interrupted write leaves the previous file rather than half of one. The `config` action itself
+  (`--show`/`--default`/`--create [--force]`) is built here from the command's options, which is
+  why no command implements one.
 - `proc` -- `run()` refuses a binary that is neither pinned by the toolset nor declared in the
   tool's `bin-reqs.txt` (`UndeclaredRequirement`; skipped when `_TDD_TOOL` is unset so tests
   import freely); `tool_argv()`/`run_tool()` reach a sibling tool through `tdd-exe`, never an import.
@@ -21,8 +34,12 @@ dependencies are declared as ranges; each toolset's lock pins them.
   the record, the managed venv `VIRTUAL_ENV`/`CONDA_PREFIX` points at: `adopted()`): uv via
   `VIRTUAL_ENV=DIR uv run --active --no-project`, conda via `conda run --prefix DIR`, pyenv via
   `DIR/bin/CMD` with `bin/` first on `PATH`; refuses when the program is not in that venv.
-- `secrets` (1Password: `<PREFIX>__<KEY>` variables plus `_TDD_SYSTEMS`, the prefix list),
-  `ports`, `passwords`, `docker`, `ssh`, `datadir.data_dir()` (`<tdd_dir>/data/<command>`), `latch`.
+- `secrets` / `secrets_1p` (1Password through the `op` CLI: every field of a vault as
+  `<ITEM_TITLE>__<FIELD_ID>`, normalised to valid env-var names, which is the `<PREFIX>__<KEY>`
+  a system's env-sourced options read; plus `_TDD_SYSTEMS`, the prefix list),
+  `ports`, `passwords`, `docker` (the CLI wrapped rather than an SDK, so it stays standard-library
+  only and identical to what a person would type; every failure is a `ToolError` carrying docker's
+  own message), `ssh`, `datadir.data_dir()` (`<tdd_dir>/data/<command>`), `latch`, `errors`.
   `ports` never hands out an ephemeral port: its generic range is 30000-32767 (random start),
   20000-29999 being the systems' slots -- [docs/ports.md](../../docs/ports.md).
 

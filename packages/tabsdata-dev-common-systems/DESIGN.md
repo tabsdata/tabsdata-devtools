@@ -15,7 +15,11 @@ with per-system DDL. The tools `system`, `domain` and `domain-sf` are thin entry
   `manifest`, `store`, `naming`, `options`; `batch`, `console`, `datagen`, `sql_runner`.
 - `systems/<slug>/backend.py` -- one backend each, plus `domain/` overrides and
   `models/<name>/*.ddl`; `models/<name>/` -- entities, generators, data files (parsed data:
-  csv/ddl carry no header).
+  csv/ddl carry no header). `protocols.py` is the structural contract they satisfy: a command
+  module gets one as `ctx.system` and calls those methods, so a new system is a class
+  implementing the Protocol plus its command files.
+- Two shared bases under `systems/_common/` carry everything a family has in common, so a
+  backend is only what differs -- see below.
 - Ranges on pydantic, pyyaml, cryptography; joins only the toolsets whose tools depend on it.
 
 ## How it works
@@ -31,4 +35,46 @@ with per-system DDL. The tools `system`, `domain` and `domain-sf` are thin entry
   `/tmp/tdd-<tool>-<verb>-<name>-<stamp>.log`, which is also the failure log.
 - Domain names are `<user>_<build>` from `TD_BUILD_USER`/`TD_BUILD_NUMBER` (else login/0).
 - Host ports: every system type owns a slot of 100 from 20000, by registry order (append-only);
-  a create walks its slot for free ports, `--ports` pins them -- [docs/ports.md](../../docs/ports.md).
+  a create walks its slot for free ports, `--ports` pins them --
+  [docs/ports.md](../../docs/ports.md).
+- Docker containers are named from one constant (`DOCKER_CONTAINER_PREFIX`, `tdd`), which is what
+  `clean-docker` matches; `tdx2` survives only where it means the legacy descriptor format.
+
+## The two backend bases
+
+**`SqlContainerBackend`** (`_common/sql.py`) for the docker-container SQL databases -- mysql,
+postgres, oracle, db2, mssqlserver, clickhouse, starrocks. A subclass supplies only its dialect
+hooks: image and server flags, the readiness probe, the SQLAlchemy driver and identifier quote,
+the create/drop-domain SQL and the schema-listing query, and the server's own schemas that must
+never be read as domains. The container lifecycle, TCP admin over SQLAlchemy, per-domain
+provisioning, model and data loading and delta application live here once. A model is available
+for a system exactly when `<slug>/domain/models/<model>/<slug>.ddl` exists, which is what lets the
+generic `models`/`create-model`/`create-data`/`modify-data` serve every dialect.
+
+**`ManagedPostgres`** (`_common/managed_postgres.py`) for provider-managed PostgreSQL -- AWS RDS
+(`awspostgres`), GCP Cloud SQL (`gcppostgres`), Azure Flexible Server (`azpostgres`). They differ
+in almost nothing the toolkit cares about: nothing runs locally, so `create` reads the connection
+from the `<SYSTEM>__` environment and probes it, and the master user is **not** a superuser, which
+is what shapes the DDL. A domain is a DATABASE owned by a dedicated role, and a non-superuser
+master may only create a database owned by a role it belongs to -- so the owner role is created and
+granted to the master *before* the database, and gets `CREATEROLE` so a test can add roles of its
+own. Dropping a domain therefore drops the roles the owner administers between the database and the
+owner: it is their recorded grantor and (PostgreSQL 16+) cannot be dropped while they exist.
+
+Two consequences worth keeping in view. Owner roles the master belongs to are listed as domain
+entities, so a purge that died half way leaves a visible remnant that the next purge cleans rather
+than an invisible one a create collides with. And that same listing is why a subclass must declare
+its provider's `role_prefixes` (`rds_*`, `cloudsql*`, `azure_*`): those memberships are the
+service's, not domains, and **purge drops what it lists**.
+
+TLS is the per-provider part. All three verify by default and none chains to the public trust
+store, so a subclass supplies the root certificate and, where the instance rather than the class
+decides it, an `SSLMODE`. What the descriptor stores is the **certificate itself, never a path** --
+a path into one machine's home directory is not something a domain descriptor can inherit -- and
+since libpq wants a path, one is written to a temporary directory for exactly as long as the
+connection needs it. The copy is frozen at create, so a CA rotation means `system create --force`,
+which is only a probe. The modes differ for real reasons: Cloud SQL's per-instance CA issues a leaf
+with no IP SAN, so `verify-ca` is the default and `verify-full` works only against the
+`.sql.goog` name; an Azure leaf carries the server's own hostname, so `verify-full` is the default
+there. None of these systems has a data plane (`supports_models=False`): a domain is an empty
+database for a connector-under-test to fill.
