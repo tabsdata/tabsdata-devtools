@@ -835,24 +835,34 @@ def test_the_gke_smoke_fills_the_database_ca_before_checking_placeholders():
     assert called("common_fill_pem") < called("common_placeholders_left")
 
 
-def test_fill_storage_substitutes_yaml_scalars_in_both_cluster_smokes():
+def test_fill_storage_substitutes_yaml_scalars_in_every_cluster_smoke():
     """tdkserver compares the filled config's shape against its template's and
     refuses a value whose shape changed (ResolverError::StructureMismatch). The
     GCS service-account key is itself JSON, so dropped in bare it reads back as a
     flow MAPPING where the template holds a scalar -- a run reached `create`
-    before failing on it. Every value goes in as a YAML double-quoted scalar."""
+    before failing on it. Every value goes in as a YAML double-quoted scalar.
+
+    Every cluster script, found the way the context test finds them, rather than
+    a list of names here: the trap is the storage fill's, so a new cloud's script
+    inherits it the day it is written and not the day someone remembers this."""
     import pathlib as _pathlib
 
     scripts = _pathlib.Path(__file__).resolve().parents[5] / "scripts"
+    cluster = [
+        p
+        for p in sorted(scripts.glob("tabsdata-*-smoke.sh"))
+        if "KUBECTL=(" in p.read_text()
+    ]
+    assert cluster, "no kubectl-using smoke scripts found"
     marker = 'line.replace("${{secret}}", '
-    for name in ("tabsdata-eks-smoke.sh", "tabsdata-gke-smoke.sh"):
-        text = (scripts / name).read_text()
-        assert "def scalar(value):" in text, name
-        assert "import json" in text, name
+    for path in cluster:
+        text = path.read_text()
+        assert "def scalar(value):" in text, path.name
+        assert "import json" in text, path.name
         pieces = text.split(marker)
-        assert len(pieces) > 1, name
+        assert len(pieces) > 1, path.name
         for tail in pieces[1:]:
-            assert tail.startswith("scalar("), (name, tail[:40])
+            assert tail.startswith("scalar("), (path.name, tail[:40])
 
 
 def test_the_defaults_command_is_gone_in_favour_of_config():
