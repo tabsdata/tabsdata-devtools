@@ -246,6 +246,29 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "--stack", action="store_true", help="every PR of the current stack"
     )
 
+    purge = add(
+        "purge",
+        "delete the local branches whose PR is merged or closed on GitHub",
+        "example:\n  tdd gsx purge --dry-run\n\n"
+        "every local branch is a PR gh can be asked about, so GitHub decides:\n"
+        "a branch whose newest PR is MERGED or CLOSED is deleted, one with any\n"
+        "OPEN PR is kept, and one with no PR at all is left alone. The trunk,\n"
+        "main, master and the branch you are standing on are never deleted.\n"
+        "The delete is `git branch -D`, since a squash-merged branch is not an\n"
+        "ancestor of the trunk and -d would refuse it -- so run --dry-run first\n"
+        "to see the list.\n\n",
+    )
+    purge.add_argument(
+        "--merged-only",
+        action="store_true",
+        help="delete only merged branches, keeping the ones whose PR was closed unmerged",
+    )
+    purge.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="skip the `git fetch --prune` first; the PR states are read live either way",
+    )
+
 
 def doc() -> config_mod.Doc:
     """The default document: gsx's own options, as its parser declares them."""

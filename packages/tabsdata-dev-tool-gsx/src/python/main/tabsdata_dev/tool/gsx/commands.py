@@ -2,7 +2,7 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""The six subcommands. Each returns (message, fields) for one ok event."""
+"""The seven subcommands. Each returns (message, fields) for one ok event."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from . import config as config_mod
 from . import gh
 from . import labels as labels_mod
 from . import progress
+from . import purge as purge_mod
 from .args import Extras
 
 TRAILER_RE = re.compile(r"^\s*(?:closes|fixes|resolves)\s+#(\d+)\s*$", re.IGNORECASE)
@@ -413,4 +414,98 @@ def approve(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
             "approved": approved,
             "skipped": skipped,
         },
+    )
+
+
+# ------------------------------------------------------------------- purge
+def _purge_lines(verdicts: list[purge_mod.Verdict]) -> str:
+    """The deleted branches, listed under the summary. The kept ones already
+    said why on their own progress line, and re-listing them would bury the
+    one thing that changed."""
+    return "\n".join(
+        f"  gone    {verdict.branch}  ({verdict.reason})"
+        for verdict in verdicts
+        if verdict.outcome == purge_mod.DELETED
+    )
+
+
+def purge(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
+    """Delete the local branches whose PR is merged or closed on GitHub.
+
+    Needs git and gh but not gh-stack: a leftover branch is a leftover whether
+    a stack put it there or not.
+    """
+    gh.require_binaries()
+    gh.require_repo(runner)
+
+    if not args.no_fetch:
+        out.info("git fetch --prune")
+        gh.fetch_prune(runner)
+
+    trunk = gh.default_branch(runner)
+    current = gh.current_branch(runner)
+    branches = gh.local_branches(runner)
+    candidates = purge_mod.candidates(branches, trunk)
+    if not candidates:
+        held = ", ".join(sorted(set(branches) - set(candidates))) or "none"
+        return (
+            f"nothing to purge: no local branch besides {held}",
+            {"deleted": [], "kept": [], "examined": 0},
+        )
+
+    # One listing answers most branches; the rest are asked for one at a time.
+    listing = gh.prs_by_branch(runner)
+    out.info(
+        f"checking {len(candidates)} branch(es) against the PRs of "
+        f"{trunk or 'this repository'}"
+    )
+
+    steps = progress.Counter(out, total=len(candidates))
+    verdicts: list[purge_mod.Verdict] = []
+    failures: list[str] = []
+    for branch in candidates:
+        pulls = listing.get(branch) or gh.branch_prs(runner, branch)
+        verdict = purge_mod.classify(
+            branch,
+            pulls,
+            merged_only=args.merged_only,
+            checked_out=branch == current,
+        )
+        if verdict.outcome == purge_mod.DELETED:
+            try:
+                gh.delete_branch(runner, branch)
+            except ToolError as error:
+                verdict = purge_mod.Verdict(
+                    branch, purge_mod.FAILED, str(error), verdict.pr, verdict.state
+                )
+        verdicts.append(verdict)
+        if verdict.outcome == purge_mod.FAILED:
+            failures.append(f"{branch}: {verdict.reason}")
+            steps.failed(verdict.line(), branch=branch, outcome=verdict.outcome)
+        else:
+            steps.step(
+                verdict.line(),
+                branch=branch,
+                outcome=verdict.outcome,
+                pr=verdict.pr,
+                state=verdict.state,
+            )
+
+    gone = [v.branch for v in verdicts if v.outcome == purge_mod.DELETED]
+    kept = [v.branch for v in verdicts if v.outcome == purge_mod.KEPT]
+    if failures:
+        raise ToolError(
+            f"{len(failures)} branch(es) could not be deleted: " + "; ".join(failures)
+        )
+    if not gone:
+        # Not "none whose PR is merged or closed": a branch that is checked out
+        # or spared by --merged-only has one and was kept anyway, and its own
+        # line above already said which reason applied to it.
+        return (
+            f"nothing deleted: {len(candidates)} branch(es) examined, all kept",
+            {"deleted": [], "kept": kept, "examined": len(candidates)},
+        )
+    return (
+        f"deleted {len(gone)} branch(es), kept {len(kept)}\n" + _purge_lines(verdicts),
+        {"deleted": gone, "kept": kept, "examined": len(candidates)},
     )

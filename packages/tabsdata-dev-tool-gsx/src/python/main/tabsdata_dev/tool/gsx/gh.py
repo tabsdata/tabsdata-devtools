@@ -31,6 +31,7 @@ READ_ONLY_PAIRS = {
     ("git", "diff"),
     ("git", "log"),
     ("git", "branch"),
+    ("git", "for-each-ref"),
     ("git", "ls-files"),
     ("gh", "repo"),
     ("gh", "auth"),
@@ -44,8 +45,30 @@ READ_ONLY_TRIPLES = (
     ["gh", "pr", "list"],
 )
 
+#: `git branch` with no flags lists, which is why it is in the pairs above --
+#: but the same word deletes and renames, and a dry run that skipped the
+#: listing while running the delete would be the one mistake it exists to
+#: prevent. Flags, not subcommands, decide here.
+GIT_BRANCH_WRITES = {
+    "-d",
+    "-D",
+    "--delete",
+    "-m",
+    "-M",
+    "--move",
+    "-c",
+    "-C",
+    "--copy",
+    "-u",
+    "--set-upstream-to",
+    "--unset-upstream",
+    "--edit-description",
+}
+
 
 def is_read_only(argv: list[str]) -> bool:
+    if argv[:2] == ["git", "branch"] and GIT_BRANCH_WRITES.intersection(argv[2:]):
+        return False
     return tuple(argv[:2]) in READ_ONLY_PAIRS or argv[:3] in READ_ONLY_TRIPLES
 
 
@@ -110,12 +133,18 @@ class Runner:
             return None
 
 
-def require_tools(runner: Runner) -> None:
-    """git, gh and the gh-stack extension. bin-reqs.txt covers the first two
-    before the command runs; the extension is a gh install, not a binary."""
+def require_binaries() -> None:
+    """git and gh. `bin-reqs.txt` covers both before the command runs; this is
+    the check for a subcommand that needs them without needing gh-stack."""
     for binary in ("git", "gh"):
         if shutil.which(binary) is None:
             raise ToolError(f"`{binary}` is not on PATH")
+
+
+def require_tools(runner: Runner) -> None:
+    """git, gh and the gh-stack extension. bin-reqs.txt covers the first two
+    before the command runs; the extension is a gh install, not a binary."""
+    require_binaries()
     extensions = runner.run(["gh", "extension", "list"], check=False)
     if "gh-stack" not in extensions:
         raise ToolError(
@@ -304,3 +333,88 @@ def pending_paths(runner: Runner, paths: list[str]) -> list[str]:
         argv.append("--")
         argv.extend(paths)
     return [line[3:] for line in runner.run(argv).splitlines() if line.strip()]
+
+
+# --------------------------------------------------------------- purge
+def fetch_prune(runner: Runner) -> None:
+    """`git fetch --prune`. Not what tells purge a PR is done with -- that comes
+    from the API, live -- so it is hygiene, which is why skipping it under
+    --dry-run costs the run no accuracy."""
+    runner.run(["git", "fetch", "--prune"])
+
+
+def default_branch(runner: Runner) -> str:
+    """The repository's default branch, or `""` when gh cannot say.
+
+    Read rather than assumed, because `main` is a convention and the trunk is
+    a fact; `""` is safe because the names that are never candidates are a
+    separate list.
+    """
+    payload = runner.json(["gh", "repo", "view", "--json", "defaultBranchRef"])
+    ref = (payload or {}).get("defaultBranchRef") or {} if payload else {}
+    return ref.get("name") or ""
+
+
+def local_branches(runner: Runner) -> list[str]:
+    """Every local branch, in git's own order."""
+    listing = runner.run(
+        ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"]
+    )
+    return [line.strip() for line in listing.splitlines() if line.strip()]
+
+
+def prs_by_branch(runner: Runner, limit: int = 500) -> dict[str, list[dict]]:
+    """Every PR of the repository, indexed by the branch it was opened from.
+
+    One call answers every branch of a normal repository, instead of the one
+    call per branch the shell loop this replaces made. The value is a LIST
+    because a branch can carry several PRs -- reopened, or a second attempt
+    after the first was closed -- and which of them is the live one is the
+    whole question purge has to answer.
+    """
+    listing = (
+        runner.json(
+            [
+                "gh",
+                "pr",
+                "list",
+                "--state",
+                "all",
+                "--limit",
+                str(limit),
+                "--json",
+                "number,headRefName,state",
+            ]
+        )
+        or []
+    )
+    found: dict[str, list[dict]] = {}
+    for pull in listing:
+        branch = pull.get("headRefName")
+        if branch:
+            found.setdefault(branch, []).append(pull)
+    return found
+
+
+def branch_prs(runner: Runner, branch: str) -> list[dict]:
+    """The PR of one branch, for a branch the bulk listing did not reach.
+
+    A repository with more PRs than the listing's limit leaves its oldest out,
+    and those are exactly the merged ones whose branches are still lying
+    around. `gh pr view BRANCH` answers for one branch whatever its age.
+    """
+    payload = runner.json(["gh", "pr", "view", branch, "--json", "number,state"])
+    if isinstance(payload, dict) and payload.get("state"):
+        return [payload]
+    return []
+
+
+def delete_branch(runner: Runner, branch: str) -> None:
+    """`-D`, not `-d`.
+
+    `-d` refuses a branch whose commits are not ancestors of the trunk, which
+    is every squash- and rebase-merged branch -- so it would refuse exactly the
+    branches purge exists to remove, and every closed one besides. `--dry-run`
+    is what shows the list before anything goes.
+    """
+    runner.run(["git", "branch", "-D", branch])

@@ -11,6 +11,7 @@ from tabsdata_dev.tool.gsx import approve as approve_mod
 from tabsdata_dev.tool.gsx import args as args_mod
 from tabsdata_dev.tool.gsx.version import VERSION
 from tabsdata_dev.tool.gsx import commands, config, gh, labels, progress
+from tabsdata_dev.tool.gsx import purge as purge_mod
 
 
 class _Out:
@@ -682,3 +683,214 @@ def test_config_is_listed_and_auto_config_is_not_a_subcommand(capsys):
     assert "config" in text and "auto-config" not in text
     assert gsx.main(["auto-config"]) == 1
     assert "invalid choice" in capsys.readouterr().err or True
+
+
+# ------------------------------------------------------------------- purge
+def _pr(number, state, branch=None):
+    payload = {"number": number, "state": state}
+    if branch is not None:
+        payload["headRefName"] = branch
+    return payload
+
+
+def test_the_trunk_and_the_never_candidates_are_not_up_for_deletion():
+    """`main`/`master` are refused whatever the trunk is: a repository whose
+    default branch is `develop` still should not lose `main`."""
+    branches = ["main", "master", "develop", "GCS-15", "scratch"]
+    assert purge_mod.candidates(branches, "develop") == ["GCS-15", "scratch"]
+    # and with gh unable to say what the trunk is, the fixed names still hold
+    assert purge_mod.candidates(branches, "") == ["develop", "GCS-15", "scratch"]
+
+
+@pytest.mark.parametrize(
+    "pulls, outcome, reason",
+    [
+        ([_pr(21, "MERGED")], purge_mod.DELETED, "merged #21"),
+        ([_pr(23, "CLOSED")], purge_mod.DELETED, "closed #23"),
+        ([], purge_mod.KEPT, "no PR"),
+        ([_pr(30, "OPEN")], purge_mod.KEPT, "open PR #30"),
+        # a reopened branch: an older PR was merged, but one is open NOW
+        ([_pr(21, "MERGED"), _pr(30, "OPEN")], purge_mod.KEPT, "open PR #30"),
+        # a second attempt after the first was closed: the newest one decides
+        ([_pr(21, "CLOSED"), _pr(30, "MERGED")], purge_mod.DELETED, "merged #30"),
+        # a state gsx does not know is a reason to do nothing
+        ([_pr(31, "DRAFTED")], purge_mod.KEPT, "PR #31 is DRAFTED"),
+    ],
+)
+def test_github_decides_and_an_open_pr_anywhere_keeps_the_branch(
+    pulls, outcome, reason
+):
+    verdict = purge_mod.classify("GCS-15", pulls, merged_only=False, checked_out=False)
+    assert (verdict.outcome, verdict.reason) == (outcome, reason)
+
+
+def test_merged_only_spares_a_branch_whose_pr_was_closed_unmerged():
+    """A closed PR's commits were never merged anywhere, so the branch is the
+    only copy -- which is worth an option even though the default deletes it."""
+    closed = [_pr(23, "CLOSED")]
+    assert (
+        purge_mod.classify(
+            "GCS-16", closed, merged_only=True, checked_out=False
+        ).outcome
+        == purge_mod.KEPT
+    )
+    assert (
+        purge_mod.classify(
+            "GCS-16", closed, merged_only=False, checked_out=False
+        ).outcome
+        == purge_mod.DELETED
+    )
+
+
+def test_the_checked_out_branch_is_kept_and_says_how_to_delete_it():
+    """git refuses to delete the current branch, and its message does not say
+    which one to switch to. This does."""
+    verdict = purge_mod.classify(
+        "GCS-15", [_pr(21, "MERGED")], merged_only=False, checked_out=True
+    )
+    assert verdict.outcome == purge_mod.KEPT
+    assert "checked out" in verdict.reason and "merged #21" in verdict.reason
+
+
+def _fake_purge(monkeypatch, tmp_path, branches, pulls, current="main", failing=()):
+    """A whole purge run with git and gh faked: the branches are `branches`,
+    the repository's PRs are `pulls` (branch -> list), and `failing` names the
+    branches whose `git branch -D` refuses."""
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    calls = []
+
+    class FakeRunner:
+        def __init__(self, out, dry_run=False):
+            self.out = out
+            self.dry_run = dry_run
+
+        def run(self, argv, **kwargs):
+            calls.append(argv)
+            if argv[:3] == ["git", "branch", "-D"] and argv[3] in failing:
+                raise ToolError("git: worktree has it checked out")
+            if argv[:2] == ["git", "for-each-ref"]:
+                return "\n".join(branches)
+            if argv[:2] == ["git", "rev-parse"]:
+                return current
+            return ""
+
+        def json(self, argv):
+            return None
+
+    monkeypatch.setattr(gh, "Runner", FakeRunner)
+    monkeypatch.setattr(gh, "require_binaries", lambda: None)
+    monkeypatch.setattr(gh, "default_branch", lambda runner: "main")
+    monkeypatch.setattr(gh, "prs_by_branch", lambda runner, limit=500: pulls)
+    monkeypatch.setattr(gh, "branch_prs", lambda runner, branch: [])
+    return calls
+
+
+def test_purge_deletes_what_github_is_done_with_and_numbers_every_branch(
+    tmp_path, monkeypatch, capsys
+):
+    """Every candidate branch spends a number, kept ones included -- the report
+    IS the value of the command, and a run that only counted deletions would
+    not say why the others survived."""
+    calls = _fake_purge(
+        monkeypatch,
+        tmp_path,
+        ["main", "GCS-15", "GCS-16", "GCS-20", "scratch"],
+        {
+            "GCS-15": [_pr(21, "MERGED")],
+            "GCS-16": [_pr(23, "CLOSED")],
+            "GCS-20": [_pr(30, "OPEN")],
+        },
+    )
+    assert gsx.main(["purge"]) == 0
+    captured = capsys.readouterr()
+    assert _counter_lines(captured.err) == [
+        "[1/4] deleted GCS-15: merged #21",
+        "[2/4] deleted GCS-16: closed #23",
+        "[3/4] kept GCS-20: open PR #30",
+        "[4/4] kept scratch: no PR",
+    ]
+    # only the two, and with -D: -d refuses a squash-merged branch
+    assert [c for c in calls if c[:2] == ["git", "branch"]] == [
+        ["git", "branch", "-D", "GCS-15"],
+        ["git", "branch", "-D", "GCS-16"],
+    ]
+    assert ["git", "fetch", "--prune"] in calls
+    assert "deleted 2 branch(es), kept 2" in captured.out
+
+
+def test_purge_attempts_every_branch_and_reports_the_failures_together(
+    tmp_path, monkeypatch, capsys
+):
+    calls = _fake_purge(
+        monkeypatch,
+        tmp_path,
+        ["main", "GCS-15", "GCS-16"],
+        {"GCS-15": [_pr(21, "MERGED")], "GCS-16": [_pr(23, "MERGED")]},
+        failing={"GCS-15"},
+    )
+    assert gsx.main(["purge"]) == 1
+    captured = capsys.readouterr()
+    assert _counter_lines(captured.err) == [
+        "[1/2] could not delete GCS-15: git: worktree has it checked out",
+        "[2/2] deleted GCS-16: merged #23",
+    ]
+    # the second was still attempted, and the failure is reported once at the end
+    assert ["git", "branch", "-D", "GCS-16"] in calls
+    assert "1 branch(es) could not be deleted: GCS-15" in captured.err
+
+
+def test_a_dry_run_of_purge_says_what_it_would_delete_and_deletes_nothing():
+    """`git branch` LISTS, so it sits in the read-only set -- but the same word
+    deletes, and a dry run that ran the delete would be the one mistake the
+    flag exists to prevent."""
+    out = _Out()
+    runner = gh.Runner(out=out, dry_run=True)
+    runner.run(["git", "branch", "-D", "GCS-15"])
+    assert "[dry-run] git branch -D GCS-15" in out.messages("info")[0]
+    assert not gh.is_read_only(["git", "branch", "-D", "GCS-15"])
+    assert not gh.is_read_only(["git", "branch", "--delete", "GCS-15"])
+    assert gh.is_read_only(["git", "branch", "--list"])
+    assert gh.is_read_only(["git", "for-each-ref", "--format=%(refname:short)"])
+
+
+def test_purge_needs_git_and_gh_but_not_the_gh_stack_extension(
+    tmp_path, monkeypatch, capsys
+):
+    """A leftover branch is a leftover whether a stack put it there or not, so
+    demanding the extension would refuse a repository that never used one."""
+    _fake_purge(monkeypatch, tmp_path, ["main", "GCS-15"], {})
+    monkeypatch.setattr(
+        gh,
+        "require_tools",
+        lambda runner: (_ for _ in ()).throw(ToolError("gh-stack is not installed")),
+    )
+    assert gsx.main(["purge"]) == 0
+    assert "nothing deleted" in capsys.readouterr().out
+
+
+def test_purge_carries_its_verdicts_in_the_json_fields(tmp_path, monkeypatch, capsys):
+    _fake_purge(
+        monkeypatch,
+        tmp_path,
+        ["main", "GCS-15", "GCS-20"],
+        {"GCS-15": [_pr(21, "MERGED")], "GCS-20": [_pr(30, "OPEN")]},
+    )
+    assert gsx.main(["purge", "--format", "json"]) == 0
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    steps = [event for event in events if "branch" in event]
+    assert [(e["n"], e["total"], e["branch"], e["outcome"]) for e in steps] == [
+        (1, 2, "GCS-15", "deleted"),
+        (2, 2, "GCS-20", "kept"),
+    ]
+    assert events[-1]["deleted"] == ["GCS-15"] and events[-1]["kept"] == ["GCS-20"]
+
+
+def test_purge_takes_no_passthrough_because_it_drives_nothing_worth_one():
+    assert args_mod.NATIVES["purge"] == []
+    with pytest.raises(ToolError, match="accepts: none"):
+        args_mod.split(["purge", "--e:draft"], args_mod.PURGE_NATIVES, False)
+    # its own options are argparse's and pass straight through
+    rest, extras = args_mod.split(
+        ["purge", "--merged-only", "--no-fetch"], args_mod.PURGE_NATIVES, False
+    )
+    assert rest == ["purge", "--merged-only", "--no-fetch"] and not extras.passthrough

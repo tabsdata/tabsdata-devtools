@@ -255,6 +255,11 @@ APPROVE_NATIVES = [
     )
 ]
 
+#: purge drives `git branch -D` and one `gh pr list`, and neither has a flag
+#: worth forwarding: the branch is named by the loop and the listing's shape is
+#: what the classification reads. No natives means `--x:` is refused by name.
+PURGE_NATIVES: list[Native] = []
+
 NATIVES = {
     "create": CREATE_NATIVES,
     "update": UPDATE_NATIVES,
@@ -262,5 +267,6 @@ NATIVES = {
     "submit": SUBMIT_NATIVES,
     "apply": APPLY_NATIVES,
     "approve": APPROVE_NATIVES,
+    "purge": PURGE_NATIVES,
 }
 TAKES_LR = {"submit", "apply"}

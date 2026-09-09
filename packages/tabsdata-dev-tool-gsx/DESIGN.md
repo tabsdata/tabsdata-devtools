@@ -4,7 +4,7 @@ Copyright 2026 Tabsdata Inc.
 
 # gsx
 
-`tdd gsx create|update|checkout|submit|apply|approve`: GitHub issues + `gh stack`, the way
+`tdd gsx create|update|checkout|submit|apply|approve|purge`: GitHub issues + `gh stack`, the way
 `gtx` does Jira + Graphite -- for a repository that uses neither. One command turns the pending
 changes into an issue, a stack branch and a commit; another pushes the stack, opens its PRs and
 labels them. Ported from the standalone `~/gsx` (1.5.0).
@@ -14,11 +14,15 @@ labels them. Ported from the standalone `~/gsx` (1.5.0).
 - Toolset `launchers` (`deps-launchers` pins only pytest): gsx is standard library only, so it
   needs no pins of its own and joins an existing env rather than adding a sixth.
 - `bin-reqs`: `git`, `gh`. The `gh stack` extension (github/gh-stack) is a gh install rather than
-  a binary, so it is checked at run time, before anything is written.
+  a binary, so it is checked at run time, before anything is written -- but only by the
+  subcommands that drive a stack. `purge` asks for `git` and `gh` alone (`gh.require_binaries`):
+  a leftover branch is a leftover whether a stack put it there or not, and demanding the
+  extension would refuse a repository that never used one.
 - Modules: `args` (the two grammars argparse cannot express), `options` (the parser, which the
   config template is derived from), `gh` (every child process), `labels` (config lookup,
-  validation, the edit engine), `commands` (the six bodies), `config` (the repo tables in
-  `<tdd_dir>/gsx.toml`), `progress` (the `[n/N]` counter), `version`.
+  validation, the edit engine), `purge` (which branches are leftovers), `commands` (the seven
+  bodies), `config` (the repo tables in `<tdd_dir>/gsx.toml`), `progress` (the `[n/N]` counter),
+  `version`.
 
 ## Naming
 
@@ -67,7 +71,7 @@ and pass through unchecked.
 
 ## Progress
 
-The commands that repeat themselves over a stack -- `submit`, `apply`, `approve` -- number the
+The commands that repeat themselves -- `submit`, `apply`, `approve`, `purge` -- number the
 units of their work. It is `tdd xp`'s Reporter thinking without the parts gsx has no use for
 (`progress.Counter`, some 40 lines: no scratch dir, no timings, no report):
 
@@ -78,13 +82,16 @@ units of their work. It is `tdd xp`'s Reporter thinking without the parts gsx ha
 ```
 
 One unit is **one PR the command takes up** -- for `approve`, one PR per approver, since each
-reviews every one. The unit is reported *as it finishes*, as an `info` event (`warn` when it
-failed) whose message carries the counter and whose fields carry the step (`n`, `total`, `pr`,
-`outcome`, and the `edits`/`approver` behind it), so `--format json` reads the same progress
-without the brackets. Two rules keep it honest:
+reviews every one; for `purge`, one candidate branch, kept ones included, because the reason a
+branch survived is the half of the report a reader cannot get anywhere else. The unit is
+reported *as it finishes*, as an `info` event (`warn` when it failed) whose message carries the
+counter and whose fields carry the step (`n`, `total`, `pr`, `outcome`, and the
+`edits`/`approver`/`branch` behind it), so `--format json` reads the same progress without the
+brackets. Two rules keep it honest:
 
-- **The total is the one that is known before the first unit runs.** `apply` and `approve` know
-  theirs (the snapshot; approvers x PRs) and print `[n/N]`; `submit` may be opening the very PRs it
+- **The total is the one that is known before the first unit runs.** `apply`, `approve` and
+  `purge` know theirs (the snapshot; approvers x PRs; the candidate branches) and print
+  `[n/N]`; `submit` may be opening the very PRs it
   is about to label, so it prints `[n]` and offers no denominator rather than guess one. Its push
   and its `--sync` are units of it too -- they are the slowest thing gsx does.
 - **Every unit spends its number**, including a PR already in the desired state, a PR its own
@@ -112,6 +119,34 @@ author is not always known). Every PR is attempted; failures are collected and r
 `--down-stack` is the current PR and the ones it sits on, down to main -- the set that has to be
 approved for the current one to merge. Upstack and downstack are the usual stacking words (`gt`'s,
 and `gtx`'s): downstack is towards the trunk. `--stack` is every PR of the stack.
+
+## purge
+
+`purge` deletes the local branches whose PR is finished with. Stacking leaves branches behind and
+every one of them was a PR, so **GitHub decides, not the local graph**: a branch whose newest PR
+is `MERGED` or `CLOSED` goes, one with any `OPEN` PR stays, one with no PR at all is left alone.
+It replaces a `for` loop over `gh pr view` per branch, and differs from it in four ways that are
+the point of having written it:
+
+- **A branch's PRs are plural.** Reopened, or a second attempt after the first was closed -- so
+  `purge` takes every PR of the branch and keeps it if *any* is open, rather than trusting the one
+  answer `gh pr view` picks. That is the case where being wrong deletes live work.
+- **One `gh pr list --state all` answers every branch**, instead of one call per branch;
+  `gh pr view BRANCH` is the fallback for a branch the listing's limit left out, which on a
+  repository with thousands of PRs is exactly the oldest merged ones whose branches linger.
+- **What is never a candidate**: the trunk (read from `gh repo view`, because `main` is a
+  convention and the trunk is a fact), `main` and `master` whatever the trunk turns out to be,
+  and the branch that is checked out -- kept with the reason and the fix, since git's own refusal
+  does not say which branch to switch off.
+- **The delete is `git branch -D`.** `-d` refuses a branch that is not an ancestor of the trunk,
+  which is every squash- and rebase-merged branch and every closed one, so it would refuse
+  precisely what `purge` is for. `--dry-run` is the preview, and `--merged-only` keeps the
+  branches whose PR was closed unmerged -- their commits live nowhere else.
+
+The leading `git fetch --prune` is hygiene rather than a prerequisite: the PR states are read
+live from the API, so `--dry-run` skipping the fetch (it writes remote-tracking refs) costs the
+run no accuracy, and `--no-fetch` skips it outright. Every branch is attempted even when one
+delete fails -- a worktree holding it, say -- and the failures are reported together at the end.
 
 ## Config
 
@@ -164,6 +199,10 @@ Facts that cost real testing; the code depends on them.
 5. Reviewer sources: `gh api repos/O/N/collaborators` (needs push access, can 403) and GraphQL
    `assignableUsers` (what GitHub's own picker uses). Neither contains the other, so both are
    unioned.
+6. `git branch` **lists** with no flags and **deletes** with `-D`, so the read-only set cannot key
+   on the first two words alone: `is_read_only` looks at the flags (`GIT_BRANCH_WRITES`).
+   Otherwise `--dry-run` would run `purge`'s deletes -- the one mistake the flag exists to
+   prevent -- while skipping the listing.
 
 ## Differences from the standalone gsx
 
