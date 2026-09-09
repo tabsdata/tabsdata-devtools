@@ -60,3 +60,9 @@ A cluster run never writes to the kubeconfig it is given. It copies it into the 
 directory, makes the copy current on the chosen context and namespace, and points tdkserver at the
 copy: tdkserver resolves both from the *current* context, and its `venv update`, `config` and
 `delete` take no `--context` to say otherwise. Nothing is borrowed, so cleanup returns nothing.
+
+A failure report names only what the run actually built. `left for you to look at` is read while a
+failure is being chased, so an instance, a venv, a domain or a namespace that was never created --
+each with a cleanup command for it -- costs the reader a detour. The instance and venv are on disk
+and get asked, the namespace is asked once per report, and the domains are appended to
+`SMOKE_DOMAINS` as each `tdd domain create` returns rather than declared up front.

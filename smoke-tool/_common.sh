@@ -28,6 +28,8 @@
 #                                         `kubectl port-forward` in the background, waited for;
 #                                         a stage command on its own, no common_run in front
 #   common_kubeportforward_stop           end it (also on exit: the script traps EXIT to it)
+#   common_k8s_namespace_exists KUBECONFIG CONTEXT NAMESPACE
+#                                         is it there? (asked at most once per report)
 #   common_k8s_report KUBECONFIG CONTEXT NAMESPACE [TAIL]
 #                                         pods, jobs, events and failed pods' logs, into the log
 #   common_help REQUIRED                  paint a help page from stdin; REQUIRED options in red
@@ -89,6 +91,7 @@ common_init() {
     fi
     STAGE_STATUS=()
     STAGE_SECONDS=()
+    NS_EXISTS_KEY=""; NS_EXISTS_RC=1   # common_k8s_namespace_exists' one-slot memo
     STAGE_I=-1
     STAGE_T0=0
     STAGE_LINES=0
@@ -629,13 +632,31 @@ common_help() {
 #
 # Never fails and never hangs -- it runs inside a failure report, and a dead
 # cluster must not turn a legible failure into a stuck script.
+# common_k8s_namespace_exists KUBECONFIG CONTEXT NAMESPACE -- is the namespace there?
+#
+# A failure report asks this twice: once to decide whether its `namespace` lines
+# are telling the truth, once here before collecting. On a cluster that has
+# stopped answering -- which is often exactly why the run failed -- each ask
+# costs the whole --request-timeout, so the answer is remembered. A report is a
+# snapshot; a namespace does not appear halfway through one.
+common_k8s_namespace_exists() {
+    local key="$1|$2|$3"
+    if [ "$key" != "$NS_EXISTS_KEY" ]; then
+        kubectl --kubeconfig "$1" --context "$2" --request-timeout=20s \
+            get namespace "$3" >/dev/null 2>&1
+        NS_EXISTS_RC=$?
+        NS_EXISTS_KEY="$key"
+    fi
+    return "$NS_EXISTS_RC"
+}
+
 common_k8s_report() {
     local kubeconfig="$1" context="$2" namespace="$3" tail="${4:-60}"
     local k pod phase ready
     k=(kubectl --kubeconfig "$kubeconfig" --context "$context" --namespace "$namespace" --request-timeout=20s)
     echo ""
     echo "================ kubernetes: namespace $namespace on $context"
-    if ! "${k[@]}" get namespace "$namespace" >/dev/null 2>&1; then
+    if ! common_k8s_namespace_exists "$kubeconfig" "$context" "$namespace"; then
         echo "(no namespace $namespace on this cluster -- nothing to collect)"
         return 0
     fi
@@ -837,24 +858,48 @@ common_tdkserver_workload_rows() {
 # printer: `common_screen` outside a stage, `common_note` under one. Reads the script's
 # INSTANCE, SERVER, VENV, VENV_TYPE, TDD_DIR_OPT, and the optional SMOKE_DOMAINS,
 # XP_PROJECTS, NAMES_PREFIX.
+#
+# Only what EXISTS is listed. A run that dies in an early stage -- a stale
+# credential, a missing system -- has built neither instance nor venv, and
+# printing them anyway, with cleanup commands for paths that were never written,
+# sends the reader chasing ghosts at the one moment they are trying to read a
+# failure. The instance and the venv are on disk, so they are asked; the domains
+# and xp projects are not ours to probe cheaply, so each script appends its own
+# as it creates them and the lists are taken at their word.
 common_tabsdata_setup_info() {
-    local out="${1:-common_screen}" running="not running"
-    if common_instance_running "$INSTANCE"; then
-        running="running ($(common_instance_pids "$INSTANCE" | wc -l | tr -d ' ') processes), server http://$SERVER"
+    local out="${1:-common_screen}" running="not running" any=0 venv_dir instance_dir venv_rm=""
+    instance_dir="$HOME/.tabsdata/instances/$INSTANCE"
+    venv_dir="$TDD_DIR_OPT/managed-venvs/$VENV_TYPE/$VENV"
+    if [ -e "$venv_dir" ]; then
+        any=1
+        venv_rm="; tdd venv delete --name $VENV"
     fi
-    "$out" "instance   $INSTANCE -- $running; folder $HOME/.tabsdata/instances/$INSTANCE"
-    "$out" "venv       $VENV ($VENV_TYPE) at $TDD_DIR_OPT/managed-venvs/$VENV_TYPE/$VENV"
-    "$out" "use them   export _TDD_VENV=$VENV; tdd tdk status; tdd tdkserver status --instance $INSTANCE --accept-terms y"
-    "$out" "stop       _TDD_VENV=$VENV tdd tdkserver stop --instance $INSTANCE -y --accept-terms y"
-    "$out" "remove     _TDD_VENV=$VENV tdd tdkserver delete --instance $INSTANCE --trash true -y --accept-terms y; tdd venv delete --name $VENV"
+    if [ -e "$instance_dir" ]; then
+        any=1
+        if common_instance_running "$INSTANCE"; then
+            running="running ($(common_instance_pids "$INSTANCE" | wc -l | tr -d ' ') processes), server http://$SERVER"
+        fi
+        "$out" "instance   $INSTANCE -- $running; folder $instance_dir"
+    fi
+    [ ! -e "$venv_dir" ] || "$out" "venv       $VENV ($VENV_TYPE) at $venv_dir"
+    if [ -e "$instance_dir" ]; then
+        "$out" "use them   export _TDD_VENV=$VENV; tdd tdk status; tdd tdkserver status --instance $INSTANCE --accept-terms y"
+        "$out" "stop       _TDD_VENV=$VENV tdd tdkserver stop --instance $INSTANCE -y --accept-terms y"
+        "$out" "remove     _TDD_VENV=$VENV tdd tdkserver delete --instance $INSTANCE --trash true -y --accept-terms y$venv_rm"
+    elif [ -e "$venv_dir" ]; then
+        "$out" "remove     tdd venv delete --name $VENV"
+    fi
     # Domains the script created itself (SMOKE_DOMAINS) and the xp
     # instances/projects it named (XP_PROJECTS), each with its teardown.
     for d in ${SMOKE_DOMAINS:-}; do
+        any=1
         "$out" "domain     $d -- tdd domain destroy --domain $d --force"
     done
     for x in ${XP_PROJECTS:-}; do
+        any=1
         "$out" "xp         $x -- tdd xp destroy-domains --instance $x --force; tdd xp destroy-instance --instance $x"
     done
+    [ "$any" = 1 ] || "$out" "nothing    this run had built no instance, venv or domain yet"
     [ -z "${NAMES_PREFIX:-}" ] || "$out" "all names  start with $NAMES_PREFIX: tdd domain list, tdd xp list-instances, ls ~/.tabsdata/instances"
 }
 

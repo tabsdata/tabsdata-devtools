@@ -225,7 +225,7 @@ DB_DOMAIN="${BASE}__${DB_SYSTEM}"
 STORAGE_DOMAIN="${BASE}__${STORAGE_SYSTEM}"
 LLM_DOMAIN="${LLM_SYSTEM:+${BASE}__llm_${LLM}}"
 XP_PROJECTS=""           # the xp instance/project names this run creates, for --keep and failures
-SMOKE_DOMAINS="$DB_DOMAIN $STORAGE_DOMAIN $LLM_DOMAIN"
+SMOKE_DOMAINS=""         # domains this run creates, appended as each one is (common_tabsdata_setup_info lists them)
 EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
 LOG="${LOG:-/tmp/smoke-$INSTANCE-$STAMP.log}"
 WORK="$(mktemp -d "/tmp/smoke-$INSTANCE-$STAMP.XXXX")"
@@ -283,12 +283,17 @@ common_on_stage_failed() {
     common_screen ""
     common_screen "$(basename "$0"): left for you to look at"
     common_tabsdata_setup_info common_indented
-    common_indented "namespace  $NAMESPACE on $CONTEXT -- kubectl --context $CONTEXT delete namespace $NAMESPACE"
-    common_indented "reach it   kubectl --context $CONTEXT --namespace $NAMESPACE port-forward service/net-apiserver $PORT:$PORT &   then: _TDD_VENV=$VENV tdd tdk login --server $SERVER"
-    # the cluster's own account of the failure, collected while the namespace is
-    # still there: `Init job 'ins-dbmanager' failed` names the job, and the
-    # reason is in the pod it left behind
-    common_indented "cluster    the failed pods' logs and the namespace's events are in the log"
+    # only when the namespace is really there: a run that died before creating it
+    # -- or against a cluster that stopped answering -- would otherwise be handed
+    # a delete and a port-forward for something that does not exist
+    if common_k8s_namespace_exists "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"; then
+        common_indented "namespace  $NAMESPACE on $CONTEXT -- kubectl --context $CONTEXT delete namespace $NAMESPACE"
+        common_indented "reach it   kubectl --context $CONTEXT --namespace $NAMESPACE port-forward service/net-apiserver $PORT:$PORT &   then: _TDD_VENV=$VENV tdd tdk login --server $SERVER"
+        # the cluster's own account of the failure, collected while the namespace is
+        # still there: `Init job 'ins-dbmanager' failed` names the job, and the
+        # reason is in the pod it left behind
+        common_indented "cluster    the failed pods' logs and the namespace's events are in the log"
+    fi
     common_k8s_report "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"
 }
 
@@ -481,6 +486,7 @@ common_stage domains "domains $DB_DOMAIN, $STORAGE_DOMAIN${LLM_SYSTEM:+, $LLM_DO
 # Each domain is this run's slice of the shared system. Values are eval'd into
 # THIS shell, never echoed; they fill the config files below.
 common_run tdd domain create --sys "$DB_SYSTEM" --domain "$DB_DOMAIN" --force
+SMOKE_DOMAINS="$SMOKE_DOMAINS $DB_DOMAIN"
 common_note "eval \$(tdd domain info --domain $DB_DOMAIN --format export --prefix DB)   (values not shown)"
 eval "$(tdd domain info --domain "$DB_DOMAIN" --format export --prefix DB 2>/dev/null)"
 common_run test -n "${DB__EXTERNAL_HOST:+set}${DB__PORT:+set}${DB__DATABASE:+set}${DB__USER:+set}${DB__PASSWORD:+set}"
@@ -497,11 +503,13 @@ else
     common_remark "$DB_SYSTEM records no INTERNAL_HOST; the pods get EXTERNAL_HOST ($DB__EXTERNAL_HOST) -- fine if that address routes from inside the cluster, and the reason to record the private one if it does not"
 fi
 common_run tdd domain create --sys "$STORAGE_SYSTEM" --domain "$STORAGE_DOMAIN" --force
+SMOKE_DOMAINS="$SMOKE_DOMAINS $STORAGE_DOMAIN"
 common_note "eval \$(tdd domain info --domain $STORAGE_DOMAIN --format export --prefix STORD)   (the account key is not shown)"
 eval "$(tdd domain info --domain "$STORAGE_DOMAIN" --format export --prefix STORD 2>/dev/null)"
 common_run test -n "${STORD__URI:+set}${STORD__CONTAINER:+set}${STORD__ACCOUNT_NAME:+set}"
 if [ -n "$LLM_SYSTEM" ]; then
     common_run tdd domain create --sys "$LLM_SYSTEM" --domain "$LLM_DOMAIN" --force
+    SMOKE_DOMAINS="$SMOKE_DOMAINS $LLM_DOMAIN"
     common_note "eval \$(tdd domain info --domain $LLM_DOMAIN --format export --prefix LLM)   (the key is not shown)"
     eval "$(tdd domain info --domain "$LLM_DOMAIN" --format export --prefix LLM 2>/dev/null)"
     common_run test -n "${LLM__API_KEY:+set}"

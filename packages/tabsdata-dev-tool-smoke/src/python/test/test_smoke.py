@@ -300,3 +300,91 @@ def test_substitution_is_literal_on_both_sides_and_uses_no_perl(tmp_path):
             if not ln.lstrip().startswith("#")
         ]
         assert not [ln for ln in code if "perl" in ln], path.name
+
+
+def test_the_failure_report_names_only_what_the_run_actually_built(tmp_path):
+    """The report under `left for you to look at` is read at the one moment the
+    reader is chasing a failure, so everything in it has to be there. A run that
+    dies in an early stage has built no instance and no venv: naming them, with
+    cleanup commands for paths that were never written, sends the reader after
+    ghosts. The instance and venv are on disk and get asked; the domains are the
+    script's own record, appended as each one is created."""
+    import os
+    import subprocess
+
+    common = smoke.scripts_dir() / "_common.sh"
+    home = tmp_path / "home"
+    tdd = tmp_path / "tdd"
+    venv = tdd / "managed-venvs" / "pyenv" / "sm_foo"
+    instance = home / ".tabsdata" / "instances" / "sm_foo"
+
+    def report(domains: str = "") -> list[str]:
+        script = (
+            '. "%s"\n'
+            'TDD_DIR_OPT="%s"; INSTANCE=sm_foo; VENV=sm_foo; VENV_TYPE=pyenv\n'
+            'SERVER=127.0.0.1:2457; NAMES_PREFIX=sm_foo; SMOKE_DOMAINS="%s"\n'
+            'common_init "%s" 0\n'
+            "common_tabsdata_setup_info common_indented\n"
+        ) % (common, tdd, domains, tmp_path / "log")
+        done = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "HOME": str(home), "NO_COLOR": "1"},
+        )
+        assert done.returncode == 0, done.stderr
+        return [ln.strip() for ln in done.stdout.splitlines() if ln.strip()]
+
+    # nothing built yet: no instance, no venv, and no teardown for either
+    lines = report()
+    assert [ln for ln in lines if ln.startswith("nothing")], lines
+    assert not [
+        ln for ln in lines if ln.split()[0] in ("instance", "venv", "remove")
+    ], lines
+
+    # the venv alone: its own delete, and nothing about an instance
+    venv.mkdir(parents=True)
+    lines = report()
+    assert "remove     tdd venv delete --name sm_foo" in lines
+    assert not [
+        ln for ln in lines if ln.startswith("instance") or ln.startswith("nothing")
+    ], lines
+
+    # both, plus a domain the script says it created
+    instance.mkdir(parents=True)
+    lines = report(domains="sm_foo__gcppostgres")
+    assert [ln for ln in lines if ln.startswith("instance   sm_foo -- not running")], (
+        lines
+    )
+    assert [ln for ln in lines if ln.startswith("venv       sm_foo (pyenv)")], lines
+    assert [ln for ln in lines if ln.startswith("domain     sm_foo__gcppostgres --")], (
+        lines
+    )
+    assert [
+        ln for ln in lines if "tdkserver delete" in ln and "tdd venv delete" in ln
+    ], lines
+
+    # the cluster scripts' own lines are held to the same rule: a namespace that
+    # was never created gets no delete command and no port-forward
+    for path in sorted(smoke.scripts_dir().glob("smoke-*.sh")):
+        text = path.read_text()
+        if "common_k8s_report" not in text:
+            continue  # km brings its own cluster
+        block = text.split("common_on_stage_failed() {", 1)[1].split("\n}\n", 1)[0]
+        guard = block.index("common_k8s_namespace_exists")
+        assert guard < block.index('"namespace  $NAMESPACE'), path.name
+        assert guard < block.index('"reach it   kubectl'), path.name
+
+    # and every script records a domain as it creates it, never up front
+    for path in sorted(smoke.scripts_dir().glob("smoke-*.sh")):
+        text = path.read_text()
+        assert 'SMOKE_DOMAINS=""' in text, path.name
+        creates = [
+            ln.strip()
+            for ln in text.splitlines()
+            if "tdd domain create --domain" in ln or "tdd domain create --sys" in ln
+        ]
+        appends = [
+            ln for ln in text.splitlines() if 'SMOKE_DOMAINS="$SMOKE_DOMAINS' in ln
+        ]
+        assert len(appends) == len(creates), (path.name, creates, appends)

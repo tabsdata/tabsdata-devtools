@@ -142,7 +142,7 @@ VENV="$BASE"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 LLM_DOMAIN="${LLM_SYSTEM:+${BASE}__${LLM_SYSTEM}}"
 XP_PROJECTS=""           # the xp instance/project names this run creates, for --keep and failures
-SMOKE_DOMAINS="$LLM_DOMAIN"   # domains this run creates outside xp (common_tabsdata_setup_info lists them)
+SMOKE_DOMAINS=""         # domains this run creates outside xp, appended as each one is (common_tabsdata_setup_info lists them)
 EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
 LOG="${LOG:-/tmp/smoke-$INSTANCE-$STAMP.log}"
 WORK="$(mktemp -d "/tmp/smoke-$INSTANCE-$STAMP.XXXX")"
@@ -278,6 +278,7 @@ if [ -n "$LLM_SYSTEM" ]; then
     # The key is eval'd into THIS shell, never echoed; the quickstart command
     # line masks --<llm>-key when displayed.
     common_run tdd domain create --sys "$LLM_SYSTEM" --domain "$LLM_DOMAIN" --force
+    SMOKE_DOMAINS="$SMOKE_DOMAINS $LLM_DOMAIN"
     common_note "eval \$(tdd domain info --domain $LLM_DOMAIN --format export --prefix LLM)   (the key is not shown)"
     eval "$(tdd domain info --domain "$LLM_DOMAIN" --format export --prefix LLM 2>/dev/null)"
     common_run test -n "${LLM__API_KEY:+set}"
