@@ -10,7 +10,7 @@ repository that uses neither Jira nor Graphite.
 
     tdd gsx create   -s SUMMARY [-m BODY] [--i:FLAG] [--s:FLAG] [-- PATH...]
     tdd gsx update   [-s SUMMARY] [-m BODY] [--i:FLAG] [--e:FLAG]
-    tdd gsx checkout [BRANCH|PR|URL|N] [--c:FLAG]
+    tdd gsx checkout [BRANCH|#PR] [--c:FLAG]
     tdd gsx submit   [--label:S[:M] LIST]... [--reviewer:S[:M] LIST]...
                      [--sync] [--draft] [--no-defaults] [--p:|--s:|--e:FLAG]
     tdd gsx apply    [--label:S[:M] LIST]... [--reviewer:S[:M] LIST]...

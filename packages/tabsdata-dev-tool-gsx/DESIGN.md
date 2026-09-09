@@ -103,6 +103,24 @@ brackets. Two rules keep it honest:
 short sequence each step of which already says what it is doing, and a number over that adds no
 information.
 
+## checkout
+
+`checkout` takes **a branch name or `#<PR>`, and nothing else**. `gh stack checkout` also accepts
+a bare number and a PR URL, and resolves a bare number by trying it as a stack number, then a
+locally tracked PR, then a PR it discovers on GitHub, and only then a branch -- so `42` means
+whichever of those exists when it runs, and the answer can change under a target that did not.
+A number that does not say what it counts is refused, with the spelling that would have worked
+(`42` -> "write #42 for pull request 42, or give the branch name"); a URL is refused the same way,
+pointing at the `#N` it contains. Every refusal is settled before gh is asked anything, since a
+target gsx will not accept is a usage error and costs no child process to report.
+
+`#42` reaches gh **as the PR URL**, composed from `gh repo view --json url` (from gh, so an
+enterprise host is right too). That is the one shape gh cannot read as a stack number, and it is
+what makes `#42` mean pull request 42 rather than stack 42 -- the URL is refused as input and used
+as output, which is not a contradiction: what a person types has to be unambiguous to *read*, and
+what gh is handed has to be unambiguous to *resolve*. A branch name goes through as typed, so gh
+never sees a number at all. No target still opens gh's interactive picker.
+
 ## approve
 
 `approve --approvers NAME[,NAME...]` with `--pr N,...`, `--down-stack` or `--stack`. Each approver
@@ -203,6 +221,9 @@ Facts that cost real testing; the code depends on them.
    on the first two words alone: `is_read_only` looks at the flags (`GIT_BRANCH_WRITES`).
    Otherwise `--dry-run` would run `purge`'s deletes -- the one mistake the flag exists to
    prevent -- while skipping the listing.
+7. `gh stack checkout`'s bare number is **a stack number first**, then a locally tracked PR, then
+   a PR discovered from GitHub, then a branch (its own `--help` says so). A PR URL has no such
+   chain, which is why `checkout` hands gh the URL for `#N` rather than the number.
 
 ## Differences from the standalone gsx
 

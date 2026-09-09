@@ -894,3 +894,92 @@ def test_purge_takes_no_passthrough_because_it_drives_nothing_worth_one():
         ["purge", "--merged-only", "--no-fetch"], args_mod.PURGE_NATIVES, False
     )
     assert rest == ["purge", "--merged-only", "--no-fetch"] and not extras.passthrough
+
+
+# ---------------------------------------------------------------- checkout
+@pytest.mark.parametrize(
+    "target, kind, value",
+    [
+        ("#42", "pr", "42"),
+        (" #42 ", "pr", "42"),
+        ("GCS-15", "branch", "GCS-15"),
+        ("feat/api-routes", "branch", "feat/api-routes"),
+    ],
+)
+def test_a_checkout_target_is_a_branch_name_or_a_hash_number(target, kind, value):
+    assert commands.parse_checkout_target(target) == (kind, value)
+
+
+@pytest.mark.parametrize(
+    "target, message",
+    [
+        # the whole point: gh tries a bare number as a stack number FIRST, so
+        # `42` does not reliably mean the PR the reader had in mind
+        ("42", "ambiguous"),
+        ("https://github.com/o/n/pull/42", "#42"),
+        ("http://example.com/x", "#<PR>"),
+        ("#", "not a pull request"),
+        ("#abc", "not a pull request"),
+        ("   ", "needs a branch name"),
+    ],
+)
+def test_every_other_shape_is_refused_and_says_what_to_write(target, message):
+    with pytest.raises(ToolError, match=message):
+        commands.parse_checkout_target(target)
+
+
+def test_a_pr_target_reaches_gh_as_a_url_because_a_bare_number_would_not(
+    tmp_path, monkeypatch, capsys
+):
+    """`#42` has to mean pull request 42. A bare 42 would be tried as stack 42
+    first, so the URL -- the one shape gh cannot read as anything else -- is
+    what makes the promise true. It is refused as INPUT and used as output."""
+    calls = _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    monkeypatch.setattr(gh, "require_tools", lambda runner: None)
+    monkeypatch.setattr(gh, "repo_url", lambda runner: "https://github.com/o/n")
+    monkeypatch.setattr(gh, "current_pr", lambda runner: 42)
+
+    assert gsx.main(["checkout", "#42"]) == 0
+    assert ["gh", "stack", "checkout", "https://github.com/o/n/pull/42"] in calls
+    assert "checking out PR #42" in capsys.readouterr().err
+
+    calls.clear()
+    assert gsx.main(["checkout", "GCS-15"]) == 0
+    # a branch name goes as it was typed, and gh never sees a number
+    assert ["gh", "stack", "checkout", "GCS-15"] in calls
+    assert "checking out branch GCS-15" in capsys.readouterr().err
+
+    calls.clear()
+    assert gsx.main(["checkout"]) == 0
+    assert ["gh", "stack", "checkout"] in calls
+
+
+def test_checkout_dry_runs_without_clashing_with_the_runners_own_field(
+    tmp_path, monkeypatch, capsys
+):
+    """`dry_run` is on every ok event already, so a command that returned one
+    of its own made `ok()` get the keyword twice -- a TypeError, on the one
+    flag whose whole job is to be safe to try."""
+    calls = _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    monkeypatch.setattr(gh, "require_tools", lambda runner: None)
+    monkeypatch.setattr(gh, "repo_url", lambda runner: "https://github.com/o/n")
+    argv = ["checkout", "#42", "--dry-run", "--format", "json"]
+    assert gsx.main(argv) == 0
+    last = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert last["event"] == "ok" and last["dry_run"] is True
+    # what the flag SKIPS is the real Runner's business, and is covered where
+    # the real one is used; this fake records every call it is handed.
+    assert calls
+
+
+def test_a_refused_checkout_target_costs_no_child_process(tmp_path, monkeypatch):
+    """A target gsx will not accept is a usage error, so it is settled before
+    gh is asked anything -- including the extension check."""
+    calls = _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    monkeypatch.setattr(
+        gh,
+        "require_tools",
+        lambda runner: (_ for _ in ()).throw(ToolError("should not get here")),
+    )
+    assert gsx.main(["checkout", "42"]) == 1
+    assert calls == []

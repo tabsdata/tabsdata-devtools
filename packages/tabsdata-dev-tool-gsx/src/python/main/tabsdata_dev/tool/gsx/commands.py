@@ -219,18 +219,73 @@ def update(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
 
 
 # ---------------------------------------------------------------- checkout
+#: A checkout target that names a pull request: `#42`, GitHub's own notation.
+CHECKOUT_PR_RE = re.compile(r"#(\d+)")
+
+
+def parse_checkout_target(target: str) -> tuple[str, str]:
+    """``("pr", "42")`` for ``#42``, ``("branch", "GCS-15")`` for a name.
+
+    `gh stack checkout` takes four shapes and resolves a bare number by trying
+    it as a stack number, then a locally tracked PR, then a PR it discovers on
+    GitHub, and only then a branch. So `15` means whichever of those matches
+    first, and which one that is depends on what stacks happen to exist when it
+    runs -- the answer can change under a target that did not. gsx accepts the
+    two shapes a person actually types and makes the number say what it counts:
+    `#42` is the pull request, anything else is a branch name.
+    """
+    text = target.strip()
+    if not text:
+        raise ToolError(
+            "checkout needs a branch name or #<PR>; omit the target for the picker"
+        )
+    matched = CHECKOUT_PR_RE.fullmatch(text)
+    if matched:
+        return "pr", matched.group(1)
+    if text.startswith("#"):
+        raise ToolError(f"{text!r} is not a pull request: #N takes digits, as in #42")
+    if "://" in text:
+        tail = text.rstrip("/").rsplit("/", 1)[-1]
+        hint = f"#{tail}" if tail.isdigit() else "#<PR>"
+        raise ToolError(
+            f"a PR URL is not a checkout target: write {hint} for the pull "
+            "request, or the branch name"
+        )
+    if text.isdigit():
+        raise ToolError(
+            f"{text!r} is ambiguous -- gh would try it as a stack number, then a "
+            f"pull request, then a branch: write #{text} for pull request {text}, "
+            "or give the branch name"
+        )
+    return "branch", text
+
+
 def checkout(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
-    """`gh stack checkout` by branch, PR number, PR URL or stack number."""
+    """`gh stack checkout` by branch name or `#<PR>`, and nothing else."""
+    # Parsed before anything is asked of gh: a target gsx will not accept is a
+    # usage error, and it costs no child process to say so.
+    kind, value = parse_checkout_target(args.target) if args.target else ("", "")
+
     gh.require_tools(runner)
-    target = args.target
-    out.info(f"checking out {target or 'a stack (interactive picker)'}")
     argv = ["gh", "stack", "checkout"]
-    if target:
-        argv.append(target)
+    if kind == "pr":
+        # The URL is the one shape gh cannot read as a stack number, so this is
+        # what makes `#42` mean pull request 42 and not stack 42.
+        argv.append(f"{gh.repo_url(runner)}/pull/{value}")
+        what = f"PR #{value}"
+    elif kind == "branch":
+        argv.append(value)
+        what = f"branch {value}"
+    else:
+        what = "a stack (interactive picker)"
+    out.info(f"checking out {what}")
     argv.extend(extras.passthrough.get("c", []))
     runner.run(argv, capture=False)
     if runner.dry_run:
-        return ("checked out nothing (dry run)", {"dry_run": True})
+        # No `dry_run` field: the shared runner puts one on every ok event, and
+        # returning it here made `checkout --dry-run` raise TypeError from
+        # `ok()` getting the keyword twice.
+        return ("checked out nothing (dry run)", {})
     branch = gh.current_branch(runner)
     pr = gh.current_pr(runner)
     return (

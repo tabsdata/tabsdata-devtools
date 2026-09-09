@@ -175,6 +175,18 @@ def repo_slug(runner: Runner) -> str:
         raise ToolError(f"could not read the repository from gh: {payload}") from error
 
 
+def repo_url(runner: Runner) -> str:
+    """The repository's web URL, from gh rather than composed, so an enterprise
+    host is right too."""
+    payload = runner.run(["gh", "repo", "view", "--json", "url"])
+    try:
+        return json.loads(payload)["url"].rstrip("/")
+    except (json.JSONDecodeError, KeyError, AttributeError) as error:
+        raise ToolError(
+            f"could not read the repository URL from gh: {payload}"
+        ) from error
+
+
 def repo_postfix(name: str) -> str:
     """`tabsdata-conn-gcs` -> `GCS`; a name without `-` is used whole."""
     tail = name.rsplit("-", 1)[-1] if "-" in name else name

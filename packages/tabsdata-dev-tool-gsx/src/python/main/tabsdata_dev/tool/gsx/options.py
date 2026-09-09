@@ -170,14 +170,22 @@ def configure(parser: argparse.ArgumentParser) -> None:
 
     checkout = add(
         "checkout",
-        "check out a stack branch by name, PR number, PR URL or stack number",
-        "example:\n  tdd gsx checkout GCS-15\n\n",
+        "check out a stack branch by name, or a pull request by #number",
+        "examples:\n"
+        "  tdd gsx checkout GCS-15      the branch of that name\n"
+        "  tdd gsx checkout '#42'       pull request 42 (quote it: # starts a\n"
+        "                               comment in most shells)\n"
+        "  tdd gsx checkout             gh's interactive picker\n\n"
+        "those two shapes and no others. `gh stack checkout` also takes a bare\n"
+        "number and a PR URL, but it resolves a bare number as a stack number\n"
+        "first, then a PR, then a branch -- so `42` means whichever exists at\n"
+        "the time. A number here says what it counts or is refused.\n\n",
     )
     checkout.add_argument(
         "target",
         nargs="?",
-        metavar="TARGET",
-        help="branch, PR number, PR URL or stack number; omitted opens gh's picker",
+        metavar="BRANCH|#PR",
+        help="a branch name, or #N for pull request N; omitted opens gh's picker",
     )
 
     submit = add(
