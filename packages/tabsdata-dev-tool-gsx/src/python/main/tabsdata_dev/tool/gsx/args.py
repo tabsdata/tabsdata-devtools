@@ -260,6 +260,9 @@ APPROVE_NATIVES = [
 #: what the classification reads. No natives means `--x:` is refused by name.
 PURGE_NATIVES: list[Native] = []
 
+#: stacks reads a file. There is no command behind it to forward a flag to.
+STACKS_NATIVES: list[Native] = []
+
 NATIVES = {
     "create": CREATE_NATIVES,
     "update": UPDATE_NATIVES,
@@ -268,5 +271,6 @@ NATIVES = {
     "apply": APPLY_NATIVES,
     "approve": APPROVE_NATIVES,
     "purge": PURGE_NATIVES,
+    "stacks": STACKS_NATIVES,
 }
 TAKES_LR = {"submit", "apply"}

@@ -4,8 +4,8 @@ Copyright 2026 Tabsdata Inc.
 
 # gsx
 
-`tdd gsx create|update|checkout|submit|apply|approve|purge`: GitHub issues + `gh stack`, the way
-`gtx` does Jira + Graphite -- for a repository that uses neither. One command turns the pending
+`tdd gsx create|update|checkout|submit|apply|approve|purge|stacks`: GitHub issues + `gh stack`,
+the way `gtx` does Jira + Graphite -- for a repository that uses neither. One command turns the pending
 changes into an issue, a stack branch and a commit; another pushes the stack, opens its PRs and
 labels them. Ported from the standalone `~/gsx` (1.5.0).
 
@@ -20,7 +20,7 @@ labels them. Ported from the standalone `~/gsx` (1.5.0).
   extension would refuse a repository that never used one.
 - Modules: `args` (the two grammars argparse cannot express), `options` (the parser, which the
   config template is derived from), `gh` (every child process), `labels` (config lookup,
-  validation, the edit engine), `purge` (which branches are leftovers), `commands` (the seven
+  validation, the edit engine), `purge` (which branches are leftovers), `commands` (the eight
   bodies), `config` (the repo tables in `<tdd_dir>/gsx.toml`), `progress` (the `[n/N]` counter),
   `version`.
 
@@ -165,6 +165,45 @@ The leading `git fetch --prune` is hygiene rather than a prerequisite: the PR st
 live from the API, so `--dry-run` skipping the fetch (it writes remote-tracking refs) costs the
 run no accuracy, and `--no-fetch` skips it outright. Every branch is attempted even when one
 delete fails -- a worktree holding it, say -- and the failures are reported together at the end.
+
+## stacks
+
+`stacks` lists what gh-stack tracks in this checkout, bottom branch first:
+
+```
+3 stack(s)
+* #34  main <- a1  <- *a2     green, and *a2 yellow
+  #40  main <- b24 <- b25     blue
+  #-   main <- c1             blue
+```
+
+Read straight out of `<git-dir>/gh-stack`, gh-stack's own local tracking, so it needs **no gh,
+no gh-stack extension and no network**, answers offline, and cannot disagree with what the other
+subcommands see. It is the one subcommand that asks for nothing but a git repository. `#-` is a
+stack that has never been submitted, so GitHub has given it no number yet.
+
+**Two stars and three colours, instead of a sentence.** `*` on the stack holding the checked-out
+branch -- the one `submit` and `apply` act on without being told which -- and `*` on that
+branch, which is where that stack's own work is. That stack is green, the others blue, the branch
+yellow (`render.PAINTS`, so `NO_COLOR` and a pipe both get plain text; the shell half carries the
+same four codes). The count line says only how many: a summary repeating "on a2 in #34" says in
+prose what the row already shows in place.
+
+**Every column is aligned across stacks**, and a column's width is the widest cell in it *with
+its marker included* -- so starring a name can never shift the column it sits in: it costs a
+space only when the starred name was already the longest. A row's own last cell is left unpadded,
+so no line carries trailing blanks.
+
+Painting is per **cell**, not per row: a paint ends in a reset, so a yellow branch inside a
+green row would leave everything after it plain -- and the branch is not always last, since you
+can be standing below one. A message carrying an escape is printed as it is by the renderer, so
+the count line is plain rather than ok-green, which is right here: green means "the stack you are
+on", and the count is not a stack.
+
+The rows are the `ok` message, so they land on stdout and pipe; `--format json` gets no escapes
+at all (the `stacks` field carries `current` per row, which is what a machine reads). A checkout
+with no state file answers "no stacks are tracked in this repository" and exits 0: asked what
+stacks exist, "none" is an answer rather than a failure.
 
 ## Config
 

@@ -16,6 +16,7 @@ repository that uses neither Jira nor Graphite.
     tdd gsx apply    [--label:S[:M] LIST]... [--reviewer:S[:M] LIST]...
                      [--no-defaults] [--e:FLAG]
     tdd gsx purge    [--merged-only] [--no-fetch] [--dry-run]
+    tdd gsx stacks
 
 Branch and commit are named from the repository: `tabsdata-conn-gcs` issue 15
 -> branch `GCS-15`, commit `[GCS-15] <summary>`, trailer `Closes #15`. The
@@ -43,6 +44,7 @@ HANDLERS = {
     "apply": commands.apply,
     "approve": commands.approve,
     "purge": commands.purge,
+    "stacks": commands.stacks,
 }
 
 

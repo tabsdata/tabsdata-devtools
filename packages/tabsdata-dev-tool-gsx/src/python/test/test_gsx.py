@@ -983,3 +983,158 @@ def test_a_refused_checkout_target_costs_no_child_process(tmp_path, monkeypatch)
     )
     assert gsx.main(["checkout", "42"]) == 1
     assert calls == []
+
+
+# ------------------------------------------------------------------ stacks
+def _state(number=34, trunk="main", rows=(("a1", 21, "base1"), ("a2", 22, "base2"))):
+    return {
+        "stacks": [
+            {
+                "number": number,
+                "trunk": {"branch": trunk},
+                "branches": [
+                    {
+                        "branch": b,
+                        "pullRequest": ({"number": p} if p else None),
+                        "base": base,
+                    }
+                    for b, p, base in rows
+                ],
+            }
+        ]
+    }
+
+
+def test_stacks_reads_the_state_file_and_marks_the_one_you_are_on():
+    state = _state()
+    state["stacks"].append(
+        {
+            "number": 40,
+            "trunk": {"branch": "main"},
+            "branches": [{"branch": "b24"}, {"branch": "b25"}],
+        }
+    )
+    state["stacks"].append(
+        # never submitted, so it has no number yet
+        {"number": None, "trunk": {"branch": "main"}, "branches": [{"branch": "c1"}]}
+    )
+    rows = commands.stack_rows(state, "a2")
+    assert [row["number"] for row in rows] == [34, 40, None]
+    assert rows[0]["branches"] == ["a1", "a2"] and rows[0]["current"] is True
+    assert rows[1]["current"] is False
+    # every column lines up across stacks, #- is a stack with no number, and
+    # the two stars say which stack and which branch without a sentence
+    assert commands.stack_lines(rows, "a2").splitlines() == [
+        "* #34  main <- a1  <-*a2",
+        "  #40  main <- b24 <- b25",
+        "  #-   main <- c1",
+    ]
+    # standing outside every stack, nothing is starred at all
+    outside = commands.stack_rows(state, "main")
+    assert all(not row["current"] for row in outside)
+    assert "*" not in commands.stack_lines(outside, "main")
+
+
+def test_the_stack_you_are_on_is_green_the_others_blue_and_your_branch_yellow():
+    """Painted per segment, not per row: a paint ends in a reset, so a yellow
+    branch inside a green row would leave the rest of that row plain -- and the
+    branch is not always last (you can be standing below one)."""
+    state = _state()
+    state["stacks"].append(
+        {
+            "number": 40,
+            "trunk": {"branch": "main"},
+            "branches": [{"branch": "b24"}],
+        }
+    )
+    rows = commands.stack_rows(state, "a1")
+    painted = commands.stack_lines(
+        rows, "a1", lambda name, text: f"<{name}>{text}</{name}>"
+    ).splitlines()
+    # the current branch sits in the MIDDLE of its row, and what follows it is
+    # still the row's own colour rather than plain
+    assert painted[0] == (
+        "<green>* #34  </green><green>main</green>"
+        # the arrow keeps the row's colour; the star goes yellow with its name
+        "<green> <-</green><yellow>*a1 </yellow>"
+        "<green> <- </green><green>a2</green>"
+    )
+    assert painted[1] == (
+        "<blue>  #40  </blue><blue>main</blue><blue> <- </blue><blue>b24</blue>"
+    )
+    # and with no painter it is plain text, which is what a pipe gets
+    assert commands.stack_lines(rows, "a1").splitlines()[0] == (
+        "* #34  main <-*a1  <- a2"
+    )
+
+
+def test_the_branch_star_sits_against_the_arrow_and_costs_the_column_nothing():
+    """`<-*NAME`: the star goes in the space the separator would have left, so
+    a name is at the same offset on every line whether it is the starred one or
+    not -- column widths are just the widest name. Nothing is padded at the end
+    of its own row, so no line trails blanks."""
+    state = _state(rows=(("long-branch-name", 21, None), ("a2", 22, None)))
+    state["stacks"].append(
+        {
+            "number": 40,
+            "trunk": {"branch": "main"},
+            "branches": [{"branch": "b24"}, {"branch": "b25"}],
+        }
+    )
+    rows = commands.stack_rows(state, "long-branch-name")
+    assert commands.stack_lines(rows, "long-branch-name").splitlines() == [
+        "* #34  main <-*long-branch-name <- a2",
+        "  #40  main <- b24              <- b25",
+    ]
+    # and starring a name in the next column leaves both columns where they were
+    rows = commands.stack_rows(state, "a2")
+    assert commands.stack_lines(rows, "a2").splitlines() == [
+        "* #34  main <- long-branch-name <-*a2",
+        "  #40  main <- b24              <- b25",
+    ]
+    for line in commands.stack_lines(rows, "a2").splitlines():
+        assert line == line.rstrip(), line
+
+
+def test_stacks_puts_no_escape_in_the_json_message(tmp_path, monkeypatch, capsys):
+    """The json message is data. Which stack is current is in the fields, which
+    is what a machine reads -- an escape there would be data too."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(json.dumps(_state()))
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    assert gsx.main(["stacks", "--format", "json"]) == 0
+    line = capsys.readouterr().out.splitlines()[-1]
+    assert "\033" not in line and "\\u001b" not in line
+    event = json.loads(line)
+    assert "*a2" in event["message"] and event["stacks"][0]["current"] is True
+
+
+def test_stacks_answers_none_rather_than_failing_when_nothing_is_tracked(
+    tmp_path, monkeypatch, capsys
+):
+    """Asked what stacks exist, "none" is an answer rather than a failure, so
+    the reader reports an absent file as empty and the caller decides."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    assert gsx.main(["stacks", "--format", "json"]) == 0
+    last = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert last["event"] == "ok" and last["stacks"] == []
+    assert "no stacks are tracked" in last["message"]
+
+
+def test_stacks_needs_no_gh_at_all(tmp_path, monkeypatch, capsys):
+    """It reads a file. Requiring gh -- let alone the gh-stack extension --
+    would refuse the one subcommand that works with no network."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    for name in ("require_tools", "require_binaries"):
+        monkeypatch.setattr(
+            gh,
+            name,
+            lambda *a, **k: (_ for _ in ()).throw(ToolError("should not be called")),
+        )
+    (tmp_path / "gh-stack").write_text(json.dumps(_state()))
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    assert gsx.main(["stacks"]) == 0
+    assert "* #34  main <- a1 <-*a2" in capsys.readouterr().out

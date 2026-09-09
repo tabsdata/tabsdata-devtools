@@ -14,6 +14,7 @@ obvious from their help.
 from __future__ import annotations
 
 import json
+import pathlib
 import re
 import shlex
 import shutil
@@ -430,3 +431,24 @@ def delete_branch(runner: Runner, branch: str) -> None:
     is what shows the list before anything goes.
     """
     runner.run(["git", "branch", "-D", branch])
+
+
+# ------------------------------------------------- gh-stack's local state
+def git_dir(runner: Runner) -> pathlib.Path:
+    return pathlib.Path(runner.run(["git", "rev-parse", "--git-dir"])).resolve()
+
+
+def read_state(runner: Runner) -> dict:
+    """gh-stack's local tracking file, `<git-dir>/gh-stack`.
+
+    The stacks it tracks, whom they sit on and which PR each branch carries.
+    A checkout with no such file has no stacks, which is an empty answer rather
+    than an error -- what to make of that is the caller's to decide.
+    """
+    path = git_dir(runner) / "gh-stack"
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as error:
+        raise ToolError(f"cannot read {path}: {error}") from error

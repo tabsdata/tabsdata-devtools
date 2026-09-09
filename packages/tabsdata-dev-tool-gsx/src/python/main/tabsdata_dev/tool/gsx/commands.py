@@ -2,13 +2,14 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""The seven subcommands. Each returns (message, fields) for one ok event."""
+"""The eight subcommands. Each returns (message, fields) for one ok event."""
 
 from __future__ import annotations
 
 import re
 import sys
 
+from tabsdata_dev.common.core import render
 from tabsdata_dev.common.core.errors import ToolError
 
 from . import approve as approve_mod
@@ -563,4 +564,115 @@ def purge(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     return (
         f"deleted {len(gone)} branch(es), kept {len(kept)}\n" + _purge_lines(verdicts),
         {"deleted": gone, "kept": kept, "examined": len(candidates)},
+    )
+
+
+# ------------------------------------------------------------------ stacks
+def stack_rows(state: dict, current: str = "") -> list[dict]:
+    """Every locally tracked stack, bottom-up, as `{number, trunk, branches}`.
+
+    Straight out of gh-stack's own state file: no API call, so this answers
+    while offline and cannot disagree with what the other subcommands read. A
+    stack with no number yet (never submitted) keeps `None`, which prints `#-`.
+    """
+    rows = []
+    for stack in state.get("stacks") or []:
+        branches = [
+            entry.get("branch", "")
+            for entry in stack.get("branches") or []
+            if entry.get("branch")
+        ]
+        rows.append(
+            {
+                "number": stack.get("number"),
+                "trunk": ((stack.get("trunk") or {}).get("branch")) or "?",
+                "branches": branches,
+                "current": bool(current) and current in branches,
+            }
+        )
+    return rows
+
+
+def _no_paint(name: str, text: str) -> str:
+    return text
+
+
+def stack_lines(rows: list[dict], branch: str = "", paint=_no_paint) -> str:
+    """One line per stack, every name aligned across all of them:
+
+        * #34  main <- a1  <-*a2
+          #40  main <- b24 <- b25
+          #-   main <- c1
+
+    A `*` on the stack holding the checked-out branch -- the one `submit` and
+    `apply` act on without being told which -- and a `*` on that branch, which
+    is where the stack's own work is. Green for that stack, blue for the
+    others, yellow for the branch.
+
+    The branch star sits **against the arrow**, in the space the separator
+    would have left, so it costs the column nothing: a name is at the same
+    offset on every line whether it is the starred one or not. Column widths
+    are therefore just the widest name, and a row's own last cell is left
+    unpadded so no line carries trailing blanks.
+
+    Painted per CELL rather than per row: a paint ends in a reset, so a yellow
+    branch inside a green row would leave everything after it plain -- and the
+    branch is not always last, since you can be standing below one. The star
+    goes yellow with the name it marks, the arrow keeps the row's colour.
+    """
+    tags = ["#" + (str(row["number"]) if row["number"] else "-") for row in rows]
+    tag_width = max((len(tag) for tag in tags), default=0)
+    # (name, starred) per cell, the trunk first
+    grid = [
+        [
+            (row["trunk"], False),
+            *(
+                (name, bool(row["current"] and name == branch))
+                for name in row["branches"]
+            ),
+        ]
+        for row in rows
+    ]
+    widths = [
+        max(len(cells[column][0]) for cells in grid if len(cells) > column)
+        for column in range(max((len(cells) for cells in grid), default=0))
+    ]
+    lines = []
+    for tag, row, cells in zip(tags, rows, grid):
+        color = "green" if row["current"] else "blue"
+        parts = [paint(color, f"{'*' if row['current'] else ' '} {tag:<{tag_width}}  ")]
+        for index, (name, starred) in enumerate(cells):
+            text = name if index == len(cells) - 1 else name.ljust(widths[index])
+            if index:
+                parts.append(paint(color, " <-" if starred else " <- "))
+            parts.append(paint("yellow", f"*{text}") if starred else paint(color, text))
+        lines.append("".join(parts))
+    return "\n".join(lines)
+
+
+def _painter(out):
+    """How `stacks` paints, given where its ok event is going.
+
+    json carries the message as data, so an escape in it would be data too --
+    the fields say which stack is current, and a machine reads those. On view
+    `render.paint` still checks the stream and NO_COLOR itself.
+    """
+    if out.fmt != "view":
+        return _no_paint
+    return lambda name, text: render.paint(name, text, out.out)
+
+
+def stacks(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
+    """List the stacks gh-stack tracks in this checkout."""
+    # Needs git to find the git dir and nothing else: no gh, no gh-stack
+    # extension, no network. It reads a file.
+    gh.require_repo(runner)
+    current = gh.current_branch(runner)
+    rows = stack_rows(gh.read_state(runner), current)
+    if not rows:
+        return ("no stacks are tracked in this repository", {"stacks": []})
+    # No "on BRANCH in #N" after the count: the two `*` say it, in place.
+    return (
+        f"{len(rows)} stack(s)\n" + stack_lines(rows, current, _painter(out)),
+        {"stacks": rows},
     )

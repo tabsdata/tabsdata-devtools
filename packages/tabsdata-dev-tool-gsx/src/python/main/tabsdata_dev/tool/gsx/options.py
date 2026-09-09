@@ -277,6 +277,19 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help="skip the `git fetch --prune` first; the PR states are read live either way",
     )
 
+    add(
+        "stacks",
+        "list the stacks tracked in this checkout, bottom branch first",
+        "example:\n"
+        "  tdd gsx stacks\n"
+        "    * #34  main <- a1 <- a2\n"
+        "      #40  main <- b24 <- b25\n\n"
+        "read straight from gh-stack's own state file, so it needs no network and\n"
+        "cannot disagree with what the other subcommands see. `*` marks the stack\n"
+        "holding the branch you are on -- the one submit and apply act on.\n"
+        "`#-` is a stack that has never been submitted, so it has no number yet.\n\n",
+    )
+
 
 def doc() -> config_mod.Doc:
     """The default document: gsx's own options, as its parser declares them."""
