@@ -15,7 +15,6 @@
 #   common_run_retry N PAUSE CMD...       same, retried up to N times PAUSE seconds apart
 #   common_note TEXT                      a line under the stage, collapsed with the rest
 #   common_remark TEXT                    a yellow line after the stage that stays (closes it as ok)
-#   common_checkpoint NAME                --stop-after: exit 0 after NAME with a report
 #   common_finish                         report + final verdict; the exit status
 #   common_display CMD...                 CMD as text with credentials masked
 #   common_instance_pids NAME             pids of the km processes of a tdkserver instance
@@ -283,23 +282,6 @@ common_stage() {
     fi
     STAGE_I=$((STAGE_I + 1))
     CURRENT="$1"
-    # --start-from NAME: skip the DOING of every stage before NAME, but keep the
-    # reading -- a stage's `eval $(tdd domain info ...)` still runs, so the
-    # variables later stages need are there. That is what makes it a resume
-    # rather than a rerun, and it only means anything against what a previous
-    # --keep left standing: nothing here recreates what was skipped.
-    if [ -n "${START_FROM:-}" ] && [ "${SKIPPING:-1}" = 1 ]; then
-        if [ "$1" = "$START_FROM" ]; then
-            SKIPPING=0
-        else
-            SKIPPING=1
-            STAGE_STATUS[$STAGE_I]="skipped"
-            STAGE_SECONDS[$STAGE_I]=0
-            common_screen ""
-            common_screen "${DIM}==> [$((STAGE_I + 1))] $1 -- skipped (--start-from $START_FROM)${RESET}"
-            return 0
-        fi
-    fi
     STAGE_T0="$(date +%s)"
     STAGE_LINES=0
     STAGE_CMDS=()
@@ -372,10 +354,6 @@ common_run() {
 common_run_shown() {
     local shown="$1" rc
     shift
-    # inside a skipped stage nothing is run: see --start-from in common_stage
-    if [ "${SKIPPING:-0}" = 1 ]; then
-        return 0
-    fi
     STAGE_CMDS[${#STAGE_CMDS[@]}]="$shown"
     STAGE_CMD_STATUS[${#STAGE_CMD_STATUS[@]}]="running"
     common_note "${DIM}\$${RESET} $shown"
@@ -875,22 +853,11 @@ common_report() {
             ok) common_screen "  ${GREEN}✓${RESET} $name${secs:+ (${secs}s)}" ;;
             failed) common_screen "  ${RED}✗${RESET} $name (failed${secs:+ after ${secs}s})" ;;
             continued) common_screen "  ${YELLOW}✗${RESET} $name (failed after ${secs}s, continued)" ;;
-            skipped) common_screen "  ${DIM}-${RESET} $name (skipped, --start-from)" ;;
             *) common_screen "  ${YELLOW}·${RESET} $name (not done)" ;;
         esac
         i=$((i + 1))
     done
     common_screen "$(basename "$0"): total $(common_duration "$(($(date +%s) - RUN_T0))"), log $LOG"
-}
-
-# --stop-after NAME: everything left standing, report, exit 0.
-common_checkpoint() {
-    if [ "${STOP_AFTER:-}" = "$1" ]; then
-        common_stage_ok
-        common_report
-        common_screen "${YELLOW}$(basename "$0"): stopped after stage $1 (--stop-after); everything left as it is${RESET}"
-        exit 0
-    fi
 }
 
 # The end: close the last stage, report, verdict. A --continue failure does

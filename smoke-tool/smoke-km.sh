@@ -25,7 +25,7 @@ usage: smoke-km.sh --name NAME --td-version VERSION
                    [--uv-index URI] [--llm-domain SYSTEM] [--td-extras EXTRAS]
                    [--venv-type pyenv|uv|conda] [--py-version VERSION] [--port PORT]
                    [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep]
-                   [--start-from STAGE] [--stop-after STAGE] [--log FILE] [--tdd-dir DIR] [--verbose]
+                   [--log FILE] [--tdd-dir DIR] [--verbose]
 
 Tabsdata Kminus smoke test.
 
@@ -70,12 +70,6 @@ options:
                       (default: no -- the running instance is deleted, tdkserver
                       delete tearing it down and trashing its folder, and the venv
                       deleted; a failed run always leaves everything standing)
-  --start-from STAGE  skip the stages before STAGE -- their commands, not the
-                      values they read. Only meaningful against what a previous
-                      --keep left standing: nothing is recreated
-  --stop-after STAGE  stop (exit 0, everything left standing) after the named
-                      stage -- any name the screen prints, e.g. systems,
-                      quickstart, xp-<suite> (/ replaced by _), cleanup
   --log FILE          log file (default: /tmp/smoke-<instance>-<start time>.log)
   --tdd-dir DIR       the tdd dir to source (default: $TDD_DIR, else ~/.tdd)
   --verbose           show every command's output on the screen as it happens
@@ -100,8 +94,6 @@ UV_INDEX_URI=""
 SUITES="test,tableframe_api,dataquality,grok,container-connectors,cloud-connectors"
 FORCE=""                 # 1 with --force; empty otherwise
 KEEP=""                  # 1 with --keep; empty otherwise (so ${KEEP:+--keep} works)
-STOP_AFTER=""
-START_FROM=""
 LOG=""
 VERBOSE=0
 TDD_DIR_OPT="${TDD_DIR:-$HOME/.tdd}"
@@ -123,8 +115,6 @@ while [ $# -gt 0 ]; do
         --xp-suites) SUITES="$2"; shift 2 ;;
         --force | -f) FORCE=1; shift ;;
         --keep) KEEP=1; shift ;;
-        --start-from) START_FROM="$2"; shift 2 ;;
-        --stop-after) STOP_AFTER="$2"; shift 2 ;;
         --log) LOG="$2"; shift 2 ;;
         --tdd-dir) TDD_DIR_OPT="$2"; shift 2 ;;
         --verbose) VERBOSE=1; shift ;;
@@ -206,8 +196,6 @@ common_screen "  --llm-domain        ${LLM_SYSTEM:-(none)}${LLM_SYSTEM:+   -> do
 common_screen "  --expect-pods       $EXPECT_PODS"
 common_screen "  --force             $([ -n "$FORCE" ] && echo "yes (replace an existing venv/instance)" || echo "no (an existing venv/instance is an error)")"
 common_screen "  --keep              $([ -n "$KEEP" ] && echo "yes (also: xp one-shot --keep)" || echo "no (domains, instance and venv deleted at the end)")"
-common_screen "  --start-from        ${START_FROM:-(from the first stage)}"
-common_screen "  --stop-after        ${STOP_AFTER:-(run everything)}"
 common_screen "  --log               $LOG"
 common_screen "  --tdd-dir           $TDD_DIR_OPT"
 common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "no (rolling window of $WINDOW log lines)")"
@@ -222,16 +210,13 @@ fi
 
 common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"
 common_run tdd env unset --td
-common_checkpoint unset-td
 
 common_stage unset-pypi "unset the Python package index variables"
 common_run tdd env unset --py-idx --py-default-idx
-common_checkpoint unset-pypi
 
 common_stage set-crypto "set _TDD_CRYPTO_KEY"
 # 1Password is asked only when the key is unset; `unset --td` spared it
 common_run tdd env set --crypto
-common_checkpoint set-crypto
 
 common_stage systems "the dev and fs systems, then every system the suites need must be in the tdd store"
 # Checked UPFRONT: a store missing a system its suites need must fail the run
@@ -245,12 +230,10 @@ for suite in "${SUITE_LIST[@]}"; do
 done
 # status checks the LLM credential is there without printing it
 [ -z "$LLM_SYSTEM" ] || common_run tdd system status --sys "$LLM_SYSTEM"
-common_checkpoint systems
 
 common_stage pycache "purge tabsdata from the uv and pip caches"
 # a republished wheel of the same version must not be served stale from the cache
 common_run tdd pycache clean
-common_checkpoint pycache
 
 common_stage clean-previous "stop and remove a previous $INSTANCE (--force; nothing exists otherwise)"
 # The old instance's processes are waited out first: a km winding down would
@@ -260,7 +243,6 @@ common_run common_instance_stop "$INSTANCE" "$TDD_DIR_OPT" "${TDK_OPTS[@]}"
 if [ -e "$HOME/.tabsdata/instances/$INSTANCE" ]; then
     common_run rm -rf "$HOME/.tabsdata/instances/$INSTANCE"
 fi
-common_checkpoint clean-previous
 
 common_stage create-venv "create and activate the managed venv $VENV ($VENV_TYPE, python $PYTHON)"
 # shellcheck disable=SC2086
@@ -270,7 +252,6 @@ common_stage create-venv "create and activate the managed venv $VENV ($VENV_TYPE
 # anyway; --force leaves it, and succeeds when there was nothing to leave.
 common_run tdd venv deactivate --force
 common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" ${FORCE:+--force}
-common_checkpoint create-venv
 
 common_stage install "uv pip install $TABSDATA_SPEC into $VENV"
 # the venv stays active in this shell: later stages resolve programs inside it
@@ -280,7 +261,6 @@ common_run uv pip install ${UV_INDEX_URI:+--index "$UV_INDEX_URI" --index-strate
 for program in tdkserver tdk; do
     common_run test -x "$(dirname "$(command -v python)")/$program"
 done
-common_checkpoint install
 
 # tabsdata 2.0.2 ships no psycopg2 with its Postgres connector (it sits in the
 # `test` extra), yet the CDC plugin imports it when tdk loads the connectors, so
@@ -290,7 +270,6 @@ if [ "$TD_VERSION" = "2.0.2" ]; then
     common_stage cdc-driver "tabsdata 2.0.2 workaround: psycopg2-binary into $VENV for the Postgres CDC plugin"
     # shellcheck disable=SC2086
     common_run uv pip install ${UV_INDEX_URI:+--index "$UV_INDEX_URI" --index-strategy unsafe-best-match} psycopg2-binary==2.9.11
-    common_checkpoint cdc-driver
     common_remark "workaround: tabsdata 2.0.2 ships no psycopg2 with its Postgres connector; psycopg2-binary was installed into $VENV so the CDC plugin loads"
 fi
 
@@ -302,30 +281,25 @@ if [ -n "$LLM_SYSTEM" ]; then
     common_note "eval \$(tdd domain info --domain $LLM_DOMAIN --format export --prefix LLM)   (the key is not shown)"
     eval "$(tdd domain info --domain "$LLM_DOMAIN" --format export --prefix LLM 2>/dev/null)"
     common_run test -n "${LLM__API_KEY:+set}"
-    common_checkpoint llm-domain
 fi
 
 common_stage quickstart "tdkserver quickstart --instance $INSTANCE (kminus${LLM_SYSTEM:+, $LLM_SYSTEM key from $LLM_DOMAIN}${LLM_SYSTEM:-, no LLM key})"
 # shellcheck disable=SC2086
 common_run tdd tdkserver quickstart --instance "$INSTANCE" --provider kminus --port "$PORT" ${UV_INDEX_URI:+--uv-index "$UV_INDEX_URI"} ${LLM_SYSTEM:+--$LLM_SYSTEM-key "$LLM__API_KEY"} "${TDK_OPTS[@]}"
 common_run common_tdkserver_expect "$INSTANCE" running
-common_checkpoint quickstart
 
 # retried: the pods come up after quickstart/start return
 common_stage pods-1 "every expected service pod is Running: $EXPECT_PODS"
 # shellcheck disable=SC2086
 common_run_retry 12 5 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIST
-common_checkpoint pods-1
 
 # retried: the login IS the readiness probe -- start returns before the API answers
 common_stage login-1 "tdk login as admin on $SERVER"
 common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password tabsdata
-common_checkpoint login-1
 
 common_stage stop-1 "tdkserver stop"
 common_run tdd tdkserver stop --instance "$INSTANCE" "${TDK_OPTS[@]}"
 common_run common_tdkserver_expect "$INSTANCE" stopped
-common_checkpoint stop-1
 
 common_stage venv-update "update the instance's fn and ag venvs with the DB drivers"
 # The drivers belong to the INSTANCE's fn/ag venvs, never to the client venv.
@@ -334,21 +308,17 @@ common_note "requirements: $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
 for name in fn ag; do
     common_run tdd tdkserver venv update --instance "$INSTANCE" --name "$name" --requirements "$WORK/requirements.txt" "${TDK_OPTS[@]}"
 done
-common_checkpoint venv-update
 
 common_stage start "tdkserver start"
 common_run tdd tdkserver start --instance "$INSTANCE" "${TDK_OPTS[@]}"
 common_run common_tdkserver_expect "$INSTANCE" running
-common_checkpoint start
 
 common_stage pods-2 "every expected service pod is Running: $EXPECT_PODS"
 # shellcheck disable=SC2086
 common_run_retry 12 5 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIST
-common_checkpoint pods-2
 
 common_stage login-2 "tdk login as admin on $SERVER"
 common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password tabsdata
-common_checkpoint login-2
 
 # One --continue stage per suite: a suite failure is reported, not fatal.
 # The project name is given so it carries sm_<NAME>__; --keep goes through.
@@ -358,7 +328,6 @@ for suite in "${SUITE_LIST[@]}"; do
     common_stage --continue "xp-$(printf '%s' "$suite" | tr '/' '_')" "xp one-shot $suite as $project (continue on error)"
     # shellcheck disable=SC2086
     common_run tdd xp one-shot --suite "$suite" --project "$project" ${KEEP:+--keep}
-    common_checkpoint "xp-$(printf '%s' "$suite" | tr '/' '_')"
 done
 
 if [ -n "$KEEP" ]; then

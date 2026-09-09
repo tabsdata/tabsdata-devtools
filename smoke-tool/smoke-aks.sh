@@ -36,7 +36,7 @@ usage: smoke-aks.sh --name NAME --kube-config FILE --kube-context NAME --td-vers
                    [--storage-domain SYSTEM] [--llm-domain SYSTEM] [--provider NAME]
                    [--td-extras EXTRAS] [--venv-type pyenv|uv|conda] [--py-version VERSION]
                    [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep]
-                   [--start-from STAGE] [--stop-after STAGE] [--log FILE] [--tdd-dir DIR] [--verbose]
+                   [--log FILE] [--tdd-dir DIR] [--verbose]
 
 Tabsdata AKS smoke test: a tdkserver instance on an Azure Kubernetes Service
 cluster, its storage a prefix of the `azureblob` system's container and its
@@ -108,13 +108,6 @@ options:
                       (default: no -- domains destroyed, instance deleted,
                       namespace deleted, venv deleted; a failed run always
                       leaves everything standing)
-  --start-from STAGE  skip the stages before STAGE -- their commands, not the
-                      values they read, so the run still knows its domains. Only
-                      meaningful against what a previous --keep left standing:
-                      nothing is recreated
-  --stop-after STAGE  stop (exit 0, everything left standing) after the named
-                      stage -- any name the screen prints, e.g. cluster, systems,
-                      configure, forward-1, xp-<suite> (/ replaced by _), cleanup
   --log FILE          log file (default: /tmp/smoke-sm_NAME-<start time>.log)
   --tdd-dir DIR       the tdd dir to source (default: $TDD_DIR, else ~/.tdd)
   --verbose           show every command's output as it happens (default: a
@@ -153,8 +146,6 @@ UV_INDEX_URI=""
 SUITES="test,tableframe_api,dataquality,grok/s3_examples,grok/s3_world_csv,cloud-connectors/az"
 FORCE=""                 # 1 with --force; empty otherwise
 KEEP=""                  # 1 with --keep; empty otherwise (so ${KEEP:+--keep} works)
-STOP_AFTER=""
-START_FROM=""
 LOG=""
 VERBOSE=0
 TDD_DIR_OPT="${TDD_DIR:-$HOME/.tdd}"
@@ -167,7 +158,6 @@ while [ $# -gt 0 ]; do
         --name) NAME="$2"; shift 2 ;;
         --storage-domain) STORAGE_SYSTEM="$2"; shift 2 ;;
         --llm-domain) LLM_SYSTEM="$2"; shift 2 ;;
-        --start-from) START_FROM="$2"; shift 2 ;;
         --expect-pods) EXPECT_PODS="$2"; shift 2 ;;
         --venv-type) VENV_TYPE="$2"; shift 2 ;;
         --py-version) PYTHON="$2"; shift 2 ;;
@@ -182,7 +172,6 @@ while [ $# -gt 0 ]; do
         --xp-suites) SUITES="$2"; shift 2 ;;
         --force | -f) FORCE=1; shift ;;
         --keep) KEEP=1; shift ;;
-        --stop-after) STOP_AFTER="$2"; shift 2 ;;
         --log) LOG="$2"; shift 2 ;;
         --tdd-dir) TDD_DIR_OPT="$2"; shift 2 ;;
         --verbose) VERBOSE=1; shift ;;
@@ -396,8 +385,6 @@ common_screen "  --llm-domain        ${LLM_SYSTEM:-(none)}${LLM_SYSTEM:+   -> do
 common_screen "  --expect-pods       $EXPECT_PODS"
 common_screen "  --force             $([ -n "$FORCE" ] && echo "yes (replace an existing venv/instance/namespace)" || echo "no (an existing one is an error)")"
 common_screen "  --keep              $([ -n "$KEEP" ] && echo "yes (also: xp one-shot --keep)" || echo "no (domains, instance, namespace and venv deleted at the end)")"
-common_screen "  --start-from        ${START_FROM:-(from the first stage)}"
-common_screen "  --stop-after        ${STOP_AFTER:-(run everything)}"
 common_screen "  --log               $LOG"
 common_screen "  --tdd-dir           $TDD_DIR_OPT"
 common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "no (rolling window of $WINDOW log lines)")"
@@ -412,15 +399,12 @@ fi
 
 common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"
 common_run tdd env unset --td
-common_checkpoint unset-td
 
 common_stage unset-pypi "unset the Python package index variables"
 common_run tdd env unset --py-idx --py-default-idx
-common_checkpoint unset-pypi
 
 common_stage set-crypto "set _TDD_CRYPTO_KEY"
 common_run tdd env set --crypto
-common_checkpoint set-crypto
 
 common_stage cluster "make $CONTEXT current and check it reaches the cluster"
 # In front of everything that costs time: pointed at another cloud's context, or
@@ -436,7 +420,6 @@ common_note "the run's own kubeconfig is $RUN_KUBECONFIG, on context $CONTEXT"
 common_note "cluster endpoint: $("${KUBECTL[@]}" config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null)"
 common_run "${KUBECTL[@]}" version --output=yaml
 common_run "${KUBECTL[@]}" get namespaces
-common_checkpoint cluster
 
 common_stage systems "dev and fs, $DB_SYSTEM, azureblob (and --llm) plus every system the suites need must be in the tdd store"
 # checked UPFRONT: a run missing one must fail before anything is built
@@ -450,11 +433,9 @@ done
 common_run tdd system status --sys "$DB_SYSTEM"
 common_run tdd system status --sys azureblob
 [ -z "$LLM_SYSTEM" ] || common_run tdd system status --sys "$LLM_SYSTEM"
-common_checkpoint systems
 
 common_stage pycache "purge tabsdata from the uv and pip caches"
 common_run tdd pycache clean
-common_checkpoint pycache
 
 common_stage clean-previous "remove what a previous $INSTANCE left (--force; nothing exists otherwise)"
 # scoped to THIS run's names; the namespace delete waits -- a create over a
@@ -467,7 +448,6 @@ fi
 if "${KUBECTL[@]}" get namespace "$NAMESPACE" >/dev/null 2>&1; then
     common_run "${KUBECTL[@]}" delete namespace "$NAMESPACE" --wait=true --timeout=180s
 fi
-common_checkpoint clean-previous
 
 common_stage create-venv "leave any active venv, then create and activate the managed venv $VENV ($VENV_TYPE, python $PYTHON)"
 # Whatever this shell was in has to go first: `tdd venv create` refuses under a
@@ -478,7 +458,6 @@ common_stage create-venv "leave any active venv, then create and activate the ma
 common_run tdd venv deactivate --force
 # shellcheck disable=SC2086
 common_run tdd venv create --name "$VENV" --type "$VENV_TYPE" --python "$PYTHON" ${FORCE:+--force}
-common_checkpoint create-venv
 
 common_stage install "uv pip install $TABSDATA_SPEC into $VENV"
 # shellcheck disable=SC2086
@@ -486,7 +465,6 @@ common_run uv pip install ${UV_INDEX_URI:+--index "$UV_INDEX_URI" --index-strate
 for program in tdkserver tdk; do
     common_run test -x "$(dirname "$(command -v python)")/$program"
 done
-common_checkpoint install
 
 # tabsdata 2.0.2 ships no psycopg2 with its Postgres connector (it sits in the
 # `test` extra), yet the CDC plugin imports it when tdk loads the connectors, so
@@ -496,7 +474,6 @@ if [ "$TD_VERSION" = "2.0.2" ]; then
     common_stage cdc-driver "tabsdata 2.0.2 workaround: psycopg2-binary into $VENV for the Postgres CDC plugin"
     # shellcheck disable=SC2086
     common_run uv pip install ${UV_INDEX_URI:+--index "$UV_INDEX_URI" --index-strategy unsafe-best-match} psycopg2-binary==2.9.11
-    common_checkpoint cdc-driver
     common_remark "workaround: tabsdata 2.0.2 ships no psycopg2 with its Postgres connector; psycopg2-binary was installed into $VENV so the CDC plugin loads"
 fi
 
@@ -529,7 +506,6 @@ if [ -n "$LLM_SYSTEM" ]; then
     eval "$(tdd domain info --domain "$LLM_DOMAIN" --format export --prefix LLM 2>/dev/null)"
     common_run test -n "${LLM__API_KEY:+set}"
 fi
-common_checkpoint domains
 
 common_stage namespace "create the namespace $NAMESPACE and point the run's kubeconfig at it"
 # tdkserver takes the namespace from the current context of the kubeconfig it is
@@ -537,12 +513,10 @@ common_stage namespace "create the namespace $NAMESPACE and point the run's kube
 # says is touched, and nothing has to be put back afterwards.
 common_run "${KUBECTL[@]}" create namespace "$NAMESPACE"
 common_run "${KUBECTL[@]}" config set-context "$CONTEXT" --namespace "$NAMESPACE"
-common_checkpoint namespace
 
 common_stage init "tdkserver init --provider $PROVIDER --instance $INSTANCE (the editable config folder)"
 common_run tdd tdkserver init --provider "$PROVIDER" --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}"
 common_run test -d "$CONFIGS"
-common_checkpoint init
 
 common_stage configure "fill the config files from the domains: database, storage, LLM key, uv index"
 # Named placeholders are shared across files; the storage file's ${{secret}}
@@ -574,32 +548,26 @@ if [ -n "$UV_INDEX_URI" ]; then
 fi
 common_run common_placeholders_left "$CONFIGS"
 common_run tdd tdkserver config check --instance "$INSTANCE" --init --accept-terms y
-common_checkpoint configure
 
 common_stage create "tdkserver create (upload the config), then delete the plaintext input folder"
 common_run tdd tdkserver create --instance "$INSTANCE" --port "$PORT" "${TDK_OPTS[@]}"
 # the input folder holds the secrets in plain text; create uploaded them --
 # `config get --with-secrets` fetches them back
 common_run rm -rf "$HOME/.tabsdata/instances/$INSTANCE/init"
-common_checkpoint create
 
 common_stage start-1 "tdkserver start (the first start builds environments and runs the db setup)"
 common_run tdd tdkserver start --instance "$INSTANCE" "${TDK_OPTS[@]}"
 common_run common_tdkserver_expect "$INSTANCE" running
-common_checkpoint start-1
 
 common_stage pods-1 "every expected service pod is Running: $EXPECT_PODS"
 # shellcheck disable=SC2086
 common_run_retry 30 10 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIST
-common_checkpoint pods-1
 
 common_stage forward-1 "kubectl port-forward service/net-apiserver $PORT:$PORT (background)"
 common_kubeportforward_start "$RUN_KUBECONFIG" "$NAMESPACE" net-apiserver "$PORT"
-common_checkpoint forward-1
 
 common_stage login-1 "tdk login as admin on $SERVER"
 common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password tabsdata
-common_checkpoint login-1
 
 common_stage stop-1 "tdkserver stop (the port-forward dies with the pods)"
 # rule: end the port-forward before tabsdata stops, restarts, or takes a tdkserver
@@ -607,7 +575,6 @@ common_stage stop-1 "tdkserver stop (the port-forward dies with the pods)"
 common_kubeportforward_stop
 common_run tdd tdkserver stop --instance "$INSTANCE" "${TDK_OPTS[@]}"
 common_run common_tdkserver_expect "$INSTANCE" stopped
-common_checkpoint stop-1
 
 common_stage venv-update "update the instance's fn and ag venvs with the DB drivers"
 printf '%s\n' "$REQUIREMENTS" > "$WORK/requirements.txt"
@@ -615,25 +582,20 @@ common_note "requirements: $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
 for name in fn ag; do
     common_run tdd tdkserver venv update --instance "$INSTANCE" --name "$name" --requirements "$WORK/requirements.txt" "${TDK_OPTS[@]}"
 done
-common_checkpoint venv-update
 
 common_stage start-2 "tdkserver start"
 common_run tdd tdkserver start --instance "$INSTANCE" "${TDK_OPTS[@]}"
 common_run common_tdkserver_expect "$INSTANCE" running
-common_checkpoint start-2
 
 common_stage pods-2 "every expected service pod is Running: $EXPECT_PODS"
 # shellcheck disable=SC2086
 common_run_retry 30 10 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIST
-common_checkpoint pods-2
 
 common_stage forward-2 "kubectl port-forward service/net-apiserver $PORT:$PORT (re-established after start)"
 common_kubeportforward_start "$RUN_KUBECONFIG" "$NAMESPACE" net-apiserver "$PORT"
-common_checkpoint forward-2
 
 common_stage login-2 "tdk login as admin on $SERVER"
 common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password tabsdata
-common_checkpoint login-2
 
 for suite in "${SUITE_LIST[@]}"; do
     project="${BASE}__xp_$(date -u +%Y%m%dT%H%M%S)_$(printf '%s' "$suite" | tr -c 'A-Za-z0-9\n' '_')"
@@ -641,7 +603,6 @@ for suite in "${SUITE_LIST[@]}"; do
     common_stage --continue "xp-$(printf '%s' "$suite" | tr '/' '_')" "xp one-shot $suite as $project (continue on error)"
     # shellcheck disable=SC2086
     common_run tdd xp one-shot --suite "$suite" --project "$project" ${KEEP:+--keep}
-    common_checkpoint "xp-$(printf '%s' "$suite" | tr '/' '_')"
 done
 
 if [ -n "$KEEP" ]; then

@@ -11,8 +11,8 @@ the scripts ship inside this package the way xp's suites ship inside xp, and the
 one thing the tool does is put them somewhere a person can run them.
 
 Exporting rather than running them is the point. They are meant to be read and
-edited while a run is being chased -- a stage commented out, a `--stop-after`
-moved -- and a copy the user owns is the honest way to allow that. It also means
+edited while a run is being chased -- a stage commented out, an option tried --
+and a copy the user owns is the honest way to allow that. It also means
 a machine with a tdd install and no checkout can run one.
 """
 

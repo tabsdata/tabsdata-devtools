@@ -20,7 +20,7 @@ step to hook — so there `scripts_dir()` finds them at the repo root instead; i
 apart by probing for `_common.sh`. The shell package's assets work the same way.
 
 The tool exports rather than runs them, and that is deliberate. They are made to be read and edited
-while a failure is being chased — a stage commented out, `--stop-after` moved, an option tried —
+while a failure is being chased — a stage commented out, an option tried —
 and a copy the user owns is the honest way to allow it. It also lets a machine with a tdd install
 and no checkout run one.
 
@@ -55,11 +55,6 @@ storage and database beside the cluster (`awspostgres`/`s3`, `gcppostgres`/`gcs`
 `azpostgres`/`azureblob`); an LLM domain is created only when asked for. Each script's config
 filling knows its own cloud's option keys, so naming another cloud's storage leaves placeholders
 that `common_placeholders_left` then refuses — visibly, at `configure`.
-
-`--start-from STAGE` skips the *doing* of every earlier stage while keeping the *reading*: a
-stage's `eval $(tdd domain info ...)` still runs, so later stages know their domains, but
-`common_run` does nothing. That makes it a resume rather than a rerun, and it only means anything
-against what a previous `--keep` left standing — nothing is recreated.
 
 A cluster run never writes to the kubeconfig it is given. It copies it into the run's work
 directory, makes the copy current on the chosen context and namespace, and points tdkserver at the
