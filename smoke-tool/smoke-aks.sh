@@ -544,7 +544,7 @@ if [ -n "$LLM_SYSTEM" ]; then
 fi
 if [ -n "$UV_INDEX_URI" ]; then
     common_note "tabsdata.yaml: UV_INDEX -> $(common_display "$UV_INDEX_URI")"
-    UVX="$UV_INDEX_URI" perl -pi -e 's/^(\s*UV_INDEX:).*$/$1 $ENV{UVX}/' "$CONFIGS/tabsdata.yaml"
+    common_set_uv_index "$CONFIGS/tabsdata.yaml" "$UV_INDEX_URI"
 fi
 common_run common_placeholders_left "$CONFIGS"
 common_run tdd tdkserver config check --instance "$INSTANCE" --init --accept-terms y

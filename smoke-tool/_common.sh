@@ -668,16 +668,46 @@ common_k8s_report() {
     echo "================ end kubernetes"
 }
 
+# common_set_uv_index FILE URI -- point a tabsdata.yaml's UV_INDEX at URI. The
+# replacement is a function rather than a template, so nothing in the URI is
+# ever read as a backreference, and the line keeps its own indentation.
+common_set_uv_index() {
+    TDD_UV_INDEX="$2" python3 - "$1" <<'PYEOF'
+import os, re, sys
+
+path, uri = sys.argv[1], os.environ["TDD_UV_INDEX"]
+with open(path, encoding="utf-8") as fh:
+    text = fh.read()
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(re.sub(r"(?m)^(\s*UV_INDEX:).*$", lambda m: f"{m.group(1)} {uri}", text))
+PYEOF
+}
+
 # common_fill_placeholder FILE... -- PLACEHOLDER VALUE -- replace every literal
 # occurrence of PLACEHOLDER (`${{literal:tdk_database_host}}`, `${{secret}}`,
-# ...) in the files with VALUE. perl with \Q..\E, so braces, `$`, `?` and the
-# value's own characters are never interpreted; the value travels in the
-# environment, so it is never on a command line either (it may be a password).
+# ...) in the files with VALUE.
+#
+# A literal replace on both sides: the placeholder holds `${{`, `?` and `:`, and
+# the value can be a password, a PEM or JSON, so neither may be read as a
+# pattern or as a backreference. The value travels in the environment, never on
+# a command line. python3 rather than sed (which would interpret both sides) or
+# perl (which would not, but is a second interpreter for what these scripts
+# already do in python -- see common_fill_pem and each script's fill_storage).
 common_fill_placeholder() {
     local files=()
     while [ $# -gt 0 ] && [ "$1" != "--" ]; do files[${#files[@]}]="$1"; shift; done
     shift
-    PH="$1" VAL="$2" perl -pi -e 's/\Q$ENV{PH}\E/$ENV{VAL}/g' "${files[@]}"
+    PH="$1" VAL="$2" python3 - "${files[@]}" <<'PYEOF'
+import os, sys
+
+ph, val = os.environ["PH"], os.environ["VAL"]
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    if ph in text:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text.replace(ph, val))
+PYEOF
 }
 
 # common_fill_pem FILE... -- PLACEHOLDER VALUE -- replace a whole `key: PLACEHOLDER`

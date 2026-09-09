@@ -254,3 +254,49 @@ def test_the_help_reads_long_form_first_and_paints_only_terms():
     # or a stray apostrophe in the middle would be swallowed and this would pass
     program = body.split("'")[1]
     assert "{ print painted($0) }" in program, "the awk program is cut short"
+
+
+def test_substitution_is_literal_on_both_sides_and_uses_no_perl(tmp_path):
+    """The placeholder holds `${{`, `?` and `:`; the value can be a password, a
+    PEM or JSON. Neither may be read as a pattern or as a backreference, which is
+    what ruled sed out. perl did that correctly and is still gone: these scripts
+    already run python3 for the other two fills, so it was a second interpreter
+    buying nothing -- one more thing to have installed, for a script whose whole
+    job is checking an install."""
+    import subprocess
+
+    engine = smoke.scripts_dir() / "_common.sh"
+    cfg = tmp_path / "a.yaml"
+    cfg.write_text(
+        "key: ${{secret:pw?}}\nother: ${{literal:host}}\n"
+        "  UV_INDEX: https://old.example/simple/\n"
+    )
+    nasty = r"p&ss\1\\word$1/x{}[]*.^"
+    subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'. "{engine}"\n'
+            f"common_fill_placeholder {cfg} -- '${{{{secret:pw?}}}}' \"$1\"\n"
+            f"common_fill_placeholder {cfg} -- '${{{{literal:host}}}}' 10.0.0.1\n"
+            f'common_set_uv_index {cfg} "https://cdn.example/simple/"',
+            "bash",
+            nasty,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    written = cfg.read_text().splitlines()
+    assert written[0] == f"key: {nasty}", written[0]
+    assert written[1] == "other: 10.0.0.1"
+    # the rewrite keeps the line's indentation and takes the URL verbatim
+    assert written[2] == "  UV_INDEX: https://cdn.example/simple/"
+
+    for path in [engine, *smoke.scripts_dir().glob("smoke-*.sh")]:
+        code = [
+            ln
+            for ln in path.read_text().splitlines()
+            if not ln.lstrip().startswith("#")
+        ]
+        assert not [ln for ln in code if "perl" in ln], path.name
