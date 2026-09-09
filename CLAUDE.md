@@ -58,6 +58,9 @@ holds the user's system and domain descriptors.
    never an OS location, the cwd or `__file__` arithmetic. External binaries are the one
    exception: declared in `bin-reqs.txt` (package root; `<file>.bin-reqs.txt` beside a shell
    script), reported by `tdd --reqs`, refused before a command runs (`--help` excepted).
+   A tree that is *edited* stays where it is edited and is `force-include`d into the wheel —
+   the shell scripts, `<repo>/smoke-tool/`, `<repo>/xp-tool/` (xp's suites and connections);
+   `force-include` does nothing for an editable install, so each locates both layouts.
 6. **All envs are relocatable** (`_make_venv()`: `--relocatable`, `UV_LINK_MODE=copy`);
    `tdd-source.sh` locates itself; never bake an absolute `TDD_DIR`.
 7. **A tool depends on exactly one `-deps-*`.** That is what assigns its toolset.

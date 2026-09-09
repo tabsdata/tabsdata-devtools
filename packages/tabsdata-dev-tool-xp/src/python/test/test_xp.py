@@ -337,9 +337,39 @@ def test_the_login_probe_does_not_open_an_unlabelled_reporter(
     assert out.splitlines()[-1].startswith("demo/one - summary - 2 step(s), all ok")
 
 
-def test_the_built_in_suites_ship_with_the_package_and_export(
-    tmp_path, monkeypatch, capsys
-):
+def test_the_built_in_suites_are_carried_at_the_repo_root_and_packed_into_a_wheel():
+    """The XP tree is 800-odd of tabsdata-xp's own files, read and edited at the
+    repo root -- so that is where it lives, and a wheel build copies it in
+    beside the module (force-include). An editable install copies nothing, so
+    the tool has to find both layouts, and the pyproject has to name the very
+    directory `builtin_root()` probes for or a wheel would carry no suites at
+    all. Same arrangement as the smoke scripts.
+    """
+    import tomllib
+
+    from tabsdata_dev.tool.xp import suites
+
+    pkg = pathlib.Path(__file__).parents[3]
+    repo = pkg.parents[1]
+
+    # the checkout keeps them at the root, and nothing was left in the package
+    assert (repo / suites.TREE_DIR / "suites").is_dir()
+    assert (repo / suites.TREE_DIR / "connections").is_dir()
+    module = pkg / "src" / "python" / "main" / "tabsdata_dev" / "tool" / "xp"
+    assert not (module / suites.TREE_DIR).exists()
+
+    wheel = tomllib.loads((pkg / "pyproject.toml").read_text(encoding="utf-8"))
+    assert wheel["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"] == {
+        f"../../{suites.TREE_DIR}": f"tabsdata_dev/tool/xp/{suites.TREE_DIR}"
+    }
+
+    # and whichever of the two layouts this install is, that is what was found
+    root = suites.builtin_root()
+    assert root.name == suites.TREE_DIR
+    assert (root / "suites").is_dir() and (root / "connections").is_dir()
+
+
+def test_the_built_in_suites_are_the_default_and_export(tmp_path, monkeypatch, capsys):
     from tabsdata_dev.tool.xp import suites
 
     monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))

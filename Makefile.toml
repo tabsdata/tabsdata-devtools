@@ -18,6 +18,9 @@ skip_core_tasks = true
 [env]
 WHEELS_OUT = "${CARGO_MAKE_WORKING_DIRECTORY}/target/wheels"
 PACKAGES = "${CARGO_MAKE_WORKING_DIRECTORY}/packages"
+# the XP tree xp carries: at the root, where it is read and edited,
+# and force-included into the tool's wheel
+XP_TOOL = "${CARGO_MAKE_WORKING_DIRECTORY}/xp-tool"
 TDD_PKG = "${CARGO_MAKE_WORKING_DIRECTORY}/packages/tabsdata-dev-tdd"
 
 # --------------------------------------------------------------------- default
@@ -379,7 +382,8 @@ script_runner = "@shell"
 script = '''
 set -euo pipefail
 rm -rf "${WHEELS_OUT}" "${CARGO_MAKE_WORKING_DIRECTORY}/.ruff_cache"
-find "${PACKAGES}" -name '__pycache__' -type d -prune -exec rm -rf {} +
+# xp-tool holds the suites' function sources, which import when a suite is read
+find "${PACKAGES}" "${XP_TOOL}" -name '__pycache__' -type d -prune -exec rm -rf {} +
 find "${PACKAGES}" -name '.pytest_cache' -type d -prune -exec rm -rf {} +
 find "${PACKAGES}" -name '.ruff_cache' -type d -prune -exec rm -rf {} +
 echo "cleaned"

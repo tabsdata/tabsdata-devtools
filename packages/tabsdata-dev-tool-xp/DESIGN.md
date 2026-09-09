@@ -13,12 +13,16 @@ provision domains, create the project, register functions and triggers, run, che
 - Toolset `systems`; depends on `deps-systems` (pydantic, pyyaml), `common-core`. Modules:
   `state`, `reporter`, `models`, `suites`, `pointers`, `shell`, `conn`, `lanes`, `domains`,
   `project`, `cycle`.
-- The tabsdata-xp `suites/` and `connections/` trees ship inside the package (`xp/`, excluded
-  from ruff) and are the default; tabsdata-xp's `connectors` dir is split here into
-  `container-connectors` (docker/local systems) and `cloud-connectors` (lanes needing a cloud
-  store or warehouse: az, bigquery, clickhouse, databricks, gcs, s3, snowflake, starrocks);
-  `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`;
-  `export-suites --dir DIR` copies them out.
+- The tabsdata-xp `suites/` and `connections/` trees are **carried by** the package and are the
+  default. They live at `<repo>/xp-tool/` (excluded from ruff), where they are read and edited,
+  and a wheel build copies them in beside the module (`force-include`); an editable install
+  copies nothing -- a link has no build step to hook -- so there `builtin_root()` finds them at
+  the repo root instead, probing for `suites/` to tell the layouts apart. Same arrangement as
+  the smoke scripts and the shell package's assets.
+- tabsdata-xp's `connectors` dir is split here into `container-connectors` (docker/local
+  systems) and `cloud-connectors` (lanes needing a cloud store or warehouse: az, bigquery,
+  clickhouse, databricks, gcs, s3, snowflake, starrocks); `--suite <type>/<name>|<type>`
+  selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
 - No `bin-reqs`: xp reaches tdk and tdkserver only through `tdd tdk`/`tdd tdkserver`,
   and those launchers declare the binaries themselves -- the requirement belongs to the
   command that runs the program. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run

@@ -95,9 +95,12 @@ never blocked. `tdd-fn` does the same for shell commands with `command -v`.
 as `<file>.bin-reqs.txt` (`common.bin-reqs.txt` is folded into every shell command). `tdd --reqs`
 reports `[ok]`/`[missing]` from the catalog against the ambient `PATH` (a pyenv/asdf/mise shim
 counts only when its manager wires it); `cargo make check` fails on a missing one; `proc.run()`
-refuses an undeclared, unpinned binary at the point of use. Everything else a tool needs ships
-inside its package and is found with `importlib.resources` -- never an OS path, the cwd or
-`__file__` arithmetic: the same code runs editable, as a wheel, and in a relocated dir.
+refuses an undeclared, unpinned binary at the point of use. Everything else a tool needs is
+carried by its package and found with `importlib.resources` -- never an OS path, the cwd or
+`__file__` arithmetic: the same code runs editable, as a wheel, and in a relocated dir. A tree
+that is *edited* rather than only read -- `tabsdata-dev-shell`'s scripts, `<repo>/smoke-tool/`,
+`<repo>/xp-tool/` -- stays where it is edited and is `force-include`d into the wheel, which has
+no effect on an editable install; those three locate both layouts, probing for a file they know.
 
 ## Environments
 

@@ -2,7 +2,7 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-# The suites xp ships are tabsdata-xp's own files, copied verbatim: their
+# The suites xp carries are tabsdata-xp's own files, copied verbatim: their
 # functions import tabsdatak and follow that repo's style, so ruff leaves them
 # alone (format and check alike).
-extend-exclude = ["packages/tabsdata-dev-tool-xp/src/python/main/tabsdata_dev/tool/xp/xp"]
+extend-exclude = ["xp-tool"]

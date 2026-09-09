@@ -25,6 +25,14 @@ build-backend = "hatchling.build"
 only-include = ["src/python/main/tabsdata_dev"]
 sources = ["src/python/main"]
 
+# The suites and connection templates live at the repo root, where they are read
+# and edited, and are copied in when a wheel is built. An editable install copies
+# nothing -- a link has no build step to hook -- so there the tool reads them
+# where they are; see `suites.builtin_root()`. Same arrangement as the smoke
+# scripts and the shell package's assets.
+[tool.hatch.build.targets.wheel.force-include]
+"../../xp-tool" = "tabsdata_dev/tool/xp/xp-tool"
+
 [tool.pytest.ini_options]
 testpaths = ["src/python/test"]
 

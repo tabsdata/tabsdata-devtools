@@ -3,14 +3,16 @@
 #
 """Where suites come from: ``--suite SELECTOR`` under a suites directory.
 
-The suites ship INSIDE this package -- ``xp/suites/`` and ``xp/connections/``
-are tabsdata-xp's trees, copied verbatim -- and are the default; ``--suites-dir
-DIR`` looks a selector up there instead (``export-suites --dir`` writes a copy
-to edit). A selector is ``<type>/<name>`` (``.json`` optional) for one
-definition, or ``<type>`` for a suite DIRECTORY, which fans out to every
-definition JSON directly under it -- one instance/project per file (a "swim
-lane"). An explicit path to a file or dir still works when no selector matches.
-The ``connections/`` templates are found by walking up from the suite dir to the
+The suites are carried BY this package -- ``xp-tool/suites/`` and
+``xp-tool/connections/`` are tabsdata-xp's trees, copied verbatim -- and are the
+default; ``--suites-dir DIR`` looks a selector up there instead
+(``export-suites --dir`` writes a copy to edit). They live at the repo root and
+a wheel build copies them in beside this module; see `builtin_root()`. A
+selector is ``<type>/<name>`` (``.json`` optional) for one definition, or
+``<type>`` for a suite DIRECTORY, which fans out to every definition JSON
+directly under it -- one instance/project per file (a "swim lane"). An explicit
+path to a file or dir still works when no selector matches. The
+``connections/`` templates are found by walking up from the suite dir to the
 first ancestor holding one (the XP root), else the built-in ones are used.
 """
 
@@ -40,9 +42,29 @@ def lane_files(directory: pathlib.Path) -> list[pathlib.Path]:
     return [p for p in sorted(directory.glob("*.json")) if is_suite_def(p)]
 
 
+#: The checkout keeps the XP tree here, at the repo root, where it is read and
+#: edited; a wheel build copies it in beside this module (force-include). One
+#: name in both layouts, so nothing has to say which is which.
+TREE_DIR = "xp-tool"
+
+
 def builtin_root() -> pathlib.Path:
-    """The XP tree this package ships: ``suites/`` and ``connections/``."""
-    return pathlib.Path(str(files("tabsdata_dev.tool.xp").joinpath("xp")))
+    """The XP tree this package carries: ``suites/`` and ``connections/``.
+
+    A wheel install has it beside this module. An editable install copies
+    nothing -- a link has no build step to hook -- so there it is still at the
+    repo root, which is where the suites are meant to be read and edited anyway.
+    Both layouts are normal; probe for ``suites/`` to tell them apart.
+    """
+    here = pathlib.Path(str(files("tabsdata_dev.tool.xp")))
+    beside = here / TREE_DIR
+    if (beside / "suites").is_dir():
+        return beside
+    # .../packages/<pkg>/src/python/main/tabsdata_dev/tool/xp -> the repo
+    repo = here.parents[7] / TREE_DIR
+    if (repo / "suites").is_dir():
+        return repo
+    raise FileNotFoundError(f"xp suites not found beside {beside} nor at {repo}")
 
 
 def suites_dir(override: str | None) -> pathlib.Path:
