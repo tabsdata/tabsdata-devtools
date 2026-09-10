@@ -262,6 +262,32 @@ def parse_checkout_target(target: str) -> tuple[str, str]:
     return "branch", text
 
 
+def _checkout_by_pr(runner: gh.Runner, branch: str, extra: list[str], out) -> None:
+    """Check out a branch this checkout does not track, through its PR.
+
+    A branch gh-stack has never heard of is reachable only as a pull request --
+    that is what makes the stack come down with it -- and a branch with no PR
+    at all is not a stack branch, so it is git's business rather than this
+    command's, and saying so is more use than a second failure.
+    """
+    pulls = gh.branch_prs(runner, branch)
+    number = (pulls[0] if pulls else {}).get("number")
+    if not number:
+        raise ToolError(
+            f"{branch!r} is not in a stack tracked here and gh knows no PR for it; "
+            f"`git switch {branch}` if the branch itself is what you want"
+        )
+    state = (pulls[0].get("state") or "").upper()
+    out.info(
+        f"{branch} is not in a stack tracked here; pulling it down by PR #{number}"
+        + (f" ({state.lower()})" if state and state != "OPEN" else "")
+    )
+    runner.run(
+        ["gh", "stack", "checkout", f"{gh.repo_url(runner)}/pull/{number}", *extra],
+        capture=False,
+    )
+
+
 def checkout(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     """`gh stack checkout` by branch name or `#<PR>`, and nothing else."""
     # Parsed before anything is asked of gh: a target gsx will not accept is a
@@ -281,8 +307,20 @@ def checkout(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     else:
         what = "a stack (interactive picker)"
     out.info(f"checking out {what}")
-    argv.extend(extras.passthrough.get("c", []))
-    runner.run(argv, capture=False)
+    extra = extras.passthrough.get("c", [])
+    argv.extend(extra)
+    try:
+        runner.run(argv, capture=False)
+    except ToolError:
+        if kind != "branch":
+            raise
+        # `gh stack checkout BRANCH` only resolves a branch of a stack this
+        # checkout already tracks; for any other branch it exits 2 and says to
+        # use the PR number instead. So take its advice: one lookup turns the
+        # branch into its PR, and a PR URL pulls the whole stack down. The
+        # failing call is left first because the tracked case is the common one
+        # and costs nothing extra.
+        _checkout_by_pr(runner, value, extra, out)
     if runner.dry_run:
         # No `dry_run` field: the shared runner puts one on every ok event, and
         # returning it here made `checkout --dry-run` raise TypeError from
@@ -970,6 +1008,38 @@ def _remote_branches(
     return rows
 
 
+def stack_refs(stack: dict) -> set[str]:
+    """The branch names of one stack, as the listing gives them.
+
+    The key the two sides are matched on, because it is the one both always
+    have: a number is missing from a rebuilt local stack and a PR number is
+    missing from a branch that has no PR yet.
+    """
+    return {
+        ((pull.get("head") or {}).get("ref"))
+        for pull in stack.get("pull_requests") or []
+        if (pull.get("head") or {}).get("ref")
+    }
+
+
+def _same_stack(names: set[str], listing: dict[int, dict]) -> dict | None:
+    """The listed stack that is this local stack, by the branches they share.
+
+    Not by number: `gh stack init` gives a rebuilt stack no number at all, so
+    after a `gsx move` the local side of a stack GitHub knows as #3478 is `#-`.
+    Matching on the number then showed the same branches twice -- once as the
+    local stack and once as a "remote only" one -- and hid any PR the listing
+    had added to it. The most-shared stack is the one, since a branch belongs
+    to at most one stack on either side.
+    """
+    best, shared = None, 0
+    for stack in listing.values():
+        overlap = len(stack_refs(stack) & names)
+        if overlap > shared:
+            best, shared = stack, overlap
+    return best
+
+
 def stack_rows(
     state: dict,
     current: str = "",
@@ -994,13 +1064,13 @@ def stack_rows(
     """
     sync = sync or {}
     stacks = state.get("stacks") or []
-    tracked_numbers = {int(s["number"]) for s in stacks if s.get("number")}
     tracked_branches = {
         entry.get("branch")
         for s in stacks
         for entry in s.get("branches") or []
         if entry.get("branch")
     }
+
     listed = {
         int(s["number"]): s for s in remote or [] if s.get("open") and s.get("number")
     }
@@ -1020,10 +1090,12 @@ def stack_rows(
                 if entry.get("branch")
             ]
             number = stack.get("number")
-            if source == BOTH and number and int(number) in listed:
-                branches += _remote_branches(
-                    listed[int(number)], tracked_branches, current, extras_only=True
-                )
+            if source == BOTH:
+                same = _same_stack({branch["name"] for branch in branches}, listed)
+                if same:
+                    branches += _remote_branches(
+                        same, tracked_branches, current, extras_only=True
+                    )
             rows.append(
                 {
                     "number": number,
@@ -1033,13 +1105,15 @@ def stack_rows(
                     "remote_only": False,
                 }
             )
-    wanted = (
-        sorted(listed)
-        if source == REMOTE
-        else sorted(set(listed) - tracked_numbers)
-        if source == BOTH
-        else []
+    # A listed stack is "elsewhere" when this checkout tracks none of its
+    # branches: one that shares any of them is the same stack under another
+    # name -- or under no name, after a move -- and is already a row above.
+    elsewhere = sorted(
+        number
+        for number, stack in listed.items()
+        if not stack_refs(stack) & tracked_branches
     )
+    wanted = sorted(listed) if source == REMOTE else elsewhere if source == BOTH else []
     for number in wanted:
         branches = _remote_branches(listed[number], tracked_branches, current)
         for branch in branches:
@@ -1050,7 +1124,7 @@ def stack_rows(
                 "trunk": ((listed[number].get("base") or {}).get("ref")) or "?",
                 "branches": branches,
                 "current": any(branch["current"] for branch in branches),
-                "remote_only": number not in tracked_numbers,
+                "remote_only": number in elsewhere,
             }
         )
     return rows
@@ -1064,12 +1138,15 @@ def _tag(row: dict, tag: str, width: int, paint) -> str:
     """A stack's number in its brackets, or in the spaces they would occupy."""
     opening, closing, colour = _guard(row)
     if opening:
-        return f"{paint(colour, opening)}{tag:<{width}}{paint(colour, closing)}"
+        body = f"{opening}{tag}{closing}"
+        pad = " " * (width + 2 - len(body))
+        return paint(colour, opening) + tag + paint(colour, closing) + pad
     if row.get("remote_only"):
         # the same `?` the branches get, in the same magenta, in the slot a
         # bracket would have used
-        return paint(REMOTE_MARK[1], f"{REMOTE_MARK[0]}{tag:<{width}} ")
-    return f" {tag:<{width}} "
+        body = f"{REMOTE_MARK[0]}{tag}"
+        return paint(REMOTE_MARK[1], body) + " " * (width + 2 - len(body))
+    return f" {tag}" + " " * (width + 1 - len(tag))
 
 
 def stack_lines(rows: list[dict], paint=_no_paint) -> str:

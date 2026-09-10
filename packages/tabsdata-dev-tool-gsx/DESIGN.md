@@ -121,6 +121,17 @@ as output, which is not a contradiction: what a person types has to be unambiguo
 what gh is handed has to be unambiguous to *resolve*. A branch name goes through as typed, so gh
 never sees a number at all. No target still opens gh's interactive picker.
 
+**A branch name gh cannot resolve is retried as its PR.** `gh stack checkout BRANCH` only knows
+the branches of a stack *this checkout already tracks*; for any other branch it exits 2 with "no
+locally tracked stack found" and the advice to use the PR number instead. In a fresh clone that
+is every branch, which made `gsx checkout OS-3348` fail on the one repository where it was most
+obviously the right thing to type. So the refusal is taken as advice: one `gh pr view BRANCH`
+turns the branch into its PR and the URL pulls the whole stack down. The failing call goes first
+on purpose -- the tracked case is the common one and pays nothing for the fallback -- and a branch
+with no PR at all is not a stack branch, so it is named as git's business (`git switch BRANCH`)
+rather than retried. `#N` is never retried: a branch name has a second reading and a PR number
+does not.
+
 ## approve
 
 `approve --approvers NAME[,NAME...]` with `--pr N,...`, `--down-stack` or `--stack`. Each approver
@@ -187,10 +198,13 @@ local branches and gh-stack's own tracking file:
 ```
 gh stack unstack --local                          # forget the stack you are in
 gh stack checkout <top> && gh stack unstack --local   # ...and the target's
-gh stack init --base <trunk> <kept...>            # what stays below you
-gh stack init --base <base> <target...> <moved...>    # the new arrangement
+git checkout <trunk> && gh stack init --base <trunk> <kept...>
+git checkout <trunk> && gh stack init --base <base> <target...> <moved...>
 gh stack rebase --no-trunk                        # replay what changed parent
 ```
+
+Each `init` runs **from the trunk**, because `gh stack init` refuses to run while the current
+branch is in a stack -- including the one it has just made, since it leaves you on top of it.
 
 The reason this works -- and the reason there is no rebase code here -- is that **`gh stack init`
 records each branch's base as the tip its commits actually sit on**, not the parent it was just
@@ -272,6 +286,14 @@ $ tdd gsx stack --remote --short        # GitHub's view, nothing compared
 
   ? remote only  [] current
 ```
+
+**The two sides are matched on branch names**, not on stack numbers. A rebuilt local stack has no
+number at all (`gh stack init` issues none), so after a move the local side of what GitHub calls
+#3478 is `#-`; matching on the number showed those branches twice -- once as the local stack and
+once as a "remote only" one -- and hid any PR the listing had added to it. Names are the one key
+both sides always have: a number is missing from a rebuilt stack and a PR number from a branch
+that has none yet. A listed stack sharing no branch with anything tracked here is the only kind
+that gets a row of its own.
 
 **Three sources, and the default is both.** gh-stack's tracking file (`<git-dir>/gh-stack`) is
 the local half; GitHub's own listing (`gh api repos/{owner}/{repo}/stacks`) is the other. The
@@ -460,8 +482,18 @@ Facts that cost real testing; the code depends on them.
    prevent -- while skipping the listing.
 7. `gh stack checkout`'s bare number is **a stack number first**, then a locally tracked PR, then
    a PR discovered from GitHub, then a branch (its own `--help` says so). A PR URL has no such
-   chain, which is why `checkout` hands gh the URL for `#N` rather than the number.
-8. **`gh stack init` records the base a branch's commits really sit on**, not the parent it was
+   chain, which is why `checkout` hands gh the URL for `#N` rather than the number. A **branch
+   name** resolves only within a stack this checkout tracks: anything else is `✗ no locally
+   tracked stack found for "X"` and exit 2, with "use the PR number" as the advice -- which is
+   why `checkout` retries such a branch through its PR.
+8. **A stack keeps its merged PRs, everywhere.** `gh stack checkout 3443` on tabsdata-os prints
+   "Skipping merged branch" ninety times and then imports all 93 into `<git-dir>/gh-stack`;
+   `gh stack view` lists all 93 (merged ones marked `✓`); the stack object on GitHub holds all 93
+   PRs, and `sync --prune` deletes the local branches but says outright that "stack metadata is
+   preserved so that rebase and display logic continue to work correctly". With no endpoint that
+   removes one PR from a stack, only a dissolve and relink can shrink one -- so a display that
+   wants the working set has to filter, which is what `stack` does.
+9. **`gh stack init` records the base a branch's commits really sit on**, not the parent it was
    just declared to have, and `gh stack rebase --no-trunk` replays `--onto <new parent> <that
    base>` -- so a branch moved between stacks is rebased correctly by gh-stack itself, nothing is
    fetched or pushed, and only the branches whose parent changed are rewritten. Measured on
@@ -470,13 +502,17 @@ Facts that cost real testing; the code depends on them.
    previous base" belongs to the cascade's *rewritten-parent* case and does not fire here; an
    earlier draft of `move` carried its own `git rebase --onto` chain on the strength of that
    misreading.
-9. `gh stack rebase` keeps `.git/gh-stack-rebase-state` (every branch's original ref, the
+10. `gh stack rebase` keeps `.git/gh-stack-rebase-state` (every branch's original ref, the
    conflicting branch, what is left) and `--continue`/`--abort` finish or unwind it -- so a
    command that drives it needs no session of its own. `gh stack modify` keeps
    `gh-stack-modify-state` the same way.
-10. `gh stack init` **refuses a branch that is already in a tracked stack** (`✗ branch "b" already
-   exists in a stack`), which is why a move forgets both stacks locally first.
-11. The stacks listing (`gh api repos/{owner}/{repo}/stacks`) returns, per stack,
+11. `gh stack init` **refuses a branch that is already in a tracked stack** (`✗ branch "b" already
+   exists in a stack`), which is why a move forgets both stacks locally first -- and it refuses
+   just as hard when the **current branch** is in one (`✗ current branch "OS-3482" is already
+   part of a stack`, exit 5), which the init before it guarantees by leaving you on top of the
+   stack it just made. So every init in a move runs from the trunk. A real move died between its
+   third and fourth step on this, with both stacks already forgotten.
+12. The stacks listing (`gh api repos/{owner}/{repo}/stacks`) returns, per stack,
    `{number, base:{ref}, open, pull_requests:[{number, state, merged_at, head:{ref, sha}}]}`,
    the PRs in stack order bottom-up -- read off a real repository, and what `stack` builds its
    remote half from. `gh api` fills in `{owner}` and `{repo}` from the checkout, so that costs

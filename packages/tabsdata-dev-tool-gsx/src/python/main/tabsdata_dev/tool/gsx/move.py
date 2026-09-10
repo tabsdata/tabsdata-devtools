@@ -13,9 +13,12 @@ The four commands, and why they are gh-stack's rather than ours:
 
     gh stack unstack --local                     # forget the source stack
     gh stack checkout T && gh stack unstack --local   # ...and the target's
-    gh stack init --base <trunk> <kept...>       # what stays below you
-    gh stack init --base <base> <target...> <moved...>
+    git checkout <trunk> && gh stack init --base <trunk> <kept...>
+    git checkout <trunk> && gh stack init --base <base> <target...> <moved...>
     gh stack rebase --no-trunk                   # replay what changed parent
+
+Each `init` runs from the trunk because it refuses to run from inside a stack
+-- including the one it has just made, since it leaves you on top of it.
 
 `gh stack init` records each branch's base as **the tip its commits actually
 sit on**, not the parent it was just declared to have -- measured: a branch
@@ -282,14 +285,17 @@ def steps(plan: Plan) -> list[str]:
             f"gh stack checkout {target.head} && gh stack unstack --local"
             f"   # ...and {named}"
         )
+    # Each init runs from the trunk: `gh stack init` refuses when the CURRENT
+    # branch is in a stack, and the init before it leaves you on the top of the
+    # one it just made.
     if plan.keep_init:
         lines.append(
-            f"gh stack init --base {source.trunk} {' '.join(plan.keep_init)}"
-            "   # what stays below"
+            f"git checkout {source.trunk} && gh stack init --base {source.trunk} "
+            f"{' '.join(plan.keep_init)}   # what stays below"
         )
     lines.append(
-        f"gh stack init --base {plan.dest_base} {' '.join(plan.dest_init)}"
-        "   # the destination"
+        f"git checkout {source.trunk} && gh stack init --base {plan.dest_base} "
+        f"{' '.join(plan.dest_init)}   # the destination"
     )
     lines.append("gh stack rebase --no-trunk   # replay what changed parent")
     lines.append(f"git checkout {source.current}")
@@ -343,10 +349,15 @@ def run(runner: gh.Runner, plan: Plan, steps_counter) -> dict:
             f"forgot the stack of {target.head} locally", stage="untrack-target"
         )
     if plan.keep_init:
+        gh.checkout(runner, source.trunk)
         gh.stack_init(runner, plan.keep_init, base=source.trunk)
         steps_counter.step(
             f"tracked what stays below: {' '.join(plan.keep_init)}", stage="init-kept"
         )
+    # From the trunk, because the init above left us on the top of the stack it
+    # made and `gh stack init` refuses to run from inside a stack (exit 5,
+    # `current branch "X" is already part of a stack`).
+    gh.checkout(runner, source.trunk)
     gh.stack_init(runner, plan.dest_init, base=plan.dest_base)
     steps_counter.step(
         f"tracked the destination: {' '.join(plan.dest_init)}", stage="init-destination"
@@ -387,12 +398,22 @@ class Pending:
         return bool(self.dissolve)
 
     def line(self) -> str:
-        moved = ", ".join(f"#{pr}" for pr in sorted(self.prs))
-        left = ", ".join(f"#{number}" for number in sorted(set(self.prs.values())))
+        """What has to happen, rather than which PRs moved.
+
+        Naming the movers would mean picking them out of the stack that lost
+        them, and the useful fact is the other one: this stack no longer holds
+        its PRs the way GitHub does, so it has to be dissolved and relinked
+        from here. An early version said "#3485, #3486, #3487 left stack #3488"
+        when only one of the three had gone anywhere.
+        """
+        stacks = sorted(set(self.prs.values()))
+        which = ", ".join(f"#{number}" for number in stacks)
+        prs = ", ".join(f"#{pr}" for pr in sorted(self.prs))
         return (
-            f"a move is in progress: {moved} left stack {left} here, and GitHub still "
-            "has them in it -- `gsx submit --move` publishes it, "
-            "`gh stack checkout <n>` re-imports what GitHub has"
+            f"a move is in progress: stack {which} on GitHub no longer holds its PRs "
+            f"({prs}) the way this checkout does -- `gsx submit --move` dissolves it "
+            "and relinks them from here, `gh stack checkout <n>` re-imports what "
+            "GitHub has instead"
         )
 
 

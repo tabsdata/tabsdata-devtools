@@ -973,6 +973,81 @@ def test_checkout_dry_runs_without_clashing_with_the_runners_own_field(
     assert calls
 
 
+def _fake_checkout(monkeypatch, tmp_path, refuse=(), pulls=()):
+    """A checkout run where `gh stack checkout` refuses the argv prefixes in
+    `refuse`, the way it refuses a branch of a stack this checkout does not
+    track: exit 2, "no locally tracked stack found"."""
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    calls = []
+
+    class FakeRunner:
+        def __init__(self, out, dry_run=False):
+            self.out = out
+            self.dry_run = dry_run
+
+        def run(self, argv, **kwargs):
+            calls.append(argv)
+            for prefix in refuse:
+                if argv[: len(prefix)] == prefix:
+                    raise ToolError(f"`{' '.join(argv)}` failed (exit 2)")
+            return ""
+
+        def json(self, argv):
+            return None
+
+    monkeypatch.setattr(gh, "Runner", FakeRunner)
+    monkeypatch.setattr(gh, "require_tools", lambda runner: None)
+    monkeypatch.setattr(gh, "repo_url", lambda runner: "https://github.com/o/n")
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "OS-3348")
+    monkeypatch.setattr(gh, "current_pr", lambda runner: None)
+    monkeypatch.setattr(gh, "branch_prs", lambda runner, branch: list(pulls))
+    return calls
+
+
+def test_a_branch_this_checkout_does_not_track_is_reached_through_its_pr(
+    tmp_path, monkeypatch, capsys
+):
+    """`gh stack checkout BRANCH` only resolves a branch of a stack already
+    tracked here; for any other branch it exits 2 and says to use the PR
+    number. In a fresh clone that is every branch, so `gsx checkout OS-3348`
+    could not work -- it takes gh's advice now."""
+    calls = _fake_checkout(
+        monkeypatch,
+        tmp_path,
+        refuse=[["gh", "stack", "checkout", "OS-3348"]],
+        pulls=[{"number": 3442, "state": "OPEN"}],
+    )
+    assert gsx.main(["checkout", "OS-3348"]) == 0
+    assert calls == [
+        ["gh", "stack", "checkout", "OS-3348"],  # the tracked case, tried first
+        ["gh", "stack", "checkout", "https://github.com/o/n/pull/3442"],
+    ]
+    assert "not in a stack tracked here; pulling it down by PR #3442" in (
+        capsys.readouterr().err
+    )
+
+
+def test_a_branch_with_no_pr_at_all_is_gits_business_not_this_commands(
+    tmp_path, monkeypatch, capsys
+):
+    _fake_checkout(
+        monkeypatch, tmp_path, refuse=[["gh", "stack", "checkout", "scratch"]]
+    )
+    assert gsx.main(["checkout", "scratch"]) == 1
+    said = capsys.readouterr().err
+    assert "gh knows no PR for it" in said and "git switch scratch" in said
+
+
+def test_a_pr_target_that_gh_refuses_is_not_retried_as_anything_else(
+    tmp_path, monkeypatch, capsys
+):
+    """The fallback exists because a branch name has a second reading. `#42`
+    has only one, so a failure there is the answer."""
+    calls = _fake_checkout(monkeypatch, tmp_path, refuse=[["gh", "stack", "checkout"]])
+    assert gsx.main(["checkout", "#42"]) == 1
+    assert len(calls) == 1 and "failed (exit 2)" in capsys.readouterr().err
+
+
 def test_a_refused_checkout_target_costs_no_child_process(tmp_path, monkeypatch):
     """A target gsx will not accept is a usage error, so it is settled before
     gh is asked anything -- including the extension check."""
@@ -1143,8 +1218,8 @@ def test_the_plan_is_four_local_commands_and_says_so():
     assert plan.steps == [
         "gh stack unstack --local   # forget #44",
         "gh stack checkout b3 && gh stack unstack --local   # ...and #36",
-        "gh stack init --base main a1   # what stays below",
-        "gh stack init --base main b1 b2 b3 a2   # the destination",
+        "git checkout main && gh stack init --base main a1   # what stays below",
+        "git checkout main && gh stack init --base main b1 b2 b3 a2   # the destination",
         "gh stack rebase --no-trunk   # replay what changed parent",
         "git checkout a2",
     ]
@@ -1160,6 +1235,25 @@ def test_moving_onto_the_trunk_needs_no_target_stack_to_forget():
     plan = move_mod.build(source, _target(runner, "main", branch="a2"))
     assert plan.dest_init == ["a2"] and plan.untrack_target is False
     assert not any("checkout b" in step for step in plan.steps)
+
+
+def test_every_init_runs_from_the_trunk_because_it_refuses_to_run_in_a_stack():
+    """`gh stack init` checks the CURRENT branch as well as the named ones, and
+    the init before it leaves you on the top of the stack it just made. A real
+    move died there: `✗ current branch "OS-3482" is already part of a stack`
+    (exit 5), with the source and target already forgotten."""
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"])
+    source = move_mod.source_stack(_two(), "a2")
+    plan = move_mod.build(source, _target(runner, "#36", branch="a2"))
+    move_mod.run(runner, plan, progress.Counter(runner.out, total=6))
+    inits = [
+        (previous, call)
+        for previous, call in zip(runner.calls, runner.calls[1:])
+        if call[:3] == ["gh", "stack", "init"]
+    ]
+    assert len(inits) == 2
+    for previous, _ in inits:
+        assert previous == ["git", "checkout", "-q", "main"]
 
 
 def test_the_driver_runs_gh_stacks_own_commands_and_nothing_that_pushes():
@@ -1230,7 +1324,10 @@ def test_a_whole_stack_moved_onto_another_is_pending():
     assert found and found.dissolve == [44]
     assert found.prs == {42: 44, 43: 44}
     assert found.stacks == [["b1", "b2", "b3", "a1", "a2"]]
-    assert "#42, #43 left stack #44" in found.line()
+    # what has to happen, not which PRs moved: naming the movers meant picking
+    # them out of the stack that lost them, and an early version said all three
+    # of #3485/#3486/#3487 had gone when only one had
+    assert "stack #44 on GitHub no longer holds its PRs (#42, #43)" in found.line()
     assert "gsx submit --move" in found.line()
 
 
@@ -1649,7 +1746,9 @@ def test_what_only_github_has_is_a_magenta_question_mark():
         "<- <magenta>?</><magenta>a3</>",
         # a whole stack this checkout does not track: the same `?` in the same
         # magenta, in the slot a bracket would have used
-        "<magenta>?#41 </>  main <- <magenta>?</><magenta>c1</>",
+        # the tag is bracketed (or marked) tightly and the padding goes after
+        # it, so `#-` beside `#3443` does not read as `[#-   ]`
+        "<magenta>?#41</>   main <- <magenta>?</><magenta>c1</>",
     ]
     assert commands.REMOTE_MARK == ("?", "magenta")
     assert commands.GUARDS == {"current": ("[", "]", "white")}
