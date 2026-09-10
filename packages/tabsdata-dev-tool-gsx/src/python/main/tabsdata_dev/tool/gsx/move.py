@@ -99,6 +99,7 @@ class Target:
     head: str  # the branch the moved branches are stacked on top of
     number: int | None = None  # its stack's number, when it has one
     branches: list[str] = field(default_factory=list)  # its stack, bottom-up
+    prs: list[int | None] = field(default_factory=list)  # aligned with them
     trunk: str = ""  # what that stack sits on
     pr: int | None = None
 
@@ -109,6 +110,7 @@ class Plan:
     target: Target
     keep_init: list[str] = field(default_factory=list)
     dest_init: list[str] = field(default_factory=list)
+    landed: list[str] = field(default_factory=list)  # ...and what they leave out
     dest_base: str = ""
     untrack_target: bool = False
     parent: str = ""  # the branch the moved ones used to sit on
@@ -156,6 +158,11 @@ def source_stack(state: dict, current: str) -> Source:
         index=branches.index(current) + 1,
         current=current,
     )
+
+
+def _prs(entries: list[dict]) -> list[int | None]:
+    """Each tracked branch's PR number, aligned with the branch list."""
+    return [(item.get("pullRequest") or {}).get("number") for item in entries]
 
 
 def stack_of(state: dict, branch: str) -> dict | None:
@@ -207,21 +214,20 @@ def _by_number(value: str, source: Source, state: dict) -> Target:
         )
     for stack in state.get("stacks") or []:
         if stack.get("number") == number:
-            branches = [
-                item["branch"]
-                for item in stack.get("branches") or []
-                if item.get("branch")
+            entries = [
+                item for item in stack.get("branches") or [] if item.get("branch")
             ]
+            branches = [item["branch"] for item in entries]
             if not branches:
                 raise ToolError(f"stack #{number} is tracked here but has no branches")
-            entries = stack.get("branches") or []
             return Target(
                 mode=STACK,
                 head=branches[-1],
                 number=number,
                 branches=branches,
+                prs=_prs(entries),
                 trunk=((stack.get("trunk") or {}).get("branch")) or "",
-                pr=(entries[-1].get("pullRequest") or {}).get("number"),
+                pr=_prs(entries)[-1],
             )
     raise ToolError(
         f"stack #{number} is not tracked in this checkout; `gh stack checkout "
@@ -247,7 +253,9 @@ def _by_branch(
             f"{branch!r} is in no stack tracked here; it becomes the bottom of a new "
             "stack with the moved branches above it"
         )
-        return Target(mode=PLAIN, head=branch, trunk=default, branches=[branch])
+        return Target(
+            mode=PLAIN, head=branch, trunk=default, branches=[branch], prs=[None]
+        )
     entries = [item for item in stack.get("branches") or [] if item.get("branch")]
     branches = [item["branch"] for item in entries]
     if branches[-1] != branch:
@@ -264,8 +272,9 @@ def _by_branch(
         head=branch,
         number=int(number) if number else None,
         branches=branches,
+        prs=_prs(entries),
         trunk=((stack.get("trunk") or {}).get("branch")) or "",
-        pr=(entries[-1].get("pullRequest") or {}).get("number"),
+        pr=_prs(entries)[-1],
     )
 
 
@@ -278,16 +287,66 @@ def _require_local(runner: gh.Runner, branch: str) -> None:
 
 
 # --------------------------------------------------------------- the plan
-def build(source: Source, target: Target) -> Plan:
-    """Everything the four commands need, worked out before any of them runs."""
+def still_going(
+    branches: list[str], prs: list[int | None], landed: set[int]
+) -> tuple[list[str], list[str]]:
+    """A stack's branches with the finished run at its bottom dropped.
+
+    `gh stack checkout <n>` imports every branch a stack ever had, merged ones
+    included -- a stack that has landed ninety PRs arrives as ninety-three
+    branches, all but three of them pointing at the trunk's tip. Re-declaring
+    those to `gh stack init` is worse than useless: it makes a hundred-branch
+    stack out of a three-branch one, `init` drops the PR association of every
+    branch it cannot find an open PR for (so `gsx stack` stops recognising them
+    as merged and starts reporting them as ahead), and `gh stack submit` would
+    then be handed branches whose PRs are closed and whose remote refs are
+    gone.
+
+    Only the run at the **bottom** goes. A finished PR above an open one is
+    somebody's odd state, not history, and dropping it would leave a hole in
+    the chain of parents the replay reads. Returns what is kept and what is
+    not, because the operator should be told a name is missing rather than left
+    to notice.
+    """
+    kept = 0
+    for pr in prs[: len(branches)]:
+        if not pr or pr not in landed:
+            break
+        kept += 1
+    return branches[kept:], branches[:kept]
+
+
+def build(source: Source, target: Target, landed: set[int] | None = None) -> Plan:
+    """Everything the four commands need, worked out before any of them runs.
+
+    `landed` are the PRs that are merged or closed; without it nothing is
+    trimmed, which is what the plan looked like before and what a stack with no
+    history looks like anyway.
+    """
+    landed = landed or set()
     plan = Plan(source=source, target=target)
-    plan.keep_init = list(source.keep)
-    plan.dest_init = [*target.branches, *source.moving]
+    plan.keep_init, below = still_going(source.keep, source.prs, landed)
+    above, done = still_going(target.branches, target.prs, landed)
+    if target.branches and not above:
+        raise ToolError(
+            f"every PR in {_named(target)} is merged or closed, so there is no stack "
+            f"left to move onto; `--to {target.trunk or source.trunk}` is what that "
+            "means"
+        )
+    plan.dest_init = [*above, *source.moving]
+    plan.landed = [*done, *below]
     plan.dest_base = target.trunk or source.trunk
     plan.untrack_target = target.mode == STACK
+    # The real branch below the moved slice, even when it is one of the landed
+    # ones: that is where the moved commits actually sit, and it is the rebase's
+    # upstream. Only the *declaring* leaves it out.
     plan.parent = source.keep[-1] if source.keep else source.trunk
     plan.steps = steps(plan)
     return plan
+
+
+def _named(target: Target) -> str:
+    return f"#{target.number}" if target.number else f"the stack of {target.head}"
 
 
 def steps(plan: Plan) -> list[str]:
@@ -344,11 +403,26 @@ def text(plan: Plan) -> str:
         lines.append(
             f"  onto  {target.head} ({where})   ->  {' '.join(plan.dest_init)}"
         )
+    if plan.landed:
+        # Named, not just counted: a branch silently missing from a plan is the
+        # kind of thing that is only noticed after the commands have run.
+        lines.append(
+            f"  minus {len(plan.landed)} branch(es) whose PR is merged or closed"
+            f": {_abbreviated(plan.landed)}"
+        )
     lines.append("")
     lines.extend(f"  {n}. {step}" for n, step in enumerate(plan.steps, start=1))
     lines.append("")
     lines.append("  all local; `gsx submit --move` is what publishes it")
     return "\n".join(lines)
+
+
+def _abbreviated(branches: list[str], most: int = 6) -> str:
+    """A long list of names as its ends: ninety of them tell the operator less
+    than the first, the last and the count do."""
+    if len(branches) <= most:
+        return " ".join(branches)
+    return f"{branches[0]} .. {branches[-1]}"
 
 
 # ------------------------------------------------------------- the moving

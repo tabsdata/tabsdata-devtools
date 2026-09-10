@@ -207,6 +207,22 @@ git checkout <bottom> && gh stack rebase --upstack --no-trunk   # the rest
 Each `init` runs **from the trunk**, because `gh stack init` refuses to run while the current
 branch is in a stack -- including the one it has just made, since it leaves you on top of it.
 
+**What is re-declared is only what is still open.** `gh stack checkout <n>` imports every branch
+a stack ever had, so a stack that has landed 90 PRs arrives as 93 branches -- 90 of them pointing
+at the trunk's tip, with no remote copy left. Handing those back to `gh stack init` made a
+112-branch local stack out of a 22-branch move, and it is not merely noisy: `init` keeps a PR
+association only where it can find an open PR, so the merged branches came back *unassociated*,
+which is what made `gsx stack` stop filtering them as merged and start reporting all 90 as
+ahead -- and `gh stack submit` would then have been handed branches whose PRs are closed and
+whose remote refs are gone. So the **run of finished PRs at the bottom** of each stack is dropped
+from both inits, named in the plan (`minus 90 branch(es) whose PR is merged or closed`), and their
+states come from the one GraphQL call the move already makes for the PRs it is about to move.
+Only the run at the bottom: a merged PR *above* an open one is somebody's odd state rather than
+history, and dropping it would leave a hole in the chain of parents the cascade reads. The
+**rebase keeps the real parent** even when it is one of the dropped branches -- the moved commits
+do sit on top of it -- so only the declaring leaves it out. A target whose every PR has landed is
+refused, since `--to <trunk>` is what that means.
+
 **The replay is split, and the split is the heart of it.** Exactly one branch has a new parent:
 the one you were standing on. Its own commits are `<old parent>..<branch>`, and only this command
 knows what the old parent was, so that one rebase is plain git. Everything above it still sits on

@@ -751,17 +751,41 @@ def _move_ready(runner: gh.Runner, out) -> str:
     return default
 
 
-def _refuse_unmovable(runner: gh.Runner, numbers: list[int], out) -> None:
-    """The PRs being moved, checked in one call before anything is written.
+#: A PR nothing can be done to any more.
+LANDED = ("MERGED", "CLOSED")
+
+
+def _pr_states(runner: gh.Runner, numbers: list[int | None]) -> dict:
+    """Every PR the move involves, in one call.
+
+    Both halves of the move want the same answer: the moved PRs decide whether
+    it may run at all, and the ones below them decide which branches are still
+    worth declaring to `gh stack init`. One round trip either way.
+    """
+    wanted = sorted({number for number in numbers if number})
+    return gh.pull_requests(runner, wanted) if wanted else {}
+
+
+def _landed(states: dict) -> set[int]:
+    return {
+        number
+        for number, entry in states.items()
+        if (entry.get("state") or "").upper() in LANDED
+    }
+
+
+def _refuse_unmovable(states: dict, numbers: list[int]) -> None:
+    """The PRs being moved, checked before anything is written.
 
     A queued or auto-merging PR is the one that matters: GitHub leaves such a
     PR stacked and then **keeps the whole stack**, so the `gsx submit --move`
     that finishes the job would dissolve nothing and the PR would end up in two
     stacks at once. Better to say so now than to leave that to discover.
     """
-    if not numbers:
-        return
-    for number, entry in gh.pull_requests(runner, numbers).items():
+    for number in numbers:
+        entry = states.get(number)
+        if not entry:
+            continue
         state = (entry.get("state") or "").upper()
         if state and state != "OPEN":
             raise ToolError(
@@ -897,7 +921,8 @@ def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         f"{current!r} is #{source.index} from the bottom"
     )
     target = move_mod.resolve_target(runner, args.to, source, state, default, out)
-    _refuse_unmovable(runner, source.moving_prs, out)
+    states = _pr_states(runner, [*source.prs, *target.prs])
+    _refuse_unmovable(states, source.moving_prs)
     remote = gh.stack_remote(runner)
     unpushed = [
         branch
@@ -911,7 +936,7 @@ def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
             "on afterwards"
         )
 
-    plan = move_mod.build(source, target)
+    plan = move_mod.build(source, target, landed=_landed(states))
     plan.remote = remote
     plan.upstream = gh.sha(runner, f"refs/heads/{plan.parent}")
     if not plan.upstream:

@@ -1259,6 +1259,76 @@ def test_moving_onto_the_trunk_needs_no_target_stack_to_forget():
     assert not any("checkout b" in step for step in plan.steps)
 
 
+def test_the_landed_bottom_of_a_target_stack_is_not_declared_again():
+    """`gh stack checkout <n>` imports every branch a stack ever had: a real
+    stack arrived as 93 branches, 90 of them merged and all pointing at the
+    trunk's tip. Re-declaring those made a 112-branch local stack, lost the PR
+    association of every merged one, and would have handed `gh stack submit`
+    branches whose PRs are closed and whose remote refs are gone."""
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"])
+    source = move_mod.source_stack(_two(), "a2")
+    target = _target(runner, "#36", branch="a2")
+    plan = move_mod.build(source, target, landed={24, 25})
+    assert plan.dest_init == ["b3", "a2"] and plan.landed == ["b1", "b2"]
+    assert (
+        "git checkout main && gh stack init --base main b3 a2   # the destination"
+        in plan.steps
+    )
+    # ...and the operator is told, rather than left to notice the absence
+    assert "minus 2 branch(es) whose PR is merged or closed: b1 b2" in move_mod.text(
+        plan
+    )
+
+
+def test_only_the_run_at_the_bottom_goes():
+    """A merged PR above an open one is somebody's odd state, not history, and
+    dropping it would leave a hole in the chain of parents the replay reads."""
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"])
+    source = move_mod.source_stack(_two(), "a2")
+    target = _target(runner, "#36", branch="a2")
+    plan = move_mod.build(source, target, landed={25, 26})
+    assert plan.dest_init == ["b1", "b2", "b3", "a2"] and plan.landed == []
+
+
+def test_a_stack_with_nothing_open_left_is_not_a_target():
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"])
+    source = move_mod.source_stack(_two(), "a2")
+    target = _target(runner, "#36", branch="a2")
+    with pytest.raises(ToolError, match="every PR in #36 is merged or closed"):
+        move_mod.build(source, target, landed={24, 25, 26})
+
+
+def test_what_stays_below_is_trimmed_too_but_the_rebase_keeps_its_real_parent():
+    """The declaring leaves a landed branch out; the replay cannot. The moved
+    commits really do sit on top of it, so it is the rebase's upstream whatever
+    its PR says."""
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"])
+    source = move_mod.source_stack(_two(), "a2")
+    target = _target(runner, "#36", branch="a2")
+    plan = move_mod.build(source, target, landed={42})
+    assert plan.keep_init == [] and plan.parent == "a1"
+    assert not any("stays below" in step for step in plan.steps)
+    assert "git rebase --onto b3 a1 a2   # replay a2, off a1" in plan.steps
+
+
+def test_both_stacks_pr_states_are_asked_for_in_one_call(tmp_path, monkeypatch, capsys):
+    """The moved PRs decide whether the move may run, the ones below them
+    decide what is still worth declaring -- one round trip for both."""
+    _fake_move(monkeypatch, tmp_path, _two())
+    asked = []
+
+    def states(runner, numbers):
+        asked.append(list(numbers))
+        return {24: {"state": "MERGED"}, 25: {"state": "MERGED"}}
+
+    monkeypatch.setattr(gh, "pull_requests", states)
+    assert gsx.main(["move", "--to", "#36", "--dry-run"]) == 0
+    assert asked == [[24, 25, 26, 42, 43]]
+    said = capsys.readouterr()
+    plan = said.out + said.err
+    assert "->  b3 a2" in plan and "minus 2 branch(es)" in plan
+
+
 def test_every_init_runs_from_the_trunk_because_it_refuses_to_run_in_a_stack(
     tmp_path,
 ):
@@ -1523,14 +1593,11 @@ def test_a_closed_stack_on_github_is_left_alone():
         ),
     ],
 )
-def test_a_pr_the_publish_could_not_restack_is_refused_up_front(
-    node, message, monkeypatch
-):
+def test_a_pr_the_publish_could_not_restack_is_refused_up_front(node, message):
     """GitHub leaves a queued PR stacked and then keeps the whole stack, so the
     dissolve would silently do nothing and the PR would be in two stacks."""
-    monkeypatch.setattr(gh, "pull_requests", lambda runner, numbers: {43: node})
     with pytest.raises(ToolError, match=message):
-        commands._refuse_unmovable(_MoveRunner(), [43], _Out())
+        commands._refuse_unmovable({43: node}, [43])
 
 
 def _fake_move(monkeypatch, tmp_path, state, listing=(), current="a2"):
