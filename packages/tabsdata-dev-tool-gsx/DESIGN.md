@@ -431,11 +431,25 @@ finding only when there is no session -- otherwise the same thing would be said 
 worse. What it is for is a divergence nothing local accounts for -- an old clone, or somebody
 else's rearrangement -- and it is printed as a disagreement between the two sides rather than as
 "a move is in progress", since with no session there is no move of this checkout's to be in
-progress. It names all three ways out: `submit --move` makes it effective, `move --abort` cancels
-it, `gh stack checkout <n>` takes GitHub's version instead. The middle one carries its condition
-("if this checkout still has the move's session"), because this finding is read off the two sides
-rather than out of that file -- so it turns up where there is no session and an unconditional
-`--abort` would send the reader to "no move is in progress".
+progress. It is **one line for the finding, a row per stack, then the ways out** -- the fact and
+the remedies are read at different moments, and a paragraph holding both had to be re-read to
+find either:
+
+```
+GitHub and this checkout disagree about 2 stack(s) -- most likely an unpublished `gsx move`:
+  #3478   TD-3219 (#3012) TD-3240 (#3013) TD-3220 (#3017) TD-3236 (#3019)
+          TD-3262 (#3023) TD-3223 (#3028) TD-3274 (#3032) TD-3224 (#3065)
+  #3495   OS-3346 (#3440) OS-3347 (#3441) OS-3348 (#3442)
+  out:    `tdd gsx submit --move` makes it effective
+          `tdd gsx move --abort` cancels it, if this checkout still has the move's session
+          `gh stack checkout <n>` re-imports what GitHub has instead
+```
+
+Each row is that stack's own PRs in its own order, named by branch as well as number, because
+"#3478 disagrees" is not something anyone can act on. The middle way out carries its condition,
+because this finding is read off the two sides rather than out of the session file -- so it turns
+up where there is no session, and an unconditional `--abort` would send the reader to "no move is
+in progress".
 
 ## stack
 

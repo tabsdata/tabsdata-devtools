@@ -51,6 +51,7 @@ sides, not a move in progress -- the move is over by then. `stack` says so, and
 from __future__ import annotations
 
 import json
+import textwrap
 from dataclasses import dataclass, field
 
 from tabsdata_dev.common.core.errors import ToolError
@@ -972,6 +973,11 @@ def report(runner: gh.Runner, session: Session) -> tuple[str, dict]:
 
 
 # ----------------------------------------------------- what GitHub missed
+#: Where a stack's branches start, so the number reads as a label down the
+#: left rather than as the first item of the list.
+INDENT = 10
+
+
 @dataclass
 class Pending:
     """A move this checkout has made and GitHub has not been told about.
@@ -985,6 +991,7 @@ class Pending:
     dissolve: list[int] = field(default_factory=list)
     stacks: list[list[str]] = field(default_factory=list)
     prs: dict[int, int] = field(default_factory=dict)  # pr -> the stack it left
+    branch_of: dict[int, str] = field(default_factory=dict)  # ...and its branch
 
     def __bool__(self) -> bool:
         return bool(self.dissolve)
@@ -1006,6 +1013,11 @@ class Pending:
         disagreement and names the move only as the likely cause, since a
         rearrangement by hand reads exactly the same from here.
 
+        One line for what is going on, then a row per stack naming the branches
+        and PRs it is about, then the ways out -- because the fact and the
+        remedies are read at different moments, and a paragraph holding all
+        three had to be re-read to find either.
+
         Three ways out, and the middle one comes with its condition attached.
         **`--abort` needs the move's session file**, and this finding is read
         off the two sides rather than out of that file -- so it turns up in
@@ -1016,16 +1028,34 @@ class Pending:
         nothing. Where there IS a session, its own line is what gets printed
         and it offers `--abort` outright.
         """
-        stacks = sorted(set(self.prs.values()))
-        which = ", ".join(f"#{number}" for number in stacks)
-        prs = ", ".join(f"#{pr}" for pr in sorted(self.prs))
-        return (
-            f"stack {which} on GitHub no longer holds its PRs ({prs}) the way this "
-            "checkout does -- most likely a `gsx move` that has not been published. "
-            "`tdd gsx submit --move` makes it effective; `tdd gsx move --abort` "
-            "cancels it, if this checkout still has the move's session; "
-            "`gh stack checkout <n>` re-imports what GitHub has instead"
+        lines = [
+            f"GitHub and this checkout disagree about {len(self.dissolve)} stack(s) "
+            "-- most likely an unpublished `gsx move`:"
+        ]
+        for number in self.dissolve:
+            held = [
+                f"{self.branch_of.get(pr) or '?'} (#{pr})"
+                for pr, where in self.prs.items()
+                if where == number
+            ]
+            lines.extend(
+                textwrap.wrap(
+                    " ".join(held),
+                    width=78,
+                    initial_indent=f"  #{number}".ljust(INDENT),
+                    subsequent_indent=" " * INDENT,
+                )
+            )
+        lines.extend(
+            (
+                "  out:".ljust(INDENT) + "`tdd gsx submit --move` makes it effective",
+                " " * INDENT + "`tdd gsx move --abort` cancels it, if this checkout "
+                "still has the move's session",
+                " " * INDENT + "`gh stack checkout <n>` re-imports what GitHub has "
+                "instead",
+            )
         )
+        return "\n".join(lines)
 
 
 def pending(state: dict, listing: list[dict]) -> Pending:
@@ -1046,6 +1076,7 @@ def pending(state: dict, listing: list[dict]) -> Pending:
     """
     order: list[list[int]] = []
     names: list[list[str]] = []
+    branch_of: dict[int, str] = {}
     for stack in state.get("stacks") or []:
         prs, branches = [], []
         for item in stack.get("branches") or []:
@@ -1055,6 +1086,7 @@ def pending(state: dict, listing: list[dict]) -> Pending:
             number = (item.get("pullRequest") or {}).get("number")
             if number:
                 prs.append(int(number))
+                branch_of[int(number)] = item["branch"]
         order.append(prs)
         names.append(branches)
     tracked = {pr for prs in order for pr in prs}
@@ -1074,6 +1106,7 @@ def pending(state: dict, listing: list[dict]) -> Pending:
         found.dissolve.append(number)
         for pr in mine:
             found.prs[pr] = number
+            found.branch_of[pr] = branch_of.get(pr, "")
         for prs, branches in zip(order, names):
             if set(mine) & set(prs) and branches not in found.stacks:
                 found.stacks.append(branches)

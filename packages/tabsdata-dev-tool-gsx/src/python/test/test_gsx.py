@@ -1943,14 +1943,21 @@ def test_a_whole_stack_moved_onto_another_is_pending():
     # what has to happen, not which PRs moved: naming the movers meant picking
     # them out of the stack that lost them, and an early version said all three
     # of #3485/#3486/#3487 had gone when only one had
-    line = found.line()
-    assert "stack #44 on GitHub no longer holds its PRs (#42, #43)" in line
+    # one line for what is going on, then a row per stack naming the branches
+    # and PRs it is about, then the ways out
+    lines = found.line().splitlines()
+    assert lines[0] == (
+        "GitHub and this checkout disagree about 1 stack(s) "
+        "-- most likely an unpublished `gsx move`:"
+    )
+    assert lines[1] == "  #44     a1 (#42) a2 (#43)"
     # all three ways out, and the one that needs a session says so: this
     # finding is read off the two sides, so it turns up in checkouts that have
     # none and `--abort` would answer "no move is in progress" there
-    assert "submit --move` makes it effective" in line
-    assert "move --abort` cancels it, if this checkout still has the move's" in line
-    assert "gh stack checkout <n>` re-imports" in line
+    rest = "\n".join(lines[2:])
+    assert "out:    `tdd gsx submit --move` makes it effective" in rest
+    assert "move --abort` cancels it, if this checkout still has the move's" in rest
+    assert "gh stack checkout <n>` re-imports" in rest
     assert "gsx submit --move" in found.line()
 
 
@@ -2128,7 +2135,7 @@ def test_stack_says_the_two_sides_no_longer_agree(tmp_path, monkeypatch, capsys)
     capsys.readouterr()
     assert gsx.main(["stack", "--short", "--no-fetch"]) == 0
     said = capsys.readouterr().err
-    assert "no longer holds its PRs" in said and "in progress" not in said
+    assert "disagree about 1 stack(s)" in said and "in progress" not in said
 
 
 def test_submit_refuses_to_publish_a_move_without_being_told_to(
@@ -2140,7 +2147,7 @@ def test_submit_refuses_to_publish_a_move_without_being_told_to(
     _fake_move(monkeypatch, tmp_path, after, listing=_server())
     assert gsx.main(["submit"]) == 1
     said = capsys.readouterr().err
-    assert "no longer holds its PRs" in said and "--move" in said
+    assert "disagree about 1 stack(s)" in said and "--move" in said
 
 
 def test_submit_move_dissolves_the_old_stack_before_it_pushes(
