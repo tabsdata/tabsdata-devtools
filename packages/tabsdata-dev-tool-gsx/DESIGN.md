@@ -129,8 +129,32 @@ obviously the right thing to type. So the refusal is taken as advice: one `gh pr
 turns the branch into its PR and the URL pulls the whole stack down. The failing call goes first
 on purpose -- the tracked case is the common one and pays nothing for the fallback -- and a branch
 with no PR at all is not a stack branch, so it is named as git's business (`git switch BRANCH`)
-rather than retried. `#N` is never retried: a branch name has a second reading and a PR number
-does not.
+rather than retried.
+
+**And a PR that is in no stack is checked out on its own, then tracked as the stack of one it is.**
+This is the asymmetry gsx exists to absorb: a stack on GitHub **needs two PRs**, so a
+single-branch stack submits as a PR and no stack at all -- while every `gh stack checkout` path is
+stack-shaped. Measured in tabsdata-ui, where `UI-485` had been created and submitted with gsx and
+could not be checked out anywhere else: `gh stack checkout UI-485` exits 2 ("no locally tracked
+stack found"), and so does the PR URL the fallback composes ("✗ PR #486 is not part of a stack on
+GitHub"). Two failures for a PR that was there all along.
+
+So there is a third step, and it is plain git: `gh pr checkout <n>` when the branch is not here
+yet, `git checkout` when it is. Then `gh stack init --base <trunk> <branch>` -- because **a stack
+of one is legal locally** ("✓ Adopted 1 branch: main ← UI-485. Found PRs for 1 of 1 branch"), and
+is exactly what `gsx create` leaves before a second branch exists. That last step is what makes
+this absorbing the asymmetry rather than moving it: the checkout ends where a stacked one ends, on
+the branch with the stack tracked here, and `gsx stack`, a `gsx create` on top and `gsx submit`
+all behave from there.
+
+Whether GitHub really has no stack for it is asked of **the listing, not of the error text**. gh's
+"not part of a stack" goes to the terminal rather than into the exception -- the call is
+`capture=False` so its progress stays visible -- and a message is a worse thing to depend on than
+a fact. Any other failure (no network, no auth, a stack this checkout cannot reach) keeps failing,
+because taking the branch alone would leave a one-branch stack that misrepresents GitHub; a
+listing that cannot be read is therefore read as "there is a stack". `#N` reaches the same place
+by its other name, and a `#N` gh can name no branch for keeps its original failure: that is not
+this asymmetry, it is most likely a PR that does not exist.
 
 ## approve
 
@@ -721,7 +745,13 @@ Facts that cost real testing; the code depends on them.
    the PRs in stack order bottom-up -- read off a real repository, and what `stack` builds its
    remote half from. `gh api` fills in `{owner}` and `{repo}` from the checkout, so that costs
    one round trip and no `gh repo view` before it.
-13. `gh stack link` **pushes a branch argument and opens a PR for one that has none** -- "branch
+13. **A stack on GitHub needs two PRs, and a stack of one is legal locally.** `gh stack submit`
+   on a single branch opens the PR and creates no stack ("branches synced" rather than "stack
+   synced"), so `gh stack checkout` cannot reach it by any of its spellings -- "✗ PR #486 is not
+   part of a stack on GitHub", exit 2. But `gh stack init --base main UI-485` adopts that one
+   branch and finds its PR. Measured on tabsdata-ui; it is why `checkout` ends with a plain
+   `gh pr checkout` and an init.
+14. `gh stack link` **pushes a branch argument and opens a PR for one that has none** -- "branch
    arguments are automatically pushed to the remote before creating or looking up PRs. For
    branches without PRs, new PRs are created automatically." It also appends to an existing stack
    ("if some of the PRs are already in a stack, the existing stack is updated ... existing PRs

@@ -263,6 +263,64 @@ def parse_checkout_target(target: str) -> tuple[str, str]:
     return "branch", text
 
 
+def _stackless(runner: gh.Runner, out, number: int) -> bool:
+    """Whether GitHub really has no open stack holding this PR.
+
+    Asked only after a stack checkout has failed, and asked of the **listing**
+    rather than of the error text. gh says "✗ PR #486 is not part of a stack on
+    GitHub" (exit 2), but that goes to the terminal and not into the exception
+    -- the call is `capture=False` so gh's own progress stays visible -- and a
+    message is a worse thing to depend on than a fact anyway. Any other failure
+    (no network, no auth, a stack this checkout cannot reach) has to keep
+    failing, because taking the branch alone would leave a one-branch stack
+    that misrepresents GitHub. A listing that cannot be read therefore answers
+    "no": the original failure is the honest one to report.
+    """
+    try:
+        listing = gh.stacks(runner)
+    except ToolError as error:
+        out.debug(f"could not list the stacks on GitHub ({error})")
+        return False
+    return not any(
+        stack.get("open")
+        and any(
+            pull.get("number") == number for pull in stack.get("pull_requests") or []
+        )
+        for stack in listing
+    )
+
+
+def _checkout_alone(runner: gh.Runner, out, number: int, branch: str) -> None:
+    """A PR that is in no stack: the branch on its own, tracked as one here.
+
+    **This is the asymmetry gsx has to absorb.** A stack on GitHub needs two
+    PRs, so a single-branch stack submits as a PR and no stack -- while every
+    `gh stack checkout` path is stack-shaped and answers "PR #486 is not part
+    of a stack on GitHub". The branch is then reachable only with plain git,
+    which is what `gh pr checkout` does.
+
+    A stack of one IS legal locally, though: `gh stack init --base main
+    UI-485` adopts it and finds its PR ("Found PRs for 1 of 1 branch"), which
+    is the same state `gsx create` leaves before a second branch exists. So
+    the checkout ends the way a stacked one does -- on the branch, with the
+    stack tracked here -- and `gsx stack`, `gsx create` on top and `gsx
+    submit` all behave from there. Without that last step this would leave a
+    branch gh-stack has never heard of, which is the asymmetry moved rather
+    than absorbed.
+    """
+    out.info(
+        f"PR #{number} is in no stack on GitHub -- a stack needs two PRs; "
+        f"checking {branch} out on its own"
+    )
+    if gh.sha(runner, f"refs/heads/{branch}"):
+        gh.checkout(runner, branch)
+    else:
+        gh.pr_checkout(runner, number)
+    if move_mod.stack_of(gh.read_state(runner), branch) is None:
+        gh.stack_init(runner, [branch], base=gh.default_branch(runner))
+        out.info(f"tracked {branch} here as the stack of one it is")
+
+
 def _checkout_by_pr(runner: gh.Runner, branch: str, extra: list[str], out) -> None:
     """Check out a branch this checkout does not track, through its PR.
 
@@ -283,10 +341,16 @@ def _checkout_by_pr(runner: gh.Runner, branch: str, extra: list[str], out) -> No
         f"{branch} is not in a stack tracked here; pulling it down by PR #{number}"
         + (f" ({state.lower()})" if state and state != "OPEN" else "")
     )
-    runner.run(
-        ["gh", "stack", "checkout", f"{gh.repo_url(runner)}/pull/{number}", *extra],
-        capture=False,
-    )
+    try:
+        runner.run(
+            ["gh", "stack", "checkout", f"{gh.repo_url(runner)}/pull/{number}", *extra],
+            capture=False,
+        )
+    except ToolError as error:
+        if not _stackless(runner, out, int(number)):
+            raise
+        out.debug(str(error))
+        _checkout_alone(runner, out, int(number), branch)
 
 
 def checkout(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
@@ -312,7 +376,17 @@ def checkout(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     argv.extend(extra)
     try:
         runner.run(argv, capture=False)
-    except ToolError:
+    except ToolError as error:
+        if kind == "pr" and _stackless(runner, out, int(value)):
+            # The same asymmetry reached by its other name: `#486` resolves to
+            # the PR, and the PR is in no stack. A PR gh cannot name a branch
+            # for is a different problem -- most likely it does not exist -- so
+            # that keeps the failure it already had.
+            alone = gh.pr_branch(runner, int(value))
+            if alone:
+                out.debug(str(error))
+                _checkout_alone(runner, out, int(value), alone)
+                return _where(runner)
         if kind != "branch":
             raise
         # `gh stack checkout BRANCH` only resolves a branch of a stack this
@@ -322,6 +396,11 @@ def checkout(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         # failing call is left first because the tracked case is the common one
         # and costs nothing extra.
         _checkout_by_pr(runner, value, extra, out)
+    return _where(runner)
+
+
+def _where(runner: gh.Runner) -> tuple[str, dict]:
+    """Where a checkout ended up, which is the whole of what it reports."""
     if runner.dry_run:
         # No `dry_run` field: the shared runner puts one on every ok event, and
         # returning it here made `checkout --dry-run` raise TypeError from

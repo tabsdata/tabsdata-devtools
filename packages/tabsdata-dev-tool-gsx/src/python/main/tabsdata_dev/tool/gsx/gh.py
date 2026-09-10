@@ -463,10 +463,19 @@ def branch_prs(runner: Runner, branch: str) -> list[dict]:
     and those are exactly the merged ones whose branches are still lying
     around. `gh pr view BRANCH` answers for one branch whatever its age.
     """
-    payload = runner.json(["gh", "pr", "view", branch, "--json", "number,state"])
+    payload = runner.json(
+        ["gh", "pr", "view", branch, "--json", "number,state,headRefName"]
+    )
     if isinstance(payload, dict) and payload.get("state"):
         return [payload]
     return []
+
+
+def pr_branch(runner: Runner, number: int) -> str:
+    """The branch a PR was opened from, for a `#<pr>` that has to be checked
+    out without a stack to come down with it."""
+    payload = runner.json(["gh", "pr", "view", str(number), "--json", "headRefName"])
+    return (payload or {}).get("headRefName") or ""
 
 
 def delete_branch(runner: Runner, branch: str) -> None:
@@ -902,6 +911,18 @@ def stack_rebase_upstack(runner: Runner) -> None:
     out, and gh-stack holds every branch's original ref for the abort.
     """
     runner.run(["gh", "stack", "rebase", "--upstack", "--no-trunk"], capture=False)
+
+
+def pr_checkout(runner: Runner, number: int) -> None:
+    """Fetch a PR's head into a local branch and switch to it, with plain gh.
+
+    The way in for a PR that is in **no stack**: every `gh stack checkout` path
+    is stack-shaped ("✗ PR #486 is not part of a stack on GitHub", exit 2), and
+    a single PR is not a stack on GitHub, which needs two. This is what makes
+    the branch exist locally so it can then be tracked as the one-branch stack
+    it is here.
+    """
+    runner.run(["gh", "pr", "checkout", str(number)], capture=False)
 
 
 def stack_link(runner: Runner, prs: list[int]) -> None:

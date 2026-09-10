@@ -976,10 +976,11 @@ def test_checkout_dry_runs_without_clashing_with_the_runners_own_field(
     assert calls
 
 
-def _fake_checkout(monkeypatch, tmp_path, refuse=(), pulls=()):
+def _fake_checkout(monkeypatch, tmp_path, refuse=(), pulls=(), saying="", stacks=()):
     """A checkout run where `gh stack checkout` refuses the argv prefixes in
     `refuse`, the way it refuses a branch of a stack this checkout does not
-    track: exit 2, "no locally tracked stack found"."""
+    track: exit 2, "no locally tracked stack found". `saying` is appended to
+    the refusal, for the other exit-2 gh has: "not part of a stack"."""
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
     calls = []
 
@@ -992,7 +993,10 @@ def _fake_checkout(monkeypatch, tmp_path, refuse=(), pulls=()):
             calls.append(argv)
             for prefix in refuse:
                 if argv[: len(prefix)] == prefix:
-                    raise ToolError(f"`{' '.join(argv)}` failed (exit 2)")
+                    raise ToolError(
+                        f"`{' '.join(argv)}` failed (exit 2)"
+                        + (f": {saying}" if saying else "")
+                    )
             return ""
 
         def json(self, argv):
@@ -1006,7 +1010,96 @@ def _fake_checkout(monkeypatch, tmp_path, refuse=(), pulls=()):
     monkeypatch.setattr(gh, "current_branch", lambda runner: "OS-3348")
     monkeypatch.setattr(gh, "current_pr", lambda runner: None)
     monkeypatch.setattr(gh, "branch_prs", lambda runner, branch: list(pulls))
+    monkeypatch.setattr(gh, "default_branch", lambda runner: "main")
+    # what GitHub's listing answers, which is how a failed stack checkout is
+    # told apart from a PR that is in no stack at all
+    monkeypatch.setattr(gh, "stacks", lambda runner, **kw: list(stacks))
     return calls
+
+
+def test_a_pr_that_is_in_no_stack_is_checked_out_on_its_own(
+    tmp_path, monkeypatch, capsys
+):
+    """The asymmetry gsx has to absorb: a stack on GitHub needs two PRs, so a
+    single-branch stack submits as a PR and no stack -- and every `gh stack
+    checkout` path is stack-shaped. Measured in tabsdata-ui: `gsx checkout
+    UI-485` failed twice, once per path, on a PR that was there all along."""
+    calls = _fake_checkout(
+        monkeypatch,
+        tmp_path,
+        refuse=[["gh", "stack", "checkout"]],
+        pulls=[{"number": 486, "state": "OPEN", "headRefName": "UI-485"}],
+    )
+    assert gsx.main(["checkout", "UI-485"]) == 0
+    assert calls == [
+        ["gh", "stack", "checkout", "UI-485"],  # not tracked here
+        ["gh", "stack", "checkout", "https://github.com/o/n/pull/486"],  # no stack
+        ["git", "rev-parse", "-q", "--verify", "refs/heads/UI-485"],  # not here
+        ["gh", "pr", "checkout", "486"],  # ...so plain git, through gh
+        ["gh", "stack", "init", "--base", "main", "UI-485"],
+    ]
+    said = capsys.readouterr().err
+    assert "PR #486 is in no stack on GitHub -- a stack needs two PRs" in said
+    assert "tracked UI-485 here as the stack of one it is" in said
+
+
+def test_the_pr_form_reaches_the_same_place(tmp_path, monkeypatch, capsys):
+    """`#486` resolves straight to the PR, and the PR is in no stack: the same
+    asymmetry by its other name, so the same way out."""
+    calls = _fake_checkout(monkeypatch, tmp_path, refuse=[["gh", "stack", "checkout"]])
+    monkeypatch.setattr(gh, "pr_branch", lambda runner, number: "UI-485")
+    assert gsx.main(["checkout", "#486"]) == 0
+    assert ["gh", "pr", "checkout", "486"] in calls
+    assert ["gh", "stack", "init", "--base", "main", "UI-485"] in calls
+
+
+def test_a_branch_already_here_is_only_switched_to(tmp_path, monkeypatch, capsys):
+    """Nothing to fetch, so nothing is fetched -- and `gh pr checkout` on a
+    branch that already has local commits is not a thing to find out about."""
+    calls = _fake_checkout(
+        monkeypatch,
+        tmp_path,
+        refuse=[["gh", "stack", "checkout"]],
+        pulls=[{"number": 486, "state": "OPEN", "headRefName": "UI-485"}],
+    )
+    monkeypatch.setattr(gh, "sha", lambda runner, ref: "sha-UI-485")
+    assert gsx.main(["checkout", "UI-485"]) == 0
+    assert ["git", "checkout", "-q", "UI-485"] in calls
+    assert not any(call[:3] == ["gh", "pr", "checkout"] for call in calls)
+
+
+def test_a_pr_already_tracked_here_is_not_re_initialised(tmp_path, monkeypatch):
+    """`gh stack init` refuses a branch that is already in a tracked stack, and
+    the whole point of the step is to leave the branch tracked."""
+    calls = _fake_checkout(
+        monkeypatch,
+        tmp_path,
+        refuse=[["gh", "stack", "checkout"]],
+        pulls=[{"number": 486, "state": "OPEN", "headRefName": "UI-485"}],
+    )
+    (tmp_path / "gh-stack").write_text(
+        json.dumps(_tracked((None, "main", [("UI-485", 486)])))
+    )
+    assert gsx.main(["checkout", "UI-485"]) == 0
+    assert not any(call[:3] == ["gh", "stack", "init"] for call in calls)
+
+
+def test_a_stack_checkout_that_failed_for_any_other_reason_still_fails(
+    tmp_path, monkeypatch, capsys
+):
+    """Taking the branch alone would leave a one-branch stack that
+    misrepresents GitHub, so the fallback is earned by the listing saying there
+    is no stack -- here it says there is one, and the failure stands."""
+    _fake_checkout(
+        monkeypatch,
+        tmp_path,
+        refuse=[["gh", "stack", "checkout"]],
+        pulls=[{"number": 486, "state": "OPEN", "headRefName": "UI-485"}],
+        saying="could not resolve host: api.github.com",
+        stacks=[_listed(41, [(486, "UI-485")])],
+    )
+    assert gsx.main(["checkout", "UI-485"]) == 1
+    assert "could not resolve host" in capsys.readouterr().err
 
 
 def test_a_branch_this_checkout_does_not_track_is_reached_through_its_pr(
