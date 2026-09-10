@@ -84,6 +84,27 @@ def parser(prog: str, description: str) -> argparse.ArgumentParser:
     return p
 
 
+def confirm(out: render.Renderer, prompt: str, *, assume_yes: bool) -> None:
+    """Stop unless the operator said yes -- on the command line, or at the
+    keyboard. Never inferred from the absence of an answer.
+
+    For the commands whose work is worth a second thought. `--yes`/`-y` is the
+    flag the guidelines reserve for it. json is refused outright even on a
+    terminal: a machine reading JSON Lines is not there to answer. The prompt
+    is the one thing a command puts on the terminal that is not an event -- it
+    is a question, so it goes to stderr and stays out of the stream.
+    """
+    if assume_yes:
+        return
+    if out.fmt == "json" or not sys.stdin.isatty():
+        raise errors.ToolError(
+            f"{prompt} -- pass --yes to proceed (no terminal to ask on)"
+        )
+    print(f"\n{prompt} [y/N] ", end="", file=sys.stderr, flush=True)
+    if sys.stdin.readline().strip().lower() not in ("y", "yes"):
+        raise errors.ToolError("aborted")
+
+
 def run(
     prog: str,
     description: str,

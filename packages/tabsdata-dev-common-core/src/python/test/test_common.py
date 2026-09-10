@@ -6,8 +6,10 @@ import os
 import pytest
 import io
 import json
+import sys
 
 from tabsdata_dev.common.core import cli, parallel, proc, render
+from tabsdata_dev.common.core.errors import ToolError
 
 
 def test_map_bounded_preserves_order():
@@ -671,3 +673,26 @@ def test_container_failure_explains_itself_when_there_is_no_container():
 
     text = container_failure("tdd-no-such-container-probe")
     assert isinstance(text, str) and text
+
+
+def test_confirm_takes_yes_from_the_flag_or_the_keyboard_and_nowhere_else(monkeypatch):
+    """The guidelines reserve --yes for this, and silence is never a yes: with
+    no terminal to ask on there is nobody to have agreed."""
+    out = render.Renderer("probe")
+    cli.confirm(out, "go ahead?", assume_yes=True)  # the flag is an answer
+
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
+    monkeypatch.setattr(sys.stdin, "readline", lambda: "y\n", raising=False)
+    cli.confirm(out, "go ahead?", assume_yes=False)
+    monkeypatch.setattr(sys.stdin, "readline", lambda: "\n", raising=False)
+    with pytest.raises(ToolError, match="aborted"):
+        cli.confirm(out, "go ahead?", assume_yes=False)
+
+    # no terminal, and json even on one: a machine reading JSON Lines is not
+    # there to answer, and the prompt would be the one line that is not an event
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False, raising=False)
+    with pytest.raises(ToolError, match="no terminal to ask on"):
+        cli.confirm(out, "go ahead?", assume_yes=False)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
+    with pytest.raises(ToolError, match="no terminal to ask on"):
+        cli.confirm(render.Renderer("probe", fmt="json"), "go?", assume_yes=False)

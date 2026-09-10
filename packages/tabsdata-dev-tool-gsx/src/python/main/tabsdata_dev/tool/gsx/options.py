@@ -197,6 +197,12 @@ def configure(parser: argparse.ArgumentParser) -> None:
     )
     submit.add_argument("--sync", action="store_true", help="`gh stack sync` first")
     submit.add_argument(
+        "--move",
+        action="store_true",
+        help="publish a local `gsx move` too: dissolve the stacks it took apart "
+        "on GitHub and relink their PRs (the one step that cannot be undone)",
+    )
+    submit.add_argument(
         "--draft", action="store_true", help="do not open the PRs in a browser"
     )
     submit.add_argument(
@@ -275,6 +281,43 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "--no-fetch",
         action="store_true",
         help="skip the `git fetch --prune` first; the PR states are read live either way",
+    )
+
+    move = add(
+        "move",
+        "move the branch you are on, and everything above it, to another stack",
+        "examples:\n"
+        "  tdd gsx move --to '#41'    onto the top of stack 41\n"
+        "  tdd gsx move --to FOO-12   onto that branch, which must be a stack's top\n"
+        "  tdd gsx move --to main     onto the trunk, as a stack of its own\n\n"
+        "you move OUT of the stack you are standing in: the branch you are on and\n"
+        "every branch above it. --to says where to, and takes a stack by #number,\n"
+        "the top branch of a stack, a branch whose PR is in no stack (the two\n"
+        "become one stack), or the trunk. A stack that is not tracked here is a\n"
+        "`gh stack checkout` away and says so; a branch that is not the top of its\n"
+        "stack is refused, since the moved branches go above it.\n\n"
+        "nothing here reaches GitHub. It is four `gh stack` commands that write\n"
+        "local branches and gh-stack's own tracking: forget both stacks locally,\n"
+        "track the new arrangement, and `gh stack rebase --no-trunk` to replay the\n"
+        "branches whose parent changed -- only those are rewritten. A conflict\n"
+        "stops there, and `gh stack rebase --continue` or `--abort` is how it ends;\n"
+        "gh-stack keeps every branch's original ref for the abort.\n\n"
+        "`gsx submit --move` is what publishes it, and that is the irreversible\n"
+        "step: the old stack has to be dissolved on GitHub before its PRs can join\n"
+        "the new one. Until then `gsx stack` says a move is in progress and `gsx\n"
+        "submit` refuses without --move.\n\n",
+    )
+    move.add_argument(
+        "--to",
+        required=True,
+        metavar="#STACK|BRANCH",
+        help="where to: #N for a stack, a stack's top branch, or the trunk (required)",
+    )
+    move.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="do not ask; without it the plan is shown and a confirmation is read from the terminal",
     )
 
     stack = add(

@@ -11,6 +11,7 @@ from tabsdata_dev.tool.gsx import approve as approve_mod
 from tabsdata_dev.tool.gsx import args as args_mod
 from tabsdata_dev.tool.gsx.version import VERSION
 from tabsdata_dev.tool.gsx import commands, config, gh, labels, progress
+from tabsdata_dev.tool.gsx import move as move_mod
 from tabsdata_dev.tool.gsx import purge as purge_mod
 
 
@@ -983,6 +984,436 @@ def test_a_refused_checkout_target_costs_no_child_process(tmp_path, monkeypatch)
     )
     assert gsx.main(["checkout", "42"]) == 1
     assert calls == []
+
+
+# -------------------------------------------------------------------- move
+def _tracked(*stacks):
+    """gh-stack's tracking file, from `(number, trunk, [(branch, pr), ...])`."""
+    return {
+        "stacks": [
+            {
+                "number": number,
+                "trunk": {"branch": trunk},
+                "branches": [
+                    {
+                        "branch": branch,
+                        "pullRequest": {"number": pr} if pr else None,
+                    }
+                    for branch, pr in entries
+                ],
+            }
+            for number, trunk, entries in stacks
+        ]
+    }
+
+
+#: The two stacks most of these use: #44 = a1 <- a2, #36 = b1 <- b2 <- b3.
+def _two():
+    return _tracked(
+        (44, "main", [("a1", 42), ("a2", 43)]),
+        (36, "main", [("b1", 24), ("b2", 25), ("b3", 26)]),
+    )
+
+
+class _MoveRunner:
+    """git and gh for the planner and the driver: every branch exists, every
+    command is remembered, and nothing has an opinion of its own."""
+
+    dry_run = False
+
+    def __init__(self, out=None, heads=(), git_dir=None):
+        self.out = out or _Out()
+        self.heads = {f"refs/heads/{name}": f"sha-{name}" for name in heads}
+        self.git_dir = git_dir
+        self.calls = []
+
+    def run(self, argv, **kwargs):
+        self.calls.append(argv)
+        if argv[:3] == ["git", "rev-parse", "--git-dir"]:
+            return str(self.git_dir)
+        if argv[:3] == ["git", "rev-parse", "-q"]:
+            return self.heads.get(argv[-1], "")
+        if argv[:2] == ["git", "config"]:
+            return ""
+        return ""
+
+    def json(self, argv):
+        return None
+
+    def stack_calls(self):
+        return [call for call in self.calls if call[:2] == ["gh", "stack"]]
+
+
+def test_you_move_out_of_the_stack_you_are_standing_in():
+    source = move_mod.source_stack(_two(), "a1")
+    assert (source.number, source.trunk, source.index) == (44, "main", 1)
+    assert source.moving == ["a1", "a2"] and source.keep == []
+    source = move_mod.source_stack(_two(), "a2")
+    assert source.moving == ["a2"] and source.keep == ["a1"]
+    assert source.moving_prs == [43]
+
+
+@pytest.mark.parametrize(
+    "branch, message",
+    [
+        ("nowhere", "not in any stack tracked here"),
+        ("main", "not in any stack tracked here"),
+    ],
+)
+def test_a_branch_with_no_stack_of_its_own_cannot_be_moved(branch, message):
+    with pytest.raises(ToolError, match=message):
+        move_mod.source_stack(_two(), branch)
+
+
+def test_standing_on_a_trunk_that_is_listed_in_the_stack_is_refused():
+    """gh-stack usually keeps the trunk out of `.branches[]`; when it does not,
+    standing on it is still not a branch that can be moved."""
+    state = _tracked((44, "main", [("main", None), ("a1", 42)]))
+    with pytest.raises(ToolError, match="on the trunk"):
+        move_mod.source_stack(state, "main")
+
+
+def test_a_branch_in_two_tracked_stacks_is_refused_rather_than_guessed():
+    state = _two()
+    state["stacks"].append(
+        {"number": 45, "trunk": {"branch": "main"}, "branches": [{"branch": "a2"}]}
+    )
+    with pytest.raises(ToolError, match="several stacks tracked here"):
+        move_mod.source_stack(state, "a2")
+
+
+def _target(runner, value, branch="a1", state=None, out=None):
+    state = state or _two()
+    source = move_mod.source_stack(state, branch)
+    return move_mod.resolve_target(runner, value, source, state, "main", out or _Out())
+
+
+def test_to_takes_a_stack_number_its_top_branch_the_trunk_or_a_plain_pr():
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "plain", "main"])
+
+    # a stack by number: the moved branches go on top of its top branch
+    target = _target(runner, "#36")
+    assert (target.mode, target.head, target.number) == (move_mod.STACK, "b3", 36)
+    assert target.branches == ["b1", "b2", "b3"] and target.trunk == "main"
+    # ...and by that branch's name, which is the same thing said differently
+    assert _target(runner, "b3").branches == ["b1", "b2", "b3"]
+
+    # a branch whose PR is in no stack: the two become one stack
+    out = _Out()
+    target = _target(runner, "plain", out=out)
+    assert (target.mode, target.head, target.branches) == (
+        move_mod.PLAIN,
+        "plain",
+        ["plain"],
+    )
+    assert "in no stack tracked here" in " ".join(out.lines())
+
+    # the trunk: a stack of the moved branches alone
+    target = _target(runner, "main", branch="a2")
+    assert (target.mode, target.head, target.branches) == (move_mod.TRUNK, "main", [])
+
+
+@pytest.mark.parametrize(
+    "value, branch, message",
+    [
+        # the whole point of the two rules the operator asked for
+        ("#99", "a1", "not tracked in this checkout"),
+        ("b2", "a1", "not the top of its stack"),
+        # the stack you are standing in, named either way
+        ("#44", "a1", "the stack you are standing in"),
+        ("a2", "a1", "the stack you are moving out of"),
+        # nothing to move: you are the bottom and the trunk is already below
+        ("main", "a1", "already the bottom"),
+        ("#abc", "a1", "not a stack number"),
+        ("gone", "a1", "does not exist here"),
+    ],
+)
+def test_a_target_that_cannot_be_moved_onto_is_refused(value, branch, message):
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"])
+    with pytest.raises(ToolError, match=message):
+        _target(runner, value, branch=branch)
+
+
+def test_the_plan_is_four_local_commands_and_says_so():
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"])
+    source = move_mod.source_stack(_two(), "a2")
+    plan = move_mod.build(source, _target(runner, "#36", branch="a2"))
+    assert plan.dest_init == ["b1", "b2", "b3", "a2"] and plan.dest_base == "main"
+    assert plan.keep_init == ["a1"]
+    assert plan.steps == [
+        "gh stack unstack --local   # forget #44",
+        "gh stack checkout b3 && gh stack unstack --local   # ...and #36",
+        "gh stack init --base main a1   # what stays below",
+        "gh stack init --base main b1 b2 b3 a2   # the destination",
+        "gh stack rebase --no-trunk   # replay what changed parent",
+        "git checkout a2",
+    ]
+    text = move_mod.text(plan)
+    assert "stay : a1" in text and "move : a2" in text
+    assert "all local; `gsx submit --move` is what publishes it" in text
+    assert "push" not in text and "unstack --local" in text
+
+
+def test_moving_onto_the_trunk_needs_no_target_stack_to_forget():
+    runner = _MoveRunner(heads=["a1", "a2", "main"])
+    source = move_mod.source_stack(_two(), "a2")
+    plan = move_mod.build(source, _target(runner, "main", branch="a2"))
+    assert plan.dest_init == ["a2"] and plan.untrack_target is False
+    assert not any("checkout b" in step for step in plan.steps)
+
+
+def test_the_driver_runs_gh_stacks_own_commands_and_nothing_that_pushes():
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"])
+    source = move_mod.source_stack(_two(), "a2")
+    plan = move_mod.build(source, _target(runner, "#36", branch="a2"))
+    fields = move_mod.run(runner, plan, progress.Counter(runner.out, total=6))
+    assert runner.stack_calls() == [
+        ["gh", "stack", "unstack", "--local"],
+        ["gh", "stack", "checkout", "b3"],
+        ["gh", "stack", "unstack", "--local"],
+        ["gh", "stack", "init", "--base", "main", "a1"],
+        ["gh", "stack", "init", "--base", "main", "b1", "b2", "b3", "a2"],
+        ["gh", "stack", "rebase", "--no-trunk"],
+    ]
+    for call in runner.calls:
+        assert call[:2] != ["git", "push"]
+        assert call[:3] != ["gh", "stack", "link"]
+        assert call[:3] != ["gh", "stack", "submit"]
+        assert call[:3] != ["gh", "stack", "sync"]
+        assert call[:3] != ["gh", "stack", "push"]
+        if call[:3] == ["gh", "stack", "unstack"]:
+            assert "--local" in call
+    assert runner.calls[-1] == ["git", "checkout", "-q", "a2"]  # back where you were
+    assert fields["pushed"] is False and fields["next"] == "gsx submit --move"
+
+
+def _listed(number, prs, base="main", open_stack=True):
+    """One stack as the stacks REST API returns it, `prs` = `(number, branch)`."""
+    return {
+        "number": number,
+        "base": {"ref": base},
+        "open": open_stack,
+        "pull_requests": [
+            {"number": pr, "state": "open", "merged_at": None, "head": {"ref": branch}}
+            for pr, branch in prs
+        ],
+    }
+
+
+#: GitHub's view of the two stacks in `_two()`, before any move.
+def _server():
+    return [
+        _listed(44, [(42, "a1"), (43, "a2")]),
+        _listed(36, [(24, "b1"), (25, "b2"), (26, "b3")]),
+    ]
+
+
+def test_nothing_is_pending_when_the_two_sides_agree():
+    assert not move_mod.pending(_two(), _server())
+
+
+def test_a_stack_that_can_still_grow_into_place_is_not_pending():
+    """`gh stack link <n> ...` appends, so a GitHub stack whose PRs are the
+    bottom of a local stack needs no dissolving -- it keeps its number and
+    grows. That is what makes the target of a move cheap."""
+    moved = _tracked((36, "main", [("b1", 24), ("b2", 25), ("b3", 26), ("new", 99)]))
+    assert not move_mod.pending(moved, _server())
+
+
+def test_a_whole_stack_moved_onto_another_is_pending():
+    """The case the first rule missed: nothing is split, but #44's PRs now sit
+    on top of #36's, and only one stack can hold them."""
+    after = _tracked(
+        (None, "main", [("b1", 24), ("b2", 25), ("b3", 26), ("a1", 42), ("a2", 43)])
+    )
+    found = move_mod.pending(after, _server())
+    assert found and found.dissolve == [44]
+    assert found.prs == {42: 44, 43: 44}
+    assert found.stacks == [["b1", "b2", "b3", "a1", "a2"]]
+    assert "#42, #43 left stack #44" in found.line()
+    assert "gsx submit --move" in found.line()
+
+
+def test_half_a_stack_moved_leaves_both_halves_to_submit():
+    after = _tracked(
+        (44, "main", [("a1", 42)]),
+        (None, "main", [("b1", 24), ("b2", 25), ("b3", 26), ("a2", 43)]),
+    )
+    found = move_mod.pending(after, _server())
+    assert found.dissolve == [44] and found.prs == {42: 44, 43: 44}
+    # both, because dissolving #44 takes the half that stayed down with it
+    assert found.stacks == [["a1"], ["b1", "b2", "b3", "a2"]]
+
+
+def test_a_pr_this_checkout_does_not_track_is_not_evidence_of_a_move():
+    """Someone else adding a PR to your stack is the other reason the two sides
+    differ, and it is not a move: it needs a sync, not a dissolve."""
+    server = [_listed(36, [(24, "b1"), (25, "b2"), (26, "b3"), (99, "theirs")])]
+    assert not move_mod.pending(_two(), server)
+
+
+def test_a_closed_stack_on_github_is_left_alone():
+    server = [_listed(44, [(42, "a1"), (43, "a2")], open_stack=False)]
+    after = _tracked((None, "main", [("b1", 24), ("a1", 42), ("a2", 43)]))
+    assert not move_mod.pending(after, server)
+
+
+@pytest.mark.parametrize(
+    "node, message",
+    [
+        ({"state": "MERGED"}, "is MERGED"),
+        ({"state": "OPEN", "isInMergeQueue": True}, "merge queue"),
+        (
+            {"state": "OPEN", "autoMergeRequest": {"enabledAt": "x"}},
+            "auto-merge",
+        ),
+    ],
+)
+def test_a_pr_the_publish_could_not_restack_is_refused_up_front(
+    node, message, monkeypatch
+):
+    """GitHub leaves a queued PR stacked and then keeps the whole stack, so the
+    dissolve would silently do nothing and the PR would be in two stacks."""
+    monkeypatch.setattr(gh, "pull_requests", lambda runner, numbers: {43: node})
+    with pytest.raises(ToolError, match=message):
+        commands._refuse_unmovable(_MoveRunner(), [43], _Out())
+
+
+def _fake_move(monkeypatch, tmp_path, state, listing=(), current="a2"):
+    """A whole move run with git and gh faked: `state` is the tracking file on
+    disk, `listing` what GitHub's stacks API answers."""
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    (tmp_path / "gh-stack").write_text(json.dumps(state))
+    calls = []
+
+    class FakeRunner:
+        def __init__(self, out, dry_run=False):
+            self.out = out
+            self.dry_run = dry_run
+
+        def run(self, argv, **kwargs):
+            calls.append(argv)
+            if argv[:3] == ["git", "rev-parse", "-q"]:
+                return f"sha-{argv[-1]}"
+            return ""
+
+        def json(self, argv):
+            return None
+
+    monkeypatch.setattr(gh, "Runner", FakeRunner)
+    monkeypatch.setattr(gh, "require_tools", lambda runner: None)
+    monkeypatch.setattr(gh, "require_repo", lambda runner: None)
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "default_branch", lambda runner: "main")
+    monkeypatch.setattr(gh, "current_branch", lambda runner: current)
+    monkeypatch.setattr(gh, "dirty", lambda runner: False)
+    monkeypatch.setattr(gh, "pull_requests", lambda runner, numbers: {})
+    monkeypatch.setattr(gh, "stacks", lambda runner, **kw: list(listing))
+    monkeypatch.setattr(gh, "stack_remote", lambda runner: "origin")
+    return calls
+
+
+def test_move_refuses_while_someone_elses_rebase_is_stopped(
+    tmp_path, monkeypatch, capsys
+):
+    _fake_move(monkeypatch, tmp_path, _two())
+    (tmp_path / "gh-stack-rebase-state").write_text(
+        json.dumps({"conflictBranch": "b2"})
+    )
+    assert gsx.main(["move", "--to", "#36"]) == 1
+    said = capsys.readouterr().err
+    assert "a stack rebase is stopped on 'b2'" in said
+    assert "gh stack rebase --continue" in said and "--abort" in said
+
+
+def test_move_drives_the_four_commands_and_says_what_publishes_it(
+    tmp_path, monkeypatch, capsys
+):
+    calls = _fake_move(monkeypatch, tmp_path, _two())
+    assert gsx.main(["move", "--to", "#36", "--yes"]) == 0
+    out = capsys.readouterr()
+    assert [call for call in calls if call[:2] == ["gh", "stack"]] == [
+        ["gh", "stack", "unstack", "--local"],
+        ["gh", "stack", "checkout", "b3"],
+        ["gh", "stack", "unstack", "--local"],
+        ["gh", "stack", "init", "--base", "main", "a1"],
+        ["gh", "stack", "init", "--base", "main", "b1", "b2", "b3", "a2"],
+        ["gh", "stack", "rebase", "--no-trunk"],
+    ]
+    assert "moved 1 branch(es) onto b3, locally" in out.out
+    assert "gsx submit --move" in out.out
+
+
+def test_stack_says_a_move_is_in_progress(tmp_path, monkeypatch, capsys):
+    after = _tracked(
+        (None, "main", [("b1", 24), ("b2", 25), ("b3", 26), ("a1", 42), ("a2", 43)])
+    )
+    _fake_move(monkeypatch, tmp_path, after, listing=_server())
+    monkeypatch.setattr(
+        gh,
+        "branch_sync",
+        lambda runner, names, remote: dict.fromkeys(names, gh.IN_SYNC),
+    )
+    monkeypatch.setattr(gh, "pr_titles", lambda runner, numbers: {})
+    assert gsx.main(["move", "--to", "main"]) == 1  # (unrelated: nothing to move)
+    capsys.readouterr()
+    assert gsx.main(["stack", "--short", "--no-fetch"]) == 0
+    assert "a move is in progress" in capsys.readouterr().err
+
+
+def test_submit_refuses_to_publish_a_move_without_being_told_to(
+    tmp_path, monkeypatch, capsys
+):
+    after = _tracked(
+        (None, "main", [("b1", 24), ("b2", 25), ("b3", 26), ("a1", 42), ("a2", 43)])
+    )
+    _fake_move(monkeypatch, tmp_path, after, listing=_server())
+    assert gsx.main(["submit"]) == 1
+    said = capsys.readouterr().err
+    assert "a move is in progress" in said and "--move" in said
+
+
+def test_submit_move_dissolves_the_old_stack_before_it_pushes(
+    tmp_path, monkeypatch, capsys
+):
+    """Order is the whole of it: the API cannot take a PR out of a stack, so
+    the old one goes first or the new one cannot be made."""
+    after = _tracked(
+        (None, "main", [("b1", 24), ("b2", 25), ("b3", 26), ("a1", 42), ("a2", 43)])
+    )
+    calls = _fake_move(monkeypatch, tmp_path, after, listing=_server())
+    # the listing is read twice: once to notice the move, once after the
+    # dissolve to check GitHub really let go of the stack
+    answers = [_server(), [_listed(36, [(24, "b1")])]]
+    monkeypatch.setattr(
+        gh, "stacks", lambda runner, **kw: answers.pop(0) if answers else []
+    )
+    monkeypatch.setattr(gh, "stack_pr_snapshot", lambda runner: [])
+    monkeypatch.setattr(labels, "Repo", lambda runner, out: None)
+    monkeypatch.setattr(labels, "with_defaults", lambda repo, ops, no: [])
+    assert gsx.main(["submit", "--move"]) == 0
+    interesting = [
+        call
+        for call in calls
+        if call[:3] in (["gh", "stack", "unstack"], ["gh", "stack", "submit"])
+    ]
+    assert interesting == [
+        ["gh", "stack", "unstack", "44"],
+        ["gh", "stack", "submit", "--auto", "--open"],
+    ]
+
+
+def test_submit_move_stops_if_github_kept_the_stack(tmp_path, monkeypatch, capsys):
+    """A queued PR makes the dissolve a no-op and GitHub keeps the stack; the
+    push must not happen, because the move cannot be completed."""
+    after = _tracked(
+        (None, "main", [("b1", 24), ("b2", 25), ("b3", 26), ("a1", 42), ("a2", 43)])
+    )
+    calls = _fake_move(monkeypatch, tmp_path, after, listing=_server())
+    monkeypatch.setattr(labels, "Repo", lambda runner, out: None)
+    assert gsx.main(["submit", "--move"]) == 1
+    assert "GitHub kept stack(s) #44" in capsys.readouterr().err
+    assert not any(call[:3] == ["gh", "stack", "submit"] for call in calls)
 
 
 # ------------------------------------------------------------------- stack

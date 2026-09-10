@@ -12,10 +12,11 @@ repository that uses neither Jira nor Graphite.
     tdd gsx update   [-s SUMMARY] [-m BODY] [--i:FLAG] [--e:FLAG]
     tdd gsx checkout [BRANCH|#PR] [--c:FLAG]
     tdd gsx submit   [--label:S[:M] LIST]... [--reviewer:S[:M] LIST]...
-                     [--sync] [--draft] [--no-defaults] [--p:|--s:|--e:FLAG]
+                     [--sync] [--move] [--draft] [--no-defaults] [--p:|--s:|--e:FLAG]
     tdd gsx apply    [--label:S[:M] LIST]... [--reviewer:S[:M] LIST]...
                      [--no-defaults] [--e:FLAG]
     tdd gsx purge    [--merged-only] [--no-fetch] [--dry-run]
+    tdd gsx move     --to #STACK|BRANCH [--yes] [--dry-run]
     tdd gsx stack    [--all|-a] [--short|-s] [--remote|-r|--local|-l] [--no-fetch]
 
 Branch and commit are named from the repository: `tabsdata-conn-gcs` issue 15
@@ -44,6 +45,7 @@ HANDLERS = {
     "apply": commands.apply,
     "approve": commands.approve,
     "purge": commands.purge,
+    "move": commands.move,
     "stack": commands.stack,
 }
 

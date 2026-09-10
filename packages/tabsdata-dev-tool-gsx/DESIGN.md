@@ -4,10 +4,10 @@ Copyright 2026 Tabsdata Inc.
 
 # gsx
 
-`tdd gsx create|update|checkout|submit|apply|approve|purge|stack`: GitHub issues + `gh stack`,
-the way `gtx` does Jira + Graphite -- for a repository that uses neither. One command turns the
-pending changes into an issue, a stack branch and a commit; another pushes the stack, opens its
-PRs and labels them. Ported from the standalone `~/gsx` (1.5.0).
+`tdd gsx create|update|checkout|submit|apply|approve|purge|move|stack`: GitHub issues +
+`gh stack`, the way `gtx` does Jira + Graphite -- for a repository that uses neither. One command
+turns the pending changes into an issue, a stack branch and a commit; another pushes the stack,
+opens its PRs and labels them. Ported from the standalone `~/gsx` (1.5.0).
 
 ## Shape
 
@@ -20,9 +20,9 @@ PRs and labels them. Ported from the standalone `~/gsx` (1.5.0).
   extension would refuse a repository that never used one.
 - Modules: `args` (the two grammars argparse cannot express), `options` (the parser, which the
   config template is derived from), `gh` (every child process), `labels` (config lookup,
-  validation, the edit engine), `purge` (which branches are leftovers), `commands` (the eight
-  bodies), `config` (the repo tables in `<tdd_dir>/gsx.toml`), `progress` (the `[n/N]` counter),
-  `version`.
+  validation, the edit engine), `purge` (which branches are leftovers), `move` (where a sub-stack
+  is going, and what GitHub has not been told), `commands` (the nine bodies), `config` (the repo
+  tables in `<tdd_dir>/gsx.toml`), `progress` (the `[n/N]` counter), `version`.
 
 ## Naming
 
@@ -71,8 +71,8 @@ and pass through unchecked.
 
 ## Progress
 
-The commands that repeat themselves -- `submit`, `apply`, `approve`, `purge` -- number the
-units of their work. It is `tdd xp`'s Reporter thinking without the parts gsx has no use for
+The commands that repeat themselves -- `submit`, `apply`, `approve`, `purge`, `move` -- number
+the units of their work. It is `tdd xp`'s Reporter thinking without the parts gsx has no use for
 (`progress.Counter`, some 40 lines: no scratch dir, no timings, no report):
 
 ```
@@ -89,11 +89,11 @@ counter and whose fields carry the step (`n`, `total`, `pr`, `outcome`, and the
 `edits`/`approver`/`branch` behind it), so `--format json` reads the same progress without the
 brackets. Two rules keep it honest:
 
-- **The total is the one that is known before the first unit runs.** `apply`, `approve` and
-  `purge` know theirs (the snapshot; approvers x PRs; the candidate branches) and print
-  `[n/N]`; `submit` may be opening the very PRs it
-  is about to label, so it prints `[n]` and offers no denominator rather than guess one. Its push
-  and its `--sync` are units of it too -- they are the slowest thing gsx does.
+- **The total is the one that is known before the first unit runs.** `apply`, `approve`, `purge`
+  and `move` know theirs (the snapshot; approvers x PRs; the candidate branches; the plan's
+  steps) and print `[n/N]`; `submit` may be opening the very PRs it is about to label, so it
+  prints `[n]` and offers no denominator rather than guess one. Its push, its `--sync` and the
+  dissolve of a `--move` are units of it too -- they are the slowest thing gsx does.
 - **Every unit spends its number**, including a PR already in the desired state, a PR its own
   author was asked to approve, and one that fails -- gsx attempts every PR and reports the
   failures together, so a skip that consumed nothing would leave the last line short of the
@@ -165,6 +165,86 @@ The leading `git fetch --prune` is hygiene rather than a prerequisite: the PR st
 live from the API, so `--dry-run` skipping the fetch (it writes remote-tracking refs) costs the
 run no accuracy, and `--no-fetch` skips it outright. Every branch is attempted even when one
 delete fails -- a worktree holding it, say -- and the failures are reported together at the end.
+
+## move
+
+`move --to #STACK|BRANCH` takes the branch you are standing on **and every branch above it** out
+of its stack and puts them on top of another one. You move out of the stack you are in, so there
+is no `--from`: being on the branch is the argument.
+
+| `--to` | what happens |
+|---|---|
+| `#41`, a stack tracked here | the moved branches join it, above its top |
+| the **top** branch of such a stack | the same thing, named the other way |
+| a branch whose PR is in **no** stack | the two become one stack, that branch at the bottom |
+| the trunk | the moved branches become a stack of their own |
+| a stack that is **not tracked here** | refused: `gh stack checkout <n>` first |
+| a branch that is **not the top** of its stack | refused: the moved branches go above it |
+
+**Nothing in `move` reaches GitHub.** It is four `gh stack` commands, each of which only writes
+local branches and gh-stack's own tracking file:
+
+```
+gh stack unstack --local                          # forget the stack you are in
+gh stack checkout <top> && gh stack unstack --local   # ...and the target's
+gh stack init --base <trunk> <kept...>            # what stays below you
+gh stack init --base <base> <target...> <moved...>    # the new arrangement
+gh stack rebase --no-trunk                        # replay what changed parent
+```
+
+The reason this works -- and the reason there is no rebase code here -- is that **`gh stack init`
+records each branch's base as the tip its commits actually sit on**, not the parent it was just
+declared to have. Measured on a real repository: a branch declared above another stack's top came
+out with its old trunk's sha as its base. `gh stack rebase --no-trunk` then replays
+`--onto <new parent> <recorded base> <branch>`, so every branch keeps exactly its own commits,
+**only the branches whose parent really changed are rewritten** (seven of nine were left byte-
+identical to `origin` in the test), and nothing is fetched or pushed -- it says so itself: "To
+push up your changes, run `gh stack push`". `--no-trunk` is what keeps it offline; with the trunk
+it pulls first.
+
+**The conflict is gh-stack's too.** It keeps `.git/gh-stack-rebase-state` -- every branch's
+original ref, the branch that conflicted, what is left to replay -- and `gh stack rebase
+--continue` or `--abort` finishes or unwinds it. So `move` has no state file, no snapshot and no
+undo of its own; an earlier draft of this command had all three, and every one of them was a
+worse copy of something already there. What `move` does keep is a refusal: it will not start
+while a rebase is stopped, a `gh stack modify` is unfinished, a `git rebase` is in progress or
+the tree is dirty, because its own rebase would drive straight into any of them.
+
+One check exists for the publish rather than the move: a **queued or auto-merging PR** anywhere
+in the moved set is refused up front, because GitHub leaves such a PR stacked and then *keeps the
+whole stack*, so the dissolve that `submit --move` needs would silently do nothing and the PR
+would end up in two stacks at once.
+
+### publishing it: `submit --move`
+
+The old arrangement is still on GitHub until `gsx submit --move`, which is **the only step in
+either command that cannot be undone**. It has to dissolve before it pushes:
+
+1. `gh stack unstack <n>` on the stack the move took apart. Unavoidable: the API cannot remove a
+   PR from a stack (unstack takes no body) and `gh stack link` rejects a PR that belongs to
+   another one, so the moved PRs cannot join their new stack while the old one holds them.
+2. Then GitHub is asked whether it really let go, before anything is pushed -- a queued PR would
+   have left the stack standing.
+3. `gh stack submit --auto` for the stack you are on: pushes the rewritten branches, fixes the PR
+   bases, and grows the target's stack object. **The target keeps its number** -- link appends --
+   so only the dissolved stack's number is lost.
+4. Any other local stack the move left holding those PRs (what stayed below you) is submitted
+   too, as a new stack with a new number, and non-fatally: the half you were standing in is
+   published by then, and a warning naming the two commands is more honest than an error.
+
+So the one thing to expect: **the stack number of what stays below you changes.** The PR numbers
+do not.
+
+`--move` is required rather than inferred, and `submit` **refuses without it** when it notices
+one, because an irreversible step should never be a side effect. Noticing is `move.pending()`:
+a GitHub stack is still fine while its PRs are the bottom of one local stack, in order, since
+link can append it into place; a stack whose PRs are split across two local stacks, or now sitting
+on top of another stack's, can only be reached by removing PRs from it, and that one has to be
+dissolved. Prefixes are the whole test because a move can only make prefixes -- what stays below
+you is a prefix, what arrives goes on top. PRs this checkout does not track are left out of the
+comparison: someone else adding a PR to your stack is the *other* reason the two sides differ,
+and it needs a sync, not a dissolve. `gsx stack` prints the same finding as "a move is in
+progress", and says when a stack rebase is stopped.
 
 ## stack
 
@@ -369,7 +449,22 @@ Facts that cost real testing; the code depends on them.
 7. `gh stack checkout`'s bare number is **a stack number first**, then a locally tracked PR, then
    a PR discovered from GitHub, then a branch (its own `--help` says so). A PR URL has no such
    chain, which is why `checkout` hands gh the URL for `#N` rather than the number.
-8. The stacks listing (`gh api repos/{owner}/{repo}/stacks`) returns, per stack,
+8. **`gh stack init` records the base a branch's commits really sit on**, not the parent it was
+   just declared to have, and `gh stack rebase --no-trunk` replays `--onto <new parent> <that
+   base>` -- so a branch moved between stacks is rebased correctly by gh-stack itself, nothing is
+   fetched or pushed, and only the branches whose parent changed are rewritten. Measured on
+   tabsdata-tucu: two stacks combined into one, seven of nine branches left byte-identical to
+   `origin`, the server's shas unchanged throughout. The `sync` error "could not determine the
+   previous base" belongs to the cascade's *rewritten-parent* case and does not fire here; an
+   earlier draft of `move` carried its own `git rebase --onto` chain on the strength of that
+   misreading.
+9. `gh stack rebase` keeps `.git/gh-stack-rebase-state` (every branch's original ref, the
+   conflicting branch, what is left) and `--continue`/`--abort` finish or unwind it -- so a
+   command that drives it needs no session of its own. `gh stack modify` keeps
+   `gh-stack-modify-state` the same way.
+10. `gh stack init` **refuses a branch that is already in a tracked stack** (`✗ branch "b" already
+   exists in a stack`), which is why a move forgets both stacks locally first.
+11. The stacks listing (`gh api repos/{owner}/{repo}/stacks`) returns, per stack,
    `{number, base:{ref}, open, pull_requests:[{number, state, merged_at, head:{ref, sha}}]}`,
    the PRs in stack order bottom-up -- read off a real repository, and what `stack` builds its
    remote half from. `gh api` fills in `{owner}` and `{repo}` from the checkout, so that costs

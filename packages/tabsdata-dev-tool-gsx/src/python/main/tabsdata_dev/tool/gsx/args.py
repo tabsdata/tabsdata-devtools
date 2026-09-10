@@ -260,8 +260,15 @@ APPROVE_NATIVES = [
 #: what the classification reads. No natives means `--x:` is refused by name.
 PURGE_NATIVES: list[Native] = []
 
-#: stack reads a file and some refs. There is no command behind it to
-#: forward a flag to.
+#: move drives four `gh stack` commands (`unstack --local`, `checkout`, `init`,
+#: `rebase --no-trunk`) in one fixed sequence whose every argument it computes
+#: from the plan the operator confirmed. There is no flag to forward that would
+#: not change what the plan said; the flags that matter afterwards belong to
+#: `gh stack rebase --continue|--abort`, run by hand.
+MOVE_NATIVES: list[Native] = []
+
+#: stack reads a file, some refs and one API listing. There is no command
+#: behind it to forward a flag to.
 STACK_NATIVES: list[Native] = []
 
 NATIVES = {
@@ -272,6 +279,7 @@ NATIVES = {
     "apply": APPLY_NATIVES,
     "approve": APPROVE_NATIVES,
     "purge": PURGE_NATIVES,
+    "move": MOVE_NATIVES,
     "stack": STACK_NATIVES,
 }
 TAKES_LR = {"submit", "apply"}

@@ -491,6 +491,88 @@ DIVERGED = "diverged"
 NO_LOCAL = "no-local-branch"
 
 
+def rebase_stopped(runner: Runner) -> str:
+    """The branch a `gh stack rebase` is stopped on, or `""`.
+
+    gh-stack keeps its own session in `<git-dir>/gh-stack-rebase-state` --
+    every branch's original ref, the branch that conflicted, what is left to
+    replay -- and `gh stack rebase --continue|--abort` is what finishes or
+    unwinds it. `move` drives that rebase, so this is how anything else knows
+    the operator is in the middle of one.
+    """
+    path = git_dir(runner) / "gh-stack-rebase-state"
+    if not path.is_file():
+        return ""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return "?"
+    return payload.get("conflictBranch") or payload.get("originalBranch") or "?"
+
+
+def modify_in_progress(runner: Runner) -> bool:
+    """`gh stack modify` keeps a session of its own, and it restructures the
+    same things a move does."""
+    return (git_dir(runner) / "gh-stack-modify-state").is_file()
+
+
+def rebase_in_progress(runner: Runner) -> bool:
+    root = git_dir(runner)
+    return (root / "rebase-merge").exists() or (root / "rebase-apply").exists()
+
+
+def dirty(runner: Runner) -> bool:
+    """Uncommitted changes to TRACKED files; untracked ones do not survive a
+    rebase any differently and are not a move's business."""
+    return bool(
+        runner.run(["git", "status", "--porcelain", "--untracked-files=no"]).strip()
+    )
+
+
+def pull_requests(runner: Runner, numbers: list[int]) -> dict:
+    """The state of several PRs in ONE call, keyed by number.
+
+    A field per PR under an alias (`p42:`), because `move` needs the state,
+    merge-queue and auto-merge of every PR it is about to move before it writes
+    anything, and that is one round trip whether it is two PRs or twenty.
+    """
+    if not numbers:
+        return {}
+    fields = "number state isInMergeQueue autoMergeRequest{enabledAt}"
+    parts = " ".join(
+        f"p{n}: pullRequest(number:{n}){{ {fields} }}" for n in sorted(set(numbers))
+    )
+    query = (
+        "query($o:String!,$r:String!){ repository(owner:$o,name:$r){ " + parts + " } }"
+    )
+    owner, _, name = repo_slug(runner).partition("/")
+    payload = runner.json(
+        [
+            "gh",
+            "api",
+            "graphql",
+            "-f",
+            f"query={query}",
+            "-F",
+            f"o={owner}",
+            "-F",
+            f"r={name}",
+        ]
+    )
+    repository = ((payload or {}).get("data") or {}).get("repository") or {}
+    return {
+        number: repository[f"p{number}"]
+        for number in set(numbers)
+        if isinstance(repository.get(f"p{number}"), dict)
+    }
+
+
+def sha(runner: Runner, ref: str) -> str:
+    """The sha `ref` resolves to, or `""` -- never a raise: half these lookups
+    are asking whether a ref exists at all."""
+    return runner.run(["git", "rev-parse", "-q", "--verify", ref], check=False).strip()
+
+
 def stack_remote(runner: Runner) -> str:
     """The remote gh-stack pushes to: its own config key, else `origin`."""
     configured = runner.run(["git", "config", "gh-stack.remote"], check=False).strip()
@@ -628,3 +710,59 @@ def pr_titles(runner: Runner, numbers: list[int]) -> dict[int, str]:
         if isinstance(payload, dict) and payload.get("title"):
             found[number] = payload["title"]
     return found
+
+
+# `move` drives these four, and every one of them is LOCAL: gh-stack's own
+# commands, writing branches and its own tracking file and nothing else.
+# `gsx submit --move` is what reaches GitHub, and it is a separate decision.
+def checkout(runner: Runner, branch: str) -> None:
+    runner.run(["git", "checkout", "-q", branch])
+
+
+def stack_checkout(runner: Runner, branch: str) -> None:
+    """gh-stack's checkout, which switches branch AND makes that stack the
+    active one -- which is what `unstack --local` then acts on."""
+    runner.run(["gh", "stack", "checkout", branch], capture=False)
+
+
+def stack_unstack_local(runner: Runner) -> None:
+    """Drop the active stack's LOCAL tracking. `--local` is the whole point:
+    the same command without it dissolves the stack on GitHub."""
+    runner.run(["gh", "stack", "unstack", "--local"], capture=False)
+
+
+def stack_init(runner: Runner, branches: list[str], base: str = "") -> None:
+    """Track `branches` (bottom-up) as a stack on `base`, adopting them as they
+    are.
+
+    Local: it opens no PR and pushes nothing, and it records each branch's base
+    as the tip its commits really sit on -- which is what makes the rebase that
+    follows replay the right range. It refuses a branch that is already in a
+    tracked stack, which is why the old stacks are forgotten first.
+    """
+    argv = ["gh", "stack", "init"]
+    if base:
+        argv += ["--base", base]
+    runner.run([*argv, *branches], capture=False)
+
+
+def stack_rebase_local(runner: Runner) -> None:
+    """Cascade-rebase the active stack, without touching the trunk.
+
+    `--no-trunk` is what keeps it offline: with the trunk it fetches first.
+    Only branches whose parent actually changed are rewritten, and a conflict
+    stops with `gh stack rebase --continue|--abort` as the two ways out.
+    """
+    runner.run(["gh", "stack", "rebase", "--no-trunk"], capture=False)
+
+
+def stack_unstack(runner: Runner, number: int) -> None:
+    """Dissolve a stack ON GITHUB, by number, from anywhere in the repository.
+
+    The only command `gsx` runs that cannot be undone, and it is `submit
+    --move` that runs it. Unstack takes no body -- it dissolves the whole stack
+    or nothing -- and GitHub leaves a queued or auto-merging PR stacked, in
+    which case it KEEPS the stack; the caller checks for that rather than
+    assuming.
+    """
+    runner.run(["gh", "stack", "unstack", str(number)], capture=False)

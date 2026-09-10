@@ -9,13 +9,14 @@ from __future__ import annotations
 import re
 import sys
 
-from tabsdata_dev.common.core import render
+from tabsdata_dev.common.core import cli, render
 from tabsdata_dev.common.core.errors import ToolError
 
 from . import approve as approve_mod
 from . import config as config_mod
 from . import gh
 from . import labels as labels_mod
+from . import move as move_mod
 from . import progress
 from . import purge as purge_mod
 from .args import Extras
@@ -296,9 +297,67 @@ def checkout(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
 
 
 # ------------------------------------------------------------------ submit
+def _moved_locally(runner: gh.Runner, out) -> move_mod.Pending:
+    """What a local `gsx move` has done that GitHub has not been told about.
+
+    Read rather than remembered: the tracking file and GitHub's own listing
+    disagree in one particular way after a move -- a stack whose PRs now sit in
+    two local stacks -- and that is a fact about the two sides, not a note this
+    tool left itself. A listing that cannot be had answers "nothing known",
+    since a submit should not be blocked by an unreachable API.
+    """
+    try:
+        listing = gh.stacks(runner)
+    except ToolError as error:
+        out.debug(f"could not list the stacks on GitHub ({error})")
+        return move_mod.Pending()
+    return move_mod.pending(gh.read_state(runner), listing)
+
+
+def _publish_move(args, out, runner: gh.Runner, moved: move_mod.Pending, steps) -> None:
+    """The one irreversible part of a move: take the old stacks apart on GitHub.
+
+    It has to come first and it has to be a dissolve. The API cannot remove a
+    PR from a stack (unstack takes no body) and `gh stack link` rejects a PR
+    that belongs to another one, so the moved PRs cannot join their new stack
+    while the old one still holds them. The target keeps its number -- link
+    appends -- so only the stack a move took apart is dissolved.
+
+    Verified before anything is pushed: GitHub leaves a queued or auto-merging
+    PR stacked and then keeps the whole stack, and `move` refuses those, but
+    the state can change in between.
+    """
+    for number in moved.dissolve:
+        gh.stack_unstack(runner, number)
+        steps.step(f"dissolved stack #{number} on GitHub", stage="unstack")
+    if runner.dry_run:
+        return
+    still = {
+        int(stack["number"])
+        for stack in gh.stacks(runner)
+        if stack.get("open") and stack.get("number")
+    }
+    left = [number for number in moved.dissolve if number in still]
+    if left:
+        raise ToolError(
+            "GitHub kept stack(s) "
+            + ", ".join(f"#{number}" for number in left)
+            + " -- a queued or auto-merging PR is left stacked and then the whole "
+            "stack is kept. Nothing has been pushed; sort that PR out and retry"
+        )
+
+
 def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     """Push the stack, open its PRs, then apply the label/reviewer ops."""
     gh.require_tools(runner)
+    moved = _moved_locally(runner, out)
+    if moved and not args.move:
+        raise ToolError(f"{moved.line()} -- or `--move` to publish it now")
+    if args.move and not moved:
+        out.warn(
+            "--move was passed but nothing has moved here that GitHub does not "
+            "already have; submitting the stack as it is"
+        )
     repo = labels_mod.Repo(runner, out)
 
     # How many PRs there will be is not known until they have been pushed --
@@ -306,6 +365,15 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     # never a denominator it would have to guess. The push and the sync are
     # units of it too: they are the slowest thing gsx does.
     steps = progress.Counter(out)
+
+    if args.move and moved:
+        out.warn(
+            "publishing a move: stack(s) "
+            + ", ".join(f"#{number}" for number in moved.dissolve)
+            + " are dissolved on GitHub and their PRs relinked from what is tracked "
+            "here. This is the one step that cannot be undone."
+        )
+        _publish_move(args, out, runner, moved, steps)
 
     if args.sync or extras.passthrough.get("s"):
         runner.run(
@@ -327,6 +395,8 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         changed, failures = labels_mod.apply(
             runner, repo, ops, extras.passthrough.get("e", []), out, steps
         )
+    if args.move and moved:
+        _submit_the_rest(runner, out, args, moved, steps)
     snapshot = gh.stack_pr_snapshot(runner)
     if failures:
         raise ToolError(
@@ -337,6 +407,44 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         f"pushed the stack; {changed} PR(s) updated\n" + _pr_lines(snapshot),
         {"updated": changed, "prs": [pull["number"] for pull in snapshot]},
     )
+
+
+def _submit_the_rest(runner: gh.Runner, out, args, moved: move_mod.Pending, steps):
+    """Submit the other local stacks a move left behind.
+
+    Dissolving the old stack on GitHub takes its remainder down with it, so
+    what stayed below has to be submitted too -- as a new stack, with a new
+    number, because that is all the API can do. Non-fatal: the half the
+    operator was standing in is published by then, and a warning naming the two
+    commands is more honest than an error saying the submit failed.
+    """
+    here = gh.current_branch(runner)
+    elsewhere = [
+        branches for branches in moved.stacks if branches and here not in branches
+    ]
+    for branches in elsewhere:
+        top = branches[-1]
+        try:
+            gh.stack_checkout(runner, top)
+            argv = ["gh", "stack", "submit", "--auto"]
+            if not args.draft:
+                argv.append("--open")
+            runner.run(argv, capture=False)
+            steps.step(
+                f"submitted what stays below: {' '.join(branches)}", stage="rest"
+            )
+        except ToolError as error:
+            steps.failed(
+                f"could not submit {' '.join(branches)} ({error}); by hand: "
+                f"gh stack checkout {top} && gh stack submit --auto",
+                stage="rest",
+            )
+    if not elsewhere:
+        return  # nothing was checked out, so there is nowhere to come back from
+    try:
+        gh.stack_checkout(runner, here)
+    except ToolError as error:
+        out.warn(f"could not return to {here!r} ({error})")
 
 
 # ------------------------------------------------------------------- apply
@@ -564,6 +672,127 @@ def purge(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     return (
         f"deleted {len(gone)} branch(es), kept {len(kept)}\n" + _purge_lines(verdicts),
         {"deleted": gone, "kept": kept, "examined": len(candidates)},
+    )
+
+
+# -------------------------------------------------------------------- move
+def _move_ready(runner: gh.Runner, out) -> str:
+    """Everything that must be true before a move is planned, and the trunk.
+
+    Three of these are other people's sessions -- a stopped `gh stack rebase`,
+    a `gh stack modify`, a plain `git rebase` -- and a move would drive its own
+    rebase straight into them. The fourth is a dirty tree, which makes any
+    replay unpredictable. All four are the operator's to resolve, and all four
+    are checked in a dry run too: a dry run whose checks were skipped would
+    report a plan that cannot be carried out.
+    """
+    gh.require_tools(runner)
+    gh.require_repo(runner)
+    stopped = gh.rebase_stopped(runner)
+    if stopped:
+        raise ToolError(
+            f"a stack rebase is stopped on {stopped!r}: finish it with "
+            "`gh stack rebase --continue`, or undo it with `gh stack rebase --abort`"
+        )
+    if gh.modify_in_progress(runner):
+        raise ToolError("a `gh stack modify` is unfinished; finish or abort it first")
+    if gh.rebase_in_progress(runner):
+        raise ToolError("a git rebase is in progress; finish or abort it first")
+    if gh.dirty(runner):
+        raise ToolError(
+            "the working tree has uncommitted changes; commit or stash them first"
+        )
+    default = gh.default_branch(runner)
+    out.info(f"trunk {default!r}, clean working tree, nothing else in progress")
+    return default
+
+
+def _refuse_unmovable(runner: gh.Runner, numbers: list[int], out) -> None:
+    """The PRs being moved, checked in one call before anything is written.
+
+    A queued or auto-merging PR is the one that matters: GitHub leaves such a
+    PR stacked and then **keeps the whole stack**, so the `gsx submit --move`
+    that finishes the job would dissolve nothing and the PR would end up in two
+    stacks at once. Better to say so now than to leave that to discover.
+    """
+    if not numbers:
+        return
+    for number, entry in gh.pull_requests(runner, numbers).items():
+        state = (entry.get("state") or "").upper()
+        if state and state != "OPEN":
+            raise ToolError(
+                f"PR #{number} is {state}; a move would rebase it and submit cannot "
+                "restack it -- drop that branch from the stack first "
+                "(`gh stack modify`)"
+            )
+        if entry.get("isInMergeQueue"):
+            raise ToolError(
+                f"PR #{number} is in the merge queue, so GitHub will refuse to "
+                "unstack it and `gsx submit --move` could not publish the move; "
+                "wait for it to merge"
+            )
+        if entry.get("autoMergeRequest"):
+            raise ToolError(
+                f"PR #{number} has auto-merge enabled, so GitHub will refuse to "
+                f"unstack it; disable it first (gh pr merge --disable-auto {number})"
+            )
+
+
+def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
+    """Move the branch you are on, and everything above it, to another stack.
+
+    Local, all of it: four `gh stack` commands that write branches and
+    gh-stack's tracking file and nothing else. `gsx submit --move` publishes it
+    when you have looked at it.
+    """
+    default = _move_ready(runner, out)
+    current = gh.current_branch(runner)
+    if not current or current == "HEAD":
+        raise ToolError("detached HEAD; check out the branch you want to move")
+    state = gh.read_state(runner)
+    if not state.get("stacks"):
+        raise ToolError(
+            f"no stacks are tracked in this checkout ({gh.git_dir(runner)}/gh-stack); "
+            "there is nothing to move out of"
+        )
+    source = move_mod.source_stack(state, current)
+    out.info(
+        f"{source.tag} on {source.trunk!r}: {len(source.branches)} branch(es), "
+        f"{current!r} is #{source.index} from the bottom"
+    )
+    target = move_mod.resolve_target(runner, args.to, source, state, default, out)
+    _refuse_unmovable(runner, source.moving_prs, out)
+    remote = gh.stack_remote(runner)
+    unpushed = [
+        branch
+        for branch in source.moving
+        if not gh.sha(runner, f"refs/remotes/{remote}/{branch}")
+    ]
+    if unpushed:
+        out.warn(
+            f"{', '.join(unpushed)} have no copy on {remote}: `gh stack rebase "
+            "--abort` can still undo the replay, but there is nothing to fall back "
+            "on afterwards"
+        )
+
+    plan = move_mod.build(source, target)
+    out.info(move_mod.text(plan), plan=plan.steps)
+    if runner.dry_run:
+        out.info("dry run: every check passed, nothing will be changed")
+    else:
+        cli.confirm(
+            out,
+            f"move {len(source.moving)} branch(es) out of {source.tag} onto "
+            f"{target.head}? all local -- nothing is pushed",
+            assume_yes=args.yes,
+        )
+    steps = progress.Counter(out, total=len(plan.steps))
+    fields = move_mod.run(runner, plan, steps)
+    return (
+        f"moved {len(source.moving)} branch(es) onto {target.head}, locally; "
+        "`gsx submit --move` publishes it\n"
+        + "\n".join(f"  moved   {branch}" for branch in source.moving),
+        fields,
     )
 
 
@@ -1027,8 +1256,21 @@ def stack(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         # own, and a line about it would be the first thing on every run.
         gh.fetch(runner, remote)
     current = gh.current_branch(runner)
+    stopped = gh.rebase_stopped(runner)
+    if stopped:
+        out.warn(
+            f"a stack rebase is stopped on {stopped!r}: `gh stack rebase --continue` "
+            "when it is resolved, or `gh stack rebase --abort` to put it back"
+        )
     listing, asked = _remote_listing(runner, out, source)
-    every = stack_rows(gh.read_state(runner), current, remote=listing, source=source)
+    state = gh.read_state(runner)
+    if listing:
+        # The rows below say where each branch stands; this says the arrangement
+        # itself is half-published, which no row can show.
+        unpublished = move_mod.pending(state, listing)
+        if unpublished:
+            out.warn(unpublished.line())
+    every = stack_rows(state, current, remote=listing, source=source)
     if not every:
         blank = BLANK[source] if asked or source != BOTH else BLANK[LOCAL]
         return (blank, {"stacks": [], "source": source})
