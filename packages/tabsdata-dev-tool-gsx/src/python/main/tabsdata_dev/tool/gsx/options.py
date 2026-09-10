@@ -283,6 +283,29 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help="skip the `git fetch --prune` first; the PR states are read live either way",
     )
 
+    prune = add(
+        "prune",
+        "dissolve the current stack on GitHub and relink only its open PRs",
+        "example:\n  tdd gsx prune --dry-run\n\n"
+        "a stack keeps its merged PRs for ever -- one real stack is 93 PRs of\n"
+        "which 90 have landed -- and there is no API for taking a PR out of a\n"
+        "stack. So the only way to shrink one is to dissolve it and relink what\n"
+        "is left: `gh stack unstack <n>` on GitHub, then `gh stack link` over the\n"
+        "PRs that are still open, then a local `gh stack init` to track it here.\n\n"
+        "the cost is fixed and it is the stack NUMBER: a relinked stack is a new\n"
+        "one. No PR number changes, no branch is rewritten and nothing is pushed\n"
+        "(link is given PR numbers, never branch names, which it would push).\n"
+        "Fewer than 2 open PRs cannot be a stack, so there prune dissolves and\n"
+        "stops. This is not `gsx purge`, which deletes local branches and touches\n"
+        "nothing on GitHub.\n\n",
+    )
+    prune.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="do not ask; without it the plan is shown and a confirmation is read from the terminal",
+    )
+
     move = add(
         "move",
         "move the branch you are on, and everything above it, to another stack",

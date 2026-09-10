@@ -12,6 +12,7 @@ from tabsdata_dev.tool.gsx import args as args_mod
 from tabsdata_dev.tool.gsx.version import VERSION
 from tabsdata_dev.tool.gsx import commands, config, gh, labels, progress
 from tabsdata_dev.tool.gsx import move as move_mod
+from tabsdata_dev.tool.gsx import prune as prune_mod
 from tabsdata_dev.tool.gsx import purge as purge_mod
 
 
@@ -1063,6 +1064,127 @@ def test_a_refused_checkout_target_costs_no_child_process(tmp_path, monkeypatch)
     )
     assert gsx.main(["checkout", "42"]) == 1
     assert calls == []
+
+
+def _landed_stack(open_prs=("c1", "c2"), landed=("a1", "a2", "b1")):
+    """One tracked stack whose bottom has landed: `(number, trunk, entries)`
+    with a PR per branch, numbered from 40."""
+    names = [*landed, *open_prs]
+    return _tracked((52, "main", [(name, 40 + n) for n, name in enumerate(names)]))
+
+
+def _states(landed=3, total=5, first=40):
+    return {
+        first + n: {"state": "MERGED" if n < landed else "OPEN"} for n in range(total)
+    }
+
+
+def test_prune_drops_the_landed_pull_requests_and_keeps_the_rest():
+    plan = prune_mod.build(_landed_stack()["stacks"][0], _states())
+    assert plan.number == 52 and plan.trunk == "main"
+    assert plan.drop == [("a1", 40), ("a2", 41), ("b1", 42)]
+    assert plan.keep == [("c1", 43), ("c2", 44)]
+    assert plan.prs == [43, 44] and plan.branches == ["c1", "c2"]
+    text = plan.text()
+    assert "gh stack unstack 52   # on GitHub, irreversible" in text
+    assert "gh stack link 43 44" in text
+    assert "gh stack init --base main c1 c2" in text
+    assert "#52 is lost" in text and "No PR number changes" in text
+
+
+def test_prune_keeps_a_branch_that_has_no_pr_yet():
+    """Not history and not landed: work that has not been submitted. It cannot
+    be linked on GitHub -- there is nothing there to link -- but dropping it
+    from the local stack would lose the arrangement it is part of."""
+    stack = _landed_stack()["stacks"][0]
+    stack["branches"].append({"branch": "d1", "pullRequest": None})
+    plan = prune_mod.build(stack, _states())
+    assert plan.untracked == ["d1"] and plan.prs == [43, 44]
+    assert plan.branches == ["c1", "c2", "d1"]
+    assert "d1   # no PR yet" in plan.text()
+
+
+def test_prune_will_not_spend_a_stack_number_for_nothing():
+    with pytest.raises(ToolError, match="every PR of stack #52 is still open"):
+        prune_mod.build(_landed_stack()["stacks"][0], _states(landed=0))
+
+
+def test_prune_needs_the_stack_to_be_on_github_at_all():
+    stack = dict(_landed_stack()["stacks"][0], number=None)
+    with pytest.raises(ToolError, match="not on GitHub yet"):
+        prune_mod.build(stack, _states())
+
+
+def test_prune_says_a_pr_it_cannot_ask_about_is_kept():
+    """A missing answer is not certainty, and prune only drops what is
+    certainly finished."""
+    plan = prune_mod.build(_landed_stack()["stacks"][0], {40: {"state": "MERGED"}})
+    assert plan.drop == [("a1", 40)] and len(plan.keep) == 4
+
+
+def test_a_remainder_too_small_to_be_a_stack_is_only_dissolved():
+    plan = prune_mod.build(
+        _landed_stack(open_prs=("c1",), landed=("a1", "a2"))["stacks"][0],
+        _states(landed=2, total=3),
+    )
+    assert plan.links is False
+    assert "a stack needs 2 PRs and 1 would be left" in plan.text()
+
+
+def test_prune_dissolves_then_links_then_tracks_it_here(tmp_path, monkeypatch, capsys):
+    """The order is forced: `gh stack link` rejects a PR that belongs to
+    another stack, so the old one goes first."""
+    state = _landed_stack()
+    calls = _fake_move(monkeypatch, tmp_path, state, current="c1")
+    monkeypatch.setattr(gh, "pull_requests", lambda runner, numbers: _states())
+    monkeypatch.setattr(
+        gh, "stacks", lambda runner, **kw: [_listed(61, [(43, "c1"), (44, "c2")])]
+    )
+    assert gsx.main(["prune", "--yes"]) == 0
+    stack_calls = [call for call in calls if call[:2] == ["gh", "stack"]]
+    assert stack_calls == [
+        ["gh", "stack", "unstack", "52"],
+        ["gh", "stack", "link", "43", "44"],
+        ["gh", "stack", "unstack", "--local"],
+        ["gh", "stack", "init", "--base", "main", "c1", "c2"],
+    ]
+    said = capsys.readouterr().out
+    assert "its open PRs are stack #61 now" in said
+    assert "3 merged or closed PR(s) dropped" in said
+    # nothing pushed, and link was never handed a branch name
+    assert not any("push" in " ".join(call) for call in calls)
+    assert not any(
+        call[:3] == ["gh", "stack", "link"] and "c1" in call for call in calls
+    )
+
+
+def test_prune_is_refused_while_a_move_is_unpublished(tmp_path, monkeypatch, capsys):
+    """Prune dissolves a stack on GitHub, and until the move is published the
+    two sides disagree about which PRs live together."""
+    _fake_move(monkeypatch, tmp_path, _landed_stack(), current="c1")
+    move_mod.save(
+        gh.Runner(out=_Out()),
+        move_mod.Session(
+            stage=move_mod.PUBLISH,
+            started_on="c1",
+            moving=["c1"],
+            target="x",
+            onto="x",
+            upstream="sha",
+            tips={},
+            tracking=None,
+            moves=[{"moving": ["c1"], "onto": "x", "from": "c1"}],
+        ),
+    )
+    assert gsx.main(["prune", "--yes"]) == 1
+    said = capsys.readouterr().err
+    assert "not published" in said and "prune after that" in said
+
+
+def test_prune_needs_a_stack_to_stand_in(tmp_path, monkeypatch, capsys):
+    _fake_move(monkeypatch, tmp_path, {"stacks": []}, current="c1")
+    assert gsx.main(["prune", "--yes"]) == 1
+    assert "is not in any stack tracked here" in capsys.readouterr().err
 
 
 # -------------------------------------------------------------------- move

@@ -177,6 +177,56 @@ live from the API, so `--dry-run` skipping the fetch (it writes remote-tracking 
 run no accuracy, and `--no-fetch` skips it outright. Every branch is attempted even when one
 delete fails -- a worktree holding it, say -- and the failures are reported together at the end.
 
+## prune
+
+`prune` shrinks the stack you are standing in: it **dissolves it on GitHub and relinks only the
+PRs that are still open**. A stack keeps its merged PRs for ever -- `checkout` imports every
+branch it ever had, `view` lists them all, `sync --prune` deletes the local branches and keeps the
+metadata -- so a long-lived stack grows without bound. One in tabsdata-os is 93 PRs of which 90
+have landed, and every command that reads it pays for the history.
+
+Dissolve-and-relink is not a choice: **there is no API for taking a PR out of a stack.**
+`gh stack unstack` takes no body, so it is the whole stack or nothing, and `gh stack link` rejects
+a PR that belongs to another stack. Hence the order, which is forced:
+
+```
+gh stack unstack <n>                      # on GitHub. The irreversible step
+gh stack link <open pr> <open pr> ...     # a new stack of what is left
+git checkout <trunk> && gh stack init --base <trunk> <kept branches...>   # track it here
+```
+
+**The cost is the stack number, and nothing else.** A relinked stack is a new one, so `#3443`
+becomes `#3501`; no PR number changes, no branch is rewritten, nothing is pushed. That is said in
+the plan and again in the confirmation, because it is the only thing the operator is trading.
+
+Four things the steps turn on:
+
+- **link is handed PR numbers, never branch names.** "Branch arguments are automatically pushed
+  to the remote before creating or looking up PRs. For branches without PRs, new PRs are created
+  automatically." Neither is something prune could want by accident, and numbers are looked up
+  instead. `gh.stack_link` says so where it would be edited.
+- **A stack needs two PRs.** With fewer than two still open there is nothing to link, so prune
+  dissolves and stops -- the honest end for a stack with one open PR left, and it says so rather
+  than failing at the link.
+- **A branch with no PR is kept**, in the local tracking only. It is not history and not landed:
+  it is work that has not been submitted, it cannot be linked (there is nothing on GitHub to
+  link), and dropping it would lose the arrangement it is part of.
+- **A PR the API did not answer for is kept.** prune drops what is *certainly* finished, and a
+  missing answer is not certainty.
+
+The preflight is the same set of other people's sessions `move` refuses to run into, plus one that
+is stricter: **an unpublished move is refused, not warned about.** Prune dissolves a stack on
+GitHub, and while a move is unpublished the two sides already disagree about which PRs live
+together -- publishing half of that by accident is exactly what `submit --move` exists to make
+deliberate. A queued or auto-merging PR anywhere in the stack is refused too, for the reason
+`submit --move` refuses it: GitHub leaves such a PR stacked and then keeps the whole stack, so the
+dissolve would silently do nothing. That check is shared (`_refuse_stuck`); the one about a
+*finished* PR is not, because a finished PR is what prune is for.
+
+It is not `purge`, which deletes local branches and touches nothing on GitHub. The two go
+together after a long-lived stack has landed most of itself: `prune` shrinks the stack, `purge`
+removes the branches it stopped tracking.
+
 ## move
 
 `move --to #STACK|BRANCH` takes the branch you are standing on **and every branch above it** out
@@ -653,6 +703,12 @@ Facts that cost real testing; the code depends on them.
    the PRs in stack order bottom-up -- read off a real repository, and what `stack` builds its
    remote half from. `gh api` fills in `{owner}` and `{repo}` from the checkout, so that costs
    one round trip and no `gh repo view` before it.
+13. `gh stack link` **pushes a branch argument and opens a PR for one that has none** -- "branch
+   arguments are automatically pushed to the remote before creating or looking up PRs. For
+   branches without PRs, new PRs are created automatically." It also appends to an existing stack
+   ("if some of the PRs are already in a stack, the existing stack is updated ... existing PRs
+   are never removed") and rejects a PR that belongs to a different one. Read off its `--help`;
+   it is why `prune` and `submit --move` pass PR numbers only.
 
 ## Differences from the standalone gsx
 

@@ -260,6 +260,12 @@ APPROVE_NATIVES = [
 #: what the classification reads. No natives means `--x:` is refused by name.
 PURGE_NATIVES: list[Native] = []
 
+#: prune drives `gh stack unstack <n>`, `gh stack link <prs...>` and one local
+#: `gh stack init`, and every argument of all three is the plan the operator
+#: confirmed. link in particular must never be handed a branch name -- it
+#: pushes those -- so there is nothing here to forward.
+PRUNE_NATIVES: list[Native] = []
+
 #: move drives four `gh stack` commands (`unstack --local`, `checkout`, `init`,
 #: `rebase --no-trunk`) in one fixed sequence whose every argument it computes
 #: from the plan the operator confirmed. There is no flag to forward that would
@@ -279,6 +285,7 @@ NATIVES = {
     "apply": APPLY_NATIVES,
     "approve": APPROVE_NATIVES,
     "purge": PURGE_NATIVES,
+    "prune": PRUNE_NATIVES,
     "move": MOVE_NATIVES,
     "stack": STACK_NATIVES,
 }

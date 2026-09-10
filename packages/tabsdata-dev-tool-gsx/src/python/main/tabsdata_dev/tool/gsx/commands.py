@@ -18,6 +18,7 @@ from . import gh
 from . import labels as labels_mod
 from . import move as move_mod
 from . import progress
+from . import prune as prune_mod
 from . import purge as purge_mod
 from .args import Extras
 
@@ -731,6 +732,152 @@ def purge(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     )
 
 
+# ------------------------------------------------------------------- prune
+def _prune_ready(runner: gh.Runner, out) -> None:
+    """Everything that must be true before a stack is taken apart.
+
+    An unpublished move is the one that matters and it is refused, not warned
+    about: prune dissolves a stack on GitHub, and while a move is unpublished
+    the two sides already disagree about which PRs live together -- publishing
+    half of that by accident is exactly what `submit --move` exists to make
+    deliberate. The rest are the same sessions `move` refuses to run into,
+    because prune's last step is a `gh stack init` from the trunk and that
+    needs a checkout.
+    """
+    gh.require_tools(runner)
+    gh.require_repo(runner)
+    session = move_mod.load(runner)
+    if session is not None:
+        raise ToolError(
+            f"{session.line()} -- prune after that: it dissolves a stack on GitHub, "
+            "and until the move is published the two sides disagree about which "
+            "PRs live together"
+        )
+    stopped = gh.rebase_stopped(runner)
+    if stopped:
+        raise ToolError(
+            f"a stack rebase is stopped on {stopped!r}: finish it with "
+            "`gh stack rebase --continue`, or undo it with `gh stack rebase --abort`"
+        )
+    if gh.modify_in_progress(runner):
+        raise ToolError("a `gh stack modify` is unfinished; finish or abort it first")
+    if gh.dirty(runner):
+        raise ToolError(
+            "the working tree has uncommitted changes; commit or stash them first"
+        )
+    out.info("clean working tree, nothing else in progress")
+
+
+def _relink(runner: gh.Runner, out, plan: prune_mod.Plan, steps) -> int | None:
+    """Make the new stack on GitHub, and say which number it got.
+
+    The number is read back from the listing rather than parsed out of what
+    link printed: it is the one thing about the result the operator cannot
+    predict, and the listing is the same source `gsx stack` answers from.
+    """
+    if not plan.links:
+        out.warn(
+            f"{len(plan.keep)} PR(s) left open, and a stack needs "
+            f"{prune_mod.NEEDS}: #{plan.number} is dissolved and nothing is relinked"
+        )
+        return None
+    gh.stack_link(runner, plan.prs)
+    steps.step(f"linked {len(plan.prs)} open PR(s) into a new stack", stage="link")
+    if runner.dry_run:
+        return None
+    try:
+        for stack in gh.stacks(runner):
+            names = {
+                int(pull["number"])
+                for pull in stack.get("pull_requests") or []
+                if pull.get("number")
+            }
+            if stack.get("open") and set(plan.prs) <= names:
+                return int(stack["number"])
+    except ToolError as error:
+        out.debug(f"could not read the new stack's number ({error})")
+    return None
+
+
+def _retrack(runner: gh.Runner, out, plan: prune_mod.Plan, steps, here: str) -> None:
+    """Track what is left, here, as the stack it now is.
+
+    Local only, and `gh stack init` adopts without rewriting a thing, so this
+    costs no commits: it is the same rearrangement `move` does, for the same
+    reason -- gh-stack's tracking file has to be told, and there is no command
+    that edits it in place.
+    """
+    # Located by the branch the operator is standing on, not by what is kept:
+    # a stack whose every PR has landed keeps nothing, and its local tracking
+    # is exactly what should not be left behind.
+    if move_mod.stack_of(gh.read_state(runner), here):
+        gh.stack_unstack_local(runner)
+        steps.step("forgot the old stack here", stage="untrack")
+    if not plan.branches:
+        out.warn("nothing is left to track here: every branch of it had landed")
+        return
+    gh.checkout(runner, plan.trunk)
+    gh.stack_init(runner, plan.branches, base=plan.trunk)
+    steps.step(f"tracked {' '.join(plan.branches)} here", stage="init")
+    if here not in plan.branches:
+        out.info(f"{here!r} is not in the pruned stack; leaving you on its top")
+    gh.checkout(runner, here if here in plan.branches else plan.branches[-1])
+
+
+def prune(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
+    """Dissolve the current stack on GitHub and relink only its open PRs.
+
+    The one command besides `submit --move` that changes something on GitHub
+    irreversibly, and the change is always the same: the stack number. Nothing
+    is pushed, no PR number moves and no branch is rewritten.
+    """
+    _prune_ready(runner, out)
+    current = gh.current_branch(runner)
+    stack = move_mod.stack_of(gh.read_state(runner), current)
+    if stack is None:
+        raise ToolError(
+            f"branch {current!r} is not in any stack tracked here; check out a "
+            "branch of the stack to prune (`gh stack checkout <n>`)"
+        )
+    numbers = [
+        (item.get("pullRequest") or {}).get("number")
+        for item in stack.get("branches") or []
+    ]
+    states = _pr_states(runner, numbers)
+    _refuse_stuck(states, [number for number in numbers if number])
+    plan = prune_mod.build(stack, states)
+    out.info(plan.text(), plan=True)
+    if runner.dry_run:
+        out.info("dry run: every check passed, nothing will be changed")
+    else:
+        cli.confirm(
+            out,
+            f"dissolve stack #{plan.number} on GitHub and relink "
+            f"{len(plan.keep)} open PR(s)? #{plan.number} is lost either way",
+            assume_yes=args.yes,
+        )
+    steps = progress.Counter(out, total=3)
+    gh.stack_unstack(runner, plan.number)
+    steps.step(f"dissolved stack #{plan.number} on GitHub", stage="unstack")
+    made = _relink(runner, out, plan, steps)
+    _retrack(runner, out, plan, steps, current)
+    dropped = ", ".join(f"#{pr}" for _, pr in plan.drop)
+    return (
+        f"pruned stack #{plan.number}: "
+        + (f"its open PRs are stack #{made} now" if made else "dissolved")
+        + f"; {len(plan.drop)} merged or closed PR(s) dropped\n"
+        + f"  dropped   {dropped}\n"
+        + f"  kept      {' '.join(str(pr) for pr in plan.prs) or '(none)'}",
+        {
+            "was": plan.number,
+            "stack": made,
+            "kept": plan.prs,
+            "dropped": [pr for _, pr in plan.drop],
+            "branches": plan.branches,
+        },
+    )
+
+
 # -------------------------------------------------------------------- move
 def _move_ready(runner: gh.Runner, out) -> str:
     """Everything that must be true before a move is planned, and the trunk.
@@ -792,25 +939,17 @@ def _landed(states: dict) -> set[int]:
     }
 
 
-def _refuse_unmovable(states: dict, numbers: list[int]) -> None:
-    """The PRs being moved, checked before anything is written.
+def _refuse_stuck(states: dict, numbers: list[int]) -> None:
+    """A PR GitHub will not let out of its stack, checked before anything runs.
 
-    A queued or auto-merging PR is the one that matters: GitHub leaves such a
-    PR stacked and then **keeps the whole stack**, so the `gsx submit --move`
-    that finishes the job would dissolve nothing and the PR would end up in two
-    stacks at once. Better to say so now than to leave that to discover.
+    GitHub leaves a queued or auto-merging PR stacked and then **keeps the
+    whole stack**, so any dissolve that has to happen later would silently do
+    nothing. Both commands that dissolve -- `submit --move` and `prune` --
+    depend on it, so both refuse these up front rather than leaving it to
+    discover.
     """
     for number in numbers:
-        entry = states.get(number)
-        if not entry:
-            continue
-        state = (entry.get("state") or "").upper()
-        if state and state != "OPEN":
-            raise ToolError(
-                f"PR #{number} is {state}; a move would rebase it and submit cannot "
-                "restack it -- drop that branch from the stack first "
-                "(`gh stack modify`)"
-            )
+        entry = states.get(number) or {}
         if entry.get("isInMergeQueue"):
             raise ToolError(
                 f"PR #{number} is in the merge queue, so GitHub will refuse to "
@@ -821,6 +960,24 @@ def _refuse_unmovable(states: dict, numbers: list[int]) -> None:
             raise ToolError(
                 f"PR #{number} has auto-merge enabled, so GitHub will refuse to "
                 f"unstack it; disable it first (gh pr merge --disable-auto {number})"
+            )
+
+
+def _refuse_unmovable(states: dict, numbers: list[int]) -> None:
+    """...and for a move, a PR that is finished as well.
+
+    A move would rebase it and `submit` cannot restack it. `prune` is the
+    opposite case, which is why this is not the same check: there a finished PR
+    is the thing being dropped.
+    """
+    _refuse_stuck(states, numbers)
+    for number in numbers:
+        state = ((states.get(number) or {}).get("state") or "").upper()
+        if state and state != "OPEN":
+            raise ToolError(
+                f"PR #{number} is {state}; a move would rebase it and submit cannot "
+                "restack it -- drop that branch from the stack first "
+                "(`gh stack modify`)"
             )
 
 

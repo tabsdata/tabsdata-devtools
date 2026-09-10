@@ -904,6 +904,21 @@ def stack_rebase_upstack(runner: Runner) -> None:
     runner.run(["gh", "stack", "rebase", "--upstack", "--no-trunk"], capture=False)
 
 
+def stack_link(runner: Runner, prs: list[int]) -> None:
+    """Make a stack on GitHub out of PRs that are in none, bottom-up.
+
+    **PR numbers only, never branch names.** `gh stack link` pushes a branch
+    argument before looking it up and opens a PR for one that has none -- "for
+    branches without PRs, new PRs are created automatically" -- and neither is
+    something a caller of this could want by accident. Numbers are looked up.
+
+    It appends to an existing stack and rejects a PR that belongs to another
+    one, so the PRs have to be unstacked first. Two is the minimum: fewer than
+    that is not a stack.
+    """
+    runner.run(["gh", "stack", "link", *(str(number) for number in prs)], capture=False)
+
+
 def stack_unstack(runner: Runner, number: int) -> None:
     """Dissolve a stack ON GITHUB, by number, from anywhere in the repository.
 
