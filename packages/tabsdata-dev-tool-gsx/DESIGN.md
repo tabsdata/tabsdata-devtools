@@ -290,9 +290,21 @@ magenta one are the same fact one step apart, which is why they are the same cha
 colour and the legend's words carry the step.
 
 Remote-only PRs are appended at the top of their stack, which is where `gh stack sync` would put
-them when it pulls them down. Merged and closed PRs are left out
-of the listing's contribution: a stack keeps them, and a row saying you lack a merged branch
-would be noise on every stack that has ever landed anything. A closed stack is skipped whole.
+them when it pulls them down. A closed stack is skipped whole.
+
+**A stack's merged PRs are its history, not its state, so they are left out** -- of both halves,
+and how many is said. This was learned the hard way: `gsx stack -a -s` in a fresh clone of
+tabsdata-os, with stack #3443 checked out, printed ninety `?OS-32xx` before the three branches
+that were still open. Those ninety came from gh-stack's tracking file, which keeps every PR the
+stack ever had, and the local half was reading it without asking what had become of them. The
+three open ones were the whole answer. `--merged` brings them back; a stack with nothing else
+left goes with them, and its number is in `--all --merged` when it is wanted. What remains is
+honest about the shape it shows: those commits are in the trunk now, so the branch above them
+really does sit on it.
+
+The listing is the only thing that knows -- `state` plus `merged_at` per PR -- so **`--local`
+cannot know and shows everything**. That is the price of asking nobody, and it is the one view
+where a long tail of merged branches still appears.
 
 **`--local` and `--remote` carry no sync symbol at all**, because each shows one side and "behind"
 is a claim about the other one. They fetch nothing, compare nothing, and their legend is the

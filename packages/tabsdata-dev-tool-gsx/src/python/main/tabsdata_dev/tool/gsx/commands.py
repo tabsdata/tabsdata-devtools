@@ -887,6 +887,56 @@ def _cell(symbol: str, name: str, colour: str, guard: tuple, paint) -> str:
     )
 
 
+def _finished(pull: dict) -> bool:
+    """A PR that is merged or closed, as the stacks listing reports it.
+
+    A stack keeps its merged PRs -- #3443 in tabsdata-os holds 90 of them under
+    three open ones -- so this is the difference between a listing and a
+    working set. `state` is `open`/`closed` and `merged_at` is set for a merge;
+    a payload that carries neither is taken as open, since inventing a merge
+    would hide a branch.
+    """
+    return (
+        bool(pull.get("merged_at")) or (pull.get("state") or "open").lower() != "open"
+    )
+
+
+def finished_prs(listing: list[dict]) -> set[int]:
+    """Every PR the listing says is done with, from every stack in it."""
+    return {
+        int(pull["number"])
+        for stack in listing or []
+        for pull in stack.get("pull_requests") or []
+        if pull.get("number") and _finished(pull)
+    }
+
+
+def without_finished(rows: list[dict], finished: set[int]) -> tuple[list[dict], int]:
+    """The rows with the done-with PRs taken out, and how many that was.
+
+    Left out by default because a stack's merged PRs are its history, not its
+    state: `gsx stack -a -s` on a real stack printed ninety `?OS-32xx` before
+    the three branches that were still open, and the three were the answer.
+    A stack with nothing left goes too -- its number is in `--all --merged`
+    when it is wanted. What is left is honest about the shape it shows: the
+    merged commits are in the trunk now, so the branch above them really does
+    sit on it.
+    """
+    hidden = 0
+    kept = []
+    for row in rows:
+        branches = []
+        for branch in row["branches"]:
+            if branch["pr"] and branch["pr"] in finished:
+                hidden += 1
+                continue
+            branches.append(branch)
+        if not branches:
+            continue
+        kept.append({**row, "branches": branches})
+    return kept, hidden
+
+
 def _remote_branches(
     listed: dict, tracked: set, current: str, extras_only: bool = False
 ) -> list[dict]:
@@ -903,7 +953,7 @@ def _remote_branches(
         name = ((pull.get("head") or {}).get("ref")) or ""
         if not name:
             continue
-        if (pull.get("state") or "open").lower() != "open" or pull.get("merged_at"):
+        if _finished(pull):
             continue
         known = name in tracked
         if extras_only and known:
@@ -1271,6 +1321,12 @@ def stack(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         if unpublished:
             out.warn(unpublished.line())
     every = stack_rows(state, current, remote=listing, source=source)
+    if not args.merged:
+        # The listing is the only thing that knows a PR is merged, so --local
+        # shows everything: it asks nobody, which is its point.
+        every, hidden = without_finished(every, finished_prs(listing))
+        if hidden:
+            out.info(f"{hidden} merged or closed PR(s) left out; --merged shows them")
     if not every:
         blank = BLANK[source] if asked or source != BOTH else BLANK[LOCAL]
         return (blank, {"stacks": [], "source": source})

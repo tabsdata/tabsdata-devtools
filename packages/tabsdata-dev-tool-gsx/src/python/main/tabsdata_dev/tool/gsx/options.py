@@ -373,6 +373,11 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help="the stacks tracked here only: no gh, no network, nothing compared",
     )
     stack.add_argument(
+        "--merged",
+        action="store_true",
+        help="show the merged and closed PRs too; a stack's finished PRs are left out",
+    )
+    stack.add_argument(
         "--no-fetch",
         action="store_true",
         help="skip the fetch; the sync symbols are then as of the last one, and say so",

@@ -1655,6 +1655,117 @@ def test_what_only_github_has_is_a_magenta_question_mark():
     assert commands.GUARDS == {"current": ("[", "]", "white")}
 
 
+def _merged(number, branch):
+    return {
+        "number": number,
+        "state": "closed",
+        "merged_at": "2026-09-07T12:56:20Z",
+        "head": {"ref": branch},
+    }
+
+
+def test_a_stacks_merged_prs_are_its_history_not_its_state():
+    """`gsx stack -a -s` on a real stack (#3443 in tabsdata-os) printed ninety
+    `?OS-32xx` before the three branches that were still open. The three were
+    the answer; the ninety came from the tracking file, which keeps them."""
+    listing = [
+        {
+            "number": 34,
+            "base": {"ref": "main"},
+            "open": True,
+            "pull_requests": [
+                _merged(21, "a1"),
+                {
+                    "number": 22,
+                    "state": "open",
+                    "merged_at": None,
+                    "head": {"ref": "a2"},
+                },
+            ],
+        }
+    ]
+    assert commands.finished_prs(listing) == {21}
+    rows = commands.stack_rows(
+        _with_prs(_state(names=("a1", "a2")), [(21, 22)]), "a2", remote=listing
+    )
+    kept, hidden = commands.without_finished(rows, commands.finished_prs(listing))
+    assert hidden == 1
+    assert [branch["name"] for branch in kept[0]["branches"]] == ["a2"]
+
+
+def test_a_stack_with_nothing_left_open_goes_with_them():
+    listing = [
+        {
+            "number": 34,
+            "base": {"ref": "main"},
+            "open": True,
+            "pull_requests": [_merged(21, "a1"), _merged(22, "a2")],
+        }
+    ]
+    rows = commands.stack_rows(
+        _with_prs(_state(names=("a1", "a2")), [(21, 22)]), "a2", remote=listing
+    )
+    kept, hidden = commands.without_finished(rows, commands.finished_prs(listing))
+    assert kept == [] and hidden == 2
+
+
+@pytest.mark.parametrize(
+    "pull, done",
+    [
+        ({"number": 1, "state": "closed", "merged_at": "2026-01-01T00:00:00Z"}, True),
+        ({"number": 1, "state": "closed", "merged_at": None}, True),
+        ({"number": 1, "state": "open", "merged_at": None}, False),
+        # a payload that says neither is taken as open: inventing a merge would
+        # hide a branch, which is the one mistake that costs something
+        ({"number": 1}, False),
+    ],
+)
+def test_only_what_the_listing_calls_done_is_treated_as_done(pull, done):
+    assert commands._finished(pull) is done
+
+
+def test_the_merged_prs_are_left_out_and_said_to_be(tmp_path, monkeypatch, capsys):
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(
+        json.dumps(_with_prs(_state(names=("a1", "a2")), [(21, 22)]))
+    )
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    monkeypatch.setattr(
+        gh,
+        "branch_sync",
+        lambda runner, names, remote: dict.fromkeys(names, gh.IN_SYNC),
+    )
+    monkeypatch.setattr(
+        gh,
+        "stacks",
+        lambda runner, **kw: [
+            {
+                "number": 34,
+                "base": {"ref": "main"},
+                "open": True,
+                "pull_requests": [
+                    _merged(21, "a1"),
+                    {
+                        "number": 22,
+                        "state": "open",
+                        "merged_at": None,
+                        "head": {"ref": "a2"},
+                    },
+                ],
+            }
+        ],
+    )
+    assert gsx.main(["stack", "--short", "--no-fetch"]) == 0
+    said = capsys.readouterr()
+    assert "1 merged or closed PR(s) left out; --merged shows them" in said.err
+    assert "[#34]  main <-=[a2]" in said.out and "a1" not in said.out
+
+    assert gsx.main(["stack", "--short", "--no-fetch", "--merged"]) == 0
+    said = capsys.readouterr()
+    assert "=a1" in said.out and "left out" not in said.err
+
+
 def test_the_legend_explains_a_mark_only_when_a_row_uses_it():
     rows = commands.stack_rows(_state(names=("a1",)), "a1", _sync(a1=gh.IN_SYNC))
     plain = commands.legend(rows, "origin")
