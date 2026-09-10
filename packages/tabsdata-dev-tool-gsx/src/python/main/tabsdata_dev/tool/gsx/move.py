@@ -43,8 +43,9 @@ move is refused, because that file is the only record of how to undo the first.
 
 What GitHub still thinks is the old arrangement, and `pending()` is how that is
 noticed: a PR whose GitHub stack holds PRs that now live in **two** local
-stacks has moved here and not there. `stack` says so, and `submit` refuses to
-publish it without `--move`.
+stacks has moved here and not there. That is a disagreement between the two
+sides, not a move in progress -- the move is over by then. `stack` says so, and
+`submit` refuses to publish it without `--move`.
 """
 
 from __future__ import annotations
@@ -667,15 +668,23 @@ class Pending:
         its PRs the way GitHub does, so it has to be dissolved and relinked
         from here. An early version said "#3485, #3486, #3487 left stack #3488"
         when only one of the three had gone anywhere.
+
+        It does not say "a move is in progress", which is what an earlier
+        version said and is a different thing: a move in progress is a move
+        stopped half way, and it has its own session file and its own two
+        commands out. This is what a *finished* local move leaves behind -- the
+        two sides disagree and nothing is running -- so it leads with the
+        disagreement and names the move only as the likely cause, since a
+        rearrangement by hand reads exactly the same from here.
         """
         stacks = sorted(set(self.prs.values()))
         which = ", ".join(f"#{number}" for number in stacks)
         prs = ", ".join(f"#{pr}" for pr in sorted(self.prs))
         return (
-            f"a move is in progress: stack {which} on GitHub no longer holds its PRs "
-            f"({prs}) the way this checkout does -- `gsx submit --move` dissolves it "
-            "and relinks them from here, `gh stack checkout <n>` re-imports what "
-            "GitHub has instead"
+            f"stack {which} on GitHub no longer holds its PRs ({prs}) the way this "
+            "checkout does -- most likely a `gsx move` that has not been published; "
+            "`gsx submit --move` dissolves it and relinks them from here, "
+            "`gh stack checkout <n>` re-imports what GitHub has instead"
         )
 
 

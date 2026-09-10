@@ -314,8 +314,10 @@ on top of another stack's, can only be reached by removing PRs from it, and that
 dissolved. Prefixes are the whole test because a move can only make prefixes -- what stays below
 you is a prefix, what arrives goes on top. PRs this checkout does not track are left out of the
 comparison: someone else adding a PR to your stack is the *other* reason the two sides differ,
-and it needs a sync, not a dissolve. `gsx stack` prints the same finding as "a move is in
-progress", and says when a stack rebase is stopped.
+and it needs a sync, not a dissolve. `gsx stack` prints the same finding, as a disagreement
+between the two sides rather than as "a move is in progress": by then the move is over, and the
+words for one that is *not* over -- stopped half way, with a session file and two commands out of
+it -- are already taken.
 
 ## stack
 

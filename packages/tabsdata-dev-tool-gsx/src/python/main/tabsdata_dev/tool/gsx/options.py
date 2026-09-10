@@ -305,8 +305,8 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "while it is there a second move is refused.\n\n"
         "`gsx submit --move` is what publishes it, and that is the irreversible\n"
         "step: the old stack has to be dissolved on GitHub before its PRs can join\n"
-        "the new one. Until then `gsx stack` says a move is in progress and `gsx\n"
-        "submit` refuses without --move.\n\n",
+        "the new one. Until then `gsx stack` says the two sides no longer agree\n"
+        "and `gsx submit` refuses without --move.\n\n",
     )
     move.add_argument(
         "--to",

@@ -1639,7 +1639,9 @@ def test_the_trunk_is_left_out_of_that_check(tmp_path, monkeypatch, capsys):
     assert asked == [("refs/heads/a1", "refs/heads/a2")]
 
 
-def test_stack_says_a_move_is_in_progress(tmp_path, monkeypatch, capsys):
+def test_stack_says_the_two_sides_no_longer_agree(tmp_path, monkeypatch, capsys):
+    """Not "a move is in progress": the move finished, and what is left is a
+    disagreement waiting to be published."""
     after = _tracked(
         (None, "main", [("b1", 24), ("b2", 25), ("b3", 26), ("a1", 42), ("a2", 43)])
     )
@@ -1653,7 +1655,8 @@ def test_stack_says_a_move_is_in_progress(tmp_path, monkeypatch, capsys):
     assert gsx.main(["move", "--to", "main"]) == 1  # (unrelated: nothing to move)
     capsys.readouterr()
     assert gsx.main(["stack", "--short", "--no-fetch"]) == 0
-    assert "a move is in progress" in capsys.readouterr().err
+    said = capsys.readouterr().err
+    assert "no longer holds its PRs" in said and "in progress" not in said
 
 
 def test_submit_refuses_to_publish_a_move_without_being_told_to(
@@ -1665,7 +1668,7 @@ def test_submit_refuses_to_publish_a_move_without_being_told_to(
     _fake_move(monkeypatch, tmp_path, after, listing=_server())
     assert gsx.main(["submit"]) == 1
     said = capsys.readouterr().err
-    assert "a move is in progress" in said and "--move" in said
+    assert "no longer holds its PRs" in said and "--move" in said
 
 
 def test_submit_move_dissolves_the_old_stack_before_it_pushes(
