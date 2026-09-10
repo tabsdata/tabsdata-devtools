@@ -4,10 +4,10 @@ Copyright 2026 Tabsdata Inc.
 
 # gsx
 
-`tdd gsx create|update|checkout|submit|apply|approve|purge|stacks`: GitHub issues + `gh stack`,
-the way `gtx` does Jira + Graphite -- for a repository that uses neither. One command turns the pending
-changes into an issue, a stack branch and a commit; another pushes the stack, opens its PRs and
-labels them. Ported from the standalone `~/gsx` (1.5.0).
+`tdd gsx create|update|checkout|submit|apply|approve|purge|stack`: GitHub issues + `gh stack`,
+the way `gtx` does Jira + Graphite -- for a repository that uses neither. One command turns the
+pending changes into an issue, a stack branch and a commit; another pushes the stack, opens its
+PRs and labels them. Ported from the standalone `~/gsx` (1.5.0).
 
 ## Shape
 
@@ -166,44 +166,106 @@ live from the API, so `--dry-run` skipping the fetch (it writes remote-tracking 
 run no accuracy, and `--no-fetch` skips it outright. Every branch is attempted even when one
 delete fails -- a worktree holding it, say -- and the failures are reported together at the end.
 
-## stacks
+## stack
 
-`stacks` lists what gh-stack tracks in this checkout, bottom branch first:
+`stack` shows the stack you are on: its PRs, what each is called, and how each branch stands
+against the remote. `--all` shows every tracked stack instead; `--short` trades the per-PR lines
+for one line per stack.
 
 ```
-3 stack(s)
-* #34  main <- a1  <- *a2     green, and *a2 yellow
-  #40  main <- b24 <- b25     blue
-  #-   main <- c1             blue
+$ tdd gsx stack
+[#34]  main
+       =a1        #21  the loader
+      [+a2]       #22  wire it up
+       +unpushed  -
+
+  = in sync  + ahead  - behind  x diverged  [] current
+
+$ tdd gsx stack --all --short
+3 stack(s):
+[#34]  main <- =insync   <-[+ahead]
+ #40   main <- -behind   <- xdiverged
+ #-    main <- +unpushed <- ?gone
+
+  = in sync  + ahead  - behind  x diverged  ? no local branch  [] current
 ```
 
-Read straight out of `<git-dir>/gh-stack`, gh-stack's own local tracking, so it needs **no gh,
-no gh-stack extension and no network**, answers offline, and cannot disagree with what the other
-subcommands see. It is the one subcommand that asks for nothing but a git repository. `#-` is a
+**The per-PR view is the default** because it answers what a reader wants first -- which PRs,
+called what, where each stands -- and `--short` is there for when the *shape* of the stack is the
+question, which is the rarer one. Both carry the same symbols, colours and brackets, so they
+cannot disagree about what a branch is, and both measure their columns across every stack shown
+rather than per stack, so the numbers line up down the whole page. A branch with no PR yet gets
+its line with `-` in the number column.
+
+The titles are the one thing that needs the network: gh-stack's state file carries a branch's PR
+number and url but not its title, so they come from one `gh pr list --state all`, with a
+per-number lookup for anything the limit left out (a long-lived stack can hold a PR older than
+that, and its branch is exactly the one still lying around). A title gh cannot answer is named in
+a warning and left out -- the numbers are worth printing whatever gh says. `--short` asks for
+none of them, and then `stack` needs no gh at all.
+
+The default is the one stack, because that is the question `submit`, `apply` and a working day
+are about; `--all` is the listing. Only the branches actually shown are compared against the
+remote, so the default costs one `rev-list` per out-of-sync branch of one stack rather than of
+all of them. The count line appears only with `--all`: over a single stack it says what the row
+already shows. Standing outside every stack answers so and names `--all`, since that is the
+useful half of the answer.
+
+The stacks themselves come straight out of `<git-dir>/gh-stack`, gh-stack's own local tracking,
+so **the gh-stack extension is never needed** -- a checkout can have stacks without it. `#-` is a
 stack that has never been submitted, so GitHub has given it no number yet.
 
-**Two stars and three colours, instead of a sentence.** `*` on the stack holding the checked-out
-branch -- the one `submit` and `apply` act on without being told which -- and `*` on that
-branch, which is where that stack's own work is. That stack is green, the others blue, the branch
-yellow (`render.PAINTS`, so `NO_COLOR` and a pipe both get plain text; the shell half carries the
-same four codes). The count line says only how many: a summary repeating "on a2 in #34" says in
-prose what the row already shows in place.
+**One symbol per branch, and it is also the colour.** `=` in sync (green), `+` ahead (blue), `-`
+behind (yellow), `x` diverged (red), `?` no local branch (uncoloured -- nothing is claimed about
+it). A branch with nothing on the remote reads `+`: there is no remote copy for it to be behind.
 
-**Every column is aligned across stacks**, and a column's width is the widest cell in it *with
-its marker included* -- so starring a name can never shift the column it sits in: it costs a
-space only when the starred name was already the longest. A row's own last cell is left unpadded,
-so no line carries trailing blanks.
+**Commits are compared by their change, not their sha** (`git rev-list --cherry-pick`, which
+drops any commit whose patch already exists on the other side). `gh stack` rebases everything
+above a branch that moved and force-pushes it, so the remote copy of a branch is rewritten as a
+matter of routine; by sha that is divergence, and nearly every branch would read `x`, which would
+make `x` noise. By content it reads as what it is -- behind by whatever the remote genuinely
+gained -- and `x` is kept for the case worth stopping for: both sides holding different work.
+The same consequence at the other end: `=` means the same *changes*, which after an upstream
+rebase may sit under different shas.
+The symbol sits immediately before the name so it reads as part of the arrow into that branch,
+and it is the *cell* that is painted -- the arrow and the gap are structure, not state.
 
-Painting is per **cell**, not per row: a paint ends in a reset, so a yellow branch inside a
-green row would leave everything after it plain -- and the branch is not always last, since you
-can be standing below one. A message carrying an escape is printed as it is by the renderer, so
-the count line is plain rather than ok-green, which is right here: green means "the stack you are
-on", and the count is not a stack.
+**White square brackets** mark what is current: the stack holding the checked-out branch, the
+one `submit` and `apply` act on without being told which, and that branch. Brackets rather than a
+colour, because every colour here already means a sync state; one convention for both, because
+they are the same fact at two scales. Every cell reserves one slot on each side for a bracket,
+and those two slots are the spaces around `<-` -- so a bracketed cell is exactly as wide as a
+plain one, a name is at the same offset on every line whether it is bracketed or not, and the
+brackets cost the column nothing. Widths are the widest symbol-and-name; a row's own last cell is
+left unpadded, so no line carries trailing blanks. Painting is per **cell**: a paint ends in a
+reset, so one coloured branch would otherwise leave everything after it plain.
 
-The rows are the `ok` message, so they land on stdout and pipe; `--format json` gets no escapes
-at all (the `stacks` field carries `current` per row, which is what a machine reads). A checkout
-with no state file answers "no stacks are tracked in this repository" and exits 0: asked what
-stacks exist, "none" is an answer rather than a failure.
+**One line of legend, set off by a blank line on each side** -- it is a key to what is above it,
+not another row of it -- with each symbol in its own colour, so it demonstrates what it explains
+rather than describing it twice; `?` earns its place only when a row uses it. Colour is never the
+only carrier -- the symbol says the same thing under `NO_COLOR`, in a pipe, and to anyone who
+does not separate red from green.
+
+**It fetches first**, because `=` is a *claim* about the remote and the remote-tracking refs are
+only as fresh as the last fetch. This shipped the other way round for one afternoon and was wrong
+within it: in a real checkout, `TUCU-45` read `=` in green while the server had moved three
+commits past the tracking ref. A confidently wrong answer is worse than a slow one, and a stale
+`=` is exactly the answer nobody would think to doubt. `--no-fetch` skips the round trip, and
+the legend then ends `(as of the last fetch)` -- the symbols never quietly change what they are
+about. The fetch itself is not announced: it is a precondition of the answer rather than a step
+of its own, and a line about it would be the first thing on every run.
+
+The remote is gh-stack's own (`git config gh-stack.remote`, else `origin`) and is not named on
+the legend -- the reader knows their own remote -- but it is in the `remote` field for a
+machine.
+After the fetch, one `git for-each-ref` collects every sha, and only a branch whose two shas
+differ costs a second call.
+
+The rows and the legend are the `ok` message, so they land on stdout and pipe; `--format json`
+gets no escapes at all and carries `sync` per branch in words (`in-sync`, `ahead`, `behind`,
+`diverged`, `no-local-branch`) plus the `remote` it compared against. A checkout with no state
+file answers "no stacks are tracked in this repository" and exits 0: asked what stacks exist,
+"none" is an answer rather than a failure.
 
 ## Config
 
@@ -270,6 +332,12 @@ Facts that cost real testing; the code depends on them.
   that way, and the shared runner enforces it; what went wrong is in the error event's message.
 - **`-v` is `--verbose` and `-V` is `--version`**, as everywhere in tdd; the standalone had them
   the other way round.
+- **Single-letter forms for its own frequently-typed options** -- `-s`/`-m` (create, update),
+  `-a`/`-p` (approve), `-a`/`-s` (stack), `-o` (override) -- which the general contract in
+  [command-cli-guidelines.md](../../docs/command-cli-guidelines.md) reserves for
+  `-h`/`-v`/`-f`/`-y`/`-V` only. Inherited from the standalone, kept because gsx is typed dozens
+  of times a day; the long forms are what `<tdd_dir>/gsx.toml` presets, so nothing else depends
+  on them.
 - **No `--help ai`**: what it said -- the ordered side effects, what is irreversible -- lives in
   each subcommand's `--help` epilog and in this document.
 - **Config**: `<tdd_dir>/gsx.toml`, TOML rather than `~/.gsx` INI, and shared with the option

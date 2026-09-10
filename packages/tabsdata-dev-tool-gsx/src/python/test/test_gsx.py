@@ -985,28 +985,25 @@ def test_a_refused_checkout_target_costs_no_child_process(tmp_path, monkeypatch)
     assert calls == []
 
 
-# ------------------------------------------------------------------ stacks
-def _state(number=34, trunk="main", rows=(("a1", 21, "base1"), ("a2", 22, "base2"))):
+# ------------------------------------------------------------------- stack
+def _state(number=34, trunk="main", names=("a1", "a2")):
     return {
         "stacks": [
             {
                 "number": number,
                 "trunk": {"branch": trunk},
-                "branches": [
-                    {
-                        "branch": b,
-                        "pullRequest": ({"number": p} if p else None),
-                        "base": base,
-                    }
-                    for b, p, base in rows
-                ],
+                "branches": [{"branch": name} for name in names],
             }
         ]
     }
 
 
-def test_stacks_reads_the_state_file_and_marks_the_one_you_are_on():
-    state = _state()
+def _sync(**by_name):
+    return by_name
+
+
+def test_each_branch_carries_how_it_stands_against_the_remote():
+    state = _state(names=("a1", "a2"))
     state["stacks"].append(
         {
             "number": 40,
@@ -1015,31 +1012,402 @@ def test_stacks_reads_the_state_file_and_marks_the_one_you_are_on():
         }
     )
     state["stacks"].append(
-        # never submitted, so it has no number yet
         {"number": None, "trunk": {"branch": "main"}, "branches": [{"branch": "c1"}]}
     )
-    rows = commands.stack_rows(state, "a2")
+    rows = commands.stack_rows(
+        state,
+        "a2",
+        _sync(a1=gh.IN_SYNC, a2=gh.AHEAD, b24=gh.BEHIND, b25=gh.DIVERGED, c1=gh.AHEAD),
+    )
     assert [row["number"] for row in rows] == [34, 40, None]
-    assert rows[0]["branches"] == ["a1", "a2"] and rows[0]["current"] is True
-    assert rows[1]["current"] is False
-    # every column lines up across stacks, #- is a stack with no number, and
-    # the two stars say which stack and which branch without a sentence
-    assert commands.stack_lines(rows, "a2").splitlines() == [
-        "* #34  main <- a1  <-*a2",
-        "  #40  main <- b24 <- b25",
-        "  #-   main <- c1",
+    assert rows[0]["branches"] == [
+        {"name": "a1", "pr": None, "sync": gh.IN_SYNC, "current": False},
+        {"name": "a2", "pr": None, "sync": gh.AHEAD, "current": True},
     ]
-    # standing outside every stack, nothing is starred at all
-    outside = commands.stack_rows(state, "main")
-    assert all(not row["current"] for row in outside)
-    assert "*" not in commands.stack_lines(outside, "main")
+    assert rows[0]["current"] is True and rows[1]["current"] is False
+    # a branch with no sync answer at all is "no local branch", never "in sync"
+    assert commands.stack_rows(state, "")[0]["branches"][0]["sync"] == gh.NO_LOCAL
 
 
-def test_the_stack_you_are_on_is_green_the_others_blue_and_your_branch_yellow():
-    """Painted per segment, not per row: a paint ends in a reset, so a yellow
-    branch inside a green row would leave the rest of that row plain -- and the
-    branch is not always last (you can be standing below one)."""
-    state = _state()
+def test_the_symbol_before_a_name_says_where_that_branch_stands():
+    state = _state(names=("insync", "ahead"))
+    state["stacks"].append(
+        {
+            "number": 40,
+            "trunk": {"branch": "main"},
+            "branches": [{"branch": "behind"}, {"branch": "diverged"}],
+        }
+    )
+    state["stacks"].append(
+        {
+            "number": None,
+            "trunk": {"branch": "main"},
+            "branches": [{"branch": "unpushed"}, {"branch": "gone"}],
+        }
+    )
+    rows = commands.stack_rows(
+        state,
+        "ahead",
+        _sync(
+            insync=gh.IN_SYNC,
+            ahead=gh.AHEAD,
+            behind=gh.BEHIND,
+            diverged=gh.DIVERGED,
+            unpushed=gh.AHEAD,
+            gone=gh.NO_LOCAL,
+        ),
+    )
+    # the brackets' two slots are the spaces around `<-`, so a bracketed cell
+    # is exactly as wide as a plain one and the names line up across stacks
+    # whichever one is bracketed
+    assert commands.stack_lines(rows).splitlines() == [
+        "[#34]  main <- =insync   <-[+ahead]",
+        " #40   main <- -behind   <- xdiverged",
+        " #-    main <- +unpushed <- ?gone",
+    ]
+    for line in commands.stack_lines(rows).splitlines():
+        assert line == line.rstrip(), line
+
+
+def test_the_colours_are_the_states_and_both_brackets_are_white():
+    rows = commands.stack_rows(
+        _state(names=("a1", "a2")), "a2", _sync(a1=gh.DIVERGED, a2=gh.BEHIND)
+    )
+    painted = commands.stack_lines(
+        rows, lambda name, text: f"<{name or 'plain'}>{text}</>"
+    )
+    assert painted == (
+        # the brackets are white: every colour here already means a sync state
+        # the space after `main` is its own closing-bracket slot
+        "<white>[</>#34<white>]</>  main "
+        # `<-` and the bracket slots are structure, not state: the cell is what
+        # carries the colour
+        "<- <red>xa1</> <-<white>[</><yellow>-a2</><white>]</>"
+    )
+    every = {
+        gh.IN_SYNC: ("=", "green"),
+        gh.AHEAD: ("+", "blue"),
+        gh.BEHIND: ("-", "yellow"),
+        gh.DIVERGED: ("x", "red"),
+    }
+    assert {state: commands.MARKS[state] for state in every} == every
+    # an unknown state gets a symbol but no colour: nothing is claimed about it
+    assert commands.MARKS[gh.NO_LOCAL] == ("?", "")
+
+
+def _with_prs(state, numbers):
+    for stack, wanted in zip(state["stacks"], numbers):
+        for entry, number in zip(stack["branches"], wanted):
+            entry["pullRequest"] = {"number": number} if number else None
+    return state
+
+
+def test_summary_puts_the_pr_and_its_title_beside_each_branch():
+    """One line per branch under its stack, with the same symbol, colour and
+    brackets the one-line form uses -- and the columns measured across every
+    stack shown, so the numbers line up down the whole page."""
+    state = _with_prs(_state(names=("a1", "a2")), [(21, 22)])
+    state["stacks"].append(
+        {
+            "number": 40,
+            "trunk": {"branch": "main"},
+            "branches": [
+                {"branch": "b24", "pullRequest": {"number": 23}},
+                # a branch with no PR yet still gets its line
+                {"branch": "unpushed"},
+            ],
+        }
+    )
+    rows = commands.stack_rows(
+        state,
+        "a2",
+        _sync(a1=gh.IN_SYNC, a2=gh.AHEAD, b24=gh.BEHIND, unpushed=gh.AHEAD),
+    )
+    titles = {21: "the loader", 22: "wire it up", 23: "the reader"}
+    assert commands.stack_summary(rows, titles).splitlines() == [
+        "[#34]  main",
+        "       =a1        #21  the loader",
+        "      [+a2]       #22  wire it up",
+        "",
+        " #40   main",
+        "       -b24       #23  the reader",
+        "       +unpushed  -",
+    ]
+    # every PR ref starts at the same column, and no line trails blanks
+    lines = [
+        line
+        for line in commands.stack_summary(rows, titles).splitlines()
+        if "#" in line and not line.startswith(("[", " #"))
+    ]
+    assert len({line.index("#") for line in lines}) == 1
+    for line in commands.stack_summary(rows, titles).splitlines():
+        assert line == line.rstrip(), line
+
+
+def test_summary_keeps_the_symbols_and_brackets_of_the_one_line_form():
+    rows = commands.stack_rows(
+        _with_prs(_state(names=("a1", "a2")), [(21, 22)]),
+        "a2",
+        _sync(a1=gh.DIVERGED, a2=gh.BEHIND),
+    )
+    painted = commands.stack_summary(
+        rows, {21: "one", 22: "two"}, lambda name, text: f"<{name or 'plain'}>{text}</>"
+    ).splitlines()
+    assert painted == [
+        "<white>[</>#34<white>]</>  main",
+        "       <red>xa1</>  #21  one",
+        # the bracket hangs one column left of the plain names, exactly as it
+        # does in the one-line form, and eats the space before the PR ref
+        "      <white>[</><yellow>-a2</><white>]</> #22  two",
+    ]
+
+
+def test_a_pr_title_gh_cannot_answer_is_warned_about_not_fatal(
+    tmp_path, monkeypatch, capsys
+):
+    """The numbers are worth printing whatever gh says, so a title that cannot
+    be had is named and left out rather than failing the command."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(
+        json.dumps(_with_prs(_state(names=("a1", "a2")), [(21, 22)]))
+    )
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    monkeypatch.setattr(
+        gh,
+        "branch_sync",
+        lambda runner, names, remote: dict.fromkeys(names, gh.IN_SYNC),
+    )
+    monkeypatch.setattr(gh, "pr_titles", lambda runner, numbers: {21: "the loader"})
+    assert gsx.main(["stack", "--no-fetch"]) == 0
+    captured = capsys.readouterr()
+    assert "could not read the title of #22" in captured.err
+    assert "#21  the loader" in captured.out and "#22" in captured.out
+
+
+def test_pr_titles_takes_one_listing_and_asks_only_for_what_it_missed():
+    """A long-lived stack can hold a PR older than the listing's limit, and
+    that is exactly the one whose branch is still lying around."""
+    asked = []
+
+    class Runner:
+        dry_run = False
+
+        def json(self, argv):
+            asked.append(argv)
+            if argv[:3] == ["gh", "pr", "list"]:
+                return [
+                    {"number": 21, "title": "the loader"},
+                    {"number": 99, "title": "not asked for"},
+                ]
+            if argv[:3] == ["gh", "pr", "view"]:
+                return {"title": "the old one"} if argv[3] == "22" else None
+            return None
+
+    assert gh.pr_titles(Runner(), [21, 22, 23]) == {
+        21: "the loader",
+        22: "the old one",
+    }
+    assert sum(1 for call in asked if call[:3] == ["gh", "pr", "list"]) == 1
+    # one lookup per number the listing did not answer, and no more
+    views = [call for call in asked if call[:3] == ["gh", "pr", "view"]]
+    assert [call[3] for call in views] == ["22", "23"]
+    assert gh.pr_titles(Runner(), []) == {}
+
+
+def test_the_legend_is_one_line_and_shows_each_symbol_in_its_own_colour():
+    rows = commands.stack_rows(_state(names=("a1",)), "a1", _sync(a1=gh.IN_SYNC))
+    assert commands.legend(rows, "origin") == (
+        "  = in sync  + ahead  - behind  x diverged  [] current"
+    )
+    # `?` earns its place only when a row actually uses it
+    missing = commands.stack_rows(_state(names=("a1",)), "", {})
+    assert "? no local branch" in commands.legend(missing, "origin")
+    # and each symbol demonstrates its own colour
+    painted = commands.legend(rows, "up", lambda name, text: f"<{name}>{text}</>")
+    assert "<green>=</> in sync" in painted and "<red>x</> diverged" in painted
+    assert "<white>[]</> current" in painted
+    # the remote is not named -- but not fetching first IS said, because every
+    # symbol is then about the remote as it WAS
+    assert commands.legend(rows, "origin", fetched=False).endswith(
+        "(as of the last fetch)"
+    )
+    assert "origin" not in commands.legend(rows, "origin")
+
+
+def test_stack_fetches_first_because_in_sync_is_a_claim_about_the_remote(
+    tmp_path, monkeypatch, capsys
+):
+    """A branch the remote has moved on from has an up-to-date local ref and a
+    STALE remote-tracking ref, so it reads `=` in green -- a confident wrong
+    answer, which is worse than a slow one. Found in a real checkout: TUCU-45
+    showed `=` while the server was three commits ahead of the tracking ref."""
+    calls = _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(json.dumps(_state()))
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    monkeypatch.setattr(
+        gh,
+        "branch_sync",
+        lambda runner, names, remote: {"a1": gh.IN_SYNC, "a2": gh.AHEAD},
+    )
+    assert gsx.main(["stack"]) == 0
+    assert ["git", "fetch", "-q", "origin"] in calls
+    # and it is not announced: a precondition of the answer, not a step
+    captured = capsys.readouterr()
+    assert "fetch" not in captured.err and "as of the last fetch" not in captured.out
+
+    calls.clear()
+    assert gsx.main(["stack", "--no-fetch"]) == 0
+    assert not any(call[:2] == ["git", "fetch"] for call in calls)
+    assert "(as of the last fetch)" in capsys.readouterr().out
+
+
+def test_the_legend_is_set_off_by_a_blank_line_on_each_side(
+    tmp_path, monkeypatch, capsys
+):
+    """It is a key to what is above it, not another row of it."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(json.dumps(_state()))
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    monkeypatch.setattr(
+        gh,
+        "branch_sync",
+        lambda runner, names, remote: {"a1": gh.IN_SYNC, "a2": gh.AHEAD},
+    )
+    assert gsx.main(["stack", "--short"]) == 0
+    lines = capsys.readouterr().out.split("\n")
+    # no count line over a single stack: the row already says which one
+    assert lines[0] == "[#34]  main <- =a1 <-[+a2]"
+    assert lines[1] == ""
+    assert lines[2].startswith("  = in sync")
+    assert lines[3] == "" and lines[4] == ""  # the blank after it, then EOF
+
+
+class _SyncRunner:
+    """git for the sync check: `refs` are the shas, `counts` the rev-list answers."""
+
+    dry_run = False
+
+    def __init__(self, refs, counts=None):
+        self.refs = refs
+        self.counts = counts or {}
+        self.calls = []
+
+    def run(self, argv, **kwargs):
+        self.calls.append(argv)
+        if argv[:2] == ["git", "for-each-ref"]:
+            return "\n".join(f"{ref} {sha}" for ref, sha in self.refs.items())
+        if argv[:2] == ["git", "rev-list"]:
+            return self.counts.get(argv[-1], "0\t0")
+        return ""
+
+
+def test_a_branch_the_remote_rebased_is_behind_not_diverged():
+    """`gh stack` rebases everything above a branch that moved and force-pushes
+    it, so the remote copy of a branch is rewritten constantly. Compared by sha
+    that is divergence and nearly every branch reads `x`; compared by CHANGE
+    (--cherry-pick drops a commit whose patch is already on the other side) it
+    is what it is -- behind by what the remote genuinely gained.
+
+    Real case: TUCU-47 held `[TUCU-47] x` as e8d7c6a while the remote held the
+    same patch as 9d40f0d plus one more commit. Identical patch-ids; raw counts
+    1/2 (diverged), cherry-picked counts 0/1 (behind)."""
+    refs = {
+        "refs/heads/rebased": "local",
+        "refs/remotes/origin/rebased": "remote",
+    }
+    runner = _SyncRunner(refs, {"local...remote": "0\t1"})
+    assert gh.branch_sync(runner, ["rebased"], "origin") == {"rebased": gh.BEHIND}
+    # and the comparison is by change, not by sha
+    revlist = next(c for c in runner.calls if c[:2] == ["git", "rev-list"])
+    assert "--cherry-pick" in revlist
+
+    # genuinely different work on each side is still divergence
+    runner = _SyncRunner(refs, {"local...remote": "2\t3"})
+    assert gh.branch_sync(runner, ["rebased"], "origin") == {"rebased": gh.DIVERGED}
+    # the same changes under different shas is not a difference worth a symbol
+    runner = _SyncRunner(refs, {"local...remote": "0\t0"})
+    assert gh.branch_sync(runner, ["rebased"], "origin") == {"rebased": gh.IN_SYNC}
+
+
+def test_the_sync_state_of_every_branch_costs_one_call_plus_the_odd_ones_out():
+    """One `for-each-ref` collects every sha; only a branch whose two shas
+    differ needs a second call, and a branch with nothing on the remote needs
+    none -- there is no remote copy for it to be behind."""
+    refs = {
+        "refs/heads/insync": "aaa",
+        "refs/remotes/origin/insync": "aaa",
+        "refs/heads/ahead": "bbb",
+        "refs/remotes/origin/ahead": "b0",
+        "refs/heads/behind": "ccc",
+        "refs/remotes/origin/behind": "c0",
+        "refs/heads/diverged": "ddd",
+        "refs/remotes/origin/diverged": "d0",
+        "refs/heads/unpushed": "eee",
+    }
+    counts = {"bbb...b0": "2\t0", "ccc...c0": "0\t3", "ddd...d0": "1\t1"}
+    runner = _SyncRunner(refs, counts)
+    names = ["insync", "ahead", "behind", "diverged", "unpushed", "gone"]
+    assert gh.branch_sync(runner, names, "origin") == {
+        "insync": gh.IN_SYNC,
+        "ahead": gh.AHEAD,
+        "behind": gh.BEHIND,
+        "diverged": gh.DIVERGED,
+        "unpushed": gh.AHEAD,
+        "gone": gh.NO_LOCAL,
+    }
+    # one listing, and a rev-list only for the three whose shas differ
+    assert sum(1 for call in runner.calls if call[:2] == ["git", "for-each-ref"]) == 1
+    assert sum(1 for call in runner.calls if call[:2] == ["git", "rev-list"]) == 3
+
+
+def test_the_remote_is_gh_stacks_own_and_git_config_reads_stay_read_only():
+    """`git config KEY` reads and belongs in a dry run; `git config KEY VALUE`
+    writes and does not."""
+    assert gh.is_read_only(["git", "config", "gh-stack.remote"])
+    assert not gh.is_read_only(["git", "config", "gh-stack.remote", "upstream"])
+    assert not gh.is_read_only(["git", "config", "--unset", "gh-stack.remote"])
+    assert gh.is_read_only(["git", "rev-list", "--count", "a...b"])
+
+    class Runner:
+        dry_run = False
+
+        def run(self, argv, **kwargs):
+            return "upstream" if argv[:2] == ["git", "config"] else ""
+
+    assert gh.stack_remote(Runner()) == "upstream"
+
+    class Empty(Runner):
+        def run(self, argv, **kwargs):
+            return ""
+
+    assert gh.stack_remote(Empty()) == "origin"
+
+
+def test_stack_answers_none_rather_than_failing_when_nothing_is_tracked(
+    tmp_path, monkeypatch, capsys
+):
+    """Asked what stacks exist, "none" is an answer rather than a failure, so
+    the reader reports an absent file as empty and the caller decides."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    assert gsx.main(["stack", "--format", "json"]) == 0
+    last = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert last["event"] == "ok" and last["stacks"] == []
+    assert "no stacks are tracked" in last["message"]
+
+
+def test_only_the_stack_you_are_on_unless_all_is_asked_for(
+    tmp_path, monkeypatch, capsys
+):
+    """`stack` answers about the one you are on; `--all` is the listing. And
+    the sync check only costs what is shown -- the default does not compare
+    branches it is not going to print."""
+    asked = []
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    state = _state(names=("a1", "a2"))
     state["stacks"].append(
         {
             "number": 40,
@@ -1047,85 +1415,77 @@ def test_the_stack_you_are_on_is_green_the_others_blue_and_your_branch_yellow():
             "branches": [{"branch": "b24"}],
         }
     )
-    rows = commands.stack_rows(state, "a1")
-    painted = commands.stack_lines(
-        rows, "a1", lambda name, text: f"<{name}>{text}</{name}>"
-    ).splitlines()
-    # the current branch sits in the MIDDLE of its row, and what follows it is
-    # still the row's own colour rather than plain
-    assert painted[0] == (
-        "<green>* #34  </green><green>main</green>"
-        # the arrow keeps the row's colour; the star goes yellow with its name
-        "<green> <-</green><yellow>*a1 </yellow>"
-        "<green> <- </green><green>a2</green>"
-    )
-    assert painted[1] == (
-        "<blue>  #40  </blue><blue>main</blue><blue> <- </blue><blue>b24</blue>"
-    )
-    # and with no painter it is plain text, which is what a pipe gets
-    assert commands.stack_lines(rows, "a1").splitlines()[0] == (
-        "* #34  main <-*a1  <- a2"
-    )
-
-
-def test_the_branch_star_sits_against_the_arrow_and_costs_the_column_nothing():
-    """`<-*NAME`: the star goes in the space the separator would have left, so
-    a name is at the same offset on every line whether it is the starred one or
-    not -- column widths are just the widest name. Nothing is padded at the end
-    of its own row, so no line trails blanks."""
-    state = _state(rows=(("long-branch-name", 21, None), ("a2", 22, None)))
-    state["stacks"].append(
-        {
-            "number": 40,
-            "trunk": {"branch": "main"},
-            "branches": [{"branch": "b24"}, {"branch": "b25"}],
-        }
-    )
-    rows = commands.stack_rows(state, "long-branch-name")
-    assert commands.stack_lines(rows, "long-branch-name").splitlines() == [
-        "* #34  main <-*long-branch-name <- a2",
-        "  #40  main <- b24              <- b25",
-    ]
-    # and starring a name in the next column leaves both columns where they were
-    rows = commands.stack_rows(state, "a2")
-    assert commands.stack_lines(rows, "a2").splitlines() == [
-        "* #34  main <- long-branch-name <-*a2",
-        "  #40  main <- b24              <- b25",
-    ]
-    for line in commands.stack_lines(rows, "a2").splitlines():
-        assert line == line.rstrip(), line
-
-
-def test_stacks_puts_no_escape_in_the_json_message(tmp_path, monkeypatch, capsys):
-    """The json message is data. Which stack is current is in the fields, which
-    is what a machine reads -- an escape there would be data too."""
-    _fake_purge(monkeypatch, tmp_path, ["main"], {})
-    (tmp_path / "gh-stack").write_text(json.dumps(_state()))
+    (tmp_path / "gh-stack").write_text(json.dumps(state))
     monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
     monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
-    assert gsx.main(["stacks", "--format", "json"]) == 0
-    line = capsys.readouterr().out.splitlines()[-1]
-    assert "\033" not in line and "\\u001b" not in line
-    event = json.loads(line)
-    assert "*a2" in event["message"] and event["stacks"][0]["current"] is True
+    monkeypatch.setattr(
+        gh,
+        "branch_sync",
+        lambda runner, names, remote: (
+            asked.append(list(names)) or dict.fromkeys(names, gh.IN_SYNC)
+        ),
+    )
+
+    assert gsx.main(["stack", "--no-fetch"]) == 0
+    out = capsys.readouterr().out
+    assert "[#34]" in out and "#40" not in out
+    assert asked == [["a1", "a2"]]  # b24 was never compared
+
+    asked.clear()
+    assert gsx.main(["stack", "--all", "--no-fetch"]) == 0
+    out = capsys.readouterr().out
+    assert "2 stack(s):" in out and "[#34]" in out and "#40" in out
+    assert asked == [["a1", "a2", "b24"]]
+
+    # standing outside every stack, the useful half of the answer is --all
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "main")
+    assert gsx.main(["stack", "--no-fetch"]) == 0
+    assert "not in a tracked stack; --all lists the 2" in capsys.readouterr().out
 
 
-def test_stacks_answers_none_rather_than_failing_when_nothing_is_tracked(
+def test_the_default_view_is_one_line_per_pr_and_short_is_the_chain(
     tmp_path, monkeypatch, capsys
 ):
-    """Asked what stacks exist, "none" is an answer rather than a failure, so
-    the reader reports an absent file as empty and the caller decides."""
+    """The per-PR view is what a reader wants first -- which PRs, called what,
+    and where each stands. `--short` is the chain, for when the shape of the
+    stack is the question."""
     _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(
+        json.dumps(_with_prs(_state(names=("a1", "a2")), [(21, 22)]))
+    )
     monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
-    assert gsx.main(["stacks", "--format", "json"]) == 0
-    last = json.loads(capsys.readouterr().out.splitlines()[-1])
-    assert last["event"] == "ok" and last["stacks"] == []
-    assert "no stacks are tracked" in last["message"]
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    monkeypatch.setattr(
+        gh,
+        "branch_sync",
+        lambda runner, names, remote: dict.fromkeys(names, gh.IN_SYNC),
+    )
+    monkeypatch.setattr(
+        gh, "pr_titles", lambda runner, numbers: {21: "the loader", 22: "wire it up"}
+    )
+
+    assert gsx.main(["stack", "--no-fetch"]) == 0
+    out = capsys.readouterr().out
+    assert "#21  the loader" in out and "#22  wire it up" in out
+    assert "<-" not in out  # the chain is the other view
+
+    assert gsx.main(["stack", "--short", "--no-fetch"]) == 0
+    out = capsys.readouterr().out
+    assert "[#34]  main <- =a1 <-[=a2]" in out
+    assert "the loader" not in out  # and it asks gh for no titles
+
+    # -a and -s are the short forms, and they bundle
+    assert gsx.main(["stack", "-s", "--no-fetch"]) == 0
+    assert "[#34]  main <- =a1 <-[=a2]" in capsys.readouterr().out
+    assert gsx.main(["stack", "-as", "--no-fetch"]) == 0
+    out = capsys.readouterr().out
+    assert "1 stack(s):" in out and "<-" in out
 
 
-def test_stacks_needs_no_gh_at_all(tmp_path, monkeypatch, capsys):
-    """It reads a file. Requiring gh -- let alone the gh-stack extension --
-    would refuse the one subcommand that works with no network."""
+def test_short_needs_no_gh_at_all(tmp_path, monkeypatch, capsys):
+    """`--short` reads a file and some refs and nothing else. The default asks
+    gh for PR titles, but the gh-stack extension is never needed either way --
+    requiring it would refuse a checkout that has stacks but no extension."""
     _fake_purge(monkeypatch, tmp_path, ["main"], {})
     for name in ("require_tools", "require_binaries"):
         monkeypatch.setattr(
@@ -1136,5 +1496,36 @@ def test_stacks_needs_no_gh_at_all(tmp_path, monkeypatch, capsys):
     (tmp_path / "gh-stack").write_text(json.dumps(_state()))
     monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
     monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
-    assert gsx.main(["stacks"]) == 0
-    assert "* #34  main <- a1 <-*a2" in capsys.readouterr().out
+    monkeypatch.setattr(
+        gh,
+        "branch_sync",
+        lambda runner, names, remote: {"a1": gh.IN_SYNC, "a2": gh.AHEAD},
+    )
+    assert gsx.main(["stack", "--short"]) == 0
+    out = capsys.readouterr().out
+    assert "[#34]  main <- =a1 <-[+a2]" in out and "[] current" in out
+
+
+def test_stack_puts_no_escape_in_the_json_message(tmp_path, monkeypatch, capsys):
+    """The json message is data. How every branch stands is in the fields,
+    which is what a machine reads -- an escape there would be data too."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(json.dumps(_state()))
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    monkeypatch.setattr(
+        gh,
+        "branch_sync",
+        lambda runner, names, remote: {"a1": gh.IN_SYNC, "a2": gh.AHEAD},
+    )
+    assert gsx.main(["stack", "--format", "json"]) == 0
+    line = capsys.readouterr().out.splitlines()[-1]
+    assert "\033" not in line and "\\u001b" not in line
+    event = json.loads(line)
+    assert event["remote"] == "origin" and event["fetched"] is True
+    assert event["stacks"][0]["branches"][1] == {
+        "name": "a2",
+        "pr": None,
+        "sync": "ahead",
+        "current": True,
+    }

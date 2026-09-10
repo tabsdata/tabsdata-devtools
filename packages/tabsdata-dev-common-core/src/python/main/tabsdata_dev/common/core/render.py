@@ -36,14 +36,21 @@ RESET = "\033[0m"
 # Paints for a message that colours its own pieces rather than taking one
 # colour by kind -- `config --show` marks every value it prints this way: green
 # a built-in default, blue what the file sets, white the built-in beside it;
-# `gsx stacks` paints the stack you are on green, the others blue, and the
-# branch you are on yellow.
+# `gsx stack` paints each branch by how it stands against the remote
+# (green in sync, blue ahead, yellow behind, red diverged) and marks the
+# stack and branch you are on in red.
 # Blue is a 256-colour cube entry, not palette 34 or 94: themes remap the
 # sixteen palette colours (34 is a near-black navy on a dark theme, 94 a
 # grey-white under "minimum contrast") but leave the cube alone, so 38;5;33 is
-# the same azure everywhere. The shell half paints with the same four codes
+# the same azure everywhere. The shell half paints with the same five codes
 # (`_tdd_color`) -- keep them in step.
-PAINTS = {"green": "32", "blue": "38;5;33", "white": "37", "yellow": "33"}
+PAINTS = {
+    "green": "32",
+    "blue": "38;5;33",
+    "white": "37",
+    "yellow": "33",
+    "red": "31",
+}
 
 LOG_DIR = pathlib.Path("/tmp")
 

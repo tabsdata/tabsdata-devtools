@@ -568,17 +568,49 @@ def purge(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
 
 
 # ------------------------------------------------------------------ stacks
-def stack_rows(state: dict, current: str = "") -> list[dict]:
+#: How a branch stands against the remote -> its symbol and its colour. The
+#: symbol goes immediately before the name, so it reads as part of the arrow
+#: into that branch: `<- =a1`.
+MARKS = {
+    gh.IN_SYNC: ("=", "green"),
+    gh.AHEAD: ("+", "blue"),
+    gh.BEHIND: ("-", "yellow"),
+    gh.DIVERGED: ("x", "red"),
+    gh.NO_LOCAL: ("?", ""),
+}
+
+#: The legend, in the order the symbols are worth learning: what is fine, what
+#: you have to push, what you have to pull, what needs sorting out.
+LEGEND = (gh.IN_SYNC, gh.AHEAD, gh.BEHIND, gh.DIVERGED)
+WORDS = {
+    gh.IN_SYNC: "in sync",
+    gh.AHEAD: "ahead",
+    gh.BEHIND: "behind",
+    gh.DIVERGED: "diverged",
+    gh.NO_LOCAL: "no local branch",
+}
+
+
+def stack_rows(state: dict, current: str = "", sync: dict | None = None) -> list[dict]:
     """Every locally tracked stack, bottom-up, as `{number, trunk, branches}`.
 
     Straight out of gh-stack's own state file: no API call, so this answers
     while offline and cannot disagree with what the other subcommands read. A
     stack with no number yet (never submitted) keeps `None`, which prints `#-`.
+    Each branch carries how it stands against the remote (`sync`), which is
+    what the symbol and the colour in front of its name say, and the number of
+    its PR (`pr`, `None` for a branch that has none yet).
     """
+    sync = sync or {}
     rows = []
     for stack in state.get("stacks") or []:
         branches = [
-            entry.get("branch", "")
+            {
+                "name": entry["branch"],
+                "pr": (entry.get("pullRequest") or {}).get("number"),
+                "sync": sync.get(entry["branch"], gh.NO_LOCAL),
+                "current": bool(current) and entry["branch"] == current,
+            }
             for entry in stack.get("branches") or []
             if entry.get("branch")
         ]
@@ -587,7 +619,7 @@ def stack_rows(state: dict, current: str = "") -> list[dict]:
                 "number": stack.get("number"),
                 "trunk": ((stack.get("trunk") or {}).get("branch")) or "?",
                 "branches": branches,
-                "current": bool(current) and current in branches,
+                "current": any(branch["current"] for branch in branches),
             }
         )
     return rows
@@ -597,38 +629,46 @@ def _no_paint(name: str, text: str) -> str:
     return text
 
 
-def stack_lines(rows: list[dict], branch: str = "", paint=_no_paint) -> str:
+def stack_lines(rows: list[dict], paint=_no_paint) -> str:
     """One line per stack, every name aligned across all of them:
 
-        * #34  main <- a1  <-*a2
-          #40  main <- b24 <- b25
-          #-   main <- c1
+            [#34]  main <- =insync   <-[+ahead]
+             #40   main <- -behind   <- xdiverged
+             #-    main <- +unpushed <- ?gone
 
-    A `*` on the stack holding the checked-out branch -- the one `submit` and
-    `apply` act on without being told which -- and a `*` on that branch, which
-    is where the stack's own work is. Green for that stack, blue for the
-    others, yellow for the branch.
+        Each branch carries one symbol saying how it stands against the remote --
+        `=` in sync, `+` ahead, `-` behind, `x` diverged, `?` no local branch --
+        and takes that state's colour.
 
-    The branch star sits **against the arrow**, in the space the separator
-    would have left, so it costs the column nothing: a name is at the same
-    offset on every line whether it is the starred one or not. Column widths
-    are therefore just the widest name, and a row's own last cell is left
-    unpadded so no line carries trailing blanks.
+        **White square brackets** mark what is current: the stack holding the
+        checked-out branch, the one `submit` and `apply` act on without being told
+        which, and that branch. Brackets rather than a colour, because every colour
+        here already means a sync state; and one convention for both, because they
+        are the same fact said at two scales.
 
-    Painted per CELL rather than per row: a paint ends in a reset, so a yellow
-    branch inside a green row would leave everything after it plain -- and the
-    branch is not always last, since you can be standing below one. The star
-    goes yellow with the name it marks, the arrow keeps the row's colour.
+    Every cell reserves one slot on each side for a
+        bracket, and those two slots are the spaces around `<-` -- so a bracketed
+        cell is exactly as wide as a plain one, a name is at the same offset on
+        every line whether it is bracketed or not, and the brackets cost the column
+        nothing. Widths are the widest symbol-and-name; a row's own last cell is
+        left unpadded, so no line carries trailing blanks.
+
+        Painted per CELL rather than per row: a paint ends in a reset, so one
+        coloured branch would otherwise leave everything after it plain.
     """
     tags = ["#" + (str(row["number"]) if row["number"] else "-") for row in rows]
     tag_width = max((len(tag) for tag in tags), default=0)
-    # (name, starred) per cell, the trunk first
+    # (text, paint, current) per cell, the trunk first and unmarked
     grid = [
         [
-            (row["trunk"], False),
+            (row["trunk"], "", False),
             *(
-                (name, bool(row["current"] and name == branch))
-                for name in row["branches"]
+                (
+                    f"{MARKS[branch['sync']][0]}{branch['name']}",
+                    MARKS[branch["sync"]][1],
+                    branch["current"],
+                )
+                for branch in row["branches"]
             ),
         ]
         for row in rows
@@ -639,22 +679,110 @@ def stack_lines(rows: list[dict], branch: str = "", paint=_no_paint) -> str:
     ]
     lines = []
     for tag, row, cells in zip(tags, rows, grid):
-        color = "green" if row["current"] else "blue"
-        parts = [paint(color, f"{'*' if row['current'] else ' '} {tag:<{tag_width}}  ")]
-        for index, (name, starred) in enumerate(cells):
-            text = name if index == len(cells) - 1 else name.ljust(widths[index])
+        if row["current"]:
+            head = f"{paint('white', '[')}{tag:<{tag_width}}{paint('white', ']')}"
+        else:
+            head = f" {tag:<{tag_width}} "
+        parts = [head, "  "]
+        for index, (text, color, current) in enumerate(cells):
+            last = index == len(cells) - 1
+            painted = paint(color, text) if color else text
             if index:
-                parts.append(paint(color, " <-" if starred else " <- "))
-            parts.append(paint("yellow", f"*{text}") if starred else paint(color, text))
+                # `<-` carries no space of its own: the brackets' two slots are
+                # the spaces around it, which is what keeps a bracketed cell
+                # exactly as wide as a plain one.
+                parts.append("<-" + (paint("white", "[") if current else " "))
+            cell = painted + (paint("white", "]") if current else "")
+            if not last:
+                pad = " " * (widths[index] - len(text))
+                cell += pad if current else pad + " "
+            parts.append(cell)
         lines.append("".join(parts))
     return "\n".join(lines)
+
+
+def stack_summary(rows: list[dict], titles: dict, paint=_no_paint) -> str:
+    """One line per branch, with its PR number and title beside it:
+
+        [#34]  main
+                =insync   #21  the loader
+               [+ahead]   #22  wire it up
+
+    The stack's own line names it and its trunk; each branch sits under it with
+    the same symbol, colour and brackets the one-line form uses, so the two
+    views never disagree about what a branch is. Columns are measured across
+    every stack being shown, not per stack, so the numbers and titles line up
+    down the whole page.
+    """
+    tags = ["#" + (str(row["number"]) if row["number"] else "-") for row in rows]
+    tag_width = max((len(tag) for tag in tags), default=0)
+    cells = [
+        f"{MARKS[branch['sync']][0]}{branch['name']}"
+        for row in rows
+        for branch in row["branches"]
+    ]
+    name_width = max((len(cell) for cell in cells), default=0)
+    refs = {
+        id(branch): (f"#{branch['pr']}" if branch["pr"] else "-")
+        for row in rows
+        for branch in row["branches"]
+    }
+    ref_width = max((len(ref) for ref in refs.values()), default=0)
+    # the branch names hang one column left of the trunk's, so a bracket sits
+    # in the same relation to its name as it does in the one-line form
+    indent = " " * (tag_width + 3)
+    blocks = []
+    for tag, row in zip(tags, rows):
+        if row["current"]:
+            head = f"{paint('white', '[')}{tag:<{tag_width}}{paint('white', ']')}"
+        else:
+            head = f" {tag:<{tag_width}} "
+        lines = [f"{head}  {row['trunk']}"]
+        for branch in row["branches"]:
+            symbol, color = MARKS[branch["sync"]]
+            text = f"{symbol}{branch['name']}"
+            painted = paint(color, text) if color else text
+            pad = " " * (name_width - len(text))
+            if branch["current"]:
+                cell = paint("white", "[") + painted + paint("white", "]") + pad
+            else:
+                cell = " " + painted + pad + " "
+            ref = refs[id(branch)]
+            title = titles.get(branch["pr"], "") if branch["pr"] else ""
+            lines.append(f"{indent}{cell} {ref:<{ref_width}}  {title}".rstrip())
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+def legend(rows: list[dict], remote: str, paint=_no_paint, fetched: bool = True) -> str:
+    """One line under the listing saying what the symbols and colours mean.
+
+    Each symbol is printed in its own colour, so the legend demonstrates the
+    thing it is explaining rather than describing it twice. `?` earns its place
+    only when a row actually uses it. Not fetching first IS said, because every
+    symbol is then a claim about the remote as it was rather than as it is.
+    """
+    states = list(LEGEND)
+    if any(branch["sync"] == gh.NO_LOCAL for row in rows for branch in row["branches"]):
+        states.append(gh.NO_LOCAL)
+    marks = [
+        f"{paint(MARKS[state][1], MARKS[state][0])} {WORDS[state]}" for state in states
+    ]
+    # the two `*` markers, explained where the eye already is rather than on a
+    # line of their own
+    marks.append(f"{paint('white', '[]')} current")
+    line = f"  {'  '.join(marks)}"
+    # The remote is not named -- it is `git config gh-stack.remote` and the
+    # reader knows their own. Staleness is another matter: with --no-fetch
+    # every symbol is about the remote as it WAS, and that has to be said.
+    return line if fetched else f"{line}   (as of the last fetch)"
 
 
 def _painter(out):
     """How `stacks` paints, given where its ok event is going.
 
     json carries the message as data, so an escape in it would be data too --
-    the fields say which stack is current, and a machine reads those. On view
+    the fields say how every branch stands, and a machine reads those. On view
     `render.paint` still checks the stream and NO_COLOR itself.
     """
     if out.fmt != "view":
@@ -662,17 +790,65 @@ def _painter(out):
     return lambda name, text: render.paint(name, text, out.out)
 
 
-def stacks(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
-    """List the stacks gh-stack tracks in this checkout."""
-    # Needs git to find the git dir and nothing else: no gh, no gh-stack
-    # extension, no network. It reads a file.
+def stack(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
+    """The stack you are on, or every stack with `--all`."""
+    # gh-stack's extension is never needed; `gh` itself only for the PR titles
+    # the default prints, which `--short` does not ask for.
     gh.require_repo(runner)
+    remote = gh.stack_remote(runner)
+    if not args.no_fetch:
+        # Unannounced: it is a precondition of the answer, not a step of its
+        # own, and a line about it would be the first thing on every run.
+        gh.fetch(runner, remote)
     current = gh.current_branch(runner)
-    rows = stack_rows(gh.read_state(runner), current)
-    if not rows:
+    every = stack_rows(gh.read_state(runner), current)
+    if not every:
         return ("no stacks are tracked in this repository", {"stacks": []})
-    # No "on BRANCH in #N" after the count: the two `*` say it, in place.
+    rows = every if args.all else [row for row in every if row["current"]]
+    if not rows:
+        # Asked about "my stack" while standing outside every one of them: an
+        # answer, and the useful half of it is that --all would show them.
+        return (
+            f"{current!r} is not in a tracked stack; --all lists the "
+            f"{len(every)} there {'is' if len(every) == 1 else 'are'}",
+            {"stacks": [], "remote": remote, "fetched": not args.no_fetch},
+        )
+    # Only the branches actually being shown are compared against the remote,
+    # so the default costs one `rev-list` per out-of-sync branch of one stack.
+    sync = gh.branch_sync(
+        runner,
+        [branch["name"] for row in rows for branch in row["branches"]],
+        remote,
+    )
+    for row in rows:
+        for branch in row["branches"]:
+            branch["sync"] = sync.get(branch["name"], gh.NO_LOCAL)
+    paint = _painter(out)
+    if args.short:
+        body = stack_lines(rows, paint)
+    else:
+        numbers = [
+            branch["pr"] for row in rows for branch in row["branches"] if branch["pr"]
+        ]
+        titles = gh.pr_titles(runner, numbers)
+        missing = [number for number in numbers if number not in titles]
+        if missing:
+            out.warn(
+                "could not read the title of "
+                + ", ".join(f"#{number}" for number in missing)
+                + " from gh; the numbers are still below"
+            )
+        body = stack_summary(rows, titles, paint)
+    # The count orients a reader looking at several; over one stack it says
+    # only what the single row already shows.
+    header = f"{len(rows)} stack(s):\n" if args.all else ""
     return (
-        f"{len(rows)} stack(s)\n" + stack_lines(rows, current, _painter(out)),
-        {"stacks": rows},
+        header
+        + body
+        # a blank line on each side: the legend is a key to what is above it,
+        # not another row of it
+        + "\n\n"
+        + legend(rows, remote, paint, fetched=not args.no_fetch)
+        + "\n",
+        {"stacks": rows, "remote": remote, "fetched": not args.no_fetch},
     )

@@ -34,6 +34,12 @@ READ_ONLY_PAIRS = {
     ("git", "branch"),
     ("git", "for-each-ref"),
     ("git", "ls-files"),
+    ("git", "rev-list"),
+    ("git", "config"),
+    # A fetch writes only remote-tracking refs, and everything that reads them
+    # afterwards depends on it: skipping it under --dry-run would answer from
+    # whatever was last pulled, which is the opposite of what the flag is for.
+    ("git", "fetch"),
     ("gh", "repo"),
     ("gh", "auth"),
     ("gh", "extension"),
@@ -67,9 +73,27 @@ GIT_BRANCH_WRITES = {
 }
 
 
+#: `git config KEY` reads it, `git config KEY VALUE` sets it -- and these say
+#: outright that they are writing.
+GIT_CONFIG_WRITES = {
+    "--add",
+    "--unset",
+    "--unset-all",
+    "--replace-all",
+    "--remove-section",
+    "--rename-section",
+    "--edit",
+    "-e",
+}
+
+
 def is_read_only(argv: list[str]) -> bool:
     if argv[:2] == ["git", "branch"] and GIT_BRANCH_WRITES.intersection(argv[2:]):
         return False
+    if argv[:2] == ["git", "config"]:
+        if GIT_CONFIG_WRITES.intersection(argv[2:]):
+            return False
+        return len([token for token in argv[2:] if not token.startswith("-")]) <= 1
     return tuple(argv[:2]) in READ_ONLY_PAIRS or argv[:3] in READ_ONLY_TRIPLES
 
 
@@ -452,3 +476,133 @@ def read_state(runner: Runner) -> dict:
         return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as error:
         raise ToolError(f"cannot read {path}: {error}") from error
+
+
+#: How a local branch stands against its copy on the remote. The words are
+#: what `--format json` carries; `commands.MARKS` gives each one its symbol
+#: and its colour.
+#: `in-sync` is about content: after an upstream rebase the two sides can hold
+#: the same changes under different shas, and that is not a difference worth a
+#: symbol of its own.
+IN_SYNC = "in-sync"
+AHEAD = "ahead"
+BEHIND = "behind"
+DIVERGED = "diverged"
+NO_LOCAL = "no-local-branch"
+
+
+def stack_remote(runner: Runner) -> str:
+    """The remote gh-stack pushes to: its own config key, else `origin`."""
+    configured = runner.run(["git", "config", "gh-stack.remote"], check=False).strip()
+    return configured or "origin"
+
+
+def branch_sync(runner: Runner, branches: list[str], remote: str) -> dict[str, str]:
+    """Each branch against `<remote>/<branch>`: in sync, ahead, behind, or both.
+
+    Read from the remote-tracking refs, so the caller fetches first.
+
+    Commits are compared by their **change, not their sha** (`--cherry-pick`,
+    which drops any commit whose patch already exists on the other side). In a
+    stacking workflow the remote copy of a branch is rewritten constantly --
+    `gh stack` rebases everything above a branch that moved and force-pushes it
+    -- so a raw sha comparison calls that divergence and nearly every branch
+    would read `x`. Judged by content it is what it actually is: behind by
+    whatever the remote genuinely gained. `x` then means the two sides hold
+    different work, which is worth stopping for.
+
+    One `for-each-ref` collects every sha that could be needed, and only a
+    branch whose two shas differ costs a second call. A branch with nothing on
+    the remote is `AHEAD`: there is no remote copy for it to be behind.
+    """
+    listing = runner.run(
+        [
+            "git",
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/heads",
+            f"refs/remotes/{remote}",
+        ]
+    )
+    shas = {}
+    for line in listing.splitlines():
+        ref, _, sha = line.partition(" ")
+        if ref and sha.strip():
+            shas[ref] = sha.strip()
+    state = {}
+    for branch in branches:
+        local = shas.get(f"refs/heads/{branch}")
+        tracked = shas.get(f"refs/remotes/{remote}/{branch}")
+        if not local:
+            state[branch] = NO_LOCAL
+        elif not tracked:
+            state[branch] = AHEAD
+        elif local == tracked:
+            state[branch] = IN_SYNC
+        else:
+            counted = runner.run(
+                [
+                    "git",
+                    "rev-list",
+                    "--left-right",
+                    "--cherry-pick",
+                    "--count",
+                    f"{local}...{tracked}",
+                ],
+                check=False,
+            ).split()
+            ahead, behind = (
+                (int(counted[0]), int(counted[1])) if len(counted) == 2 else (0, 0)
+            )
+            state[branch] = (
+                DIVERGED
+                if ahead and behind
+                else AHEAD
+                if ahead
+                else BEHIND
+                if behind
+                else IN_SYNC
+            )
+    return state
+
+
+def fetch(runner: Runner, remote: str) -> None:
+    """Refresh the remote-tracking refs the sync symbols are read from."""
+    runner.run(["git", "fetch", "-q", remote])
+
+
+def pr_titles(runner: Runner, numbers: list[int]) -> dict[int, str]:
+    """The title of each PR, for `stack --summary`.
+
+    gh-stack's state file carries a branch's PR number and url but not its
+    title, so this is the one part of `stack` that needs the network. One
+    listing answers a normal repository; a number it did not reach -- a PR
+    older than the limit, which a long-lived stack can have -- is asked for on
+    its own. An answer that cannot be had is left out rather than fatal: the
+    numbers are still worth printing.
+    """
+    if not numbers:
+        return {}
+    wanted = set(numbers)
+    found: dict[int, str] = {}
+    listing = runner.json(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--state",
+            "all",
+            "--limit",
+            "200",
+            "--json",
+            "number,title",
+        ]
+    )
+    for pull in listing if isinstance(listing, list) else []:
+        if pull.get("number") in wanted and pull.get("title"):
+            found[pull["number"]] = pull["title"]
+    for number in sorted(wanted - set(found)):
+        payload = runner.json(["gh", "pr", "view", str(number), "--json", "title"])
+        if isinstance(payload, dict) and payload.get("title"):
+            found[number] = payload["title"]
+    return found

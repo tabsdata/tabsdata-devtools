@@ -277,17 +277,44 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help="skip the `git fetch --prune` first; the PR states are read live either way",
     )
 
-    add(
-        "stacks",
-        "list the stacks tracked in this checkout, bottom branch first",
-        "example:\n"
-        "  tdd gsx stacks\n"
-        "    * #34  main <- a1 <- a2\n"
-        "      #40  main <- b24 <- b25\n\n"
-        "read straight from gh-stack's own state file, so it needs no network and\n"
-        "cannot disagree with what the other subcommands see. `*` marks the stack\n"
-        "holding the branch you are on -- the one submit and apply act on.\n"
-        "`#-` is a stack that has never been submitted, so it has no number yet.\n\n",
+    stack = add(
+        "stack",
+        "the stack you are on, its PRs, and how each branch stands on the remote",
+        "examples:\n"
+        "  tdd gsx stack\n"
+        "    [#34]  main\n"
+        "           =a1        #21  the loader\n"
+        "          [+a2]       #22  wire it up\n"
+        "  tdd gsx stack --short\n"
+        "    [#34]  main <- =a1 <-[+a2]\n"
+        "  tdd gsx stack -as        (--all --short)\n"
+        "    2 stack(s):\n"
+        "    [#34]  main <- =a1  <-[+a2]\n"
+        "     #40   main <- -b24 <- xb25\n\n"
+        "the stacks come from gh-stack's own state file, so no gh-stack extension\n"
+        "is needed; the PR titles come from gh, and --short does without them.\n"
+        "Each branch carries how it stands against the remote, which is fetched\n"
+        "first so the symbols mean what they say (--no-fetch skips it and the\n"
+        "legend then says so). White [brackets] mark the stack holding the branch\n"
+        "you are on -- the one submit and apply act on -- and that branch. `#-` is\n"
+        "a stack that has never been submitted, so it has no number yet.\n\n",
+    )
+    stack.add_argument(
+        "--all",
+        "-a",
+        action="store_true",
+        help="every tracked stack, not just the one you are on",
+    )
+    stack.add_argument(
+        "--short",
+        "-s",
+        action="store_true",
+        help="one line per stack instead of one per PR; needs no gh at all",
+    )
+    stack.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="skip the fetch; the sync symbols are then as of the last one, and say so",
     )
 
 
