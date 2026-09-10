@@ -269,18 +269,20 @@ the rearrangement, or about the branch this command replayed itself. So `<git-di
 holds what finishing needs (the stage it stopped in, what is left to replay, where to end up)
 and what undoing needs:
 
-- the sha of **every branch the move involves** -- the ones moving, the ones staying and the
-  target stack's -- read from the refs before the first change. Not from gh-stack's recorded
+- the sha of **every branch any of the moves involves** -- the ones moving, the ones staying and
+  the target stack's -- read from the refs before the first change. Not from gh-stack's recorded
   `head`, which can be stale, and **never from the remote**: a branch may hold commits that were
   never pushed, so restoring `origin/<branch>` would throw work away. An undo never fetches. (The
   prose recipe this replaced did suggest `git branch -f <b> origin/<b>`, which had exactly that
-  hazard.)
-- gh-stack's whole tracking file **as text**, which is every stack's number, trunk, membership
-  and recorded bases.
+  hazard.) The **earliest** sha recorded for a branch wins, since that is the one an undo of the
+  whole sequence has to reach.
+- gh-stack's whole tracking file **as text** as it was before the **first** move -- every stack's
+  number, trunk, membership and recorded bases.
 - **every tracked stack as it was**: its number, its trunk, and each branch with its PR number
-  and the commit it pointed at. Written once and never rewritten -- "as it was" is the whole of
-  its value -- and the only place that arrangement survives at all: once the move has run,
-  nothing in the repository still says which stack a branch came from or where it was.
+  and the commit it pointed at, plus one entry per move in the sequence. Written once and never
+  rewritten -- "as it was" is the whole of its value -- and the only place that arrangement
+  survives at all: once a move has run, nothing in the repository still says which stack a branch
+  came from or where it was.
 
 Then:
 
@@ -288,31 +290,40 @@ Then:
   --continue` for the branch that moved, `gh stack rebase --continue` for the cascade -- and runs
   what is left of the move afterwards. Resolving with `git add` or with `git commit` both work,
   because git accepts either before its own continue.
-- `gsx move --abort` aborts that rebase, puts every moved branch back on the tip the session
-  recorded, and writes gh-stack's tracking file back byte for byte. Restoring the bytes is the
-  only complete undo of a rearrangement: `unstack --local` and `init` cannot be run backwards.
-- `gsx move --report` prints the arrangement the move started from beside the one there is now,
+- `gsx move --abort` aborts that rebase, puts **every branch of every unpublished move** back on
+  the tip the session recorded, and writes gh-stack's tracking file back byte for byte. Restoring
+  the bytes is the only complete undo of a rearrangement: `unstack --local` and `init` cannot be
+  run backwards.
+- `gsx move --report` prints the arrangement before the first move beside the one there is now,
+  with the moves in between,
   each branch with its PR and its commit, marking what was rewritten (`(was 999aaaa)`), what is
   new to the tracking, and what is not tracked here any more. It is the only way to see the
   before, and the only thing that can say a sha changed.
-- while the file exists **a second move is refused**, because it is the only record of how to put
-  the first one back.
+- while a move is **stopped**, another cannot start: a half-replayed arrangement is not a thing
+  to move out of, and one session cannot describe two replays at once.
 
-**A move is in progress from the first `gsx move` until `gsx submit --move` publishes it** --
-not until its replay finishes. That is what the `publish` stage is: every branch is where it
-should be and GitHub has been told nothing. The file lives across that whole window, which buys
-two things. One unpublished rearrangement is all there can ever be to reason about, since the
-guard holds throughout; and **`--abort` survives the end of the replay**, where before it
-vanished at the very moment the move became hardest to undo by hand. `submit --move` removes the
-file, and removes it *at the dissolve* -- from there an abort would reset local branches while
-GitHub holds the new arrangement, so the record of how to undo goes the moment it becomes a trap.
-A stopped move is not published at all: half a rearrangement with the branches mid-rebase would
-push neither arrangement.
+**Moves accumulate, and the sequence is what is published or undone.** A move is local from `gsx
+move` until `gsx submit --move`, which is what the `publish` stage means: every branch is where
+it should be and GitHub has been told nothing. A further move from there **joins** the ones
+before it -- that is what the write-once fields are for -- so `submit --move` makes the whole
+sequence effective and `--abort` undoes all of it, back to the tips and the tracking file from
+before the first one. `--continue` is for one thing only: finishing the replay of the move that
+stopped on a conflict.
+
+Two consequences of keeping the file that long. What the operator is deciding about is the
+sequence rather than "the move", so every message counts it (`2 local moves are not published (a2
+onto b2; b1 b2 onto c1)`). And **`--abort` survives the end of a replay**, where before it
+vanished at the very moment a move became hardest to undo by hand. `submit --move` removes the
+file *at the dissolve* -- from there an abort would reset local branches while GitHub holds the
+new arrangement, so the record of how to undo goes the moment it becomes a trap. A stopped move
+is not published at all: half a rearrangement with the branches mid-rebase would push neither
+arrangement.
 
 **Every gsx command says so while that file exists**, before it does anything -- one wording, in
 `gsx._say_if_moving`, rather than nine that can each forget. In that window any branch may be
 somewhere the operator did not put it and GitHub knows nothing about, which is worth knowing
-whichever command was reached for. `move` is the exception, because it says more: `--to` refuses,
+whichever command was reached for -- and after two or three moves, which branch went where is
+exactly what stops being held in anyone's head. `move` is the exception, because it says more: `--to` refuses,
 `--continue`/`--abort`/`--report` act on the session. Not being in a git repository is not an
 error of the command that was asked for, so an unanswerable check says nothing.
 

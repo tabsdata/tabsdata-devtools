@@ -427,7 +427,9 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         # undo and starts being a trap -- and with it the guard, so the next
         # move may start.
         move_mod.clear(runner)
-        out.info("the move is published; its session file is gone")
+        out.info(
+            f"{len(session.moves) or 1} move(s) published; the session file is gone"
+        )
 
     if args.sync or extras.passthrough.get("s"):
         runner.run(
@@ -743,12 +745,11 @@ def _move_ready(runner: gh.Runner, out) -> str:
     gh.require_tools(runner)
     gh.require_repo(runner)
     session = move_mod.load(runner)
-    if session is not None:
-        raise ToolError(
-            f"{session.line()} ({move_mod.state_path(runner)}) -- one unpublished "
-            "rearrangement at a time, since that file is the only record of how to "
-            "put the stacks back"
-        )
+    if session is not None and session.replaying:
+        # Only a stopped one: a half-replayed arrangement is not a thing to
+        # move out of, and the session cannot describe two replays at once. A
+        # move that is merely unpublished is joined rather than refused.
+        raise ToolError(f"{session.line()} -- then move again")
     stopped = gh.rebase_stopped(runner)
     if stopped:
         raise ToolError(
@@ -884,6 +885,7 @@ def _move_abort(out, runner: gh.Runner) -> tuple[str, dict]:
     that up would be the wrong way round."""
     gh.require_repo(runner)
     session = _in_flight(runner, "abort")
+    out.info(f"undoing {len(session.moves)} move(s): {session.summary()}")
     fields = move_mod.unwind(runner, session, out)
     branches = fields.get("restored") or []
     put_back = (
@@ -900,9 +902,20 @@ def _move_abort(out, runner: gh.Runner) -> tuple[str, dict]:
 
 
 def _moved(moving: list[str], onto: str, fields: dict) -> tuple[str, dict]:
+    """What a finished replay says: nothing is published, and how much is not.
+
+    The count matters once it is more than one: several moves are published or
+    undone together, so "the move" stops being a thing the operator can point
+    at and the sequence is what they are deciding about.
+    """
+    waiting = len(fields.get("moves") or [])
+    sequence = (
+        f"{waiting} local moves now, and `gsx submit --move` makes them all effective"
+        if waiting > 1
+        else "`gsx submit --move` publishes it"
+    )
     return (
-        f"moved {len(moving)} branch(es) onto {onto}, locally; "
-        "`gsx submit --move` publishes it\n"
+        f"moved {len(moving)} branch(es) onto {onto}, locally; {sequence}\n"
         + "\n".join(f"  moved   {branch}" for branch in moving),
         fields,
     )
@@ -929,6 +942,12 @@ def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         gh.require_repo(runner)
         return move_mod.report(runner, _in_flight(runner, "report"))
     default = _move_ready(runner, out)
+    joining = move_mod.load(runner)
+    if joining is not None:
+        out.info(
+            f"joining {len(joining.moves)} unpublished move(s) ({joining.summary()}); "
+            "`gsx submit --move` makes them all effective, `--abort` undoes them all"
+        )
     current = gh.current_branch(runner)
     if not current or current == "HEAD":
         raise ToolError("detached HEAD; check out the branch you want to move")

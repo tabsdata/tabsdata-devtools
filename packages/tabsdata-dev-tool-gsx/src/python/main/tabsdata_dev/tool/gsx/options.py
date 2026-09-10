@@ -305,12 +305,15 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "or `--abort` to put every branch and both stacks back. The move in flight\n"
         "lives in <git-dir>/gsx-move, and while it is there a second move is\n"
         "refused.\n\n"
-        "`gsx submit --move` is what publishes it, and that is the irreversible\n"
-        "step: the old stack has to be dissolved on GitHub before its PRs can join\n"
-        "the new one. A move is in progress from here until then: every gsx\n"
-        "command says so, `gsx submit` refuses without --move, and no second move\n"
-        "can start. --report shows the stacks as they were when it started (each\n"
-        "branch with its PR and commit) beside the stacks as they are now.\n\n",
+        "moves accumulate: every one is local, a further `gsx move` joins the ones\n"
+        "before it, and they all become effective together on `gsx submit --move`\n"
+        "-- the irreversible step, since the old stacks have to be dissolved on\n"
+        "GitHub before their PRs can join the new ones -- or are all undone\n"
+        "together by --abort. Until then every gsx command says how many are\n"
+        "waiting, `gsx submit` refuses without --move, and only a move STOPPED on\n"
+        "a conflict blocks another. --report shows the stacks as they were before\n"
+        "the first move, each branch with its PR and commit, beside the stacks as\n"
+        "they are now.\n\n",
     )
     move.add_argument(
         "--to",
@@ -326,12 +329,12 @@ def configure(parser: argparse.ArgumentParser) -> None:
     move.add_argument(
         "--abort",
         action="store_true",
-        help="undo the move in progress: every branch and both stacks as they were",
+        help="undo every unpublished move: every branch and every stack as it was",
     )
     move.add_argument(
         "--report",
         action="store_true",
-        help="the stacks as they were when the move started, and as they are now",
+        help="the stacks as they were before the first unpublished move, and now",
     )
     move.add_argument(
         "--yes",

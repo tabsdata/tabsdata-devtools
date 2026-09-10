@@ -1500,7 +1500,7 @@ def test_the_session_says_what_is_left_and_how_to_undo_it(tmp_path):
     # nothing is published, which is what `gsx submit --move` is for
     waiting = move_mod.load(runner)
     assert waiting.stage == move_mod.PUBLISH and waiting.replaying is False
-    assert "is done here and not published" in waiting.line()
+    assert "1 local move is not published (a2 a3 onto b1)" in waiting.line()
     assert "submit --move" in waiting.line() and "--abort" in waiting.line()
 
     # ...and one that stopped leaves everything an undo needs
@@ -1560,27 +1560,71 @@ def test_the_session_records_every_branch_the_move_involves(tmp_path):
     )
 
 
-def test_a_finished_move_is_still_in_progress_until_it_is_published(
+def test_moves_accumulate_and_one_abort_undoes_all_of_them(
     tmp_path, monkeypatch, capsys
 ):
-    """A move ends at `gsx submit --move`, not when its replay finishes: until
-    then no second move may start, and `--continue` has nothing to do."""
+    """A move is not over when its replay finishes: it is local until `gsx
+    submit --move`, further moves join it, and one `--abort` undoes the lot --
+    back to the tips and the tracking file from before the FIRST one."""
+    state = _tracked(
+        (44, "main", [("a1", 42), ("a2", 43)]),
+        (36, "main", [("b1", 24), ("b2", 25)]),
+        (52, "main", [("c1", 61)]),
+    )
+    _fake_move(monkeypatch, tmp_path, state, current="a2")
+    assert gsx.main(["move", "--to", "#36", "--yes"]) == 0
+    runner = gh.Runner(out=_Out())
+    first = move_mod.load(runner)
+    assert first.stage == move_mod.PUBLISH and len(first.moves) == 1
+
+    # a second move joins it rather than being refused
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "b1")
+    assert gsx.main(["move", "--to", "#52", "--yes"]) == 0
+    said = capsys.readouterr()
+    assert "joining 1 unpublished move(s) (a2 onto b2)" in said.err
+    both = move_mod.load(runner)
+    assert [move["moving"] for move in both.moves] == [["a2"], ["b1", "b2"]]
+    assert "2 local moves are not published (a2 onto b2; b1 b2 onto c1)" in both.line()
+    # the sequence's own facts stay the first move's
+    assert both.started_on == "a2" and both.tracking == first.tracking
+    assert both.before == first.before and both.tips["a2"] == first.tips["a2"]
+    assert sorted(both.stacks) == [36, 44, 52]
+
+    # ...and one abort undoes both, back to where the first one started
+    assert gsx.main(["move", "--abort"]) == 0
+    said = capsys.readouterr()
+    assert "undoing 2 move(s): a2 onto b2; b1 b2 onto c1" in said.err
+    assert move_mod.load(runner) is None
+
+
+def test_a_stopped_move_is_the_one_that_blocks_another(tmp_path, monkeypatch, capsys):
+    """A half-replayed arrangement is not a thing to move out of, and the
+    session cannot describe two replays at once."""
+    _fake_move(monkeypatch, tmp_path, _two())
+    move_mod.save(
+        gh.Runner(out=_Out()),
+        move_mod.Session(
+            stage=move_mod.REBASE,
+            started_on="a2",
+            moving=["a2"],
+            target="b3",
+            onto="b3",
+            upstream="sha-a1",
+            tips={"a2": "sha-a2"},
+            tracking=None,
+        ),
+    )
+    assert gsx.main(["move", "--to", "#36", "--yes"]) == 1
+    said = capsys.readouterr().err
+    assert "stopped in the rebase" in said and "then move again" in said
+
+
+def test_continue_is_for_a_conflict_and_nothing_else(tmp_path, monkeypatch, capsys):
     _fake_move(monkeypatch, tmp_path, _two())
     assert gsx.main(["move", "--to", "#36", "--yes"]) == 0
     capsys.readouterr()
-
-    assert gsx.main(["move", "--to", "#36", "--yes"]) == 1
-    said = capsys.readouterr().err
-    assert "is done here and not published" in said and "submit --move" in said
-    assert "one unpublished rearrangement at a time" in said
-
     assert gsx.main(["move", "--continue"]) == 1
     assert "nothing to continue" in capsys.readouterr().err
-
-    # ...and the undo is still there, which is the point of keeping the file
-    assert gsx.main(["move", "--abort"]) == 0
-    assert "move aborted" in capsys.readouterr().out
-    assert move_mod.load(gh.Runner(out=_Out())) is None
 
 
 def test_every_command_says_a_move_is_unfinished(tmp_path, monkeypatch, capsys):
@@ -1604,9 +1648,7 @@ def test_every_command_says_a_move_is_unfinished(tmp_path, monkeypatch, capsys):
     )
     for argv in (["purge", "--no-fetch"], ["stack", "--local", "--short"]):
         gsx.main(argv)
-        assert "a move of a2 onto b3 is done here and not published" in (
-            capsys.readouterr().err
-        )
+        assert "1 local move is not published (a2 onto b3)" in capsys.readouterr().err
 
 
 def test_the_report_is_the_two_states_and_the_difference(tmp_path, monkeypatch, capsys):
@@ -1676,7 +1718,7 @@ def test_submit_move_completes_the_move_and_the_session_goes(
     )
     # without --move it is refused on the session alone, whatever GitHub says
     assert gsx.main(["submit"]) == 1
-    assert "is done here and not published" in capsys.readouterr().err
+    assert "1 local move is not published" in capsys.readouterr().err
 
     answers = [_server(), [_listed(36, [(24, "b1")])]]
     monkeypatch.setattr(

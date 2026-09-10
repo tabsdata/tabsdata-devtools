@@ -511,35 +511,44 @@ class Stopped(ToolError):
 
 @dataclass
 class Session:
-    """A move in flight, as `<git-dir>/gsx-move` carries it.
+    """The unpublished moves, as `<git-dir>/gsx-move` carries them.
 
-    It holds what finishing needs (what is left to replay, and where to end up)
-    and what undoing needs:
+    One file for a *sequence*: every `gsx move` adds to it, `gsx submit --move`
+    publishes the lot and removes it, `gsx move --abort` undoes the lot. So its
+    fields come in two kinds -- the ones about the move being replayed right
+    now (`stage`, `moving`, `target`, `onto`, `upstream`), which the next move
+    overwrites, and the ones about the sequence, which are written once and
+    then only added to:
 
-    * `tips`, the sha of **every branch the move involves** -- the ones moving,
-      the ones staying, and the target stack's -- read from the refs before the
-      first change. Not from gh-stack's recorded `head`, which can be stale,
-      and not from the remote: a branch may hold commits that were never
-      pushed, so restoring `origin/<branch>` would throw work away. An undo
-      never fetches.
-    * `tracking`, gh-stack's whole file as text, which is every stack's number,
-      trunk, membership and recorded bases -- put back byte for byte, since a
-      rearrangement cannot be run backwards.
+    * `tips`, the sha of **every branch any of the moves involves** -- the ones
+      moving, the ones staying, and the target stack's -- read from the refs
+      before the first change of the move that first touched them. The
+      **earliest** sha wins, because that is the one an undo of the whole
+      sequence has to get back to. Not from gh-stack's recorded `head`, which
+      can be stale, and not from the remote: a branch may hold commits that
+      were never pushed, so restoring `origin/<branch>` would throw work away.
+      An undo never fetches.
+    * `tracking`, gh-stack's whole file as text as it was **before the first**
+      move -- every stack's number, trunk, membership and recorded bases -- put
+      back byte for byte, since a rearrangement cannot be run backwards.
+    * `before`, the same arrangement as data, and `moves`, one entry per move
+      in the sequence. Neither is needed to finish or undo anything; they are
+      what `--report` reads, and nothing else remembers them.
 
-    Its presence IS "a move is in progress", and a move is in progress until
-    `gsx submit --move` publishes it -- not until its replay finishes. That is
-    what the `publish` stage is: every branch is where it should be and GitHub
-    has been told nothing. Keeping the file until then buys two things. A
-    second move is refused throughout, so one unpublished rearrangement is all
-    there can ever be to reason about; and `--abort` survives the end of the
-    replay, where before it vanished at the moment the move became hardest to
-    undo by hand.
+    Its presence IS "a move is in progress", and the moves are in progress
+    until `gsx submit --move` publishes them -- not until a replay finishes.
+    That is what the `publish` stage is: every branch is where it should be and
+    GitHub has been told nothing. A further move may start from there and joins
+    the sequence; only a **stopped** one blocks, because a half-replayed
+    arrangement is not a thing to move out of.
 
     In the git dir rather than the work tree, so it cannot be committed by
     accident or turn up as a conflict of its own.
     """
 
     stage: str
+    #: Where the operator stood when the FIRST move started: where an abort of
+    #: the whole sequence puts them back.
     started_on: str
     moving: list[str]
     target: str
@@ -549,9 +558,11 @@ class Session:
     tracking: str | None
     remote: str = "origin"
     stacks: list[int] = field(default_factory=list)
-    #: Every tracked stack as it was when the move started -- written once and
-    #: never rewritten, since "as it was" is the whole of its value.
+    #: Every tracked stack as it was when the first move started -- written
+    #: once and never rewritten, since "as it was" is the whole of its value.
     before: list[dict] = field(default_factory=list)
+    #: One `{"moving", "onto", "from"}` per move, oldest first.
+    moves: list[dict] = field(default_factory=list)
 
     def to_json(self) -> dict:
         return {"version": 1, **self.__dict__}
@@ -564,25 +575,44 @@ class Session:
     def replaying(self) -> bool:
         return self.stage in REPLAYING
 
+    @property
+    def home(self) -> str:
+        """Where the move being replayed started, which is where finishing it
+        puts you back -- not `started_on`, which is where the whole sequence
+        started and where an abort goes."""
+        return (self.moves[-1].get("from") if self.moves else "") or self.started_on
+
+    def summary(self) -> str:
+        """The moves in the sequence, oldest first, as one phrase."""
+        return (
+            "; ".join(
+                f"{' '.join(move.get('moving') or [])} onto {move.get('onto') or ''}"
+                for move in self.moves
+            )
+            or f"{' '.join(self.moving)} onto {self.target}"
+        )
+
     def line(self) -> str:
         """What every gsx command says while this file exists.
 
         One sentence for the state and one for the way out of it, because the
         way out differs: a stopped replay is finished or undone, a finished one
-        is published or undone. Named rather than counted -- the branches are
-        the fact the operator has to hold in their head.
+        is published or undone. Named rather than counted -- which branches
+        went where is the fact the operator has to hold in their head, and
+        after two or three moves it is exactly what they have stopped holding.
         """
-        what = f"a move of {' '.join(self.moving)} onto {self.target}"
         if self.replaying:
             return (
-                f"{what} is stopped in the {self.stage}: `tdd gsx move --continue` "
-                "to finish it, `tdd gsx move --abort` to put every branch and both "
-                "stacks back"
+                f"a move of {' '.join(self.moving)} onto {self.target} is stopped in "
+                f"the {self.stage}: `tdd gsx move --continue` to finish it, "
+                "`tdd gsx move --abort` to undo every move in this sequence"
             )
+        count = len(self.moves) or 1
+        what = "1 local move is" if count == 1 else f"{count} local moves are"
         return (
-            f"{what} is done here and not published: `tdd gsx submit --move` "
-            "completes it, `tdd gsx move --abort` puts every branch and both stacks "
-            "back. No other move can start until one of those"
+            f"{what} not published ({self.summary()}): `tdd gsx submit --move` "
+            "makes them effective, `tdd gsx move --abort` undoes all of them. "
+            "Another `gsx move` joins them"
         )
 
 
@@ -667,7 +697,7 @@ def resume(runner: gh.Runner, session: Session, out, steps_counter) -> dict:
 
 
 def unwind(runner: gh.Runner, session: Session, out) -> dict:
-    """`--abort`: put the branches and both stacks back where they were.
+    """`--abort`: put every branch and every stack back, for the whole sequence.
 
     The tracking file goes back to the bytes the session snapshotted, which is
     the only complete undo of a rearrangement -- `unstack --local` and `init`
@@ -703,6 +733,7 @@ def unwind(runner: gh.Runner, session: Session, out) -> dict:
         "restored": restored,
         "tracking": "restored" if session.tracking else "removed",
         "stacks": session.stacks,
+        "moves": session.moves,
         "on": session.started_on,
     }
 
@@ -716,36 +747,52 @@ def run(runner: gh.Runner, plan: Plan, out, steps_counter) -> dict:
     """
     source, target = plan.source, plan.target
     shas = gh.head_shas(runner)
-    # "If it is not there already": the original state is written once. A
-    # second move cannot start while the file exists, so today this is only
-    # belt and braces -- but the day one can, the *first* move's state is the
-    # one an undo and a report both need.
+    # Everything a *sequence* needs is written once and then only added to: the
+    # first move's tracking file, the first move's arrangement, the first sha
+    # recorded for each branch, and where the operator stood at the start.
+    # `--abort` has to undo the whole sequence, so it is the earliest of each
+    # that it needs -- a second move's "before" is already a rearrangement.
     standing = load(runner)
+    # Every branch the move touches or declares, not just the ones it means to
+    # rewrite: the tips are what `--abort` puts back, and a surprise is exactly
+    # what an undo is for. Read from the refs (one for-each-ref for the whole
+    # repository), never from gh-stack's recorded `head` (which can be stale)
+    # and never from the remote -- a branch may hold commits that were never
+    # pushed, and restoring `origin/<branch>` would throw them away.
+    mine = {
+        branch: shas.get(branch, "")
+        for branch in dict.fromkeys(
+            [*source.branches, *plan.dest_init, *plan.keep_init]
+        )
+    }
     session = Session(
         stage=REBASE,
-        started_on=source.current,
+        started_on=(standing.started_on if standing else "") or source.current,
         moving=list(source.moving),
         target=target.head,
         onto=target.head,
         upstream=plan.upstream or plan.parent,
-        # Every branch the move touches or declares, not just the ones it means
-        # to rewrite: the tips are what `--abort` puts back, and a surprise is
-        # exactly what an undo is for. Read from the refs (one for-each-ref for
-        # the whole repository), never from gh-stack's recorded `head` (which
-        # can be stale) and never from the remote -- a branch may hold commits
-        # that were never pushed, and restoring `origin/<branch>` would throw
-        # them away.
-        tips={
-            branch: shas.get(branch, "")
-            for branch in dict.fromkeys(
-                [*source.branches, *plan.dest_init, *plan.keep_init]
-            )
-        },
-        tracking=gh.state_text(runner),
+        # An earlier move's sha for a branch wins over this one's: that is
+        # the tip an undo of the sequence puts it back on.
+        tips={**mine, **(standing.tips if standing else {})},
+        tracking=standing.tracking if standing else gh.state_text(runner),
         remote=plan.remote,
-        stacks=[number for number in (source.number, target.number) if number],
+        stacks=sorted(
+            {
+                *(standing.stacks if standing else []),
+                *(number for number in (source.number, target.number) if number),
+            }
+        ),
         before=(standing.before if standing and standing.before else None)
         or snapshot(gh.read_state(runner), shas),
+        moves=[
+            *(standing.moves if standing else []),
+            {
+                "moving": list(source.moving),
+                "onto": target.head,
+                "from": source.current,
+            },
+        ],
     )
     save(runner, session)
 
@@ -822,14 +869,15 @@ def _finish(runner: gh.Runner, session: Session, steps_counter) -> dict:
     refused and the only record of how to put this one back. `submit --move`
     removes it, at the moment the dissolve makes an undo impossible.
     """
-    gh.checkout(runner, session.started_on)
-    steps_counter.step(f"back on {session.started_on}", stage="checkout")
+    gh.checkout(runner, session.home)
+    steps_counter.step(f"back on {session.home}", stage="checkout")
     session.stage = PUBLISH
     save(runner, session)
     return {
         "moved": session.moving,
         "onto": session.target,
         "stacks": session.stacks,
+        "moves": session.moves,
         "pushed": False,
         "stage": PUBLISH,
         "next": "gsx submit --move",
@@ -889,6 +937,13 @@ def report(runner: gh.Runner, session: Session) -> tuple[str, dict]:
         "Move report",
         f"  {session.line()}",
         "",
+        f"  moves   ({len(session.moves)}, none published)",
+        *(
+            f"    {n}. {' '.join(move.get('moving') or [])}"
+            f"  ->  {move.get('onto')}   (from {move.get('from')})"
+            for n, move in enumerate(session.moves, start=1)
+        ),
+        "",
         f"  at the start   ({len(session.before)} stack(s))",
         *_rows(session.before, None),
         "",
@@ -905,6 +960,7 @@ def report(runner: gh.Runner, session: Session) -> tuple[str, dict]:
     ]
     return "\n".join(lines), {
         "stage": session.stage,
+        "moves": session.moves,
         "moving": session.moving,
         "onto": session.target,
         "before": session.before,
