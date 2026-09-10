@@ -277,6 +277,10 @@ and what undoing needs:
   hazard.)
 - gh-stack's whole tracking file **as text**, which is every stack's number, trunk, membership
   and recorded bases.
+- **every tracked stack as it was**: its number, its trunk, and each branch with its PR number
+  and the commit it pointed at. Written once and never rewritten -- "as it was" is the whole of
+  its value -- and the only place that arrangement survives at all: once the move has run,
+  nothing in the repository still says which stack a branch came from or where it was.
 
 Then:
 
@@ -287,15 +291,35 @@ Then:
 - `gsx move --abort` aborts that rebase, puts every moved branch back on the tip the session
   recorded, and writes gh-stack's tracking file back byte for byte. Restoring the bytes is the
   only complete undo of a rearrangement: `unstack --local` and `init` cannot be run backwards.
+- `gsx move --report` prints the arrangement the move started from beside the one there is now,
+  each branch with its PR and its commit, marking what was rewritten (`(was 999aaaa)`), what is
+  new to the tracking, and what is not tracked here any more. It is the only way to see the
+  before, and the only thing that can say a sha changed.
 - while the file exists **a second move is refused**, because it is the only record of how to put
-  the first one back. `gsx stack` says a move is stopped and in which stage.
+  the first one back.
+
+**A move is in progress from the first `gsx move` until `gsx submit --move` publishes it** --
+not until its replay finishes. That is what the `publish` stage is: every branch is where it
+should be and GitHub has been told nothing. The file lives across that whole window, which buys
+two things. One unpublished rearrangement is all there can ever be to reason about, since the
+guard holds throughout; and **`--abort` survives the end of the replay**, where before it
+vanished at the very moment the move became hardest to undo by hand. `submit --move` removes the
+file, and removes it *at the dissolve* -- from there an abort would reset local branches while
+GitHub holds the new arrangement, so the record of how to undo goes the moment it becomes a trap.
+A stopped move is not published at all: half a rearrangement with the branches mid-rebase would
+push neither arrangement.
+
+**Every gsx command says so while that file exists**, before it does anything -- one wording, in
+`gsx._say_if_moving`, rather than nine that can each forget. In that window any branch may be
+somewhere the operator did not put it and GitHub knows nothing about, which is worth knowing
+whichever command was reached for. `move` is the exception, because it says more: `--to` refuses,
+`--continue`/`--abort`/`--report` act on the session. Not being in a git repository is not an
+error of the command that was asked for, so an unanswerable check says nothing.
 
 It is in the git dir, not the work tree, so it cannot be committed by accident or turn up as a
-conflict of its own. It is written before the first change and removed when the move finishes, so
-its presence is exactly "a move is in progress". Verified on tabsdata-tucu with a real conflict,
-both ways: `--continue` after committing the resolution finished the move and cleared the file;
-`--abort` on the same conflict put both branches back and restored the tracking byte-identically
-(`#44` and `#36` as they were).
+conflict of its own. Verified on tabsdata-tucu with a real conflict, both ways: `--continue`
+after committing the resolution finished the move; `--abort` on the same conflict put both
+branches back and restored the tracking byte-identically (`#44` and `#36` as they were).
 
 `move` also will not start while a rebase is stopped, a `gh stack modify` is unfinished, a `git
 rebase` is in progress or the tree is dirty, because its own replay would drive straight into any
@@ -340,10 +364,13 @@ on top of another stack's, can only be reached by removing PRs from it, and that
 dissolved. Prefixes are the whole test because a move can only make prefixes -- what stays below
 you is a prefix, what arrives goes on top. PRs this checkout does not track are left out of the
 comparison: someone else adding a PR to your stack is the *other* reason the two sides differ,
-and it needs a sync, not a dissolve. `gsx stack` prints the same finding, as a disagreement
-between the two sides rather than as "a move is in progress": by then the move is over, and the
-words for one that is *not* over -- stopped half way, with a session file and two commands out of
-it -- are already taken.
+and it needs a sync, not a dissolve. It is a *second* signal, and the weaker one: the session
+file is what says a move of this checkout's own is unpublished, so `gsx stack` prints this
+finding only when there is no session -- otherwise the same thing would be said twice, once
+worse. What it is for is a divergence nothing local accounts for -- an old clone, or somebody
+else's rearrangement -- and it is printed as a disagreement between the two sides rather than as
+"a move is in progress", since with no session there is no move of this checkout's to be in
+progress.
 
 ## stack
 

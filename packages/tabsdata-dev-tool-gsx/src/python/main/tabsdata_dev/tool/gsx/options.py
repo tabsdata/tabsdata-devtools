@@ -307,8 +307,10 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "refused.\n\n"
         "`gsx submit --move` is what publishes it, and that is the irreversible\n"
         "step: the old stack has to be dissolved on GitHub before its PRs can join\n"
-        "the new one. Until then `gsx stack` says the two sides no longer agree\n"
-        "and `gsx submit` refuses without --move.\n\n",
+        "the new one. A move is in progress from here until then: every gsx\n"
+        "command says so, `gsx submit` refuses without --move, and no second move\n"
+        "can start. --report shows the stacks as they were when it started (each\n"
+        "branch with its PR and commit) beside the stacks as they are now.\n\n",
     )
     move.add_argument(
         "--to",
@@ -325,6 +327,11 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "--abort",
         action="store_true",
         help="undo the move in progress: every branch and both stacks as they were",
+    )
+    move.add_argument(
+        "--report",
+        action="store_true",
+        help="the stacks as they were when the move started, and as they are now",
     )
     move.add_argument(
         "--yes",

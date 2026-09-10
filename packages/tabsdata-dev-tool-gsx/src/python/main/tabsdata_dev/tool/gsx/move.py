@@ -467,7 +467,41 @@ def _abbreviated(branches: list[str], most: int = 6) -> str:
 #: state file carries the one it is in, because that is what says what is left.
 REBASE = "rebase"  # the branch that moved is being replayed
 CASCADE = "cascade"  # ...and now the branches above it
+PUBLISH = "publish"  # every branch replayed; `gsx submit --move` is what is left
 STATE_FILE = "gsx-move"
+
+#: The stages a `--continue` can act on: the replay is what it continues.
+REPLAYING = (REBASE, CASCADE)
+
+
+def snapshot(state: dict, shas: dict[str, str]) -> list[dict]:
+    """Every tracked stack as it stands: its number, its trunk, and each branch
+    with its PR and the commit it points at.
+
+    Taken before the first change and kept in the session, because a
+    rearrangement cannot be read backwards out of the result: once the move has
+    run, nothing in the repository still says which stack a branch came from or
+    what it pointed at. `--report` is what that is for, and `--abort` reads the
+    same shas from `tips`.
+    """
+    stacks = []
+    for stack in state.get("stacks") or []:
+        entries = [item for item in stack.get("branches") or [] if item.get("branch")]
+        stacks.append(
+            {
+                "number": stack.get("number"),
+                "trunk": ((stack.get("trunk") or {}).get("branch")) or "",
+                "branches": [
+                    {
+                        "branch": item["branch"],
+                        "pr": (item.get("pullRequest") or {}).get("number"),
+                        "sha": shas.get(item["branch"], ""),
+                    }
+                    for item in entries
+                ],
+            }
+        )
+    return stacks
 
 
 class Stopped(ToolError):
@@ -492,9 +526,14 @@ class Session:
       trunk, membership and recorded bases -- put back byte for byte, since a
       rearrangement cannot be run backwards.
 
-    Its presence IS "a move is in progress": a second move is refused while it
-    is there, because starting one would overwrite the only record of how to
-    put the first one back.
+    Its presence IS "a move is in progress", and a move is in progress until
+    `gsx submit --move` publishes it -- not until its replay finishes. That is
+    what the `publish` stage is: every branch is where it should be and GitHub
+    has been told nothing. Keeping the file until then buys two things. A
+    second move is refused throughout, so one unpublished rearrangement is all
+    there can ever be to reason about; and `--abort` survives the end of the
+    replay, where before it vanished at the moment the move became hardest to
+    undo by hand.
 
     In the git dir rather than the work tree, so it cannot be committed by
     accident or turn up as a conflict of its own.
@@ -510,6 +549,9 @@ class Session:
     tracking: str | None
     remote: str = "origin"
     stacks: list[int] = field(default_factory=list)
+    #: Every tracked stack as it was when the move started -- written once and
+    #: never rewritten, since "as it was" is the whole of its value.
+    before: list[dict] = field(default_factory=list)
 
     def to_json(self) -> dict:
         return {"version": 1, **self.__dict__}
@@ -517,6 +559,31 @@ class Session:
     @property
     def bottom(self) -> str:
         return self.moving[0] if self.moving else ""
+
+    @property
+    def replaying(self) -> bool:
+        return self.stage in REPLAYING
+
+    def line(self) -> str:
+        """What every gsx command says while this file exists.
+
+        One sentence for the state and one for the way out of it, because the
+        way out differs: a stopped replay is finished or undone, a finished one
+        is published or undone. Named rather than counted -- the branches are
+        the fact the operator has to hold in their head.
+        """
+        what = f"a move of {' '.join(self.moving)} onto {self.target}"
+        if self.replaying:
+            return (
+                f"{what} is stopped in the {self.stage}: `tdd gsx move --continue` "
+                "to finish it, `tdd gsx move --abort` to put every branch and both "
+                "stacks back"
+            )
+        return (
+            f"{what} is done here and not published: `tdd gsx submit --move` "
+            "completes it, `tdd gsx move --abort` puts every branch and both stacks "
+            "back. No other move can start until one of those"
+        )
 
 
 def state_path(runner: gh.Runner):
@@ -648,6 +715,12 @@ def run(runner: gh.Runner, plan: Plan, out, steps_counter) -> dict:
     command here is gh-stack's or git's, and every one of them is local.
     """
     source, target = plan.source, plan.target
+    shas = gh.head_shas(runner)
+    # "If it is not there already": the original state is written once. A
+    # second move cannot start while the file exists, so today this is only
+    # belt and braces -- but the day one can, the *first* move's state is the
+    # one an undo and a report both need.
+    standing = load(runner)
     session = Session(
         stage=REBASE,
         started_on=source.current,
@@ -657,12 +730,13 @@ def run(runner: gh.Runner, plan: Plan, out, steps_counter) -> dict:
         upstream=plan.upstream or plan.parent,
         # Every branch the move touches or declares, not just the ones it means
         # to rewrite: the tips are what `--abort` puts back, and a surprise is
-        # exactly what an undo is for. Read from the refs, never from
-        # gh-stack's recorded `head` (which can be stale) and never from the
-        # remote -- a branch may hold commits that were never pushed, and
-        # restoring `origin/<branch>` would throw them away.
+        # exactly what an undo is for. Read from the refs (one for-each-ref for
+        # the whole repository), never from gh-stack's recorded `head` (which
+        # can be stale) and never from the remote -- a branch may hold commits
+        # that were never pushed, and restoring `origin/<branch>` would throw
+        # them away.
         tips={
-            branch: gh.sha(runner, f"refs/heads/{branch}")
+            branch: shas.get(branch, "")
             for branch in dict.fromkeys(
                 [*source.branches, *plan.dest_init, *plan.keep_init]
             )
@@ -670,6 +744,8 @@ def run(runner: gh.Runner, plan: Plan, out, steps_counter) -> dict:
         tracking=gh.state_text(runner),
         remote=plan.remote,
         stacks=[number for number in (source.number, target.number) if number],
+        before=(standing.before if standing and standing.before else None)
+        or snapshot(gh.read_state(runner), shas),
     )
     save(runner, session)
 
@@ -739,17 +815,103 @@ def _cascade(runner: gh.Runner, session: Session, steps_counter) -> None:
 
 
 def _finish(runner: gh.Runner, session: Session, steps_counter) -> dict:
-    """Back where the operator started, and the session cleared: the move is
-    done, and what is left is publishing it."""
+    """Back where the operator started, and the session kept.
+
+    Kept, not cleared: the move is not over until `gsx submit --move`
+    publishes it, and until then this file is both the reason a second move is
+    refused and the only record of how to put this one back. `submit --move`
+    removes it, at the moment the dissolve makes an undo impossible.
+    """
     gh.checkout(runner, session.started_on)
     steps_counter.step(f"back on {session.started_on}", stage="checkout")
-    clear(runner)
+    session.stage = PUBLISH
+    save(runner, session)
     return {
         "moved": session.moving,
         "onto": session.target,
         "stacks": session.stacks,
         "pushed": False,
+        "stage": PUBLISH,
         "next": "gsx submit --move",
+    }
+
+
+# ------------------------------------------------------------- the report
+def _tag(number) -> str:
+    """A stack's number, or the mark for one `gh stack init` gave none."""
+    return f"#{number}" if number else "#-"
+
+
+def _rows(stacks: list[dict], was: dict[str, str] | None) -> list[str]:
+    """One indented block per stack, one line per branch.
+
+    `was` turns the second block into a comparison rather than a second thing
+    to read: a branch is unchanged, rewritten, or new to the tracking, and
+    which of the three is the only reason to print two blocks at all.
+    """
+    lines = []
+    for stack in stacks:
+        lines.append(f"    {_tag(stack.get('number')):<7} {stack.get('trunk') or ''}")
+        for branch in stack.get("branches") or []:
+            sha = (branch.get("sha") or "")[:7] or "-------"
+            pr = f"#{branch['pr']}" if branch.get("pr") else "  -"
+            mark = ""
+            if was is not None:
+                before = was.get(branch["branch"])
+                if before is None:
+                    mark = "  (new here)"
+                elif before != branch.get("sha"):
+                    mark = f"  (was {before[:7]})"
+            lines.append(f"            {branch['branch']:<12} {pr:<8} {sha}{mark}")
+    return lines or ["    (none)"]
+
+
+def _flat(stacks: list[dict]) -> dict[str, str]:
+    return {
+        branch["branch"]: branch.get("sha") or ""
+        for stack in stacks
+        for branch in stack.get("branches") or []
+    }
+
+
+def report(runner: gh.Runner, session: Session) -> tuple[str, dict]:
+    """`--report`: the two states, and what is different between them.
+
+    The state at the start comes out of the session -- nothing in the
+    repository still holds it once the move has run -- and the state now is
+    read fresh. Branches that were tracked and are not any more are named
+    last: they are the easiest thing to lose track of, since no row of the
+    second block can show them.
+    """
+    now = snapshot(gh.read_state(runner), gh.head_shas(runner))
+    started, current = _flat(session.before), _flat(now)
+    lines = [
+        "Move report",
+        f"  {session.line()}",
+        "",
+        f"  at the start   ({len(session.before)} stack(s))",
+        *_rows(session.before, None),
+        "",
+        f"  now   (on {gh.current_branch(runner)}, stage {session.stage})",
+        *_rows(now, started),
+    ]
+    gone = [branch for branch in started if branch not in current]
+    if gone:
+        lines += ["", f"  no longer tracked here: {' '.join(gone)}"]
+    rewritten = [
+        branch
+        for branch, sha in current.items()
+        if branch in started and started[branch] != sha
+    ]
+    return "\n".join(lines), {
+        "stage": session.stage,
+        "moving": session.moving,
+        "onto": session.target,
+        "before": session.before,
+        "now": now,
+        "rewritten": rewritten,
+        "untracked": gone,
+        "pushed": False,
     }
 
 

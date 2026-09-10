@@ -34,6 +34,7 @@ from tabsdata_dev.common.core.errors import ToolError
 
 from . import args as args_mod
 from . import commands, gh
+from . import move as move_mod
 from .args import NATIVES, TAKES_LR
 from .options import DESCRIPTION, NAME, CONFIG_PREAMBLE, CONFIG_TABLES, configure
 
@@ -63,8 +64,33 @@ def _body(parsed_args, out: render.Renderer, extras: args_mod.Extras) -> int:
     natives = NATIVES[subcommand]
     args_mod.check_overlaps(extras, natives, parsed_args.override, out)
     runner = gh.Runner(out=out, dry_run=parsed_args.dry_run)
+    _say_if_moving(runner, out, subcommand)
     message, fields = HANDLERS[subcommand](parsed_args, out, runner, extras)
     return out.ok(message, gsx=subcommand, dry_run=parsed_args.dry_run, **fields)
+
+
+def _say_if_moving(runner: gh.Runner, out: render.Renderer, subcommand: str) -> None:
+    """Every command says when a move is unfinished, before it does anything.
+
+    A move is in progress from the first `gsx move` until `gsx submit --move`
+    publishes it, and in that window every branch this repository has may be
+    somewhere the operator did not put it and GitHub does not know about. That
+    is worth knowing whichever command was reached for, so it is said here
+    rather than in each of them -- one wording, and no command that can forget.
+
+    `move` is the exception: it refuses outright (`--to`) or acts on the
+    session (`--continue`, `--abort`), and both messages say more than this
+    one. Anything that cannot answer -- not a git repository, no git at all --
+    is not an error of the command that was asked for.
+    """
+    if subcommand == "move":
+        return
+    try:
+        session = move_mod.load(runner)
+    except (ToolError, OSError):
+        return
+    if session is not None:
+        out.warn(session.line())
 
 
 def main(argv: list[str] | None = None) -> int:

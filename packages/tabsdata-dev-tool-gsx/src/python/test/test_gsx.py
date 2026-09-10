@@ -780,6 +780,8 @@ def _fake_purge(monkeypatch, tmp_path, branches, pulls, current="main", failing=
 
     monkeypatch.setattr(gh, "Runner", FakeRunner)
     monkeypatch.setattr(gh, "require_binaries", lambda: None)
+    # every command looks for a move in progress first; here there is none
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
     monkeypatch.setattr(gh, "default_branch", lambda runner: "main")
     monkeypatch.setattr(gh, "prs_by_branch", lambda runner, limit=500: pulls)
     monkeypatch.setattr(gh, "branch_prs", lambda runner, branch: [])
@@ -997,6 +999,8 @@ def _fake_checkout(monkeypatch, tmp_path, refuse=(), pulls=()):
 
     monkeypatch.setattr(gh, "Runner", FakeRunner)
     monkeypatch.setattr(gh, "require_tools", lambda runner: None)
+    # every command looks for a move in progress first; here there is none
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
     monkeypatch.setattr(gh, "repo_url", lambda runner: "https://github.com/o/n")
     monkeypatch.setattr(gh, "current_branch", lambda runner: "OS-3348")
     monkeypatch.setattr(gh, "current_pr", lambda runner: None)
@@ -1108,6 +1112,10 @@ class _MoveRunner:
             return str(self.git_dir)
         if argv[:3] == ["git", "rev-parse", "-q"]:
             return self.heads.get(argv[-1], "")
+        if argv[:2] == ["git", "for-each-ref"]:
+            return "\n".join(
+                f"{ref.rsplit('/', 1)[-1]} {sha}" for ref, sha in self.heads.items()
+            )
         if argv[:2] == ["git", "config"]:
             return ""
         return ""
@@ -1439,9 +1447,9 @@ def test_the_driver_runs_gh_stacks_own_commands_and_nothing_that_pushes(tmp_path
         assert call[:3] != ["gh", "stack", "push"]
         if call[:3] == ["gh", "stack", "unstack"]:
             assert "--local" in call
-    # back where you were, and the session is cleared (which is a file, not a call)
+    # back where you were, and the session waiting to be published
     assert ["git", "checkout", "-q", "a2"] in runner.calls
-    assert move_mod.load(runner) is None
+    assert move_mod.load(runner).stage == move_mod.PUBLISH
     assert fields["pushed"] is False and fields["next"] == "gsx submit --move"
 
 
@@ -1488,8 +1496,12 @@ def test_the_session_says_what_is_left_and_how_to_undo_it(tmp_path):
     plan.upstream = "sha-a1"
     move_mod.run(runner, plan, runner.out, progress.Counter(runner.out))
 
-    # a finished move leaves nothing behind
-    assert move_mod.load(runner) is None
+    # a finished move is still a move in progress: its replay is over and
+    # nothing is published, which is what `gsx submit --move` is for
+    waiting = move_mod.load(runner)
+    assert waiting.stage == move_mod.PUBLISH and waiting.replaying is False
+    assert "is done here and not published" in waiting.line()
+    assert "submit --move" in waiting.line() and "--abort" in waiting.line()
 
     # ...and one that stopped leaves everything an undo needs
     session = move_mod.Session(
@@ -1530,9 +1542,9 @@ def test_the_session_records_every_branch_the_move_involves(tmp_path):
     plan.upstream = "sha-a1"
     move_mod.run(runner, plan, runner.out, progress.Counter(runner.out))
 
-    session = move_mod.load(runner)  # cleared on success, so read it mid-flight
-    assert session is None
-    # ...so drive the recording directly: what run() would have written
+    # the session survives a finished replay, and holds the tips from before it
+    assert move_mod.load(runner).stage == move_mod.PUBLISH
+    # what run() wrote before the first change, which is what an abort reads
     written = []
     monkey = move_mod.save
     try:
@@ -1546,6 +1558,157 @@ def test_the_session_records_every_branch_the_move_involves(tmp_path):
     assert not any(
         "remotes" in call[-1] for call in runner.calls if "rev-parse" in call
     )
+
+
+def test_a_finished_move_is_still_in_progress_until_it_is_published(
+    tmp_path, monkeypatch, capsys
+):
+    """A move ends at `gsx submit --move`, not when its replay finishes: until
+    then no second move may start, and `--continue` has nothing to do."""
+    _fake_move(monkeypatch, tmp_path, _two())
+    assert gsx.main(["move", "--to", "#36", "--yes"]) == 0
+    capsys.readouterr()
+
+    assert gsx.main(["move", "--to", "#36", "--yes"]) == 1
+    said = capsys.readouterr().err
+    assert "is done here and not published" in said and "submit --move" in said
+    assert "one unpublished rearrangement at a time" in said
+
+    assert gsx.main(["move", "--continue"]) == 1
+    assert "nothing to continue" in capsys.readouterr().err
+
+    # ...and the undo is still there, which is the point of keeping the file
+    assert gsx.main(["move", "--abort"]) == 0
+    assert "move aborted" in capsys.readouterr().out
+    assert move_mod.load(gh.Runner(out=_Out())) is None
+
+
+def test_every_command_says_a_move_is_unfinished(tmp_path, monkeypatch, capsys):
+    """Said once, before any command runs: in that window every branch may be
+    somewhere the operator did not put it and GitHub knows nothing about it."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    monkeypatch.setattr(gh, "require_repo", lambda runner: None)
+    monkeypatch.setattr(gh, "require_tools", lambda runner: None)
+    move_mod.save(
+        gh.Runner(out=_Out()),
+        move_mod.Session(
+            stage=move_mod.PUBLISH,
+            started_on="a2",
+            moving=["a2"],
+            target="b3",
+            onto="b3",
+            upstream="sha-a1",
+            tips={"a2": "sha-a2"},
+            tracking=None,
+        ),
+    )
+    for argv in (["purge", "--no-fetch"], ["stack", "--local", "--short"]):
+        gsx.main(argv)
+        assert "a move of a2 onto b3 is done here and not published" in (
+            capsys.readouterr().err
+        )
+
+
+def test_the_report_is_the_two_states_and_the_difference(tmp_path, monkeypatch, capsys):
+    """Nothing in the repository still holds the arrangement a move started
+    from, so the session carries it -- each branch with its PR and its commit
+    -- and `--report` puts it beside what is there now."""
+    _fake_move(monkeypatch, tmp_path, _two())
+    assert gsx.main(["move", "--to", "#36", "--yes"]) == 0
+    capsys.readouterr()
+    assert gsx.main(["move", "--report"]) == 0
+    said = capsys.readouterr().out
+    assert "at the start   (2 stack(s))" in said
+    start, _, current = said.partition("  now")
+    assert "#44" in start and "#36" in start
+    # each branch with its PR and the commit it pointed at when the move began
+    assert "a2           #43      sha-a2" in start
+    assert current.startswith("   (on a2, stage publish)")
+
+
+def test_the_report_needs_a_move_to_report_on(tmp_path, monkeypatch, capsys):
+    _fake_move(monkeypatch, tmp_path, _two())
+    assert gsx.main(["move", "--report"]) == 1
+    assert "nothing to report" in capsys.readouterr().err
+
+
+def test_the_original_state_is_written_once_and_not_rewritten(tmp_path):
+    """ "If it is not there already": the value of "as it was" is that it is not
+    updated. A second move cannot start today, but the day one can it is the
+    first move's state that an undo and a report both need."""
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"], git_dir=tmp_path)
+    (tmp_path / "gh-stack").write_text(json.dumps(_two()))
+    source = move_mod.source_stack(_two(), "a2")
+    plan = move_mod.build(source, _target(runner, "#36", branch="a2"))
+    move_mod.run(runner, plan, runner.out, progress.Counter(runner.out))
+    first = move_mod.load(runner).before
+    assert [stack["number"] for stack in first] == [44, 36]
+    assert first[0]["branches"][1] == {"branch": "a2", "pr": 43, "sha": "sha-a2"}
+
+    (tmp_path / "gh-stack").write_text('{"stacks": []}')  # a different arrangement
+    move_mod.run(runner, plan, runner.out, progress.Counter(runner.out))
+    assert move_mod.load(runner).before == first
+
+
+def test_submit_move_completes_the_move_and_the_session_goes(
+    tmp_path, monkeypatch, capsys
+):
+    """The dissolve is the point of no return: from there an `--abort` would
+    reset local branches while GitHub holds the new arrangement, so the record
+    of how to undo goes at the moment it becomes a trap."""
+    after = _tracked(
+        (None, "main", [("b1", 24), ("b2", 25), ("b3", 26), ("a1", 42), ("a2", 43)])
+    )
+    _fake_move(monkeypatch, tmp_path, after, listing=_server())
+    runner = gh.Runner(out=_Out())
+    move_mod.save(
+        runner,
+        move_mod.Session(
+            stage=move_mod.PUBLISH,
+            started_on="a2",
+            moving=["a2"],
+            target="b3",
+            onto="b3",
+            upstream="sha-a1",
+            tips={"a2": "sha-a2"},
+            tracking=None,
+        ),
+    )
+    # without --move it is refused on the session alone, whatever GitHub says
+    assert gsx.main(["submit"]) == 1
+    assert "is done here and not published" in capsys.readouterr().err
+
+    answers = [_server(), [_listed(36, [(24, "b1")])]]
+    monkeypatch.setattr(
+        gh, "stacks", lambda runner, **kw: answers.pop(0) if answers else []
+    )
+    monkeypatch.setattr(gh, "stack_pr_snapshot", lambda runner: [])
+    monkeypatch.setattr(labels, "Repo", lambda runner, out: None)
+    monkeypatch.setattr(labels, "with_defaults", lambda repo, ops, no: [])
+    assert gsx.main(["submit", "--move"]) == 0
+    assert move_mod.load(runner) is None
+
+
+def test_a_stopped_move_is_not_published(tmp_path, monkeypatch, capsys):
+    """Half a rearrangement, with the branches mid-rebase: whatever a push sent
+    would be neither arrangement."""
+    _fake_move(monkeypatch, tmp_path, _two())
+    move_mod.save(
+        gh.Runner(out=_Out()),
+        move_mod.Session(
+            stage=move_mod.CASCADE,
+            started_on="a2",
+            moving=["a2", "a3"],
+            target="b3",
+            onto="b3",
+            upstream="sha-a1",
+            tips={"a2": "sha-a2"},
+            tracking=None,
+        ),
+    )
+    assert gsx.main(["submit", "--move"]) == 1
+    said = capsys.readouterr().err
+    assert "stopped in the cascade" in said and "publish it after that" in said
 
 
 def test_abort_puts_the_branches_and_both_stacks_back(tmp_path):
@@ -1685,7 +1848,8 @@ def _fake_move(monkeypatch, tmp_path, state, listing=(), current="a2", here=None
             if argv[:3] == ["git", "rev-parse", "-q"]:
                 return f"sha-{argv[-1]}"
             if argv[:2] == ["git", "for-each-ref"]:
-                return "\n".join(here)
+                # name and sha, which is what `gh.head_shas` reads
+                return "\n".join(f"{name} sha-{name}" for name in here)
             return ""
 
         def json(self, argv):

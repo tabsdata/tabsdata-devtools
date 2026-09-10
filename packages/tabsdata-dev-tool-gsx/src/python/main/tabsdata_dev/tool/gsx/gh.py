@@ -400,6 +400,29 @@ def local_branches(runner: Runner) -> list[str]:
     return [line.strip() for line in listing.splitlines() if line.strip()]
 
 
+def head_shas(runner: Runner) -> dict[str, str]:
+    """Every local branch and the commit it points at, in one call.
+
+    Which branches exist and where they are is the same question twice, and
+    `move` asks both of a whole stack at once: one `for-each-ref` instead of a
+    `rev-parse` per branch, of which a 93-branch stack would want 93.
+    """
+    listing = runner.run(
+        [
+            "git",
+            "for-each-ref",
+            "--format=%(refname:short) %(objectname)",
+            "refs/heads/",
+        ]
+    )
+    heads = {}
+    for line in listing.splitlines():
+        name, _, sha = line.strip().partition(" ")
+        if name:
+            heads[name] = sha
+    return heads
+
+
 def prs_by_branch(runner: Runner, limit: int = 500) -> dict[str, list[dict]]:
     """Every PR of the repository, indexed by the branch it was opened from.
 

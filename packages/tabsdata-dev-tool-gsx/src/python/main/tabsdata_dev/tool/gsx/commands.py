@@ -388,6 +388,13 @@ def _publish_move(args, out, runner: gh.Runner, moved: move_mod.Pending, steps) 
 def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     """Push the stack, open its PRs, then apply the label/reviewer ops."""
     gh.require_tools(runner)
+    session = move_mod.load(runner)
+    if session is not None and session.replaying:
+        # Half a rearrangement is not a thing to publish, and the branches are
+        # mid-rebase: whatever this pushed would be neither arrangement.
+        raise ToolError(f"{session.line()} -- publish it after that")
+    if session is not None and not args.move:
+        raise ToolError(session.line())
     moved = _moved_locally(runner, out)
     if moved and not args.move:
         raise ToolError(f"{moved.line()} -- or `--move` to publish it now")
@@ -412,6 +419,15 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
             "here. This is the one step that cannot be undone."
         )
         _publish_move(args, out, runner, moved, steps)
+
+    if args.move and session is not None:
+        # The dissolve has happened, so there is nothing to go back to: an
+        # `--abort` from here would reset local branches while GitHub holds the
+        # new arrangement. The session goes at the moment it stops being an
+        # undo and starts being a trap -- and with it the guard, so the next
+        # move may start.
+        move_mod.clear(runner)
+        out.info("the move is published; its session file is gone")
 
     if args.sync or extras.passthrough.get("s"):
         runner.run(
@@ -726,11 +742,12 @@ def _move_ready(runner: gh.Runner, out) -> str:
     """
     gh.require_tools(runner)
     gh.require_repo(runner)
-    if move_mod.load(runner) is not None:
+    session = move_mod.load(runner)
+    if session is not None:
         raise ToolError(
-            f"a move is already in progress ({move_mod.state_path(runner)}); finish "
-            "it with `--continue` or undo it with `--abort` -- that file is the only "
-            "record of how to put the stacks back"
+            f"{session.line()} ({move_mod.state_path(runner)}) -- one unpublished "
+            "rearrangement at a time, since that file is the only record of how to "
+            "put the stacks back"
         )
     stopped = gh.rebase_stopped(runner)
     if stopped:
@@ -850,6 +867,8 @@ def _move_continue(out, runner: gh.Runner) -> tuple[str, dict]:
     gh.require_tools(runner)
     gh.require_repo(runner)
     session = _in_flight(runner, "continue")
+    if not session.replaying:
+        raise ToolError(f"nothing to continue: {session.line()}")
     out.info(
         f"finishing the move of {' '.join(session.moving)} onto {session.target}, "
         f"stopped in the {session.stage}"
@@ -896,15 +915,19 @@ def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     branches and gh-stack's tracking file and nothing else. `gsx submit --move`
     publishes it when you have looked at it.
     """
-    asked = [bool(args.abort), bool(args.resume), bool(args.to)]
+    asked = [bool(args.abort), bool(args.resume), bool(args.to), bool(args.report)]
     if sum(asked) != 1:
         raise ToolError(
-            "move takes exactly one of --to #STACK|BRANCH, --continue or --abort"
+            "move takes exactly one of --to #STACK|BRANCH, --continue, --abort "
+            "or --report"
         )
     if args.abort:
         return _move_abort(out, runner)
     if args.resume:
         return _move_continue(out, runner)
+    if args.report:
+        gh.require_repo(runner)
+        return move_mod.report(runner, _in_flight(runner, "report"))
     default = _move_ready(runner, out)
     current = gh.current_branch(runner)
     if not current or current == "HEAD":
@@ -937,10 +960,7 @@ def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         )
 
     plan = move_mod.build(
-        source,
-        target,
-        landed=_landed(states),
-        present=set(gh.local_branches(runner)),
+        source, target, landed=_landed(states), present=set(gh.head_shas(runner))
     )
     plan.remote = remote
     plan.upstream = gh.sha(runner, f"refs/heads/{plan.parent}")
@@ -1525,14 +1545,10 @@ def stack(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         # own, and a line about it would be the first thing on every run.
         gh.fetch(runner, remote)
     current = gh.current_branch(runner)
+    # An unfinished move is announced for every command, before any of them
+    # runs (`gsx._say_if_moving`), so it is not said again here.
     unfinished = move_mod.load(runner)
-    if unfinished is not None:
-        out.warn(
-            f"a move of {' '.join(unfinished.moving)} onto {unfinished.target} is "
-            f"stopped in the {unfinished.stage}: `tdd gsx move --continue` to finish "
-            "it, `tdd gsx move --abort` to put every branch and both stacks back"
-        )
-    elif gh.rebase_stopped(runner):
+    if unfinished is None and gh.rebase_stopped(runner):
         out.warn(
             f"a stack rebase is stopped on {gh.rebase_stopped(runner)!r}: "
             "`gh stack rebase --continue` when it is resolved, or "
@@ -1540,9 +1556,11 @@ def stack(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         )
     listing, asked = _remote_listing(runner, out, source)
     state = gh.read_state(runner)
-    if listing:
+    if listing and unfinished is None:
         # The rows below say where each branch stands; this says the arrangement
-        # itself is half-published, which no row can show.
+        # itself is half-published, which no row can show. Only when no session
+        # is open: that line has already said the same thing, and better --
+        # this one is for a divergence nothing local accounts for.
         unpublished = move_mod.pending(state, listing)
         if unpublished:
             out.warn(unpublished.line())
