@@ -783,6 +783,72 @@ def stack_init(runner: Runner, branches: list[str], base: str = "") -> None:
     runner.run([*argv, *branches], capture=False)
 
 
+def state_text(runner: Runner) -> str | None:
+    """gh-stack's tracking file exactly as it sits on disk, or None if there is
+    none -- a snapshot `write_state` can put back byte for byte."""
+    path = git_dir(runner) / "gh-stack"
+    if not path.is_file():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ToolError(f"cannot read {path}: {error}") from error
+
+
+def write_state(runner: Runner, text: str | None) -> None:
+    """Put `<git-dir>/gh-stack` back to a snapshot of itself, and nothing else.
+
+    gh-stack owns this file: every forward change goes through `gh stack init`
+    and `gh stack unstack --local`, which record the bases and numbers this
+    code has no business inventing. Restoring the exact text that was read from
+    it is the one exception, and it is what lets `move --abort` put the stacks
+    back together: a rearrangement cannot be run backwards, but it can be
+    replaced by what was there before, down to the bytes. `None` means there
+    was no file, so there is none after.
+    """
+    path = git_dir(runner) / "gh-stack"
+    if runner.dry_run:
+        runner.out.info(f"[dry-run] restore {path}", dry_run=True)
+        return
+    if text is None:
+        path.unlink(missing_ok=True)
+        return
+    temporary = path.with_suffix(".gsx-tmp")
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(path)
+
+
+def rebase_continue(runner: Runner) -> None:
+    """Carry on the rebase the operator has just resolved. GIT_EDITOR is off:
+    `--continue` opens the commit message otherwise, and the message is the one
+    the commit already had."""
+    runner.run(["git", "rebase", "--continue"], env={"GIT_EDITOR": "true"})
+
+
+def rebase_abort(runner: Runner) -> None:
+    runner.run(["git", "rebase", "--abort"], check=False)
+
+
+def stack_rebase_continue(runner: Runner) -> None:
+    """gh-stack's own continue: it knows which branch of the cascade stopped
+    and what is left of it."""
+    runner.run(["gh", "stack", "rebase", "--continue"], capture=False)
+
+
+def stack_rebase_abort(runner: Runner) -> None:
+    """Restores every branch the cascade had replayed, from its own snapshot --
+    but not one this command replayed before handing over."""
+    runner.run(["gh", "stack", "rebase", "--abort"], capture=False, check=False)
+
+
+def set_branch(runner: Runner, branch: str, commit: str) -> None:
+    runner.run(["git", "branch", "-f", branch, commit])
+
+
+def reset_hard(runner: Runner, commit: str) -> None:
+    runner.run(["git", "reset", "-q", "--hard", commit])
+
+
 def rebase_onto(runner: Runner, onto: str, upstream: str, branch: str) -> None:
     """Replay `upstream..branch` onto `onto`, with plain git.
 

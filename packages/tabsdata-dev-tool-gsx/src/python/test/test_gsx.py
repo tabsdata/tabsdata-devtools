@@ -1259,15 +1259,17 @@ def test_moving_onto_the_trunk_needs_no_target_stack_to_forget():
     assert not any("checkout b" in step for step in plan.steps)
 
 
-def test_every_init_runs_from_the_trunk_because_it_refuses_to_run_in_a_stack():
+def test_every_init_runs_from_the_trunk_because_it_refuses_to_run_in_a_stack(
+    tmp_path,
+):
     """`gh stack init` checks the CURRENT branch as well as the named ones, and
     the init before it leaves you on the top of the stack it just made. A real
     move died there: `✗ current branch "OS-3482" is already part of a stack`
     (exit 5), with the source and target already forgotten."""
-    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"])
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"], git_dir=tmp_path)
     source = move_mod.source_stack(_two(), "a2")
     plan = move_mod.build(source, _target(runner, "#36", branch="a2"))
-    move_mod.run(runner, plan, progress.Counter(runner.out, total=6))
+    move_mod.run(runner, plan, runner.out, progress.Counter(runner.out, total=6))
     inits = [
         (previous, call)
         for previous, call in zip(runner.calls, runner.calls[1:])
@@ -1278,12 +1280,14 @@ def test_every_init_runs_from_the_trunk_because_it_refuses_to_run_in_a_stack():
         assert previous == ["git", "checkout", "-q", "main"]
 
 
-def test_the_driver_runs_gh_stacks_own_commands_and_nothing_that_pushes():
-    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"])
+def test_the_driver_runs_gh_stacks_own_commands_and_nothing_that_pushes(tmp_path):
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"], git_dir=tmp_path)
     source = move_mod.source_stack(_two(), "a2")
     plan = move_mod.build(source, _target(runner, "#36", branch="a2"))
     plan.upstream = "sha-a1"
-    fields = move_mod.run(runner, plan, progress.Counter(runner.out, total=6))
+    fields = move_mod.run(
+        runner, plan, runner.out, progress.Counter(runner.out, total=6)
+    )
     assert runner.stack_calls() == [
         ["gh", "stack", "unstack", "--local"],
         ["gh", "stack", "checkout", "b3"],
@@ -1303,21 +1307,10 @@ def test_the_driver_runs_gh_stacks_own_commands_and_nothing_that_pushes():
         assert call[:3] != ["gh", "stack", "push"]
         if call[:3] == ["gh", "stack", "unstack"]:
             assert "--local" in call
-    assert runner.calls[-1] == ["git", "checkout", "-q", "a2"]  # back where you were
+    # back where you were, and the session is cleared (which is a file, not a call)
+    assert ["git", "checkout", "-q", "a2"] in runner.calls
+    assert move_mod.load(runner) is None
     assert fields["pushed"] is False and fields["next"] == "gsx submit --move"
-
-
-def _listed(number, prs, base="main", open_stack=True):
-    """One stack as the stacks REST API returns it, `prs` = `(number, branch)`."""
-    return {
-        "number": number,
-        "base": {"ref": base},
-        "open": open_stack,
-        "pull_requests": [
-            {"number": pr, "state": "open", "merged_at": None, "head": {"ref": branch}}
-            for pr, branch in prs
-        ],
-    }
 
 
 #: GitHub's view of the two stacks in `_two()`, before any move.
@@ -1326,6 +1319,144 @@ def _server():
         _listed(44, [(42, "a1"), (43, "a2")]),
         _listed(36, [(24, "b1"), (25, "b2"), (26, "b3")]),
     ]
+
+
+def test_a_conflict_hands_back_two_commands_not_a_recipe(tmp_path):
+    """By the time anything can conflict, the old stacks are forgotten and the
+    new ones written -- so "resolve and rerun" is not available. The session on
+    disk is what makes the two ways out two commands: only this command knows
+    what the move still has to do, and only it can put the tracking back."""
+    session = move_mod.Session(
+        stage=move_mod.REBASE,
+        started_on="a2",
+        moving=["a2", "a3"],
+        target="b1",
+        onto="b1",
+        upstream="sha-a1",
+        tips={"a2": "sha-a2", "a3": "sha-a3"},
+        tracking='{"stacks": []}',
+        stacks=[44, 36],
+    )
+    said = str(move_mod.stopped(session, "the replay of a2 onto b1 stopped"))
+    assert "the replay of a2 onto b1 stopped" in said
+    assert "tdd gsx move --continue" in said and "tdd gsx move --abort" in said
+    assert "nothing has been pushed" in said
+
+
+def test_the_session_says_what_is_left_and_how_to_undo_it(tmp_path):
+    runner = _MoveRunner(heads=["a1", "a2", "a3", "b1", "main"], git_dir=tmp_path)
+    (tmp_path / "gh-stack").write_text(json.dumps(_two()))
+    state = _tracked((44, "main", [("a1", 42), ("a2", 43), ("a3", 44)]))
+    state["stacks"].append(
+        {"number": 36, "trunk": {"branch": "main"}, "branches": [{"branch": "b1"}]}
+    )
+    source = move_mod.source_stack(state, "a2")
+    target = move_mod.resolve_target(runner, "#36", source, state, "main", _Out())
+    plan = move_mod.build(source, target)
+    plan.upstream = "sha-a1"
+    move_mod.run(runner, plan, runner.out, progress.Counter(runner.out))
+
+    # a finished move leaves nothing behind
+    assert move_mod.load(runner) is None
+
+    # ...and one that stopped leaves everything an undo needs
+    session = move_mod.Session(
+        stage=move_mod.CASCADE,
+        started_on="a2",
+        moving=["a2", "a3"],
+        target="b1",
+        onto="b1",
+        upstream="sha-a1",
+        tips={"a2": "sha-a2", "a3": "sha-a3"},
+        tracking=json.dumps(_two()),
+        stacks=[44, 36],
+    )
+    move_mod.save(runner, session)
+    again = move_mod.load(runner)
+    assert again.stage == move_mod.CASCADE and again.moving == ["a2", "a3"]
+    assert json.loads(again.tracking) == _two()
+    assert again.bottom == "a2"
+
+
+def test_the_session_records_every_branch_the_move_involves(tmp_path):
+    """The tips are what an abort puts back, and a surprise is exactly what an
+    undo is for -- so the ones staying and the target stack's are recorded too,
+    not just the ones meant to be rewritten. From the refs, never from the
+    remote: a branch may hold commits that were never pushed."""
+    runner = _MoveRunner(heads=["a1", "a2", "a3", "b1", "b2", "main"], git_dir=tmp_path)
+    state = _tracked((44, "main", [("a1", 42), ("a2", 43), ("a3", 44)]))
+    state["stacks"].append(
+        {
+            "number": 36,
+            "trunk": {"branch": "main"},
+            "branches": [{"branch": "b1"}, {"branch": "b2"}],
+        }
+    )
+    source = move_mod.source_stack(state, "a2")
+    target = move_mod.resolve_target(runner, "#36", source, state, "main", _Out())
+    plan = move_mod.build(source, target)
+    plan.upstream = "sha-a1"
+    move_mod.run(runner, plan, runner.out, progress.Counter(runner.out))
+
+    session = move_mod.load(runner)  # cleared on success, so read it mid-flight
+    assert session is None
+    # ...so drive the recording directly: what run() would have written
+    written = []
+    monkey = move_mod.save
+    try:
+        move_mod.save = lambda runner, s: written.append(s)
+        move_mod.run(runner, plan, runner.out, progress.Counter(runner.out))
+    finally:
+        move_mod.save = monkey
+    assert sorted(written[0].tips) == ["a1", "a2", "a3", "b1", "b2"]
+    assert all(sha.startswith("sha-") for sha in written[0].tips.values())
+    # never a remote ref
+    assert not any(
+        "remotes" in call[-1] for call in runner.calls if "rev-parse" in call
+    )
+
+
+def test_abort_puts_the_branches_and_both_stacks_back(tmp_path):
+    """Restoring the file gh-stack owns, rather than running the rearrangement
+    backwards -- which could not be complete."""
+    runner = _MoveRunner(heads=["a1", "a2", "a3", "main"], git_dir=tmp_path)
+    (tmp_path / "gh-stack").write_text('{"stacks": []}')  # the rearranged one
+    session = move_mod.Session(
+        stage=move_mod.CASCADE,
+        started_on="a2",
+        moving=["a2", "a3"],
+        target="b1",
+        onto="b1",
+        upstream="sha-a1",
+        tips={"a2": "old-a2", "a3": "old-a3"},
+        tracking=json.dumps(_two()),
+        stacks=[44, 36],
+    )
+    move_mod.save(runner, session)
+    fields = move_mod.unwind(runner, session, runner.out)
+
+    assert ["git", "reset", "-q", "--hard", "old-a2"] in runner.calls
+    assert ["git", "branch", "-f", "a3", "old-a3"] in runner.calls
+    assert fields["restored"] == ["a2", "a3"] and fields["tracking"] == "restored"
+    assert json.loads((tmp_path / "gh-stack").read_text()) == _two()
+    assert move_mod.load(runner) is None
+
+
+def test_abort_removes_a_tracking_file_that_was_not_there_before(tmp_path):
+    runner = _MoveRunner(heads=["a2"], git_dir=tmp_path)
+    (tmp_path / "gh-stack").write_text('{"stacks": []}')
+    session = move_mod.Session(
+        stage=move_mod.REBASE,
+        started_on="a2",
+        moving=["a2"],
+        target="main",
+        onto="main",
+        upstream="sha-a1",
+        tips={},
+        tracking=None,
+    )
+    move_mod.unwind(runner, session, runner.out)
+    assert not (tmp_path / "gh-stack").exists()
 
 
 def test_nothing_is_pending_when_the_two_sides_agree():

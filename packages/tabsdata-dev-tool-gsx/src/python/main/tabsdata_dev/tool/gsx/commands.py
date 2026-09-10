@@ -726,6 +726,12 @@ def _move_ready(runner: gh.Runner, out) -> str:
     """
     gh.require_tools(runner)
     gh.require_repo(runner)
+    if move_mod.load(runner) is not None:
+        raise ToolError(
+            f"a move is already in progress ({move_mod.state_path(runner)}); finish "
+            "it with `--continue` or undo it with `--abort` -- that file is the only "
+            "record of how to put the stacks back"
+        )
     stopped = gh.rebase_stopped(runner)
     if stopped:
         raise ToolError(
@@ -802,13 +808,79 @@ def _refuse_inconsistent(runner: gh.Runner, chain: list[str]) -> None:
         )
 
 
+def _in_flight(runner: gh.Runner, verb: str) -> move_mod.Session:
+    """The move `--continue` and `--abort` act on. Neither invents one: with no
+    session there is nothing to finish or undo, and saying so is more use than
+    doing nothing."""
+    session = move_mod.load(runner)
+    if session is None:
+        raise ToolError(
+            f"no move is in progress ({move_mod.state_path(runner)} does not exist); "
+            f"there is nothing to {verb}"
+        )
+    return session
+
+
+def _move_continue(out, runner: gh.Runner) -> tuple[str, dict]:
+    """Finish a move whose replay stopped on a conflict."""
+    gh.require_tools(runner)
+    gh.require_repo(runner)
+    session = _in_flight(runner, "continue")
+    out.info(
+        f"finishing the move of {' '.join(session.moving)} onto {session.target}, "
+        f"stopped in the {session.stage}"
+    )
+    steps = progress.Counter(out)
+    fields = move_mod.resume(runner, session, out, steps)
+    return _moved(session.moving, session.target, fields)
+
+
+def _move_abort(out, runner: gh.Runner) -> tuple[str, dict]:
+    """Undo a move, whatever it had got to. Asks for none of the preflight: a
+    stopped rebase leaves a dirty tree by definition, and refusing to clean
+    that up would be the wrong way round."""
+    gh.require_repo(runner)
+    session = _in_flight(runner, "abort")
+    fields = move_mod.unwind(runner, session, out)
+    branches = fields.get("restored") or []
+    put_back = (
+        f"{len(branches)} branch(es) put back ({', '.join(branches)})"
+        if branches
+        else "every branch already on the tip it had"
+    )
+    stacks = ", ".join(f"#{number}" for number in fields.get("stacks") or [])
+    return (
+        f"move aborted: {put_back}, gh-stack's tracking {fields['tracking']}"
+        + (f" ({stacks} as they were)" if stacks else ""),
+        fields,
+    )
+
+
+def _moved(moving: list[str], onto: str, fields: dict) -> tuple[str, dict]:
+    return (
+        f"moved {len(moving)} branch(es) onto {onto}, locally; "
+        "`gsx submit --move` publishes it\n"
+        + "\n".join(f"  moved   {branch}" for branch in moving),
+        fields,
+    )
+
+
 def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     """Move the branch you are on, and everything above it, to another stack.
 
-    Local, all of it: four `gh stack` commands that write branches and
-    gh-stack's tracking file and nothing else. `gsx submit --move` publishes it
-    when you have looked at it.
+    Local, all of it: gh-stack's own commands and one git rebase, writing
+    branches and gh-stack's tracking file and nothing else. `gsx submit --move`
+    publishes it when you have looked at it.
     """
+    asked = [bool(args.abort), bool(args.resume), bool(args.to)]
+    if sum(asked) != 1:
+        raise ToolError(
+            "move takes exactly one of --to #STACK|BRANCH, --continue or --abort"
+        )
+    if args.abort:
+        return _move_abort(out, runner)
+    if args.resume:
+        return _move_continue(out, runner)
     default = _move_ready(runner, out)
     current = gh.current_branch(runner)
     if not current or current == "HEAD":
@@ -840,6 +912,7 @@ def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         )
 
     plan = move_mod.build(source, target)
+    plan.remote = remote
     plan.upstream = gh.sha(runner, f"refs/heads/{plan.parent}")
     if not plan.upstream:
         raise ToolError(
@@ -860,13 +933,8 @@ def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
             assume_yes=args.yes,
         )
     steps = progress.Counter(out, total=len(plan.steps))
-    fields = move_mod.run(runner, plan, steps)
-    return (
-        f"moved {len(source.moving)} branch(es) onto {target.head}, locally; "
-        "`gsx submit --move` publishes it\n"
-        + "\n".join(f"  moved   {branch}" for branch in source.moving),
-        fields,
-    )
+    fields = move_mod.run(runner, plan, out, steps)
+    return _moved(source.moving, target.head, fields)
 
 
 # ------------------------------------------------------------------- stack
@@ -1418,11 +1486,18 @@ def stack(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         # own, and a line about it would be the first thing on every run.
         gh.fetch(runner, remote)
     current = gh.current_branch(runner)
-    stopped = gh.rebase_stopped(runner)
-    if stopped:
+    unfinished = move_mod.load(runner)
+    if unfinished is not None:
         out.warn(
-            f"a stack rebase is stopped on {stopped!r}: `gh stack rebase --continue` "
-            "when it is resolved, or `gh stack rebase --abort` to put it back"
+            f"a move of {' '.join(unfinished.moving)} onto {unfinished.target} is "
+            f"stopped in the {unfinished.stage}: `tdd gsx move --continue` to finish "
+            "it, `tdd gsx move --abort` to put every branch and both stacks back"
+        )
+    elif gh.rebase_stopped(runner):
+        out.warn(
+            f"a stack rebase is stopped on {gh.rebase_stopped(runner)!r}: "
+            "`gh stack rebase --continue` when it is resolved, or "
+            "`gh stack rebase --abort` to put it back"
         )
     listing, asked = _remote_listing(runner, out, source)
     state = gh.read_state(runner)

@@ -235,13 +235,45 @@ identical to `origin` in the test), and nothing is fetched or pushed -- it says 
 push up your changes, run `gh stack push`". `--no-trunk` is what keeps it offline; with the trunk
 it pulls first.
 
-**The conflict is gh-stack's too.** It keeps `.git/gh-stack-rebase-state` -- every branch's
-original ref, the branch that conflicted, what is left to replay -- and `gh stack rebase
---continue` or `--abort` finishes or unwinds it. So `move` has no state file, no snapshot and no
-undo of its own; an earlier draft of this command had all three, and every one of them was a
-worse copy of something already there. What `move` does keep is a refusal: it will not start
-while a rebase is stopped, a `gh stack modify` is unfinished, a `git rebase` is in progress or
-the tree is dirty, because its own rebase would drive straight into any of them.
+**A conflict is answered by `--continue` or `--abort`, and that needs a session.** By the time
+anything can conflict the tracking is already the new arrangement -- both old stacks forgotten,
+both new ones written -- so "resolve and rerun" is not available, and neither is "just abort":
+gh-stack's own `rebase --abort` restores the branches it was replaying but knows nothing about
+the rearrangement, or about the branch this command replayed itself. So `<git-dir>/gsx-move`
+holds what finishing needs (the stage it stopped in, what is left to replay, where to end up)
+and what undoing needs:
+
+- the sha of **every branch the move involves** -- the ones moving, the ones staying and the
+  target stack's -- read from the refs before the first change. Not from gh-stack's recorded
+  `head`, which can be stale, and **never from the remote**: a branch may hold commits that were
+  never pushed, so restoring `origin/<branch>` would throw work away. An undo never fetches. (The
+  prose recipe this replaced did suggest `git branch -f <b> origin/<b>`, which had exactly that
+  hazard.)
+- gh-stack's whole tracking file **as text**, which is every stack's number, trunk, membership
+  and recorded bases.
+
+Then:
+
+- `gsx move --continue` hands the stopped rebase back to whoever owns it -- `git rebase
+  --continue` for the branch that moved, `gh stack rebase --continue` for the cascade -- and runs
+  what is left of the move afterwards. Resolving with `git add` or with `git commit` both work,
+  because git accepts either before its own continue.
+- `gsx move --abort` aborts that rebase, puts every moved branch back on the tip the session
+  recorded, and writes gh-stack's tracking file back byte for byte. Restoring the bytes is the
+  only complete undo of a rearrangement: `unstack --local` and `init` cannot be run backwards.
+- while the file exists **a second move is refused**, because it is the only record of how to put
+  the first one back. `gsx stack` says a move is stopped and in which stage.
+
+It is in the git dir, not the work tree, so it cannot be committed by accident or turn up as a
+conflict of its own. It is written before the first change and removed when the move finishes, so
+its presence is exactly "a move is in progress". Verified on tabsdata-tucu with a real conflict,
+both ways: `--continue` after committing the resolution finished the move and cleared the file;
+`--abort` on the same conflict put both branches back and restored the tracking byte-identically
+(`#44` and `#36` as they were).
+
+`move` also will not start while a rebase is stopped, a `gh stack modify` is unfinished, a `git
+rebase` is in progress or the tree is dirty, because its own replay would drive straight into any
+of them.
 
 One check exists for the publish rather than the move: a **queued or auto-merging PR** anywhere
 in the moved set is refused up front, because GitHub leaves such a PR stacked and then *keeps the

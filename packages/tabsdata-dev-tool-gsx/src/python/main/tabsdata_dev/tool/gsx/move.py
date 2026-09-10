@@ -4,7 +4,8 @@
 
 """`gsx move`: take the branch you are on, and everything above it, elsewhere.
 
-**Nothing here reaches GitHub.** The move is four `gh stack` commands that
+**Nothing here reaches GitHub.** The move is gh-stack's own commands and one
+`git rebase` that
 only ever write local branches and gh-stack's own tracking file, and the
 publishing is `gsx submit --move`, later, deliberately. So a move can be looked
 at, slept on, and undone.
@@ -32,6 +33,14 @@ really changed are rewritten, and nothing is fetched or pushed (it says so:
 module has no rebase code, no state file and no undo of its own -- an earlier
 draft had all three.
 
+A conflict stops the replay, and by then the tracking is already the new
+arrangement -- so "resolve and rerun" is not available and neither is "just
+abort". `<git-dir>/gsx-move` is what makes both directions one command each:
+it holds what is left to replay and what an undo needs (every moved branch's
+tip, and gh-stack's whole tracking file as text). `--continue` finishes,
+`--abort` puts the branches and both stacks back, and while it exists a second
+move is refused, because that file is the only record of how to undo the first.
+
 What GitHub still thinks is the old arrangement, and `pending()` is how that is
 noticed: a PR whose GitHub stack holds PRs that now live in **two** local
 stacks has moved here and not there. `stack` says so, and `submit` refuses to
@@ -40,6 +49,7 @@ publish it without `--move`.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 from tabsdata_dev.common.core.errors import ToolError
@@ -102,6 +112,7 @@ class Plan:
     untrack_target: bool = False
     parent: str = ""  # the branch the moved ones used to sit on
     upstream: str = ""  # ...and its tip, which is where the replay starts
+    remote: str = "origin"  # only for the way back, if a replay stops
     steps: list[str] = field(default_factory=list)
 
 
@@ -340,19 +351,218 @@ def text(plan: Plan) -> str:
 
 
 # ------------------------------------------------------------- the moving
-def run(runner: gh.Runner, plan: Plan, steps_counter) -> dict:
-    """Drive the four commands. Each one is gh-stack's, and each is local.
+#: The stages a move goes through after the tracking has been rearranged. The
+#: state file carries the one it is in, because that is what says what is left.
+REBASE = "rebase"  # the branch that moved is being replayed
+CASCADE = "cascade"  # ...and now the branches above it
+STATE_FILE = "gsx-move"
 
-    A conflict stops in `gh stack rebase` and stays there: it holds every
-    branch's original ref in `.git/gh-stack-rebase-state`, so the operator
-    resolves and runs `gh stack rebase --continue`, or `--abort` to put every
-    branch back. Failing here leaves the tracking rearranged and the branches
-    untouched, which `gh stack checkout <n>` re-imports from GitHub.
+
+class Stopped(ToolError):
+    """A replay stopped on a conflict. The session is on disk, so the two ways
+    out are two commands rather than a recipe."""
+
+
+@dataclass
+class Session:
+    """A move in flight, as `<git-dir>/gsx-move` carries it.
+
+    It holds what finishing needs (what is left to replay, and where to end up)
+    and what undoing needs:
+
+    * `tips`, the sha of **every branch the move involves** -- the ones moving,
+      the ones staying, and the target stack's -- read from the refs before the
+      first change. Not from gh-stack's recorded `head`, which can be stale,
+      and not from the remote: a branch may hold commits that were never
+      pushed, so restoring `origin/<branch>` would throw work away. An undo
+      never fetches.
+    * `tracking`, gh-stack's whole file as text, which is every stack's number,
+      trunk, membership and recorded bases -- put back byte for byte, since a
+      rearrangement cannot be run backwards.
+
+    Its presence IS "a move is in progress": a second move is refused while it
+    is there, because starting one would overwrite the only record of how to
+    put the first one back.
+
+    In the git dir rather than the work tree, so it cannot be committed by
+    accident or turn up as a conflict of its own.
+    """
+
+    stage: str
+    started_on: str
+    moving: list[str]
+    target: str
+    onto: str
+    upstream: str
+    tips: dict[str, str]
+    tracking: str | None
+    remote: str = "origin"
+    stacks: list[int] = field(default_factory=list)
+
+    def to_json(self) -> dict:
+        return {"version": 1, **self.__dict__}
+
+    @property
+    def bottom(self) -> str:
+        return self.moving[0] if self.moving else ""
+
+
+def state_path(runner: gh.Runner):
+    return gh.git_dir(runner) / STATE_FILE
+
+
+def load(runner: gh.Runner) -> Session | None:
+    """The move in progress, or None. A file that cannot be read is fatal: it
+    is the only record of how to put things back."""
+    path = state_path(runner)
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as error:
+        raise ToolError(
+            f"cannot read the move in progress ({path}): {error} -- it records how to "
+            "undo the move, so it is worth repairing rather than deleting"
+        ) from error
+    payload.pop("version", None)
+    try:
+        return Session(**payload)
+    except TypeError as error:
+        raise ToolError(
+            f"{path} is not a move this gsx understands: {error}"
+        ) from error
+
+
+def save(runner: gh.Runner, session: Session) -> None:
+    """A temporary file and one rename, so an interrupted write cannot leave
+    half a record of how to undo a move."""
+    if runner.dry_run:
+        runner.out.debug(f"[dry-run] write {state_path(runner)}")
+        return
+    path = state_path(runner)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(session.to_json(), indent=2), encoding="utf-8")
+    temporary.replace(path)
+
+
+def clear(runner: gh.Runner) -> None:
+    if not runner.dry_run:
+        state_path(runner).unlink(missing_ok=True)
+
+
+def stopped(session: Session, why: str) -> Stopped:
+    """A conflict, and the two commands out of it.
+
+    Both are `gsx move`'s now: only it knows what the move still has to do
+    after the rebase finishes, and only it can put gh-stack's tracking back.
+    """
+    return Stopped(
+        f"{why}. Resolve it, `git add` the files (or commit them), then\n"
+        "      tdd gsx move --continue   # finish the move\n"
+        "      tdd gsx move --abort      # put every branch and both stacks back\n"
+        "  nothing has been pushed, so GitHub still holds the old arrangement "
+        "either way"
+    )
+
+
+def _continue_rebase(runner: gh.Runner, session: Session, out) -> None:
+    """Hand the stopped rebase back to whoever owns it, and refuse to go on if
+    it is still stopped afterwards."""
+    if not gh.rebase_in_progress(runner):
+        return
+    if gh.rebase_stopped(runner):
+        gh.stack_rebase_continue(runner)
+    else:
+        gh.rebase_continue(runner)
+    if gh.rebase_in_progress(runner):
+        raise stopped(session, "the rebase is still stopped")
+    out.info("the rebase finished")
+
+
+def resume(runner: gh.Runner, session: Session, out, steps_counter) -> dict:
+    """`--continue`: pick the move up from the stage it stopped in."""
+    _continue_rebase(runner, session, out)
+    if session.stage == REBASE:
+        _cascade(runner, session, steps_counter)
+    return _finish(runner, session, steps_counter)
+
+
+def unwind(runner: gh.Runner, session: Session, out) -> dict:
+    """`--abort`: put the branches and both stacks back where they were.
+
+    The tracking file goes back to the bytes the session snapshotted, which is
+    the only complete undo of a rearrangement -- `unstack --local` and `init`
+    cannot be run backwards. The branches go back to the tips recorded before
+    the first replay. Nothing was pushed, so this is the whole of it.
+    """
+    if gh.rebase_in_progress(runner):
+        if gh.rebase_stopped(runner):
+            gh.stack_rebase_abort(runner)
+        else:
+            gh.rebase_abort(runner)
+        out.info("aborted the rebase that was stopped")
+    if session.started_on:
+        try:
+            gh.checkout(runner, session.started_on)
+        except ToolError as error:
+            out.warn(f"could not check out {session.started_on!r} ({error})")
+    restored = []
+    for branch, tip in (session.tips or {}).items():
+        if not tip or gh.sha(runner, f"refs/heads/{branch}") == tip:
+            continue
+        try:
+            if branch == session.started_on:
+                gh.reset_hard(runner, tip)
+            else:
+                gh.set_branch(runner, branch, tip)
+            restored.append(branch)
+        except ToolError as error:
+            out.warn(f"could not put {branch!r} back on {tip[:8]} ({error})")
+    gh.write_state(runner, session.tracking)
+    clear(runner)
+    return {
+        "restored": restored,
+        "tracking": "restored" if session.tracking else "removed",
+        "stacks": session.stacks,
+        "on": session.started_on,
+    }
+
+
+def run(runner: gh.Runner, plan: Plan, out, steps_counter) -> dict:
+    """Drive the move: rearrange the tracking, then replay what moved.
+
+    The session is written before the first of those, so an `--abort` at any
+    point afterwards can put both the branches and the tracking back. Every
+    command here is gh-stack's or git's, and every one of them is local.
     """
     source, target = plan.source, plan.target
+    session = Session(
+        stage=REBASE,
+        started_on=source.current,
+        moving=list(source.moving),
+        target=target.head,
+        onto=target.head,
+        upstream=plan.upstream or plan.parent,
+        # Every branch the move touches or declares, not just the ones it means
+        # to rewrite: the tips are what `--abort` puts back, and a surprise is
+        # exactly what an undo is for. Read from the refs, never from
+        # gh-stack's recorded `head` (which can be stale) and never from the
+        # remote -- a branch may hold commits that were never pushed, and
+        # restoring `origin/<branch>` would throw them away.
+        tips={
+            branch: gh.sha(runner, f"refs/heads/{branch}")
+            for branch in dict.fromkeys(
+                [*source.branches, *plan.dest_init, *plan.keep_init]
+            )
+        },
+        tracking=gh.state_text(runner),
+        remote=plan.remote,
+        stacks=[number for number in (source.number, target.number) if number],
+    )
+    save(runner, session)
+
     gh.stack_unstack_local(runner)
     steps_counter.step(f"forgot {source.tag} locally", stage="untrack-source")
-
     if plan.untrack_target:
         gh.stack_checkout(runner, target.head)
         gh.stack_unstack_local(runner)
@@ -373,33 +583,59 @@ def run(runner: gh.Runner, plan: Plan, steps_counter) -> dict:
     steps_counter.step(
         f"tracked the destination: {' '.join(plan.dest_init)}", stage="init-destination"
     )
-    bottom = source.moving[0]
+
     # The one branch whose parent changed is replayed off the branch it used to
     # sit on, with plain git. Not from the base `gh stack init` recorded: that
     # is the merge-base with the parent it was just DECLARED to have, which is
     # the trunk for a branch being put on the trunk -- replaying from there
     # brings along every commit of whatever it used to sit on. Measured: a
     # one-commit branch came out with 37.
-    gh.rebase_onto(runner, target.head, plan.upstream or plan.parent, bottom)
-    steps_counter.step(f"replayed {bottom} onto {target.head}", stage="rebase")
-    if len(source.moving) > 1:
-        # The rest are gh-stack's: each still sits on the one below it, whose
-        # recorded base is that branch's own old tip, so the cascade's ranges
-        # are right. `--upstack` from the bottom moved branch rebases what is
-        # above it and not itself, which is exactly what is left to do.
-        gh.checkout(runner, bottom)
+    try:
+        gh.rebase_onto(runner, session.onto, session.upstream, session.bottom)
+    except ToolError as error:
+        raise stopped(
+            session, f"the replay of {session.bottom} onto {session.onto} stopped"
+        ) from error
+    steps_counter.step(f"replayed {session.bottom} onto {target.head}", stage="rebase")
+    _cascade(runner, session, steps_counter)
+    return _finish(runner, session, steps_counter)
+
+
+def _cascade(runner: gh.Runner, session: Session, steps_counter) -> None:
+    """The branches above the one that moved, which are gh-stack's to replay.
+
+    Each still sits on the branch below it, whose recorded base is that
+    branch's own old tip, so the cascade's ranges are right. `--upstack` from
+    the bottom moved branch keeps it to exactly those: without it the cascade
+    starts at the bottom of the whole stack.
+    """
+    if len(session.moving) < 2:
+        return
+    session.stage = CASCADE
+    save(runner, session)
+    gh.checkout(runner, session.bottom)
+    try:
         gh.stack_rebase_upstack(runner)
-        steps_counter.step(
-            f"replayed {len(source.moving) - 1} more onto {bottom}", stage="rebase-rest"
-        )
-    gh.checkout(runner, source.current)
-    steps_counter.step(f"back on {source.current}", stage="checkout")
+    except ToolError as error:
+        raise stopped(
+            session, f"the replay of what sits above {session.bottom} stopped"
+        ) from error
+    steps_counter.step(
+        f"replayed {len(session.moving) - 1} more onto {session.bottom}",
+        stage="rebase-rest",
+    )
+
+
+def _finish(runner: gh.Runner, session: Session, steps_counter) -> dict:
+    """Back where the operator started, and the session cleared: the move is
+    done, and what is left is publishing it."""
+    gh.checkout(runner, session.started_on)
+    steps_counter.step(f"back on {session.started_on}", stage="checkout")
+    clear(runner)
     return {
-        "moved": source.moving,
-        "kept": plan.keep_init,
-        "onto": target.head,
-        "mode": target.mode,
-        "stack": target.number,
+        "moved": session.moving,
+        "onto": session.target,
+        "stacks": session.stacks,
         "pushed": False,
         "next": "gsx submit --move",
     }

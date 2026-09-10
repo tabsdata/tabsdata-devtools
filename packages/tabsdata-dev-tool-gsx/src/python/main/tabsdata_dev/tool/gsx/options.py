@@ -296,12 +296,13 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "become one stack), or the trunk. A stack that is not tracked here is a\n"
         "`gh stack checkout` away and says so; a branch that is not the top of its\n"
         "stack is refused, since the moved branches go above it.\n\n"
-        "nothing here reaches GitHub. It is four `gh stack` commands that write\n"
-        "local branches and gh-stack's own tracking: forget both stacks locally,\n"
-        "track the new arrangement, and `gh stack rebase --no-trunk` to replay the\n"
-        "branches whose parent changed -- only those are rewritten. A conflict\n"
-        "stops there, and `gh stack rebase --continue` or `--abort` is how it ends;\n"
-        "gh-stack keeps every branch's original ref for the abort.\n\n"
+        "nothing here reaches GitHub. It forgets both stacks locally, tracks the\n"
+        "new arrangement, replays the branch whose parent changed and hands the\n"
+        "ones above it to `gh stack rebase --upstack` -- only what moved is\n"
+        "rewritten. A conflict stops the replay: resolve it, `git add` (or commit)\n"
+        "the files, then `--continue` to finish or `--abort` to put every branch\n"
+        "and both stacks back. The move in flight lives in <git-dir>/gsx-move, and\n"
+        "while it is there a second move is refused.\n\n"
         "`gsx submit --move` is what publishes it, and that is the irreversible\n"
         "step: the old stack has to be dissolved on GitHub before its PRs can join\n"
         "the new one. Until then `gsx stack` says a move is in progress and `gsx\n"
@@ -309,9 +310,19 @@ def configure(parser: argparse.ArgumentParser) -> None:
     )
     move.add_argument(
         "--to",
-        required=True,
         metavar="#STACK|BRANCH",
-        help="where to: #N for a stack, a stack's top branch, or the trunk (required)",
+        help="where to: #N for a stack, a stack's top branch, or the trunk",
+    )
+    move.add_argument(
+        "--continue",
+        dest="resume",
+        action="store_true",
+        help="finish a move whose replay stopped on a conflict you have resolved",
+    )
+    move.add_argument(
+        "--abort",
+        action="store_true",
+        help="undo the move in progress: every branch and both stacks as they were",
     )
     move.add_argument(
         "--yes",
