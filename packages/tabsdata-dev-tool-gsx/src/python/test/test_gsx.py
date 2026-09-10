@@ -1943,7 +1943,14 @@ def test_a_whole_stack_moved_onto_another_is_pending():
     # what has to happen, not which PRs moved: naming the movers meant picking
     # them out of the stack that lost them, and an early version said all three
     # of #3485/#3486/#3487 had gone when only one had
-    assert "stack #44 on GitHub no longer holds its PRs (#42, #43)" in found.line()
+    line = found.line()
+    assert "stack #44 on GitHub no longer holds its PRs (#42, #43)" in line
+    # all three ways out, and the one that needs a session says so: this
+    # finding is read off the two sides, so it turns up in checkouts that have
+    # none and `--abort` would answer "no move is in progress" there
+    assert "submit --move` makes it effective" in line
+    assert "move --abort` cancels it, if this checkout still has the move's" in line
+    assert "gh stack checkout <n>` re-imports" in line
     assert "gsx submit --move" in found.line()
 
 

@@ -431,7 +431,11 @@ finding only when there is no session -- otherwise the same thing would be said 
 worse. What it is for is a divergence nothing local accounts for -- an old clone, or somebody
 else's rearrangement -- and it is printed as a disagreement between the two sides rather than as
 "a move is in progress", since with no session there is no move of this checkout's to be in
-progress.
+progress. It names all three ways out: `submit --move` makes it effective, `move --abort` cancels
+it, `gh stack checkout <n>` takes GitHub's version instead. The middle one carries its condition
+("if this checkout still has the move's session"), because this finding is read off the two sides
+rather than out of that file -- so it turns up where there is no session and an unconditional
+`--abort` would send the reader to "no move is in progress".
 
 ## stack
 

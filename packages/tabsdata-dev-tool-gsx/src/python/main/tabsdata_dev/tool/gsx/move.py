@@ -1005,14 +1005,25 @@ class Pending:
         two sides disagree and nothing is running -- so it leads with the
         disagreement and names the move only as the likely cause, since a
         rearrangement by hand reads exactly the same from here.
+
+        Three ways out, and the middle one comes with its condition attached.
+        **`--abort` needs the move's session file**, and this finding is read
+        off the two sides rather than out of that file -- so it turns up in
+        checkouts that have no session: a move made before gsx kept one, a move
+        made in another clone, a rearrangement by hand. Naming the command
+        without the condition would send half the readers to "no move is in
+        progress"; leaving it out altogether hides the one way back that costs
+        nothing. Where there IS a session, its own line is what gets printed
+        and it offers `--abort` outright.
         """
         stacks = sorted(set(self.prs.values()))
         which = ", ".join(f"#{number}" for number in stacks)
         prs = ", ".join(f"#{pr}" for pr in sorted(self.prs))
         return (
             f"stack {which} on GitHub no longer holds its PRs ({prs}) the way this "
-            "checkout does -- most likely a `gsx move` that has not been published; "
-            "`gsx submit --move` dissolves it and relinks them from here, "
+            "checkout does -- most likely a `gsx move` that has not been published. "
+            "`tdd gsx submit --move` makes it effective; `tdd gsx move --abort` "
+            "cancels it, if this checkout still has the move's session; "
             "`gh stack checkout <n>` re-imports what GitHub has instead"
         )
 
