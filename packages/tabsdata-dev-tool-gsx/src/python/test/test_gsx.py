@@ -1021,8 +1021,20 @@ def test_each_branch_carries_how_it_stands_against_the_remote():
     )
     assert [row["number"] for row in rows] == [34, 40, None]
     assert rows[0]["branches"] == [
-        {"name": "a1", "pr": None, "sync": gh.IN_SYNC, "current": False},
-        {"name": "a2", "pr": None, "sync": gh.AHEAD, "current": True},
+        {
+            "name": "a1",
+            "pr": None,
+            "sync": gh.IN_SYNC,
+            "current": False,
+            "remote_only": False,
+        },
+        {
+            "name": "a2",
+            "pr": None,
+            "sync": gh.AHEAD,
+            "current": True,
+            "remote_only": False,
+        },
     ]
     assert rows[0]["current"] is True and rows[1]["current"] is False
     # a branch with no sync answer at all is "no local branch", never "in sync"
@@ -1061,7 +1073,7 @@ def test_the_symbol_before_a_name_says_where_that_branch_stands():
     # is exactly as wide as a plain one and the names line up across stacks
     # whichever one is bracketed
     assert commands.stack_lines(rows).splitlines() == [
-        "[#34]  main <- =insync   <-[+ahead]",
+        "[#34]  main <- =insync   <-+[ahead]",
         " #40   main <- -behind   <- xdiverged",
         " #-    main <- +unpushed <- ?gone",
     ]
@@ -1069,7 +1081,7 @@ def test_the_symbol_before_a_name_says_where_that_branch_stands():
         assert line == line.rstrip(), line
 
 
-def test_the_colours_are_the_states_and_both_brackets_are_white():
+def test_the_symbol_stays_outside_the_brackets_and_the_brackets_are_white():
     rows = commands.stack_rows(
         _state(names=("a1", "a2")), "a2", _sync(a1=gh.DIVERGED, a2=gh.BEHIND)
     )
@@ -1077,12 +1089,11 @@ def test_the_colours_are_the_states_and_both_brackets_are_white():
         rows, lambda name, text: f"<{name or 'plain'}>{text}</>"
     )
     assert painted == (
-        # the brackets are white: every colour here already means a sync state
-        # the space after `main` is its own closing-bracket slot
         "<white>[</>#34<white>]</>  main "
-        # `<-` and the bracket slots are structure, not state: the cell is what
-        # carries the colour
-        "<- <red>xa1</> <-<white>[</><yellow>-a2</><white>]</>"
+        # the symbol says how the branch stands and the brackets say which row
+        # you are on: two facts about two different things, so the brackets
+        # hold only the name -- `-[a2]`, not `[-a2]`
+        "<- <red>x</><red>a1</> <-<yellow>-</><white>[</><yellow>a2</><white>]</>"
     )
     every = {
         gh.IN_SYNC: ("=", "green"),
@@ -1093,6 +1104,155 @@ def test_the_colours_are_the_states_and_both_brackets_are_white():
     assert {state: commands.MARKS[state] for state in every} == every
     # an unknown state gets a symbol but no colour: nothing is claimed about it
     assert commands.MARKS[gh.NO_LOCAL] == ("?", "")
+
+
+def _listed(number, prs, base="main", open_stack=True):
+    """One stack as the stacks REST API returns it: `prs` are
+    `(pr number, branch)`, or `(pr number, branch, state)` for a PR that is
+    done with."""
+    return {
+        "number": number,
+        "base": {"ref": base},
+        "open": open_stack,
+        "pull_requests": [
+            {
+                "number": pr[0],
+                "state": pr[2] if len(pr) > 2 else "open",
+                "merged_at": "2026-09-01T00:00:00Z" if len(pr) > 3 else None,
+                "head": {"ref": pr[1], "sha": f"sha-{pr[1]}"},
+            }
+            for pr in prs
+        ],
+    }
+
+
+def test_a_pr_only_github_has_joins_the_stack_it_is_in():
+    """The tracking file cannot know a PR someone else added to your stack --
+    `gh stack sync` is what would pull it down, and appends it at the top, so
+    that is where it goes here too."""
+    rows = commands.stack_rows(
+        _state(names=("a1", "a2")),
+        "a2",
+        remote=[_listed(34, [(21, "a1"), (22, "a2"), (29, "a3")])],
+    )
+    assert [branch["name"] for branch in rows[0]["branches"]] == ["a1", "a2", "a3"]
+    theirs = rows[0]["branches"][-1]
+    assert (theirs["pr"], theirs["remote_only"], theirs["current"]) == (29, True, False)
+    # ...and the stack itself is not "remote only": this checkout tracks it
+    assert rows[0]["remote_only"] is False
+
+
+def test_a_stack_only_github_has_is_a_row_of_its_own():
+    rows = commands.stack_rows(
+        _state(names=("a1", "a2")),
+        "a2",
+        remote=[_listed(34, [(21, "a1"), (22, "a2")]), _listed(41, [(52, "c1")])],
+    )
+    assert [row["number"] for row in rows] == [34, 41]
+    theirs = rows[1]
+    assert theirs["remote_only"] is True and theirs["trunk"] == "main"
+    assert [(b["name"], b["pr"], b["remote_only"]) for b in theirs["branches"]] == [
+        ("c1", 52, True)
+    ]
+
+
+@pytest.mark.parametrize(
+    "pull",
+    [
+        (29, "a3", "closed"),  # closed unmerged
+        (29, "a3", "closed", "merged"),  # and merged
+    ],
+)
+def test_a_pr_that_is_done_with_is_not_something_you_are_missing(pull):
+    """A stack keeps its merged PRs, and a row saying you lack a merged branch
+    would be noise on every stack that has ever landed anything."""
+    rows = commands.stack_rows(
+        _state(names=("a1", "a2")),
+        "a2",
+        remote=[_listed(34, [(21, "a1"), (22, "a2"), pull])],
+    )
+    assert [branch["name"] for branch in rows[0]["branches"]] == ["a1", "a2"]
+
+
+def test_a_closed_stack_is_left_out_altogether():
+    rows = commands.stack_rows(
+        {"stacks": []}, "", remote=[_listed(41, [(52, "c1")], open_stack=False)]
+    )
+    assert rows == []
+
+
+def test_each_source_takes_its_rows_from_its_own_side():
+    state = _state(names=("a1", "a2"))
+    remote = [_listed(34, [(21, "a1"), (29, "a3")]), _listed(41, [(52, "c1")])]
+
+    local = commands.stack_rows(state, "a2", remote=remote, source=commands.LOCAL)
+    assert [row["number"] for row in local] == [34]
+    assert [b["name"] for b in local[0]["branches"]] == ["a1", "a2"]
+
+    # GitHub's view: its stacks, its order, and a2 gone because no PR of #34
+    # has it any more -- which is the thing --remote is for seeing
+    only = commands.stack_rows(state, "a2", remote=remote, source=commands.REMOTE)
+    assert [row["number"] for row in only] == [34, 41]
+    assert [b["name"] for b in only[0]["branches"]] == ["a1", "a3"]
+    assert [b["remote_only"] for b in only[0]["branches"]] == [False, True]
+    assert only[1]["remote_only"] is True
+
+    both = commands.stack_rows(state, "a2", remote=remote, source=commands.BOTH)
+    assert [row["number"] for row in both] == [34, 41]
+    assert [b["name"] for b in both[0]["branches"]] == ["a1", "a2", "a3"]
+
+
+def test_what_only_github_has_is_a_magenta_question_mark():
+    rows = commands.stack_rows(
+        _state(names=("a1",)),
+        "a1",
+        _sync(a1=gh.IN_SYNC),
+        remote=[_listed(34, [(21, "a1"), (29, "a3")]), _listed(41, [(52, "c1")])],
+    )
+    painted = commands.stack_lines(
+        rows, lambda name, text: f"<{name or 'plain'}>{text}</>"
+    )
+    assert painted.splitlines() == [
+        "<white>[</>#34<white>]</>  main "
+        "<-<green>=</><white>[</><green>a1</><white>]</>"
+        "<- <magenta>?</><magenta>a3</>",
+        # a whole stack this checkout does not track: the same `?` in the same
+        # magenta, in the slot a bracket would have used
+        "<magenta>?#41 </>  main <- <magenta>?</><magenta>c1</>",
+    ]
+    assert commands.REMOTE_MARK == ("?", "magenta")
+    assert commands.GUARDS == {"current": ("[", "]", "white")}
+
+
+def test_the_legend_explains_a_mark_only_when_a_row_uses_it():
+    rows = commands.stack_rows(_state(names=("a1",)), "a1", _sync(a1=gh.IN_SYNC))
+    plain = commands.legend(rows, "origin")
+    assert "[] current" in plain and "remote only" not in plain
+    with_theirs = commands.stack_rows(
+        _state(names=("a1",)),
+        "a1",
+        _sync(a1=gh.IN_SYNC),
+        remote=[_listed(41, [(52, "c1")])],
+    )
+    # the two `?` are one symbol for two nearby facts, told apart by colour and
+    # by the words: nothing here, versus nothing here and GitHub has it
+    painted = commands.legend(
+        with_theirs, "origin", lambda name, text: f"<{name or 'plain'}>{text}</>"
+    )
+    assert "<magenta>?</> remote only" in painted
+
+
+def test_the_one_sided_views_carry_no_symbol_at_all():
+    """`--local` and `--remote` show one side each, so "behind" would be a
+    claim about the side they are not showing."""
+    rows = commands.stack_rows(
+        _state(names=("a1", "a2")), "a2", remote=[], source=commands.LOCAL
+    )
+    for branch in rows[0]["branches"]:
+        branch["sync"] = None
+    assert commands.stack_lines(rows) == "[#34]  main <- a1 <-[a2]"
+    line = commands.legend(rows, "origin", marked=False)
+    assert line.strip() == "[] current"  # nothing to explain but the brackets
 
 
 def _with_prs(state, numbers):
@@ -1127,7 +1287,7 @@ def test_summary_puts_the_pr_and_its_title_beside_each_branch():
     assert commands.stack_summary(rows, titles).splitlines() == [
         "[#34]  main",
         "       =a1        #21  the loader",
-        "      [+a2]       #22  wire it up",
+        "      +[a2]       #22  wire it up",
         "",
         " #40   main",
         "       -b24       #23  the reader",
@@ -1155,10 +1315,11 @@ def test_summary_keeps_the_symbols_and_brackets_of_the_one_line_form():
     ).splitlines()
     assert painted == [
         "<white>[</>#34<white>]</>  main",
-        "       <red>xa1</>  #21  one",
-        # the bracket hangs one column left of the plain names, exactly as it
-        # does in the one-line form, and eats the space before the PR ref
-        "      <white>[</><yellow>-a2</><white>]</> #22  two",
+        "       <red>x</><red>a1</>  #21  one",
+        # the symbol hangs one column left of the plain symbols, exactly as it
+        # does in the one-line form, and the bracket eats the space before the
+        # PR ref -- so the NAMES line up whether they are bracketed or not
+        "      <yellow>-</><white>[</><yellow>a2</><white>]</> #22  two",
     ]
 
 
@@ -1279,7 +1440,7 @@ def test_the_legend_is_set_off_by_a_blank_line_on_each_side(
     assert gsx.main(["stack", "--short"]) == 0
     lines = capsys.readouterr().out.split("\n")
     # no count line over a single stack: the row already says which one
-    assert lines[0] == "[#34]  main <- =a1 <-[+a2]"
+    assert lines[0] == "[#34]  main <- =a1 <-+[a2]"
     assert lines[1] == ""
     assert lines[2].startswith("  = in sync")
     assert lines[3] == "" and lines[4] == ""  # the blank after it, then EOF
@@ -1471,22 +1632,23 @@ def test_the_default_view_is_one_line_per_pr_and_short_is_the_chain(
 
     assert gsx.main(["stack", "--short", "--no-fetch"]) == 0
     out = capsys.readouterr().out
-    assert "[#34]  main <- =a1 <-[=a2]" in out
+    assert "[#34]  main <- =a1 <-=[a2]" in out
     assert "the loader" not in out  # and it asks gh for no titles
 
     # -a and -s are the short forms, and they bundle
     assert gsx.main(["stack", "-s", "--no-fetch"]) == 0
-    assert "[#34]  main <- =a1 <-[=a2]" in capsys.readouterr().out
+    assert "[#34]  main <- =a1 <-=[a2]" in capsys.readouterr().out
     assert gsx.main(["stack", "-as", "--no-fetch"]) == 0
     out = capsys.readouterr().out
     assert "1 stack(s):" in out and "<-" in out
 
 
-def test_short_needs_no_gh_at_all(tmp_path, monkeypatch, capsys):
-    """`--short` reads a file and some refs and nothing else. The default asks
-    gh for PR titles, but the gh-stack extension is never needed either way --
-    requiring it would refuse a checkout that has stacks but no extension."""
+def test_the_gh_stack_extension_is_never_needed(tmp_path, monkeypatch, capsys):
+    """Requiring it would refuse a checkout that has stacks but no extension.
+    `gh` itself is asked for the PR titles and for GitHub's own listing --
+    `--short` skips the first and `--local` both."""
     _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    monkeypatch.setattr(gh, "stacks", lambda runner: [])
     for name in ("require_tools", "require_binaries"):
         monkeypatch.setattr(
             gh,
@@ -1503,7 +1665,125 @@ def test_short_needs_no_gh_at_all(tmp_path, monkeypatch, capsys):
     )
     assert gsx.main(["stack", "--short"]) == 0
     out = capsys.readouterr().out
-    assert "[#34]  main <- =a1 <-[+a2]" in out and "[] current" in out
+    assert "[#34]  main <- =a1 <-+[a2]" in out and "[] current" in out
+
+
+def test_the_default_view_asks_github_and_local_asks_nobody(
+    tmp_path, monkeypatch, capsys
+):
+    """`--local` is the offline view: no listing, no titles, no extension, and
+    with `--short` no `gh` at all. The default asks for the listing, because
+    what only GitHub has is half of what it is for."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(json.dumps(_state()))
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    monkeypatch.setattr(
+        gh, "branch_sync", lambda runner, names, remote: dict.fromkeys(names, gh.AHEAD)
+    )
+    asked = []
+    monkeypatch.setattr(gh, "stacks", lambda runner: asked.append("gh api") or [])
+    assert gsx.main(["stack", "--short", "--no-fetch"]) == 0
+    assert asked == ["gh api"]
+    capsys.readouterr()
+
+    # --local asks for none of it, and neither gh nor its extension is touched
+    asked.clear()
+    for name in ("require_tools", "require_binaries", "stacks", "pr_titles"):
+        monkeypatch.setattr(
+            gh,
+            name,
+            lambda *a, **k: (_ for _ in ()).throw(ToolError("should not be called")),
+        )
+    assert gsx.main(["stack", "--local", "--short"]) == 0
+    out = capsys.readouterr().out
+    assert "[#34]  main <- a1 <-[a2]" in out  # ...and so no sync symbols
+    assert "in sync" not in out and "[] current" in out
+
+
+def test_remote_shows_githubs_own_stacks_and_local_the_tracked_ones(
+    tmp_path, monkeypatch, capsys
+):
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(json.dumps(_state(names=("a1", "a2"))))
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    monkeypatch.setattr(
+        gh,
+        "stacks",
+        lambda runner: [
+            _listed(34, [(21, "a1"), (22, "a2"), (29, "a3")]),
+            _listed(41, [(52, "c1")]),
+        ],
+    )
+    monkeypatch.setattr(gh, "pr_titles", lambda runner, numbers: {})
+
+    assert gsx.main(["stack", "--remote", "--all", "--short"]) == 0
+    out = capsys.readouterr().out
+    assert "2 stack(s) on GitHub:" in out
+    # the brackets ARE the spaces around `<-`, so a bracketed cell touches
+    # what follows it
+    # `a1` pads to the width of `?c1`: columns are measured across every stack
+    assert "[#34]  main <- a1  <-[a2]<- ?a3" in out
+    assert "?#41   main <- ?c1" in out
+    assert "? remote only" in out and "in sync" not in out
+
+    assert gsx.main(["stack", "--local", "--all", "--short"]) == 0
+    out = capsys.readouterr().out
+    assert "1 stack(s) tracked here:" in out and "#41" not in out
+
+
+def test_a_stack_github_has_that_is_not_tracked_here_is_named_without_all(
+    tmp_path, monkeypatch, capsys
+):
+    """The default answers about your stack, so a stack you have never checked
+    out cannot appear in it -- but not being told it exists is worse."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(json.dumps(_state()))
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    monkeypatch.setattr(
+        gh, "branch_sync", lambda runner, names, remote: dict.fromkeys(names, gh.AHEAD)
+    )
+    monkeypatch.setattr(gh, "stacks", lambda runner: [_listed(41, [(52, "c1")])])
+    assert gsx.main(["stack", "--short", "--no-fetch"]) == 0
+    said = capsys.readouterr()
+    # an info event, so it goes to stderr; the rows on stdout are yours alone
+    assert "1 stack(s) on GitHub are not tracked here; --all lists them" in said.err
+    assert "#41" not in said.out
+
+
+def test_a_listing_github_cannot_give_is_fatal_only_for_remote(
+    tmp_path, monkeypatch, capsys
+):
+    """For the default the local half is still an answer, and saying it may be
+    incomplete is enough. For `--remote` the listing IS the answer."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(json.dumps(_state()))
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    monkeypatch.setattr(
+        gh, "branch_sync", lambda runner, names, remote: dict.fromkeys(names, gh.AHEAD)
+    )
+    monkeypatch.setattr(
+        gh,
+        "stacks",
+        lambda runner: (_ for _ in ()).throw(ToolError("gh: HTTP 403")),
+    )
+    assert gsx.main(["stack", "--short", "--no-fetch"]) == 0
+    said = capsys.readouterr()
+    assert "could not list the stacks on GitHub" in said.err
+    assert "[#34]  main <- +a1 <-+[a2]" in said.out
+
+    assert gsx.main(["stack", "--remote", "--short"]) == 1
+    assert "could not list the stacks on GitHub" in capsys.readouterr().err
+
+
+def test_remote_and_local_together_are_refused(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    monkeypatch.setattr(gh, "require_repo", lambda runner: None)
+    assert gsx.main(["stack", "-r", "-l"]) == 1
+    assert "at most one of --remote and --local" in capsys.readouterr().err
 
 
 def test_stack_puts_no_escape_in_the_json_message(tmp_path, monkeypatch, capsys):
@@ -1528,4 +1808,5 @@ def test_stack_puts_no_escape_in_the_json_message(tmp_path, monkeypatch, capsys)
         "pr": None,
         "sync": "ahead",
         "current": True,
+        "remote_only": False,
     }

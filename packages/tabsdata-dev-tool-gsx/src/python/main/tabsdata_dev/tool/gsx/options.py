@@ -279,37 +279,55 @@ def configure(parser: argparse.ArgumentParser) -> None:
 
     stack = add(
         "stack",
-        "the stack you are on, its PRs, and how each branch stands on the remote",
+        "the stacks: what this checkout tracks, what only GitHub has, and where "
+        "each branch stands",
         "examples:\n"
         "  tdd gsx stack\n"
         "    [#34]  main\n"
         "           =a1        #21  the loader\n"
-        "          [+a2]       #22  wire it up\n"
+        "          +[a2]       #22  wire it up\n"
+        "           ?a3        #29  one someone else added\n"
         "  tdd gsx stack --short\n"
-        "    [#34]  main <- =a1 <-[+a2]\n"
+        "    [#34]  main <- =a1 <-+[a2] <- ?a3\n"
         "  tdd gsx stack -as        (--all --short)\n"
-        "    2 stack(s):\n"
-        "    [#34]  main <- =a1  <-[+a2]\n"
-        "     #40   main <- -b24 <- xb25\n\n"
-        "the stacks come from gh-stack's own state file, so no gh-stack extension\n"
-        "is needed; the PR titles come from gh, and --short does without them.\n"
-        "Each branch carries how it stands against the remote, which is fetched\n"
-        "first so the symbols mean what they say (--no-fetch skips it and the\n"
-        "legend then says so). White [brackets] mark the stack holding the branch\n"
-        "you are on -- the one submit and apply act on -- and that branch. `#-` is\n"
-        "a stack that has never been submitted, so it has no number yet.\n\n",
+        "    3 stack(s):\n"
+        "    [#34]  main <- =a1  <-+[a2]\n"
+        "     #40   main <- -b24 <- xb25\n"
+        "    ?#41   main <- ?c1\n\n"
+        "the stacks come from gh-stack's own state file AND from GitHub's own\n"
+        "listing, so what only GitHub has -- a PR someone added to your stack, a\n"
+        "stack you have never checked out -- is shown too, as a magenta ?name.\n"
+        "White [brackets] mark the stack holding the branch you are on -- the one\n"
+        "submit and apply act on -- and that branch, round the name alone.\n"
+        "`#-` is a stack that has never been submitted, so it has no number yet.\n\n"
+        "each branch also carries how it stands against the remote, which is\n"
+        "fetched first so the symbols mean what they say. --local and --remote\n"
+        "show one side each and carry no such symbols: there is nothing to\n"
+        "compare against. The gh-stack extension is never needed.\n\n",
     )
     stack.add_argument(
         "--all",
         "-a",
         action="store_true",
-        help="every tracked stack, not just the one you are on",
+        help="every stack, not just the one you are on",
     )
     stack.add_argument(
         "--short",
         "-s",
         action="store_true",
-        help="one line per stack instead of one per PR; needs no gh at all",
+        help="one line per stack instead of one per PR; asks gh for no PR titles",
+    )
+    stack.add_argument(
+        "--remote",
+        "-r",
+        action="store_true",
+        help="GitHub's stacks only: what it has, with nothing compared against it",
+    )
+    stack.add_argument(
+        "--local",
+        "-l",
+        action="store_true",
+        help="the stacks tracked here only: no gh, no network, nothing compared",
     )
     stack.add_argument(
         "--no-fetch",

@@ -295,8 +295,9 @@ _tdd_color() {
         # ok message (`config --show`: green = built-in default, blue = what
         # the file sets, white = the built-in named beside it; `gsx stack`:
         # a branch green in sync with the remote, blue ahead, yellow behind,
-        # red diverged, and red for the stack and branch you are on).
-        # The Python half paints with the same five codes (render.PAINTS).
+        # red diverged, magenta for one only GitHub has, and white brackets
+        # round the name of the branch you are on).
+        # The Python half paints with the same six codes (render.PAINTS).
         # Blue is a 256-colour entry, not palette 34/94: themes remap the 16
         # palette colours (34 becomes a near-black navy on dark themes, 94 a
         # grey-white under "minimum contrast" settings) but leave the cube
@@ -306,6 +307,7 @@ _tdd_color() {
         blue) printf '\033[38;5;33m' ;;
         yellow) printf '\033[33m' ;;
         red) printf '\033[31m' ;;
+        magenta) printf '\033[35m' ;;
     esac
 }
 
@@ -313,7 +315,9 @@ _tdd_color_end() {
     [ -z "${NO_COLOR:-}" ] || return 0
     [ "$2" = 1 ] || return 0
     case "$1" in
-        ok | error | warn | debug | green | white | blue | yellow | red) printf '\033[0m' ;;
+        ok | error | warn | debug | green | white | blue | yellow | red | magenta)
+            printf '\033[0m'
+            ;;
     esac
 }
 

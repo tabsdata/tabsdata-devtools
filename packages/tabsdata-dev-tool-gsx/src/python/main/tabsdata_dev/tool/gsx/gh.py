@@ -571,6 +571,28 @@ def fetch(runner: Runner, remote: str) -> None:
     runner.run(["git", "fetch", "-q", remote])
 
 
+def stacks(runner: Runner, path: str = "repos/{owner}/{repo}/stacks") -> list[dict]:
+    """Every stack GitHub has for this repository, from the stacks REST API.
+
+    `gh api` fills in `{owner}` and `{repo}` from the checkout itself, so this
+    costs one round trip and needs no `gh repo view` before it. A stack comes
+    back as `{number, base: {ref}, open, pull_requests: [...]}` with the PRs in
+    stack order, bottom-up, each `{number, state, merged_at, head: {ref, sha}}`
+    -- verified against a real repository; see DESIGN.md.
+
+    This is the only thing `stack` cannot read from the tracking file: what
+    GitHub has that the file does not. A closed stack is still returned, so the
+    caller filters on `open`.
+    """
+    payload = runner.json(["gh", "api", "--paginate", f"{path}?per_page=100"])
+    if isinstance(payload, list):
+        # --paginate concatenates pages; a single page is already a list
+        if payload and isinstance(payload[0], list):
+            return [stack for page in payload for stack in page]
+        return payload
+    raise ToolError(f"could not list the stacks of {path}")
+
+
 def pr_titles(runner: Runner, numbers: list[int]) -> dict[int, str]:
     """The title of each PR, for `stack --summary`.
 

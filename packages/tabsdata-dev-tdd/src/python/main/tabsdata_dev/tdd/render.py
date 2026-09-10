@@ -50,6 +50,7 @@ PAINTS = {
     "white": "37",
     "yellow": "33",
     "red": "31",
+    "magenta": "35",
 }
 
 LOG_DIR = pathlib.Path("/tmp")

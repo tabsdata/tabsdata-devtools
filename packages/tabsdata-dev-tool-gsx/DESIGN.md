@@ -168,27 +168,56 @@ delete fails -- a worktree holding it, say -- and the failures are reported toge
 
 ## stack
 
-`stack` shows the stack you are on: its PRs, what each is called, and how each branch stands
-against the remote. `--all` shows every tracked stack instead; `--short` trades the per-PR lines
-for one line per stack.
+`stack` shows the stack you are on: its PRs, what each is called, how each branch stands against
+the remote, and **what only GitHub has**. `--all` shows every stack instead; `--short` trades the
+per-PR lines for one line per stack; `--remote`/`-r` and `--local`/`-l` show one side each.
 
 ```
 $ tdd gsx stack
 [#34]  main
        =a1        #21  the loader
-      [+a2]       #22  wire it up
-       +unpushed  -
+      +[a2]       #22  wire it up
+       ?a3        #29  one someone else put in the stack
 
-  = in sync  + ahead  - behind  x diverged  [] current
+  = in sync  + ahead  - behind  x diverged  ? no local branch  ? remote only  [] current
 
 $ tdd gsx stack --all --short
 3 stack(s):
-[#34]  main <- =insync   <-[+ahead]
+[#34]  main <- =insync   <-+[ahead] <- ?a3
  #40   main <- -behind   <- xdiverged
- #-    main <- +unpushed <- ?gone
+?#41   main <- ?theirs
 
-  = in sync  + ahead  - behind  x diverged  ? no local branch  [] current
+$ tdd gsx stack --remote --short        # GitHub's view, nothing compared
+[#34]  main <- insync <- ahead <- ?a3
+
+  ? remote only  [] current
 ```
+
+**Three sources, and the default is both.** gh-stack's tracking file (`<git-dir>/gh-stack`) is
+the local half; GitHub's own listing (`gh api repos/{owner}/{repo}/stacks`) is the other. The
+default puts them together: the tracked stacks, plus everything the listing holds that the file
+does not -- a PR someone added to your stack, a stack you have never checked out. That is the
+half a reader cannot get any other way, and the question behind "what are my stacks" is usually
+"and what am I missing". `--local` is the file alone (no `gh`, no network, and with `--short` no
+child process but git's); `--remote` is the listing alone, which is what to look at when local
+and remote disagree and you want to see what GitHub thinks.
+
+**A magenta `?`** marks what the tracking file does not have, in front of a branch's name and in
+front of a stack's number alike. It takes the place of a sync symbol rather than sitting beside
+one: nothing is here, so there is nothing for a comparison to be about, and `?` is what the
+symbol set already says that with. The plain `?` (a tracked branch with no local copy) and the
+magenta one are the same fact one step apart, which is why they are the same character; the
+colour and the legend's words carry the step.
+
+Remote-only PRs are appended at the top of their stack, which is where `gh stack sync` would put
+them when it pulls them down. Merged and closed PRs are left out
+of the listing's contribution: a stack keeps them, and a row saying you lack a merged branch
+would be noise on every stack that has ever landed anything. A closed stack is skipped whole.
+
+**`--local` and `--remote` carry no sync symbol at all**, because each shows one side and "behind"
+is a claim about the other one. They fetch nothing, compare nothing, and their legend is the
+brackets alone -- and with nothing compared, `(as of the last fetch)` has nothing to be about
+either.
 
 **The per-PR view is the default** because it answers what a reader wants first -- which PRs,
 called what, where each stands -- and `--short` is there for when the *shape* of the stack is the
@@ -197,27 +226,31 @@ cannot disagree about what a branch is, and both measure their columns across ev
 rather than per stack, so the numbers line up down the whole page. A branch with no PR yet gets
 its line with `-` in the number column.
 
-The titles are the one thing that needs the network: gh-stack's state file carries a branch's PR
-number and url but not its title, so they come from one `gh pr list --state all`, with a
-per-number lookup for anything the limit left out (a long-lived stack can hold a PR older than
-that, and its branch is exactly the one still lying around). A title gh cannot answer is named in
-a warning and left out -- the numbers are worth printing whatever gh says. `--short` asks for
-none of them, and then `stack` needs no gh at all.
+The titles need the network: gh-stack's state file carries a branch's PR number and url but not
+its title, so they come from one `gh pr list --state all`, with a per-number lookup for anything
+the limit left out (a long-lived stack can hold a PR older than that, and its branch is exactly
+the one still lying around). A title gh cannot answer is named in a warning and left out -- the
+numbers are worth printing whatever gh says. `--short` asks for none of them. **The gh-stack
+extension is never needed** either way: a checkout can have stacks without it.
 
 The default is the one stack, because that is the question `submit`, `apply` and a working day
 are about; `--all` is the listing. Only the branches actually shown are compared against the
 remote, so the default costs one `rev-list` per out-of-sync branch of one stack rather than of
-all of them. The count line appears only with `--all`: over a single stack it says what the row
-already shows. Standing outside every stack answers so and names `--all`, since that is the
-useful half of the answer.
+all of them. The count line appears only with `--all`, and says which side it counted
+(`on GitHub`, `tracked here`): over a single stack the row already says the rest. A stack GitHub
+has that is not tracked here cannot be "the one you are on", so without `--all` it is named in
+one line rather than shown. Standing outside every stack answers so and names `--all`. `#-` is a
+stack that has never been submitted, so GitHub has given it no number yet -- and exists only
+locally, by definition.
 
-The stacks themselves come straight out of `<git-dir>/gh-stack`, gh-stack's own local tracking,
-so **the gh-stack extension is never needed** -- a checkout can have stacks without it. `#-` is a
-stack that has never been submitted, so GitHub has given it no number yet.
+A listing that cannot be had is fatal only for `--remote`, where it *is* the answer; otherwise
+it is a warning saying the local view may be missing PRs, because a repository whose stacks API
+is unreachable can still be worked in.
 
 **One symbol per branch, and it is also the colour.** `=` in sync (green), `+` ahead (blue), `-`
 behind (yellow), `x` diverged (red), `?` no local branch (uncoloured -- nothing is claimed about
 it). A branch with nothing on the remote reads `+`: there is no remote copy for it to be behind.
+`?` and `()` are independent: a PR the tracking file lacks may still have its branch here.
 
 **Commits are compared by their change, not their sha** (`git rev-list --cherry-pick`, which
 drops any commit whose patch already exists on the other side). `gh stack` rebases everything
@@ -226,25 +259,36 @@ matter of routine; by sha that is divergence, and nearly every branch would read
 make `x` noise. By content it reads as what it is -- behind by whatever the remote genuinely
 gained -- and `x` is kept for the case worth stopping for: both sides holding different work.
 The same consequence at the other end: `=` means the same *changes*, which after an upstream
-rebase may sit under different shas.
-The symbol sits immediately before the name so it reads as part of the arrow into that branch,
-and it is the *cell* that is painted -- the arrow and the gap are structure, not state.
+rebase may sit under different shas. The symbol sits immediately before the name so it reads as
+part of the arrow into that branch, and it is the *cell* that is painted -- the arrow and the gap
+are structure, not state.
 
-**White square brackets** mark what is current: the stack holding the checked-out branch, the
-one `submit` and `apply` act on without being told which, and that branch. Brackets rather than a
-colour, because every colour here already means a sync state; one convention for both, because
-they are the same fact at two scales. Every cell reserves one slot on each side for a bracket,
-and those two slots are the spaces around `<-` -- so a bracketed cell is exactly as wide as a
-plain one, a name is at the same offset on every line whether it is bracketed or not, and the
-brackets cost the column nothing. Widths are the widest symbol-and-name; a row's own last cell is
-left unpadded, so no line carries trailing blanks. Painting is per **cell**: a paint ends in a
-reset, so one coloured branch would otherwise leave everything after it plain.
+**Brackets, not a colour, for what is current:** white `[]` round the stack holding the
+checked-out branch -- the one `submit` and `apply` act on without being told which -- and round
+that branch. A shape rather than a colour because the colours are spoken for: each one is a sync
+state, and being checked out is not a state. It is the only marker drawn as a shape, and it is
+the same shape at both scales, because it is the same fact said of a stack and of a branch.
+
+**The brackets hold the name alone**, with the symbol outside: `=[a2]`, not `[=a2]`. The symbol
+says how the branch stands and the brackets say which row this is -- two facts about two
+different things, so the brackets hold only the one they are about. It also puts every **name**
+at the same offset whether it is bracketed or not; the symbol is what steps one column left when
+the brackets appear, and a symbol is one character either way.
+
+Every cell reserves one slot on each side for a bracket, and those two slots are the spaces
+around `<-` -- so a bracketed cell is exactly as wide as a plain one, a name is at the same
+offset on every line whether it is bracketed or not, and the brackets cost the column nothing
+(a bracketed cell therefore touches what follows it: `<-=[a2]<- ?a3`). Widths are the widest
+symbol-and-name; a row's own last cell is left unpadded, so no line carries trailing blanks.
+Painting is per **cell**: a paint ends in a reset, so one coloured branch would otherwise leave
+everything after it plain.
 
 **One line of legend, set off by a blank line on each side** -- it is a key to what is above it,
 not another row of it -- with each symbol in its own colour, so it demonstrates what it explains
-rather than describing it twice; `?` earns its place only when a row uses it. Colour is never the
-only carrier -- the symbol says the same thing under `NO_COLOR`, in a pipe, and to anyone who
-does not separate red from green.
+rather than describing it twice; `?` and `()` earn their place only when a row uses them, and the
+sync symbols only when the view compared anything. Colour is never the only carrier -- the symbol
+or the bracket says the same thing under `NO_COLOR`, in a pipe, and to anyone who does not
+separate red from green.
 
 **It fetches first**, because `=` is a *claim* about the remote and the remote-tracking refs are
 only as fresh as the last fetch. This shipped the other way round for one afternoon and was wrong
@@ -256,16 +300,16 @@ about. The fetch itself is not announced: it is a precondition of the answer rat
 of its own, and a line about it would be the first thing on every run.
 
 The remote is gh-stack's own (`git config gh-stack.remote`, else `origin`) and is not named on
-the legend -- the reader knows their own remote -- but it is in the `remote` field for a
-machine.
+the legend -- the reader knows their own remote -- but it is in the `remote` field for a machine.
 After the fetch, one `git for-each-ref` collects every sha, and only a branch whose two shas
 differ costs a second call.
 
 The rows and the legend are the `ok` message, so they land on stdout and pipe; `--format json`
-gets no escapes at all and carries `sync` per branch in words (`in-sync`, `ahead`, `behind`,
-`diverged`, `no-local-branch`) plus the `remote` it compared against. A checkout with no state
-file answers "no stacks are tracked in this repository" and exits 0: asked what stacks exist,
-"none" is an answer rather than a failure.
+gets no escapes at all and carries, per branch, `sync` in words (`in-sync`, `ahead`, `behind`,
+`diverged`, `no-local-branch`, or `null` where nothing was compared) and `remote_only`, plus the
+`source` (`local`, `remote`, `both`) and the `remote` it compared against. A checkout with no
+state file and a repository with no open stacks answers "none" and exits 0: asked what stacks
+exist, "none" is an answer rather than a failure.
 
 ## Config
 
@@ -297,9 +341,9 @@ gsx refreshes this repository's two lists and `fetched` itself -- when the file 
 it, when another gsx wrote it, and once more when a value is missing, since the list may simply
 be stale. There is no verb for it: nobody has to remember to run one. The write goes through the
 shared writer, which re-renders the option template and carries the rest across: other
-repositories' tables, every `default_*`, and every option the reader set under `[options]`. The version is the devtools
-version, from the installed distribution's metadata: one number for the whole repo (invariant
-10).
+repositories' tables, every `default_*`, and every option the reader set under `[options]`. The
+version is the devtools version, from the installed distribution's metadata: one number for the
+whole repo (invariant 10).
 
 ## Verified `gh` / `gh-stack` behaviour
 
@@ -325,6 +369,11 @@ Facts that cost real testing; the code depends on them.
 7. `gh stack checkout`'s bare number is **a stack number first**, then a locally tracked PR, then
    a PR discovered from GitHub, then a branch (its own `--help` says so). A PR URL has no such
    chain, which is why `checkout` hands gh the URL for `#N` rather than the number.
+8. The stacks listing (`gh api repos/{owner}/{repo}/stacks`) returns, per stack,
+   `{number, base:{ref}, open, pull_requests:[{number, state, merged_at, head:{ref, sha}}]}`,
+   the PRs in stack order bottom-up -- read off a real repository, and what `stack` builds its
+   remote half from. `gh api` fills in `{owner}` and `{repo}` from the checkout, so that costs
+   one round trip and no `gh repo view` before it.
 
 ## Differences from the standalone gsx
 
@@ -333,7 +382,8 @@ Facts that cost real testing; the code depends on them.
 - **`-v` is `--verbose` and `-V` is `--version`**, as everywhere in tdd; the standalone had them
   the other way round.
 - **Single-letter forms for its own frequently-typed options** -- `-s`/`-m` (create, update),
-  `-a`/`-p` (approve), `-a`/`-s` (stack), `-o` (override) -- which the general contract in
+  `-a`/`-p` (approve), `-a`/`-s`/`-r`/`-l` (stack), `-o` (override) -- which the general
+  contract in
   [command-cli-guidelines.md](../../docs/command-cli-guidelines.md) reserves for
   `-h`/`-v`/`-f`/`-y`/`-V` only. Inherited from the standalone, kept because gsx is typed dozens
   of times a day; the long forms are what `<tdd_dir>/gsx.toml` presets, so nothing else depends
