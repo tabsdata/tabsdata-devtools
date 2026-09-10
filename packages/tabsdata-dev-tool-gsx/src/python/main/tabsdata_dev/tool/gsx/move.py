@@ -111,6 +111,9 @@ class Plan:
     keep_init: list[str] = field(default_factory=list)
     dest_init: list[str] = field(default_factory=list)
     landed: list[str] = field(default_factory=list)  # ...and what they leave out
+    absent: list[str] = field(
+        default_factory=list
+    )  # kept branches not in this checkout
     dest_base: str = ""
     untrack_target: bool = False
     parent: str = ""  # the branch the moved ones used to sit on
@@ -316,12 +319,41 @@ def still_going(
     return branches[kept:], branches[:kept]
 
 
-def build(source: Source, target: Target, landed: set[int] | None = None) -> Plan:
+def _upstream(source: Source, present: set[str] | None) -> tuple[str, list[str]]:
+    """The branch the moved slice actually sits on, and what was skipped.
+
+    `gh stack checkout <n>` records every branch a stack ever had but can only
+    *pull* the ones the remote still has, and a merged PR's branch is usually
+    deleted -- so a stack with 90 landed PRs is tracked as 93 branches of which
+    three are in the checkout. The branch directly below the moved slice is
+    then often not here at all, and since it is the rebase's upstream the move
+    stopped dead: `branch 'OS-3345' does not exist here, so where 'OS-3346'
+    sits cannot be worked out`.
+
+    The nearest branch below that IS here is what the moved commits sit on.
+    When none of them is, that is the trunk -- which is where a merged
+    branch's commits are, by definition of merged.
+    """
+    skipped = []
+    for branch in reversed(source.keep):
+        if present is None or branch in present:
+            return branch, skipped
+        skipped.append(branch)
+    return source.trunk, skipped
+
+
+def build(
+    source: Source,
+    target: Target,
+    landed: set[int] | None = None,
+    present: set[str] | None = None,
+) -> Plan:
     """Everything the four commands need, worked out before any of them runs.
 
-    `landed` are the PRs that are merged or closed; without it nothing is
-    trimmed, which is what the plan looked like before and what a stack with no
-    history looks like anyway.
+    `landed` are the PRs that are merged or closed and `present` the branches
+    this checkout actually has; without either nothing is trimmed and every
+    branch is assumed to be here, which is what a stack with no history looks
+    like anyway.
     """
     landed = landed or set()
     plan = Plan(source=source, target=target)
@@ -340,7 +372,7 @@ def build(source: Source, target: Target, landed: set[int] | None = None) -> Pla
     # The real branch below the moved slice, even when it is one of the landed
     # ones: that is where the moved commits actually sit, and it is the rebase's
     # upstream. Only the *declaring* leaves it out.
-    plan.parent = source.keep[-1] if source.keep else source.trunk
+    plan.parent, plan.absent = _upstream(source, present)
     plan.steps = steps(plan)
     return plan
 
@@ -402,6 +434,11 @@ def text(plan: Plan) -> str:
             where = f"#{target.pr}" if target.pr else "no stack"
         lines.append(
             f"  onto  {target.head} ({where})   ->  {' '.join(plan.dest_init)}"
+        )
+    if plan.absent:
+        lines.append(
+            f"  off   {plan.parent}   ({plan.absent[0]} is not in this checkout, so "
+            "that is what the moved branches sit on here)"
         )
     if plan.landed:
         # Named, not just counted: a branch silently missing from a plan is the

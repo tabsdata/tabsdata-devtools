@@ -218,10 +218,20 @@ whose remote refs are gone. So the **run of finished PRs at the bottom** of each
 from both inits, named in the plan (`minus 90 branch(es) whose PR is merged or closed`), and their
 states come from the one GraphQL call the move already makes for the PRs it is about to move.
 Only the run at the bottom: a merged PR *above* an open one is somebody's odd state rather than
-history, and dropping it would leave a hole in the chain of parents the cascade reads. The
-**rebase keeps the real parent** even when it is one of the dropped branches -- the moved commits
-do sit on top of it -- so only the declaring leaves it out. A target whose every PR has landed is
-refused, since `--to <trunk>` is what that means.
+history, and dropping it would leave a hole in the chain of parents the cascade reads. A target
+whose every PR has landed is refused, since `--to <trunk>` is what that means.
+
+**And a tracked branch need not be in the checkout at all.** `checkout` *records* all 93 but can
+only *pull* what the remote still has, and a merged PR's branch is usually deleted -- so #3443
+arrives as 93 tracked branches of which three exist. The branch directly below the moved slice is
+then often absent, and it is the rebase's upstream, so the move stopped dead on it: `branch
+'OS-3345' does not exist here, so where 'OS-3346' sits cannot be worked out`. The upstream is now
+the nearest branch below that **is** here, and the trunk when none of them is -- which is where a
+merged branch's commits are, by definition of merged. The plan says so (`off main (OS-3345 is not
+in this checkout ...)`), and the consistency check keeps ignoring the trunk, since a parent that
+fell back to it would otherwise read as "OS-3346 does not contain main" for every branch cut from
+an older trunk. When the parent *is* present it is used whatever its PR says -- the moved commits
+do sit on top of it -- so only the declaring leaves it out.
 
 **The replay is split, and the split is the heart of it.** Exactly one branch has a new parent:
 the one you were standing on. Its own commits are `<old parent>..<branch>`, and only this command

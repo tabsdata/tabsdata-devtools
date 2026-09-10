@@ -936,7 +936,12 @@ def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
             "on afterwards"
         )
 
-    plan = move_mod.build(source, target, landed=_landed(states))
+    plan = move_mod.build(
+        source,
+        target,
+        landed=_landed(states),
+        present=set(gh.local_branches(runner)),
+    )
     plan.remote = remote
     plan.upstream = gh.sha(runner, f"refs/heads/{plan.parent}")
     if not plan.upstream:
@@ -944,9 +949,11 @@ def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
             f"branch {plan.parent!r} does not exist here, so where "
             f"{source.moving[0]!r} sits cannot be worked out"
         )
-    _refuse_inconsistent(
-        runner, [*([plan.parent] if source.keep else []), *source.moving]
-    )
+    # The trunk is deliberately out of that chain -- a branch cut from an older
+    # trunk is the ordinary case -- and the parent IS the trunk whenever the
+    # branch below the moved slice is not in this checkout.
+    below = [plan.parent] if plan.parent != source.trunk else []
+    _refuse_inconsistent(runner, [*below, *source.moving])
     out.info(move_mod.text(plan), plan=plan.steps)
     if runner.dry_run:
         out.info("dry run: every check passed, nothing will be changed")

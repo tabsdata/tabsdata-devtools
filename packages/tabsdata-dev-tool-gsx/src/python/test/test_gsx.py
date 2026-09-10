@@ -1280,6 +1280,68 @@ def test_the_landed_bottom_of_a_target_stack_is_not_declared_again():
     )
 
 
+def test_the_replay_is_off_the_nearest_branch_that_is_actually_here():
+    """`gh stack checkout <n>` records every branch a stack ever had but pulls
+    only the ones the remote still has, so the branch directly below the moved
+    slice is often absent. It is the rebase's upstream, and a real move stopped
+    on it: `branch 'OS-3345' does not exist here, so where 'OS-3346' sits
+    cannot be worked out`."""
+    runner = _MoveRunner(heads=["a1", "a2", "b1", "main"])
+    state = _tracked(
+        (44, "main", [("m1", 10), ("m2", 11), ("a1", 42), ("a2", 43)]),
+        (36, "main", [("b1", 24)]),
+    )
+    source = move_mod.source_stack(state, "a1")
+    target = move_mod.resolve_target(runner, "#36", source, state, "main", _Out())
+    plan = move_mod.build(source, target, present={"main", "a1", "a2", "b1"})
+    assert plan.parent == "main" and plan.absent == ["m2", "m1"]
+    assert "git rebase --onto b1 main a1   # replay a1, off main" in plan.steps
+    assert "off   main   (m2 is not in this checkout" in move_mod.text(plan)
+
+    # ...and the one below is used the moment it is here
+    plan = move_mod.build(source, target, present={"main", "m2", "a1", "a2", "b1"})
+    assert plan.parent == "m2" and plan.absent == []
+
+
+def test_a_move_out_of_a_stack_whose_history_was_never_pulled_runs(
+    tmp_path, monkeypatch, capsys
+):
+    """The whole of what stayed below is merged and gone, so there is nothing
+    to declare and nothing to sit on but the trunk -- and the trunk stays out
+    of the consistency check, where it would read as "a1 does not contain
+    main" for every branch cut from an older trunk."""
+    state = _tracked(
+        (44, "main", [("m1", 10), ("m2", 11), ("a1", 42), ("a2", 43)]),
+        (36, "main", [("b1", 24)]),
+    )
+    _fake_move(
+        monkeypatch, tmp_path, state, current="a1", here=["main", "a1", "a2", "b1"]
+    )
+    monkeypatch.setattr(
+        gh,
+        "pull_requests",
+        lambda runner, numbers: {
+            10: {"state": "MERGED"},
+            11: {"state": "MERGED"},
+            24: {"state": "OPEN"},
+            42: {"state": "OPEN"},
+            43: {"state": "OPEN"},
+        },
+    )
+    asked = []
+    monkeypatch.setattr(
+        gh,
+        "is_ancestor",
+        lambda runner, older, newer: asked.append((older, newer)) or True,
+    )
+    assert gsx.main(["move", "--to", "#36", "--yes"]) == 0
+    assert asked == [("refs/heads/a1", "refs/heads/a2")]  # no main in the chain
+    said = capsys.readouterr()
+    plan = said.out + said.err
+    assert "off   main   (m2 is not in this checkout" in plan
+    assert "init --base main b1 a1 a2" in plan and "stays below" not in plan
+
+
 def test_only_the_run_at_the_bottom_goes():
     """A merged PR above an open one is somebody's odd state, not history, and
     dropping it would leave a hole in the chain of parents the replay reads."""
@@ -1600,10 +1662,16 @@ def test_a_pr_the_publish_could_not_restack_is_refused_up_front(node, message):
         commands._refuse_unmovable({43: node}, [43])
 
 
-def _fake_move(monkeypatch, tmp_path, state, listing=(), current="a2"):
+def _fake_move(monkeypatch, tmp_path, state, listing=(), current="a2", here=None):
     """A whole move run with git and gh faked: `state` is the tracking file on
-    disk, `listing` what GitHub's stacks API answers."""
+    disk, `listing` what GitHub's stacks API answers, `here` the branches the
+    checkout has (by default every branch the tracking names, plus the trunk)."""
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    here = (
+        ["main", *(item["branch"] for s in state["stacks"] for item in s["branches"])]
+        if here is None
+        else list(here)
+    )
     (tmp_path / "gh-stack").write_text(json.dumps(state))
     calls = []
 
@@ -1616,6 +1684,8 @@ def _fake_move(monkeypatch, tmp_path, state, listing=(), current="a2"):
             calls.append(argv)
             if argv[:3] == ["git", "rev-parse", "-q"]:
                 return f"sha-{argv[-1]}"
+            if argv[:2] == ["git", "for-each-ref"]:
+                return "\n".join(here)
             return ""
 
         def json(self, argv):
