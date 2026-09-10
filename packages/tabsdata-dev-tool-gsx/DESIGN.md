@@ -358,7 +358,7 @@ $ tdd gsx stack
       +[a2]       #22  wire it up
        ?a3        #29  one someone else put in the stack
 
-  = in sync  + ahead  - behind  x diverged  ? no local branch  ? remote only  [] current
+  = in sync  + ahead  - behind  x diverged  ? remote only  [] current
 
 $ tdd gsx stack --all --short
 3 stack(s):
@@ -394,7 +394,9 @@ front of a stack's number alike. It takes the place of a sync symbol rather than
 one: nothing is here, so there is nothing for a comparison to be about, and `?` is what the
 symbol set already says that with. The plain `?` (a tracked branch with no local copy) and the
 magenta one are the same fact one step apart, which is why they are the same character; the
-colour and the legend's words carry the step.
+colour and the legend's words carry the step. **Only the one a row uses is explained**: a
+remote-only branch has no local copy by definition, so it is not also counted as one -- both
+entries at once ("? no local branch  ? remote only") read as one symbol explained twice.
 
 Remote-only PRs are appended at the top of their stack, which is where `gh stack sync` would put
 them when it pulls them down. A closed stack is skipped whole.

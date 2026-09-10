@@ -2363,6 +2363,12 @@ def test_the_legend_is_one_line_and_shows_each_symbol_in_its_own_colour():
     # `?` earns its place only when a row actually uses it
     missing = commands.stack_rows(_state(names=("a1",)), "", {})
     assert "? no local branch" in commands.legend(missing, "origin")
+    # ...and a branch only GitHub has is not counted as one: it has no local
+    # copy by definition, and both entries wear `?`, so a listing whose only
+    # `?` were remote-only ones explained the same symbol twice
+    theirs = commands.stack_rows({"stacks": []}, "", remote=[_listed(41, [(52, "c1")])])
+    line = commands.legend(theirs, "origin")
+    assert "? remote only" in line and "no local branch" not in line
     # and each symbol demonstrates its own colour
     painted = commands.legend(rows, "up", lambda name, text: f"<{name}>{text}</>")
     assert "<green>=</> in sync" in painted and "<red>x</> diverged" in painted

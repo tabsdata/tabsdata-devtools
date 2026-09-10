@@ -1427,8 +1427,15 @@ def legend(
     remote as it was rather than as it is.
     """
     states = list(LEGEND) if marked else []
+    # Not for a remote-only branch: it has no local copy by definition and is
+    # already wearing the magenta `?` for that, and the two entries side by
+    # side read as one symbol explained twice ("? no local branch  ? remote
+    # only"). A branch missing from a stack this checkout DOES track still
+    # earns it.
     if marked and any(
-        branch["sync"] == gh.NO_LOCAL for row in rows for branch in row["branches"]
+        branch["sync"] == gh.NO_LOCAL and not branch.get("remote_only")
+        for row in rows
+        for branch in row["branches"]
     ):
         states.append(gh.NO_LOCAL)
     marks = [
