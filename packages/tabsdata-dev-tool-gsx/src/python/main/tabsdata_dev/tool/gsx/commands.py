@@ -776,6 +776,32 @@ def _refuse_unmovable(runner: gh.Runner, numbers: list[int], out) -> None:
             )
 
 
+def _refuse_inconsistent(runner: gh.Runner, chain: list[str]) -> None:
+    """Every branch in the moved slice has to contain its parent's tip.
+
+    That is what makes a replay a replay of one branch's own commits. The
+    cascade above the first moved branch reads the base `gh stack init`
+    recorded, which is the merge-base with the parent the branch was DECLARED
+    to have -- equal to that parent's tip when the branch contains it, and
+    something much older when it does not. A real stack was in that state: one
+    branch sat on an older trunk than the ten below it, and the cascade
+    replayed twenty-four commits it already had into four conflicting files.
+    Refusing here turns that into a sentence before anything changes.
+    """
+    stale = [
+        f"{branch} does not contain {parent}"
+        for parent, branch in zip(chain, chain[1:])
+        if not gh.is_ancestor(runner, f"refs/heads/{parent}", f"refs/heads/{branch}")
+    ]
+    if stale:
+        raise ToolError(
+            "; ".join(stale)
+            + " -- a slice of a stack can only move if the stack is consistent, so "
+            "`gh stack rebase --no-trunk` on it first (resolving whatever comes up), "
+            "then retry"
+        )
+
+
 def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     """Move the branch you are on, and everything above it, to another stack.
 
@@ -814,6 +840,15 @@ def move(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         )
 
     plan = move_mod.build(source, target)
+    plan.upstream = gh.sha(runner, f"refs/heads/{plan.parent}")
+    if not plan.upstream:
+        raise ToolError(
+            f"branch {plan.parent!r} does not exist here, so where "
+            f"{source.moving[0]!r} sits cannot be worked out"
+        )
+    _refuse_inconsistent(
+        runner, [*([plan.parent] if source.keep else []), *source.moving]
+    )
     out.info(move_mod.text(plan), plan=plan.steps)
     if runner.dry_run:
         out.info("dry run: every check passed, nothing will be changed")
@@ -1432,6 +1467,11 @@ def stack(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
             runner,
             [branch["name"] for row in rows for branch in row["branches"]],
             remote,
+            {
+                branch["name"]: row["trunk"]
+                for row in rows
+                for branch in row["branches"]
+            },
         )
         if compared
         else {}

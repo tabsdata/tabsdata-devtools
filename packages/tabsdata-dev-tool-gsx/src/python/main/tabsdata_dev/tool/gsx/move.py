@@ -100,6 +100,8 @@ class Plan:
     dest_init: list[str] = field(default_factory=list)
     dest_base: str = ""
     untrack_target: bool = False
+    parent: str = ""  # the branch the moved ones used to sit on
+    upstream: str = ""  # ...and its tip, which is where the replay starts
     steps: list[str] = field(default_factory=list)
 
 
@@ -271,6 +273,7 @@ def build(source: Source, target: Target) -> Plan:
     plan.dest_init = [*target.branches, *source.moving]
     plan.dest_base = target.trunk or source.trunk
     plan.untrack_target = target.mode == STACK
+    plan.parent = source.keep[-1] if source.keep else source.trunk
     plan.steps = steps(plan)
     return plan
 
@@ -297,7 +300,15 @@ def steps(plan: Plan) -> list[str]:
         f"git checkout {source.trunk} && gh stack init --base {plan.dest_base} "
         f"{' '.join(plan.dest_init)}   # the destination"
     )
-    lines.append("gh stack rebase --no-trunk   # replay what changed parent")
+    lines.append(
+        f"git rebase --onto {target.head} {plan.parent} {source.moving[0]}"
+        f"   # replay {source.moving[0]}, off {plan.parent}"
+    )
+    if len(source.moving) > 1:
+        lines.append(
+            f"git checkout {source.moving[0]} && gh stack rebase --upstack --no-trunk"
+            f"   # replay {' '.join(source.moving[1:])}"
+        )
     lines.append(f"git checkout {source.current}")
     return lines
 
@@ -362,10 +373,25 @@ def run(runner: gh.Runner, plan: Plan, steps_counter) -> dict:
     steps_counter.step(
         f"tracked the destination: {' '.join(plan.dest_init)}", stage="init-destination"
     )
-    gh.stack_rebase_local(runner)
-    steps_counter.step(
-        f"replayed what changed parent onto {target.head}", stage="rebase"
-    )
+    bottom = source.moving[0]
+    # The one branch whose parent changed is replayed off the branch it used to
+    # sit on, with plain git. Not from the base `gh stack init` recorded: that
+    # is the merge-base with the parent it was just DECLARED to have, which is
+    # the trunk for a branch being put on the trunk -- replaying from there
+    # brings along every commit of whatever it used to sit on. Measured: a
+    # one-commit branch came out with 37.
+    gh.rebase_onto(runner, target.head, plan.upstream or plan.parent, bottom)
+    steps_counter.step(f"replayed {bottom} onto {target.head}", stage="rebase")
+    if len(source.moving) > 1:
+        # The rest are gh-stack's: each still sits on the one below it, whose
+        # recorded base is that branch's own old tip, so the cascade's ranges
+        # are right. `--upstack` from the bottom moved branch rebases what is
+        # above it and not itself, which is exactly what is left to do.
+        gh.checkout(runner, bottom)
+        gh.stack_rebase_upstack(runner)
+        steps_counter.step(
+            f"replayed {len(source.moving) - 1} more onto {bottom}", stage="rebase-rest"
+        )
     gh.checkout(runner, source.current)
     steps_counter.step(f"back on {source.current}", stage="checkout")
     return {

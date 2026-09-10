@@ -200,11 +200,30 @@ gh stack unstack --local                          # forget the stack you are in
 gh stack checkout <top> && gh stack unstack --local   # ...and the target's
 git checkout <trunk> && gh stack init --base <trunk> <kept...>
 git checkout <trunk> && gh stack init --base <base> <target...> <moved...>
-gh stack rebase --no-trunk                        # replay what changed parent
+git rebase --onto <target> <old parent> <bottom moved branch>
+git checkout <bottom> && gh stack rebase --upstack --no-trunk   # the rest
 ```
 
 Each `init` runs **from the trunk**, because `gh stack init` refuses to run while the current
 branch is in a stack -- including the one it has just made, since it leaves you on top of it.
+
+**The replay is split, and the split is the heart of it.** Exactly one branch has a new parent:
+the one you were standing on. Its own commits are `<old parent>..<branch>`, and only this command
+knows what the old parent was, so that one rebase is plain git. Everything above it still sits on
+the branch below it, whose recorded base is that branch's own old tip, so gh-stack's cascade has
+those ranges right -- and `--upstack` from the bottom moved branch keeps it to them, since it
+rebases what is *above* the current branch and not the branch itself.
+
+Two measurements forced that shape, both on real stacks:
+
+- **The recorded base is the merge-base with the parent a branch was DECLARED to have**, not the
+  tip its commits sit on. For a branch being put on the trunk that is where it left the trunk, so
+  replaying from there brings along every commit of whatever it used to sit on: a one-commit
+  branch came out with 37. Hence plain git, with the old parent this command remembers.
+- **The cascade without `--upstack` starts at the bottom of the whole stack.** On a 19-branch
+  stack that meant rebasing 16 branches that had not moved, and on one whose lower half sat on a
+  newer trunk than its upper half it replayed 24 commits it already had into four conflicting
+  files. A move should touch what it moves.
 
 The reason this works -- and the reason there is no rebase code here -- is that **`gh stack init`
 records each branch's base as the tip its commits actually sit on**, not the parent it was just
@@ -228,6 +247,12 @@ One check exists for the publish rather than the move: a **queued or auto-mergin
 in the moved set is refused up front, because GitHub leaves such a PR stacked and then *keeps the
 whole stack*, so the dissolve that `submit --move` needs would silently do nothing and the PR
 would end up in two stacks at once.
+
+And one exists for the replay: **every moved branch has to contain its parent's tip**. That is
+what makes the cascade's recorded bases the parents' own tips rather than something older, and a
+stack that fails it is the one that replays commits it already has. The trunk is deliberately not
+in that chain -- a branch cut from an older trunk is the ordinary case, and `git rebase --onto X
+<trunk> B` replays `<trunk>..B` whether or not B contains the trunk's tip.
 
 ### publishing it: `submit --move`
 
@@ -373,9 +398,19 @@ matter of routine; by sha that is divergence, and nearly every branch would read
 make `x` noise. By content it reads as what it is -- behind by whatever the remote genuinely
 gained -- and `x` is kept for the case worth stopping for: both sides holding different work.
 The same consequence at the other end: `=` means the same *changes*, which after an upstream
-rebase may sit under different shas. The symbol sits immediately before the name so it reads as
-part of the arrow into that branch, and it is the *cell* that is painted -- the arrow and the gap
-are structure, not state.
+rebase may sit under different shas.
+
+**And the trunk's commits are not the branch's** (`--not <trunk>` on the same rev-list). A branch
+whose local copy has been rebased onto a newer trunk carries commits its remote copy does not,
+and every one of them belongs to the trunk: ten branches of stack #3478 in tabsdata-os read `+`
+for that reason with nothing local about them -- the two "unpushed" commits were `[TD-3364]
+Edition gate` and `[TD-3363] New tdkserver subcommand`, both off main. What is left after
+excluding them is the question the symbol is for: how this branch's own work compares with the
+copy on the remote. The trunk excluded is the remote's copy of it, since that is the baseline
+both sides share; a trunk never pushed falls back to the local one.
+
+The symbol sits immediately before the name so it reads as part of the arrow into that branch,
+and it is the *cell* that is painted -- the arrow and the gap are structure, not state.
 
 **Brackets, not a colour, for what is current:** white `[]` round the stack holding the
 checked-out branch -- the one `submit` and `apply` act on without being told which -- and round
@@ -493,15 +528,16 @@ Facts that cost real testing; the code depends on them.
    preserved so that rebase and display logic continue to work correctly". With no endpoint that
    removes one PR from a stack, only a dissolve and relink can shrink one -- so a display that
    wants the working set has to filter, which is what `stack` does.
-9. **`gh stack init` records the base a branch's commits really sit on**, not the parent it was
-   just declared to have, and `gh stack rebase --no-trunk` replays `--onto <new parent> <that
-   base>` -- so a branch moved between stacks is rebased correctly by gh-stack itself, nothing is
-   fetched or pushed, and only the branches whose parent changed are rewritten. Measured on
-   tabsdata-tucu: two stacks combined into one, seven of nine branches left byte-identical to
-   `origin`, the server's shas unchanged throughout. The `sync` error "could not determine the
-   previous base" belongs to the cascade's *rewritten-parent* case and does not fire here; an
-   earlier draft of `move` carried its own `git rebase --onto` chain on the strength of that
-   misreading.
+9. **`gh stack init` records the merge-base with the parent a branch is DECLARED to have** -- the
+   parent's own tip when the branch contains it, and something much older when it does not. It
+   adopts without rewriting anything (measured: same sha before and after). `gh stack rebase`
+   replays `--onto <new parent> <that base>`, so its ranges are right exactly while the stack is
+   consistent; where it is not, it replays commits the target already has. And `--no-trunk`
+   starts the cascade at the **bottom of the stack** unless `--upstack` scopes it, while
+   `--upstack` excludes the branch you are standing on. Those three facts are why `move` replays
+   its one re-parented branch with plain git and hands only the rest to the cascade. Measured on
+   tabsdata-tucu and tabsdata-os; the `sync` error "could not determine the previous base"
+   belongs to the cascade's rewritten-parent case and does not fire in this flow.
 10. `gh stack rebase` keeps `.git/gh-stack-rebase-state` (every branch's original ref, the
    conflicting branch, what is left) and `--continue`/`--abort` finish or unwind it -- so a
    command that drives it needs no session of its own. `gh stack modify` keeps

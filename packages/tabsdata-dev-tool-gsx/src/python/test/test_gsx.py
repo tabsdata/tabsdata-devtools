@@ -1209,24 +1209,46 @@ def test_a_target_that_cannot_be_moved_onto_is_refused(value, branch, message):
         _target(runner, value, branch=branch)
 
 
-def test_the_plan_is_four_local_commands_and_says_so():
+def test_the_plan_is_local_commands_and_says_so():
     runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"])
     source = move_mod.source_stack(_two(), "a2")
     plan = move_mod.build(source, _target(runner, "#36", branch="a2"))
     assert plan.dest_init == ["b1", "b2", "b3", "a2"] and plan.dest_base == "main"
-    assert plan.keep_init == ["a1"]
+    assert plan.keep_init == ["a1"] and plan.parent == "a1"
     assert plan.steps == [
         "gh stack unstack --local   # forget #44",
         "gh stack checkout b3 && gh stack unstack --local   # ...and #36",
         "git checkout main && gh stack init --base main a1   # what stays below",
         "git checkout main && gh stack init --base main b1 b2 b3 a2   # the destination",
-        "gh stack rebase --no-trunk   # replay what changed parent",
+        # off the branch it used to sit on, which is the only range that is its
+        # own commits
+        "git rebase --onto b3 a1 a2   # replay a2, off a1",
         "git checkout a2",
     ]
     text = move_mod.text(plan)
     assert "stay : a1" in text and "move : a2" in text
     assert "all local; `gsx submit --move` is what publishes it" in text
     assert "push" not in text and "unstack --local" in text
+
+
+def test_more_than_one_moved_branch_hands_the_rest_to_the_cascade():
+    """The bottom is plain git -- its parent changed, and only this command
+    knows what it used to be. Everything above it still sits on the branch
+    below, whose recorded base is that branch's own old tip, so gh-stack's
+    cascade has the ranges right. `--upstack` is what keeps it to those:
+    without it the cascade starts at the bottom of the whole stack."""
+    runner = _MoveRunner(heads=["a1", "a2", "a3", "b1", "main"])
+    state = _tracked((44, "main", [("a1", 42), ("a2", 43), ("a3", 44)]))
+    state["stacks"].append(
+        {"number": 36, "trunk": {"branch": "main"}, "branches": [{"branch": "b1"}]}
+    )
+    source = move_mod.source_stack(state, "a2")
+    target = move_mod.resolve_target(runner, "#36", source, state, "main", _Out())
+    plan = move_mod.build(source, target)
+    assert plan.steps[-3:-1] == [
+        "git rebase --onto b1 a1 a2   # replay a2, off a1",
+        "git checkout a2 && gh stack rebase --upstack --no-trunk   # replay a3",
+    ]
 
 
 def test_moving_onto_the_trunk_needs_no_target_stack_to_forget():
@@ -1260,6 +1282,7 @@ def test_the_driver_runs_gh_stacks_own_commands_and_nothing_that_pushes():
     runner = _MoveRunner(heads=["a1", "a2", "b1", "b2", "b3", "main"])
     source = move_mod.source_stack(_two(), "a2")
     plan = move_mod.build(source, _target(runner, "#36", branch="a2"))
+    plan.upstream = "sha-a1"
     fields = move_mod.run(runner, plan, progress.Counter(runner.out, total=6))
     assert runner.stack_calls() == [
         ["gh", "stack", "unstack", "--local"],
@@ -1267,7 +1290,10 @@ def test_the_driver_runs_gh_stacks_own_commands_and_nothing_that_pushes():
         ["gh", "stack", "unstack", "--local"],
         ["gh", "stack", "init", "--base", "main", "a1"],
         ["gh", "stack", "init", "--base", "main", "b1", "b2", "b3", "a2"],
-        ["gh", "stack", "rebase", "--no-trunk"],
+    ]
+    # one moved branch, so the replay is the one rebase and no cascade
+    assert [call for call in runner.calls if "rebase" in call] == [
+        ["git", "-c", "rerere.enabled=true", "rebase", "--onto", "b3", "sha-a1", "a2"]
     ]
     for call in runner.calls:
         assert call[:2] != ["git", "push"]
@@ -1407,6 +1433,10 @@ def _fake_move(monkeypatch, tmp_path, state, listing=(), current="a2"):
     monkeypatch.setattr(gh, "pull_requests", lambda runner, numbers: {})
     monkeypatch.setattr(gh, "stacks", lambda runner, **kw: list(listing))
     monkeypatch.setattr(gh, "stack_remote", lambda runner: "origin")
+    # `is_ancestor` asks git directly (the answer is an exit code), so a fake
+    # runner cannot answer it: a consistent stack is the default here and the
+    # test that cares patches it itself.
+    monkeypatch.setattr(gh, "is_ancestor", lambda runner, older, newer: True)
     return calls
 
 
@@ -1435,10 +1465,47 @@ def test_move_drives_the_four_commands_and_says_what_publishes_it(
         ["gh", "stack", "unstack", "--local"],
         ["gh", "stack", "init", "--base", "main", "a1"],
         ["gh", "stack", "init", "--base", "main", "b1", "b2", "b3", "a2"],
-        ["gh", "stack", "rebase", "--no-trunk"],
     ]
     assert "moved 1 branch(es) onto b3, locally" in out.out
     assert "gsx submit --move" in out.out
+
+
+def test_a_stack_whose_branches_do_not_contain_their_parents_is_refused(
+    tmp_path, monkeypatch, capsys
+):
+    """The cascade above the first moved branch reads the base `gh stack init`
+    recorded -- the merge-base with the parent the branch was declared to have,
+    which is much older when the branch does not contain that parent. A real
+    stack was in that state (one branch on an older trunk than the ten below
+    it) and the cascade replayed twenty-four commits it already had into four
+    conflicting files. This is that, said before anything changes."""
+    calls = _fake_move(monkeypatch, tmp_path, _two(), current="a1")
+    monkeypatch.setattr(
+        gh, "is_ancestor", lambda runner, older, newer: "a1" not in older
+    )
+    assert gsx.main(["move", "--to", "#36", "--yes"]) == 1
+    said = capsys.readouterr().err
+    assert "a2 does not contain a1" in said
+    assert "gh stack rebase --no-trunk" in said
+    # and nothing was forgotten on the way to finding out
+    assert not any(call[:3] == ["gh", "stack", "unstack"] for call in calls)
+
+
+def test_the_trunk_is_left_out_of_that_check(tmp_path, monkeypatch, capsys):
+    """A branch cut from an older trunk is the ordinary case: `git rebase
+    --onto X <trunk> B` replays `<trunk>..B`, which is B's own commits whether
+    or not B contains the trunk's tip."""
+    _fake_move(monkeypatch, tmp_path, _two(), current="a1")
+    asked = []
+    monkeypatch.setattr(
+        gh,
+        "is_ancestor",
+        lambda runner, older, newer: asked.append((older, newer)) or True,
+    )
+    assert gsx.main(["move", "--to", "#36", "--yes"]) == 0
+    # a1 moves with everything above it, so the trunk is the parent -- and it
+    # is not in the pairs that were checked
+    assert asked == [("refs/heads/a1", "refs/heads/a2")]
 
 
 def test_stack_says_a_move_is_in_progress(tmp_path, monkeypatch, capsys):
@@ -1449,7 +1516,7 @@ def test_stack_says_a_move_is_in_progress(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
         gh,
         "branch_sync",
-        lambda runner, names, remote: dict.fromkeys(names, gh.IN_SYNC),
+        lambda runner, names, remote, *_: dict.fromkeys(names, gh.IN_SYNC),
     )
     monkeypatch.setattr(gh, "pr_titles", lambda runner, numbers: {})
     assert gsx.main(["move", "--to", "main"]) == 1  # (unrelated: nothing to move)
@@ -1833,7 +1900,7 @@ def test_the_merged_prs_are_left_out_and_said_to_be(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(
         gh,
         "branch_sync",
-        lambda runner, names, remote: dict.fromkeys(names, gh.IN_SYNC),
+        lambda runner, names, remote, *_: dict.fromkeys(names, gh.IN_SYNC),
     )
     monkeypatch.setattr(
         gh,
@@ -1978,7 +2045,7 @@ def test_a_pr_title_gh_cannot_answer_is_warned_about_not_fatal(
     monkeypatch.setattr(
         gh,
         "branch_sync",
-        lambda runner, names, remote: dict.fromkeys(names, gh.IN_SYNC),
+        lambda runner, names, remote, *_: dict.fromkeys(names, gh.IN_SYNC),
     )
     monkeypatch.setattr(gh, "pr_titles", lambda runner, numbers: {21: "the loader"})
     assert gsx.main(["stack", "--no-fetch"]) == 0
@@ -2051,7 +2118,7 @@ def test_stack_fetches_first_because_in_sync_is_a_claim_about_the_remote(
     monkeypatch.setattr(
         gh,
         "branch_sync",
-        lambda runner, names, remote: {"a1": gh.IN_SYNC, "a2": gh.AHEAD},
+        lambda runner, names, remote, *_: {"a1": gh.IN_SYNC, "a2": gh.AHEAD},
     )
     assert gsx.main(["stack"]) == 0
     assert ["git", "fetch", "-q", "origin"] in calls
@@ -2076,7 +2143,7 @@ def test_the_legend_is_set_off_by_a_blank_line_on_each_side(
     monkeypatch.setattr(
         gh,
         "branch_sync",
-        lambda runner, names, remote: {"a1": gh.IN_SYNC, "a2": gh.AHEAD},
+        lambda runner, names, remote, *_: {"a1": gh.IN_SYNC, "a2": gh.AHEAD},
     )
     assert gsx.main(["stack", "--short"]) == 0
     lines = capsys.readouterr().out.split("\n")
@@ -2132,6 +2199,42 @@ def test_a_branch_the_remote_rebased_is_behind_not_diverged():
     # the same changes under different shas is not a difference worth a symbol
     runner = _SyncRunner(refs, {"local...remote": "0\t0"})
     assert gh.branch_sync(runner, ["rebased"], "origin") == {"rebased": gh.IN_SYNC}
+
+
+def test_the_trunks_commits_are_not_the_branchs():
+    """A branch rebased onto a newer trunk carries commits its remote copy does
+    not, and every one of them is the trunk's. Ten branches of a real stack
+    (#3478 in tabsdata-os) read `+` for that reason with nothing local about
+    them: the two "unpushed" commits were `[TD-3364] Edition gate` and
+    `[TD-3363] New tdkserver subcommand`, both off main. `--not <trunk>` leaves
+    the question the symbol is for -- this branch's own work against the copy
+    on the remote."""
+    refs = {
+        "refs/heads/a2": "local",
+        "refs/remotes/origin/a2": "remote",
+        "refs/remotes/origin/main": "trunk",
+    }
+    # what the counts are once the trunk is out of the range
+    runner = _SyncRunner(refs, {"local...remote": "0\t0"})
+    assert gh.branch_sync(runner, ["a2"], "origin", {"a2": "main"}) == {
+        "a2": gh.IN_SYNC
+    }
+    revlist = next(call for call in runner.calls if call[:2] == ["git", "rev-list"])
+    assert revlist[-2:] == ["--not", "refs/remotes/origin/main"]
+
+    # a trunk that was never pushed is compared against the local one
+    del refs["refs/remotes/origin/main"]
+    refs["refs/heads/main"] = "trunk"
+    runner = _SyncRunner(refs, {"local...remote": "0\t0"})
+    gh.branch_sync(runner, ["a2"], "origin", {"a2": "main"})
+    revlist = next(call for call in runner.calls if call[:2] == ["git", "rev-list"])
+    assert revlist[-2:] == ["--not", "refs/heads/main"]
+
+    # and with no trunk to exclude, the range is the range
+    runner = _SyncRunner(refs, {"local...remote": "1\t0"})
+    assert gh.branch_sync(runner, ["a2"], "origin") == {"a2": gh.AHEAD}
+    revlist = next(call for call in runner.calls if call[:2] == ["git", "rev-list"])
+    assert "--not" not in revlist
 
 
 def test_the_sync_state_of_every_branch_costs_one_call_plus_the_odd_ones_out():
@@ -2223,7 +2326,7 @@ def test_only_the_stack_you_are_on_unless_all_is_asked_for(
     monkeypatch.setattr(
         gh,
         "branch_sync",
-        lambda runner, names, remote: (
+        lambda runner, names, remote, *_: (
             asked.append(list(names)) or dict.fromkeys(names, gh.IN_SYNC)
         ),
     )
@@ -2260,7 +2363,7 @@ def test_the_default_view_is_one_line_per_pr_and_short_is_the_chain(
     monkeypatch.setattr(
         gh,
         "branch_sync",
-        lambda runner, names, remote: dict.fromkeys(names, gh.IN_SYNC),
+        lambda runner, names, remote, *_: dict.fromkeys(names, gh.IN_SYNC),
     )
     monkeypatch.setattr(
         gh, "pr_titles", lambda runner, numbers: {21: "the loader", 22: "wire it up"}
@@ -2302,7 +2405,7 @@ def test_the_gh_stack_extension_is_never_needed(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
         gh,
         "branch_sync",
-        lambda runner, names, remote: {"a1": gh.IN_SYNC, "a2": gh.AHEAD},
+        lambda runner, names, remote, *_: {"a1": gh.IN_SYNC, "a2": gh.AHEAD},
     )
     assert gsx.main(["stack", "--short"]) == 0
     out = capsys.readouterr().out
@@ -2320,7 +2423,9 @@ def test_the_default_view_asks_github_and_local_asks_nobody(
     monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
     monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
     monkeypatch.setattr(
-        gh, "branch_sync", lambda runner, names, remote: dict.fromkeys(names, gh.AHEAD)
+        gh,
+        "branch_sync",
+        lambda runner, names, remote, *_: dict.fromkeys(names, gh.AHEAD),
     )
     asked = []
     monkeypatch.setattr(gh, "stacks", lambda runner: asked.append("gh api") or [])
@@ -2384,7 +2489,9 @@ def test_a_stack_github_has_that_is_not_tracked_here_is_named_without_all(
     monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
     monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
     monkeypatch.setattr(
-        gh, "branch_sync", lambda runner, names, remote: dict.fromkeys(names, gh.AHEAD)
+        gh,
+        "branch_sync",
+        lambda runner, names, remote, *_: dict.fromkeys(names, gh.AHEAD),
     )
     monkeypatch.setattr(gh, "stacks", lambda runner: [_listed(41, [(52, "c1")])])
     assert gsx.main(["stack", "--short", "--no-fetch"]) == 0
@@ -2404,7 +2511,9 @@ def test_a_listing_github_cannot_give_is_fatal_only_for_remote(
     monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
     monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
     monkeypatch.setattr(
-        gh, "branch_sync", lambda runner, names, remote: dict.fromkeys(names, gh.AHEAD)
+        gh,
+        "branch_sync",
+        lambda runner, names, remote, *_: dict.fromkeys(names, gh.AHEAD),
     )
     monkeypatch.setattr(
         gh,
@@ -2437,7 +2546,7 @@ def test_stack_puts_no_escape_in_the_json_message(tmp_path, monkeypatch, capsys)
     monkeypatch.setattr(
         gh,
         "branch_sync",
-        lambda runner, names, remote: {"a1": gh.IN_SYNC, "a2": gh.AHEAD},
+        lambda runner, names, remote, *_: {"a1": gh.IN_SYNC, "a2": gh.AHEAD},
     )
     assert gsx.main(["stack", "--format", "json"]) == 0
     line = capsys.readouterr().out.splitlines()[-1]

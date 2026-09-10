@@ -567,6 +567,19 @@ def pull_requests(runner: Runner, numbers: list[int]) -> dict:
     }
 
 
+def is_ancestor(runner: Runner, older: str, newer: str) -> bool:
+    """Whether `older` is in `newer`'s history. `proc.run` directly, because
+    the answer is the exit code and a non-zero one is an answer, not a
+    failure."""
+    runner.out.debug(f"$ git merge-base --is-ancestor {older} {newer}")
+    result = proc.run(
+        ["git", "merge-base", "--is-ancestor", older, newer],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
 def sha(runner: Runner, ref: str) -> str:
     """The sha `ref` resolves to, or `""` -- never a raise: half these lookups
     are asking whether a ref exists at all."""
@@ -579,7 +592,12 @@ def stack_remote(runner: Runner) -> str:
     return configured or "origin"
 
 
-def branch_sync(runner: Runner, branches: list[str], remote: str) -> dict[str, str]:
+def branch_sync(
+    runner: Runner,
+    branches: list[str],
+    remote: str,
+    trunks: dict[str, str] | None = None,
+) -> dict[str, str]:
     """Each branch against `<remote>/<branch>`: in sync, ahead, behind, or both.
 
     Read from the remote-tracking refs, so the caller fetches first.
@@ -592,6 +610,15 @@ def branch_sync(runner: Runner, branches: list[str], remote: str) -> dict[str, s
     would read `x`. Judged by content it is what it actually is: behind by
     whatever the remote genuinely gained. `x` then means the two sides hold
     different work, which is worth stopping for.
+
+    And **the trunk's commits are not the branch's** (`--not <trunk>`): a
+    branch whose local copy has been rebased onto a newer trunk carries commits
+    its remote copy does not, and every one of them belongs to the trunk. Ten
+    branches of a real stack read `+` for that reason with nothing local about
+    them -- the two "unpushed" commits were `[TD-3364] Edition gate` and
+    `[TD-3363] New tdkserver subcommand` off main. Excluding what the trunk
+    already has leaves the question the symbol is meant to answer: how does
+    this branch's own work compare with the copy on the remote.
 
     One `for-each-ref` collects every sha that could be needed, and only a
     branch whose two shas differ costs a second call. A branch with nothing on
@@ -611,6 +638,14 @@ def branch_sync(runner: Runner, branches: list[str], remote: str) -> dict[str, s
         ref, _, sha = line.partition(" ")
         if ref and sha.strip():
             shas[ref] = sha.strip()
+    # One ref per trunk, resolved once: the remote's copy is the shared
+    # baseline, and the local one is the fallback for a trunk never pushed.
+    bases: dict[str, str] = {}
+    for trunk in set((trunks or {}).values()):
+        if not trunk:
+            continue
+        ref = f"refs/remotes/{remote}/{trunk}"
+        bases[trunk] = ref if shas.get(ref) else f"refs/heads/{trunk}"
     state = {}
     for branch in branches:
         local = shas.get(f"refs/heads/{branch}")
@@ -622,6 +657,7 @@ def branch_sync(runner: Runner, branches: list[str], remote: str) -> dict[str, s
         elif local == tracked:
             state[branch] = IN_SYNC
         else:
+            base = bases.get((trunks or {}).get(branch, ""), "")
             counted = runner.run(
                 [
                     "git",
@@ -630,6 +666,7 @@ def branch_sync(runner: Runner, branches: list[str], remote: str) -> dict[str, s
                     "--cherry-pick",
                     "--count",
                     f"{local}...{tracked}",
+                    *(["--not", base] if base else []),
                 ],
                 check=False,
             ).split()
@@ -746,14 +783,36 @@ def stack_init(runner: Runner, branches: list[str], base: str = "") -> None:
     runner.run([*argv, *branches], capture=False)
 
 
-def stack_rebase_local(runner: Runner) -> None:
-    """Cascade-rebase the active stack, without touching the trunk.
+def rebase_onto(runner: Runner, onto: str, upstream: str, branch: str) -> None:
+    """Replay `upstream..branch` onto `onto`, with plain git.
+
+    The one rebase gh-stack will not do: onto the TRUNK. `--no-trunk` skips it
+    by name ("only the inter-branch rebases are performed") and the forms that
+    include the trunk pull from the remote first, which a local command has no
+    business doing -- it would also leave the moved branches on a newer trunk
+    than everything around them. rerere is on, so a conflict the operator has
+    resolved once elsewhere resolves itself.
+    """
+    runner.run(
+        ["git", "-c", "rerere.enabled=true", "rebase", "--onto", onto, upstream, branch]
+    )
+
+
+def stack_rebase_upstack(runner: Runner) -> None:
+    """Cascade-rebase everything ABOVE the current branch, trunk untouched.
 
     `--no-trunk` is what keeps it offline: with the trunk it fetches first.
-    Only branches whose parent actually changed are rewritten, and a conflict
-    stops with `gh stack rebase --continue|--abort` as the two ways out.
+    `--upstack` is what keeps it to the move's own business -- it rebases the
+    branches above the one checked out and not that one, so standing on the
+    branch the moved ones were put on top of makes the scope exactly what
+    moved. Without it the cascade starts at the bottom of the stack, and on a
+    stack whose lower branches were already inconsistent that means real,
+    conflicting work that has nothing to do with the move.
+
+    A conflict stops with `gh stack rebase --continue|--abort` as the two ways
+    out, and gh-stack holds every branch's original ref for the abort.
     """
-    runner.run(["gh", "stack", "rebase", "--no-trunk"], capture=False)
+    runner.run(["gh", "stack", "rebase", "--upstack", "--no-trunk"], capture=False)
 
 
 def stack_unstack(runner: Runner, number: int) -> None:
