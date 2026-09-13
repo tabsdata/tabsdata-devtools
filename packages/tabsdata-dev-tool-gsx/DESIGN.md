@@ -702,6 +702,21 @@ that branch. A shape rather than a colour because the colours are spoken for: ea
 state, and being checked out is not a state. It is the only marker drawn as a shape, and it is
 the same shape at both scales, because it is the same fact said of a stack and of a branch.
 
+**And the trunk wears them when that is where you are.** Standing on the trunk is standing in no
+stack -- `submit` acts on neither -- so no stack tag and no branch could be marked, and the page
+answered "where am I" with nothing while its legend still explained `[]`. The trunk is drawn in
+every row, so it is the cell that can say it, and it says it in each row whose trunk it really
+is. The stack tag stays unbracketed, because being on the trunk is not being in the stack: the
+two marks then say different true things in one line, which is what they are for.
+
+The trunk cell takes the same arithmetic as every other: one slot on each side, the left one
+being the second of the two spaces after the tag. So `[main]` and ` main ` are the same width and
+the names line up down the page whichever rows are bracketed.
+
+**Where nothing can be bracketed at all** -- a branch in no stack that is not a trunk either --
+it is said in a line instead, because "where am I" is the first question this view is asked and
+an empty answer is the one it must not give.
+
 **At most one stack wears them.** A branch can sit in several tracked stacks -- leftovers do
 exactly that, since a stack GitHub has forgotten keeps its copy of every branch -- and the row
 bracketed is the **first in the file**, because that is the one every other subcommand takes

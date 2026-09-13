@@ -4113,3 +4113,73 @@ def test_clone_mode_refuses_where_core_hookspath_would_hide_it(tmp_path):
     with pytest.raises(ToolError, match="core.hooksPath"):
         hooks_mod.install(FakeRunner(), hooks_mod.CLONE, force=False)
     assert not (root / ".git" / "hooks" / "pre-push").exists()
+
+
+# ------------------------------------------------- standing on the trunk
+def test_standing_on_the_trunk_brackets_the_trunk():
+    """The brackets are what answer "where am I", and on the trunk they
+    answered nothing: no stack holds you, so no cell was marked and the legend
+    explained a symbol the page did not use."""
+    rows = commands.stack_rows(_state(names=("a1", "a2")), "main")
+    assert rows[0]["trunk_current"] is True
+    # ...and the STACK is still not current: `submit` acts on neither
+    assert rows[0]["current"] is False
+    line = commands.stack_lines(rows)
+    assert line == " #34  [main]<- ?a1 <- ?a2"
+    # the tag is unbracketed, the trunk is not
+    assert "[#34]" not in line and "[main]" in line
+
+
+def test_the_trunk_keeps_the_column_whether_it_is_bracketed_or_not():
+    """The same rule every other cell follows: the brackets cost the column
+    nothing, so `main` sits at one offset however the rows differ."""
+    state = _state(number=34, names=("a1",))
+    state["stacks"].append(
+        {"number": 40, "trunk": {"branch": "other"}, "branches": [{"branch": "b1"}]}
+    )
+    lines = commands.stack_lines(commands.stack_rows(state, "main")).splitlines()
+    # row 1's trunk IS where we stand, row 2's is not
+    assert lines[0].index("main") == lines[1].index("other")
+    for line in lines:
+        assert line == line.rstrip(), line
+
+
+def test_a_branch_of_a_stack_still_brackets_the_branch_and_the_stack():
+    rows = commands.stack_rows(_state(names=("a1", "a2")), "a2")
+    assert rows[0]["current"] is True and rows[0]["trunk_current"] is False
+    assert commands.stack_lines(rows) == "[#34]  main <- ?a1 <-?[a2]"
+
+
+def test_the_summary_brackets_the_trunk_on_the_stacks_own_line():
+    rows = commands.stack_rows(_with_prs(_state(names=("a1",)), [(21,)]), "main")
+    first = commands.stack_summary(rows, {21: "the loader"}).splitlines()[0]
+    assert first == " #34  [main]"
+    # and not when you are somewhere else
+    rows = commands.stack_rows(_with_prs(_state(names=("a1",)), [(21,)]), "a1")
+    assert commands.stack_summary(rows, {21: "the loader"}).splitlines()[0] == (
+        "[#34]  main"
+    )
+
+
+def test_where_you_are_is_said_when_no_cell_can_say_it(tmp_path, monkeypatch, capsys):
+    """A branch in no stack and not a trunk either: nothing is bracketed, so
+    the one thing the reader wants is said instead of drawn."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(json.dumps(_state(names=("a1", "a2"))))
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "scratch")
+    monkeypatch.setattr(
+        gh,
+        "branch_sync",
+        lambda runner, names, remote, *_: dict.fromkeys(names, gh.IN_SYNC),
+    )
+    monkeypatch.setattr(gh, "stacks", lambda runner, **kw: [])
+    assert gsx.main(["stack", "--all", "--short", "--no-fetch"]) == 0
+    assert (
+        "on 'scratch', which is in none of the stacks below" in capsys.readouterr().err
+    )
+
+    # ...and not said when a bracket already says it
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "main")
+    assert gsx.main(["stack", "--all", "--short", "--no-fetch"]) == 0
+    assert "is in none of the stacks below" not in capsys.readouterr().err

@@ -1790,6 +1790,11 @@ def stack_rows(
                     "trunk": ((stack.get("trunk") or {}).get("branch")) or "?",
                     "branches": branches,
                     "current": any(branch["current"] for branch in branches),
+                    # Standing on the trunk is not standing in the stack --
+                    # `submit` acts on neither -- but it IS drawn in this row,
+                    # and the brackets are what answer "where am I".
+                    "trunk_current": bool(current)
+                    and current == (((stack.get("trunk") or {}).get("branch")) or "?"),
                     "remote_only": False,
                     # By its NUMBER, which is the claim the file is making: it
                     # says this checkout is tracking stack #N, and the listing
@@ -1820,6 +1825,8 @@ def stack_rows(
                 "trunk": ((listed[number].get("base") or {}).get("ref")) or "?",
                 "branches": branches,
                 "current": any(branch["current"] for branch in branches),
+                "trunk_current": bool(current)
+                and current == (((listed[number].get("base") or {}).get("ref")) or "?"),
                 "remote_only": number in elsewhere,
                 "local_only": False,
             }
@@ -1915,7 +1922,7 @@ def stack_lines(rows: list[dict], paint=_no_paint) -> str:
     # (symbol, name, paint, guard) per cell, the trunk first and never guarded
     grid = [
         [
-            ("", row["trunk"], "", ("", "", "")),
+            ("", row["trunk"], "", _guard({"current": row.get("trunk_current")})),
             *(
                 (
                     _mark(branch)[0],
@@ -1938,7 +1945,10 @@ def stack_lines(rows: list[dict], paint=_no_paint) -> str:
     ]
     lines = []
     for tag, row, cells in zip(tags, rows, grid):
-        parts = [_tag(row, tag, tag_width, paint, gutter), "  "]
+        # One space, because the trunk cell spends the other on its own
+        # leading slot -- a space when it is plain, the opening bracket when
+        # you are standing on it. Same arithmetic as every other cell.
+        parts = [_tag(row, tag, tag_width, paint, gutter), " "]
         for index, (symbol, name, colour, guard) in enumerate(cells):
             last = index == len(cells) - 1
             if index:
@@ -1947,7 +1957,7 @@ def stack_lines(rows: list[dict], paint=_no_paint) -> str:
                 # space-or-symbol, which is what keeps a bracketed cell exactly
                 # as wide as a plain one.
                 parts.append("<-")
-            cell = _cell(symbol, name, colour, guard, paint) if index else name
+            cell = _cell(symbol, name, colour, guard, paint)
             if not last:
                 pad = " " * (widths[index] - len(symbol) - len(name))
                 cell += pad if guard[0] else pad + " "
@@ -1990,7 +2000,17 @@ def stack_summary(rows: list[dict], titles: dict, paint=_no_paint) -> str:
     indent = " " * (tag_width + gutter + 3)
     blocks = []
     for tag, row in zip(tags, rows):
-        lines = [f"{_tag(row, tag, tag_width, paint, gutter)}  {row['trunk']}"]
+        opening, closing, guard_colour = _guard({"current": row.get("trunk_current")})
+        trunk = (
+            paint(guard_colour, opening) + row["trunk"] + paint(guard_colour, closing)
+            if opening
+            else row["trunk"]
+        )
+        lines = [
+            f"{_tag(row, tag, tag_width, paint, gutter)}"
+            + (" " if opening else "  ")
+            + trunk
+        ]
         for branch in row["branches"]:
             symbol, colour = _mark(branch)
             guard = _guard(branch)
@@ -2177,6 +2197,13 @@ def stack(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
                 f"{len(ghosts)} stack(s) tracked here are not open on GitHub; "
                 "--all lists them"
             )
+    if rows and not any(row["current"] or row.get("trunk_current") for row in rows):
+        # Nothing is bracketed, so the brackets answer nothing -- and "where am
+        # I" is the question a reader asks of this view first. Said rather than
+        # drawn, because there is no cell to draw it on.
+        out.info(
+            f"on {current!r}, which is in none of the stacks below", branch=current
+        )
     if not rows:
         # Asked about "my stack" while standing outside every one of them: an
         # answer, and the useful half of it is that --all would show them.
