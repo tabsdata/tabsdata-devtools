@@ -784,6 +784,18 @@ GitHub has it: onto an ancestor it fast-forwards, onto a divergence it replays, 
 drops any commit whose patch the other side already has. That last part is what makes the step
 safe to repeat.
 
+**The cascade's upstream is the parent's tip from before the run**, not
+`git merge-base <parent> <branch>`. Once the parent has been rewritten -- which is exactly when a
+restack is needed -- the merge-base falls back past the parent's own commits, and the rebase
+replays them onto a parent that already holds them under new shas. Measured in tabsdata-os:
+restacking `OS-3482` after `OS-3481` had been rewritten took the merge-base to the tip of
+`TD-3329`, three branches below, and replayed `[OS-3481] Add excel file parsing logic` onto the
+new `OS-3481` -- an add/add conflict in a file neither side had really touched twice, reported to
+the operator as their conflict to resolve. gh-stack avoids this by keeping a recorded base per
+branch; a snapshot of every tip taken before the run is the same fact, and one this code already
+has to hand. The merge-base remains the fallback for a branch whose snapshot is not in its
+history at all.
+
 **A branch this clone has MOVED is the exception, and it is not a small one.** The same rebase
 drags the old parent chain back in, because `<remote>/<branch>` still holds it: measured on a
 real move in the sandbox, a branch that should have carried three commits over its new parent
@@ -795,6 +807,18 @@ commits**, cherry-picked onto where it now sits:
 git rev-list --reverse --right-only --cherry-pick <branch>...<remote>/<branch> --not <remote>/<base>
 git cherry-pick <those>
 ```
+
+**Which branches those are is decided by where the PR's base is, not by ancestry.** The first
+version asked whether `<remote>/<base>` was an ancestor of the branch, which is also false in the
+commonest case there is: a parent that has simply gained commits this clone has not restacked onto
+yet. Measured in tabsdata-os: `OS-3508`, whose local parent and whose PR base were both
+`OS-3505`, was reported as "moved off its base here" and cherry-picked, when a plain fast-forward
+was all it needed. What is asked instead is whether the PR's base is still a branch of this
+stack -- and a base that has **landed**, whose local branch is gone and so is missing from the
+list, is not a move either: its commits are in the trunk now and the ordinary reconcile drops
+them as already upstream. **A move taints everything above it**, because only the bottom branch of
+a moved slice gets a new base; the ones above keep theirs while their remote copies still sit on
+the old chain.
 
 `<base>` is the PR's base branch **as GitHub has it**, and that is the whole trick: gh-stack's
 state file is rewritten by the move the moment it runs, so it agrees with the move by
@@ -881,6 +905,11 @@ shipping this. The two honest shapes are `--repo` (`.githooks/pre-push` committe
 `core.hooksPath` set to a *relative* path so the same string works everywhere) and `--clone`
 (`.git/hooks/pre-push`, nothing committed). `core.hooksPath` replaces `.git/hooks` rather than
 adding to it, so they are alternatives and `--check` says which is in force.
+
+**`--clone` refuses where `core.hooksPath` is set**, because it replaces `.git/hooks` rather than
+adding to it: a guard installed there would never run, and reporting success for it is worse than
+refusing. Seen in a real checkout whose `.githooks` had been removed while the config still named
+it -- `--clone` said "installed", `--check` said "NOT active", and only the second was right.
 
 **A pre-push hook gsx did not write is never silently replaced** -- `--force` is the way through,
 and the refusal says so. The write is a temporary file and one rename, like every other write

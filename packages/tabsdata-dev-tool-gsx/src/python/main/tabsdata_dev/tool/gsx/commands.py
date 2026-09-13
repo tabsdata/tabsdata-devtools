@@ -646,13 +646,13 @@ def _require_reconciled(runner: gh.Runner, out) -> None:
     and drops a teammate's commit -- happens with the old arrangement already
     gone.
     """
-    _, branches, prs = _stack_here(runner)
+    trunk, branches, prs = _stack_here(runner)
     if not branches:
         return
     remote = gh.stack_remote(runner)
     gh.fetch(runner, remote)
     behind = sync_mod.unreconciled(
-        runner, branches, remote, _pr_bases(runner, prs, out)
+        runner, branches, remote, _pr_bases(runner, prs, out), trunk
     )
     if behind:
         raise ToolError(
@@ -679,8 +679,11 @@ def _sync_before_submit(runner: gh.Runner, out) -> None:
     gh.fetch(runner, remote)
     current = gh.current_branch(runner)
     _forward_trunk(runner, trunk, remote, current, out)
-    sync_mod.reconcile(runner, branches, remote, out, _pr_bases(runner, prs, out))
-    sync_mod.restack(runner, branches, trunk, out)
+    before = sync_mod.tips(runner, branches)
+    sync_mod.reconcile(
+        runner, branches, remote, out, _pr_bases(runner, prs, out), trunk
+    )
+    sync_mod.restack(runner, branches, trunk, out, before)
     if gh.current_branch(runner) != current:
         gh.checkout(runner, current)
 
@@ -2253,13 +2256,18 @@ def _stack_branches(runner: gh.Runner, state: dict, current: str, every: bool):
             if entry.get("branch") and gh.sha(runner, f"refs/heads/{entry['branch']}")
         ]
         names = [entry["branch"] for entry in live]
+        known = {
+            entry["branch"]
+            for entry in stack.get("branches") or []
+            if entry.get("branch")
+        }
         prs = {
             entry["branch"]: (entry.get("pullRequest") or {}).get("number")
             for entry in live
             if (entry.get("pullRequest") or {}).get("number")
         }
         if names:
-            chosen.append((trunk, names, prs))
+            chosen.append((trunk, names, prs, known))
     return chosen
 
 
@@ -2376,19 +2384,22 @@ def sync(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
             "an unpublished move is in progress; `tdd gsx submit --move` publishes it"
         )
     outcome = sync_mod.Outcome()
-    for trunk, branches, prs in chosen:
+    for trunk, branches, prs, known in chosen:
         _forward_trunk(runner, trunk, remote, current, out)
         bases = _pr_bases(runner, prs, out)
+        # Before anything is touched: what each branch's own commits sit on.
+        # Once a parent is rewritten nothing else remembers where that was.
+        before = sync_mod.tips(runner, branches)
         outcome.reconciled.update(
-            sync_mod.reconcile(runner, branches, remote, out, bases)
+            sync_mod.reconcile(runner, branches, remote, out, bases, trunk, known)
         )
-        outcome.restacked.extend(sync_mod.restack(runner, branches, trunk, out))
+        outcome.restacked.extend(sync_mod.restack(runner, branches, trunk, out, before))
     # Back where the operator was: the cascade walks the stack and leaving
     # them on its top would be a side effect of asking a question.
     if gh.current_branch(runner) != current:
         gh.checkout(runner, current)
 
-    every = [branch for _, branches, _ in chosen for branch in branches]
+    every = [branch for _, branches, _, _ in chosen for branch in branches]
     plain, forced, leases = sync_mod.push_args(runner, every, remote)
     outcome.fast_forward, outcome.forced = plain, forced
     if args.no_push or holding:

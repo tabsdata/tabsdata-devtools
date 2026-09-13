@@ -3659,20 +3659,59 @@ def test_a_hook_gsx_did_not_write_is_not_silently_replaced(tmp_path):
     assert theirs.read_text() == hooks_mod.script()
 
 
-def test_a_branch_moved_off_its_base_is_noticed_by_the_prs_base_not_the_state(
-    monkeypatch,
-):
-    """gh-stack's state file is rewritten by the move itself, so it agrees
-    with the move by construction and could never notice one. GitHub still
-    has the old base until `submit --move` publishes."""
-    shas = {"refs/remotes/origin/A2": "old-parent", "refs/heads/A3": "a3"}
-    runner, _ = _fake_git(monkeypatch, shas, ancestors={("old-parent", "A3")})
-    # still sitting on the base GitHub has: an ordinary branch
-    assert sync_mod.moved_away(runner, "A3", "origin", "A2") is False
-    runner, _ = _fake_git(monkeypatch, shas, ancestors=set())
-    assert sync_mod.moved_away(runner, "A3", "origin", "A2") is True
-    # ...and with no PR there is no base to have been moved off
-    assert sync_mod.moved_away(runner, "A3", "origin", "") is False
+def test_a_move_is_noticed_by_the_parents_NAME_not_by_ancestry():
+    """The first version asked whether `<remote>/<base>` was an ancestor of the
+    branch, which is also false in the commonest case there is -- a parent that
+    has simply gained commits this clone has not restacked onto yet. Measured
+    in tabsdata-os: OS-3508, whose local parent and whose PR base were both
+    OS-3505, was reported as "moved off its base here" and cherry-picked when a
+    plain fast-forward was what it needed."""
+    branches = ["OS-3504", "OS-3505", "OS-3508", "OS-3510"]
+    bases = {
+        "OS-3504": "main",
+        "OS-3505": "OS-3504",
+        "OS-3508": "OS-3505",
+        "OS-3510": "OS-3508",
+    }
+    # every base is still a branch of this stack: nothing has been moved here,
+    # however far behind the branches are
+    assert sync_mod.moved_branches(branches, "main", bases) == set()
+
+    # ...and a base that has LANDED, whose local branch is gone and so is not
+    # in the list any more, is not a move either: its commits are in the trunk
+    # now and the ordinary reconcile drops them as already upstream
+    landed = ["OS-3508", "OS-3510"]
+    assert (
+        sync_mod.moved_branches(
+            landed, "main", bases, known={"OS-3504", "OS-3505", "OS-3508", "OS-3510"}
+        )
+        == set()
+    )
+
+    # the bottom of a moved slice is the one with a new parent name...
+    moved_bases = {"A3": "A2"}
+    assert sync_mod.moved_branches(["C2", "A3"], "main", moved_bases) == {"A3"}
+
+    # ...and the move taints everything above it, because those keep their old
+    # parent names while their remote copies still sit on the old chain
+    slice_bases = {"M1": "OLD", "M2": "M1", "M3": "M2"}
+    assert sync_mod.moved_branches(["C2", "M1", "M2", "M3"], "main", slice_bases) == {
+        "M1",
+        "M2",
+        "M3",
+    }
+
+    # a branch with no PR has no recorded base to disagree with: it cannot
+    # start a taint, but it inherits one
+    assert sync_mod.moved_branches(["A3", "new"], "main", {"A3": "A2"}) == {
+        "A3",
+        "new",
+    }
+    assert sync_mod.moved_branches(["new"], "main", {}) == set()
+
+    # the bottom branch's parent is the trunk
+    assert sync_mod.moved_branches(["B1"], "main", {"B1": "main"}) == set()
+    assert sync_mod.moved_branches(["B1"], "main", {"B1": "other"}) == {"B1"}
 
 
 def test_a_moved_branch_takes_only_the_remotes_OWN_commits(monkeypatch):
@@ -4001,3 +4040,76 @@ def test_the_card_is_the_ok_message_so_it_pipes(capsys):
     last = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert last["event"] == "ok" and last["quick_ref"] is True
     assert "tdd gsx init" in last["message"]
+
+
+def test_the_cascade_replays_a_branchs_OWN_commits_after_its_parent_was_rewritten(
+    monkeypatch,
+):
+    """Measured in tabsdata-os. Restacking OS-3482 after OS-3481 had been
+    rewritten in the same run took `git merge-base OS-3481 OS-3482` back to the
+    tip of TD-3329, three branches below -- so the rebase replayed OS-3481's
+    own commits onto the new OS-3481, which already had them, and conflicted
+    add/add on a file neither side had really touched twice. The upstream has
+    to be the parent's tip from BEFORE the run."""
+    shas = {f"refs/heads/{b}": b for b in ("TD-3329", "OS-3481", "OS-3482")}
+    # OS-3481 is on its parent; OS-3482 is not on the rewritten OS-3481. The
+    # snapshot's OS-3481 is still in OS-3482's history, which is what makes it
+    # the right range.
+    runner, calls = _fake_git(
+        monkeypatch,
+        shas,
+        ancestors={("TD-3329", "OS-3481"), ("OS-3481-old", "OS-3482")},
+    )
+    before = {"TD-3329": "TD-3329-old", "OS-3481": "OS-3481-old"}
+    assert sync_mod.restack(
+        runner, ["OS-3481", "OS-3482"], "TD-3329", _Say(), before
+    ) == ["OS-3482"]
+    rebases = [c for c in calls if c[:2] == ["git", "rebase"]]
+    # the parent's PRE-RUN tip, never the merge-base
+    assert rebases == [["git", "rebase", "--onto", "OS-3481", "OS-3481-old", "OS-3482"]]
+    assert not any(c[:2] == ["git", "merge-base"] for c in calls)
+
+
+def test_the_cascade_falls_back_to_the_merge_base_when_the_snapshot_is_no_use(
+    monkeypatch,
+):
+    """A branch built somewhere else entirely: the recorded tip is not in its
+    history, so it would name the wrong range."""
+    shas = {f"refs/heads/{b}": b for b in ("B1", "B2")}
+    runner, calls = _fake_git(monkeypatch, shas, ancestors=set())
+    sync_mod.restack(runner, ["B1", "B2"], "main", _Say(), {"B1": "elsewhere"})
+    assert any(c[:2] == ["git", "merge-base"] for c in calls)
+    assert ["git", "rebase", "--onto", "B1", "base-sha", "B2"] in calls
+
+
+def test_tips_are_taken_before_anything_is_touched(monkeypatch):
+    shas = {"refs/heads/B1": "s1", "refs/heads/B2": "s2", "refs/heads/gone": ""}
+    runner, _ = _fake_git(monkeypatch, shas, ancestors=set())
+    assert sync_mod.tips(runner, ["B1", "B2", "gone"]) == {"B1": "s1", "B2": "s2"}
+
+
+def test_clone_mode_refuses_where_core_hookspath_would_hide_it(tmp_path):
+    """`core.hooksPath` replaces .git/hooks rather than adding to it, so
+    installing there while it is set writes a file git will never read. Seen in
+    a real checkout whose .githooks had been removed but whose config still
+    named it: `--clone` said "installed", `--check` said "NOT active", and only
+    the second was right."""
+    root = tmp_path / "clone"
+    (root / ".git" / "hooks").mkdir(parents=True)
+
+    class FakeRunner:
+        out = None
+        dry_run = False
+
+        def run(self, argv, **kwargs):
+            if argv[:3] == ["git", "rev-parse", "--show-toplevel"]:
+                return str(root)
+            if argv[:2] == ["git", "config"] and argv[2] == "core.hooksPath":
+                return ".githooks"
+            if argv[:3] == ["git", "rev-parse", "--git-dir"]:
+                return str(root / ".git")
+            return ""
+
+    with pytest.raises(ToolError, match="core.hooksPath"):
+        hooks_mod.install(FakeRunner(), hooks_mod.CLONE, force=False)
+    assert not (root / ".git" / "hooks" / "pre-push").exists()

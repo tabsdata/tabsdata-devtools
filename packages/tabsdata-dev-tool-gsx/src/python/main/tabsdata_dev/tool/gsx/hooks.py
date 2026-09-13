@@ -90,6 +90,21 @@ def write(path: pathlib.Path, text: str) -> None:
 def install(runner: gh.Runner, where: str, force: bool) -> tuple[pathlib.Path, bool]:
     """Write the guard and, for `repo`, point git at it. Returns the path and
     whether anything changed."""
+    if where == CLONE:
+        # `core.hooksPath` REPLACES .git/hooks rather than adding to it, so
+        # installing there while it is set writes a file git will never read --
+        # and reports success for a guard that cannot fire. Seen in a real
+        # checkout whose .githooks had been removed but whose config still
+        # named it: `--clone` said "installed", `--check` said "NOT active",
+        # and only the second one was right.
+        elsewhere = configured(runner)
+        if elsewhere:
+            raise ToolError(
+                f"core.hooksPath is {elsewhere!r}, so git ignores .git/hooks "
+                "entirely and a guard installed there would never run.\n"
+                f"  `tdd gsx init`                    installs into {elsewhere} instead\n"
+                "  `git config --unset core.hooksPath`  then --clone works"
+            )
     path = target(runner, where)
     wanted = script()
     existing = path.read_text(encoding="utf-8") if path.is_file() else ""

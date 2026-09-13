@@ -103,6 +103,8 @@ def unreconciled(
     branches: list[str],
     remote: str,
     bases: dict[str, str] | None = None,
+    trunk: str = "",
+    known: set[str] | None = None,
 ) -> list[str]:
     """The branches holding less than their remote copy does.
 
@@ -121,6 +123,7 @@ def unreconciled(
     is whether anything of the remote's own is still missing.
     """
     bases = bases or {}
+    moved = moved_branches(branches, trunk, bases, known)
     behind = []
     for branch in branches:
         local = gh.sha(runner, f"refs/heads/{branch}")
@@ -128,7 +131,7 @@ def unreconciled(
         if not local:
             continue
         base = bases.get(branch, "")
-        if moved_away(runner, branch, remote, base):
+        if branch in moved and base:
             if own_commits(runner, branch, remote, f"{remote}/{base}"):
                 behind.append(branch)
             continue
@@ -140,21 +143,53 @@ def unreconciled(
     return behind
 
 
-def moved_away(runner: gh.Runner, branch: str, remote: str, base: str) -> bool:
-    """Whether this clone has taken `branch` off the parent GitHub has it on.
+def moved_branches(
+    branches: list[str],
+    trunk: str,
+    bases: dict[str, str],
+    known: set[str] | None = None,
+) -> set[str]:
+    """The branches this clone has taken off the parent GitHub records for them.
 
-    The question that decides how to reconcile, and it is asked of the PR's
-    base rather than of gh-stack's state: a `gsx move` rewrites the state the
-    moment it runs, so the state agrees with the move by construction and
-    could never notice one. GitHub still has the old base until the move is
-    published, which is exactly the window this matters in.
+    **By where the PR's base is, not by ancestry.** The first version asked whether
+    `<remote>/<base>` was an ancestor of the branch, which is also false in the
+    commonest case of all -- a parent that has simply gained commits this clone
+    has not restacked onto yet. Measured in tabsdata-os: `OS-3508`, whose local
+    parent and whose PR base were both `OS-3505`, was reported as "moved off its
+    base here" and cherry-picked, when a plain fast-forward was what it needed.
+    What is asked instead is whether the PR's base is still a branch of this
+    stack: that is the question that was meant -- has anything here been taken
+    off a chain that is still somebody else's.
+
+    **And a move taints everything above it.** Only the bottom branch of a moved
+    slice gets a new parent name; the ones above keep theirs, while their remote
+    copies still sit on the old chain below. Reconciling those the ordinary way
+    would drag that chain back in, which is the bug this whole path exists for.
+
+    The PR's base is what it is compared against because gh-stack's state is
+    rewritten by the move the moment it runs, so it agrees with the move by
+    construction and could never notice one; GitHub keeps the old base until
+    `submit --move` publishes.
     """
-    if not base:
-        return False
-    tip = gh.sha(runner, f"refs/remotes/{remote}/{base}") or gh.sha(
-        runner, f"refs/heads/{base}"
-    )
-    return bool(tip) and not gh.is_ancestor(runner, tip, branch)
+    known = known if known is not None else set(branches)
+    moved: set[str] = set()
+    tainted = False
+    for index, branch in enumerate(branches):
+        parent = branches[index - 1] if index else trunk
+        base = bases.get(branch)
+        # A base still inside this stack is not a move even when it is not the
+        # immediate parent: that is a branch between the two whose PR has
+        # landed and whose local copy is gone, and its commits are in the trunk
+        # now, so the ordinary reconcile drops them as already upstream. A base
+        # OUTSIDE the stack is the move -- the branch has been taken off a
+        # chain that is still somebody's.
+        if base and base != parent and base not in known and base != trunk:
+            tainted = True
+        # No PR, no recorded base: nothing to disagree with. It cannot start a
+        # taint, but it inherits one.
+        if tainted:
+            moved.add(branch)
+    return moved
 
 
 def reconcile(
@@ -163,6 +198,8 @@ def reconcile(
     remote: str,
     out,
     bases: dict[str, str] | None = None,
+    trunk: str = "",
+    known: set[str] | None = None,
 ) -> dict[str, str]:
     """Bring every branch up to its own remote copy, bottom-up.
 
@@ -185,6 +222,7 @@ def reconcile(
     forced one -- correct, since a moved branch is a rewrite by definition.
     """
     bases = bases or {}
+    moved = moved_branches(branches, trunk, bases, known)
     done = {}
     for branch in branches:
         local = gh.sha(runner, f"refs/heads/{branch}")
@@ -194,7 +232,7 @@ def reconcile(
         verdict = classify(local, tracked, lambda a, b: gh.is_ancestor(runner, a, b))
         done[branch] = verdict
         base = bases.get(branch, "")
-        if moved_away(runner, branch, remote, base):
+        if branch in moved and base:
             taking = own_commits(runner, branch, remote, f"{remote}/{base}")
             if not taking:
                 done[branch] = CURRENT
@@ -217,13 +255,51 @@ def reconcile(
     return done
 
 
-def restack(runner: gh.Runner, branches: list[str], trunk: str, out) -> list[str]:
+def tips(runner: gh.Runner, branches: list[str]) -> dict[str, str]:
+    """Every branch's tip before this run touches anything.
+
+    The cascade needs it: a branch's own commits are the ones after the tip its
+    parent had **when the branch was built on it**, and once the parent has
+    been rewritten there is nothing left in the repository that remembers where
+    that was.
+    """
+    return {
+        branch: sha
+        for branch in branches
+        if (sha := gh.sha(runner, f"refs/heads/{branch}"))
+    }
+
+
+def restack(
+    runner: gh.Runner,
+    branches: list[str],
+    trunk: str,
+    out,
+    before: dict[str, str] | None = None,
+) -> list[str]:
     """Put each branch back on top of the one below it, where it is not already.
 
     Only after `reconcile`, and only where it is needed: a teammate who
     restacked before us already pushed the answer, and our fast-forward to it
     left nothing to do. What is left is the branches this clone moved.
+
+    **The upstream is the parent's tip from before this run**, not
+    `git merge-base <parent> <branch>`. Once the parent has been rewritten --
+    which is exactly when a restack is needed -- the merge-base falls back past
+    the parent's own commits, and the rebase replays them onto a parent that
+    already has them. Measured in tabsdata-os: restacking `OS-3482` after
+    `OS-3481` was rewritten took the merge-base back to the tip of `TD-3329`,
+    three branches below, and replayed `[OS-3481] Add excel file parsing logic`
+    onto the new `OS-3481` -- an add/add conflict in a file neither side had
+    really touched twice. gh-stack avoids it by keeping a recorded base per
+    branch; a snapshot taken at the start of the run is the same fact, and one
+    this code already has to hand.
+
+    The merge-base is still the fallback, for a branch whose recorded tip is not
+    in its history at all -- a branch built somewhere else entirely, where the
+    snapshot would name the wrong range.
     """
+    before = before or {}
     rewritten = []
     for index, branch in enumerate(branches):
         parent = branches[index - 1] if index else trunk
@@ -231,9 +307,11 @@ def restack(runner: gh.Runner, branches: list[str], trunk: str, out) -> list[str
             continue
         if gh.is_ancestor(runner, parent, branch):
             continue
-        base = runner.run(["git", "merge-base", parent, branch])
+        was = before.get(parent, "")
+        if not was or not gh.is_ancestor(runner, was, branch):
+            was = runner.run(["git", "merge-base", parent, branch])
         gh.checkout(runner, branch)
-        runner.run(["git", "rebase", "--onto", parent, base, branch], capture=False)
+        runner.run(["git", "rebase", "--onto", parent, was, branch], capture=False)
         rewritten.append(branch)
         out.info(f"{branch}: restacked onto {parent}", branch=branch, parent=parent)
     return rewritten
