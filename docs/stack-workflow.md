@@ -173,11 +173,14 @@ Allowed by both guard rules: the patches all survive the rebase, so nothing look
 | by hand | with gsx |
 |---|---|
 | `gh api repos/{owner}/{repo}/stacks --jq '...'` *(find the number)* | `tdd gsx stack --remote --all --short` |
-| `gh stack checkout 41` | `tdd gsx checkout FOO-16` or `tdd gsx checkout #22` |
+| `gh stack checkout 41` | `tdd gsx checkout '#41'` |
+| `gh stack checkout FOO-16` | `tdd gsx checkout FOO-16` |
 
-`gsx checkout` takes **a branch name or `#<PR>`** and nothing else -- a bare number is refused,
-because `gh stack checkout 42` means stack 42, or PR 42, or the branch `42`, depending on what
-exists that day.
+`gsx checkout` takes **a branch name, `#<PR>` or `#<STACK>`** and nothing else. A *bare* number is
+refused, because `gh stack checkout 42` means stack 42, or PR 42, or the branch `42`, depending on
+what exists that day. `#42` is safe because GitHub numbers stacks and PRs from **one counter**, so
+a number is one or the other and never both -- gsx reads which off the repository rather than
+guessing.
 
 ### 3.8 Sync -- take what the remote has, keep what you have, push the union
 
@@ -258,14 +261,30 @@ mid-publish means the old arrangement is already gone.
 
 ### 3.12 Adopt a restructure someone else published
 
-Your tracking file still describes stacks that no longer exist. Nothing here pushes.
+Somebody published a `gsx move`; your tracking file still describes the stacks it replaced.
+Nothing here pushes.
 
 | by hand | with gsx |
 |---|---|
-| `gh stack unstack <old#> --local` *(for each stale stack)* | `tdd gsx stack --all --short` *(shows them with a red `!`)* |
-| `git switch main && git fetch origin` | then `gh stack unstack <old#> --local` |
-| `git branch -f <b> origin/<b>` *(for every branch of the new stack)* | `gh stack checkout <new#>` |
+| `gh api repos/{owner}/{repo}/stacks --jq '...'` *(find the new number)* | `tdd gsx checkout '#7'` |
+| `gh stack unstack <old#> --local` *(for each stale stack)* | ↑ *refused, naming the stacks in the way* |
+| `git switch main && git fetch origin` | `tdd gsx checkout '#7' --force` |
+| `git branch -f <b> origin/<b>` *(every branch -- **discards unpushed work**)* | |
 | `gh stack checkout <new#>` | |
+
+**`gsx checkout` refuses a restructured stack rather than adopting it silently**, and says which
+local stacks are in the way. That is not caution for its own sake: `gh stack checkout` meets the
+same situation with a prompt, and one of the three things it offers is *delete the stack on
+GitHub* -- the last thing an adopting clone means to do. gsx decides it beforehand so the prompt
+never appears.
+
+**`--force` / `-f` loses no commits.** The by-hand column resets each branch to its remote copy
+and throws away anything unpushed; `-f` **reconciles** instead, so a branch with work of its own
+is rebased onto its remote copy and keeps it -- and the next push is a fast-forward. `--force`
+here is a word about the *arrangement*, not about your work.
+
+`tdd gsx stack --all --short` shows the stale stacks first if you want to look before acting:
+they wear a red `!`.
 
 ### 3.13 Housekeeping
 
@@ -287,6 +306,7 @@ Your tracking file still describes stacks that no longer exist. Nothing here pus
 | `origin has commits these branch(es) do not ... publishing a move dissolves the old stack` | you are about to publish over a branch you have not reconciled | `tdd gsx sync`, then `tdd gsx submit --move` |
 | `nothing was pushed (an unpublished move is in progress)` | expected: a half-made arrangement is not published | `tdd gsx submit --move` when ready |
 | `nothing was pushed (GitHub and this checkout disagree ...)` | somebody else's restructure that this clone has not adopted | §3.12 -- adopt it; do **not** publish |
+| `stack #N has been restructured since this checkout last saw it` | the same thing, met by `checkout` | `tdd gsx checkout '#N' --force` |
 | `GH013: Repository rule violations found for refs/heads/main` | you tried to rewrite the trunk | you almost certainly did not mean to |
 
 ---
@@ -301,7 +321,8 @@ Your tracking file still describes stacks that no longer exist. Nothing here pus
 | push the stack, open/refresh the PRs | `tdd gsx submit` |
 | take the remote's changes and publish yours | `tdd gsx sync` (`--all`, `--no-push`) |
 | see the stacks | `tdd gsx stack` (`-a`, `-s`, `-r`, `-l`) |
-| fetch someone's PR or stack | `tdd gsx checkout FOO-16` / `#22` |
+| fetch someone's PR or stack | `tdd gsx checkout FOO-16` / `'#22'` |
+| adopt a stack someone restructured | `tdd gsx checkout '#41' --force` |
 | move PRs to another stack | `tdd gsx move --to '#41'` (`--dry-run`, `--abort`) |
 | publish that move | `tdd gsx submit --move` |
 | labels and reviewers | `tdd gsx apply --label:all run-ci` |

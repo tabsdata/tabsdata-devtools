@@ -355,6 +355,108 @@ def _checkout_by_pr(runner: gh.Runner, branch: str, extra: list[str], out) -> No
         _checkout_alone(runner, out, int(number), branch)
 
 
+def stale_tracking(state: dict, target: dict) -> list[dict]:
+    """The locally tracked stacks that stand in the way of adopting `target`.
+
+    A local stack is in the way when it tracks any of the target's branches
+    and is not the target itself -- the state every other clone is left in by
+    a `gsx move`, where the branches now live in a stack of another number, or
+    of no number at all after a rebuild. gh-stack's own `checkout` meets that
+    by prompting, and one of the three things it offers is to **dissolve the
+    stack on GitHub**, which is the last thing an adopting clone means to do.
+    So gsx decides it beforehand and never lets the prompt happen.
+
+    "Is the target itself" is judged on the target's OPEN branches in order: a
+    tracked stack keeps every branch it ever had, so its merged ones are not a
+    difference worth dropping the tracking over.
+    """
+    wanted = [
+        ((pull.get("head") or {}).get("ref"))
+        for pull in target.get("pull_requests") or []
+        if (pull.get("head") or {}).get("ref") and not _finished(pull)
+    ]
+    stale = []
+    for stack in state.get("stacks") or []:
+        names = [
+            entry["branch"]
+            for entry in stack.get("branches") or []
+            if entry.get("branch")
+        ]
+        if not set(names) & set(wanted):
+            continue
+        if (
+            stack.get("number") == target.get("number")
+            and [name for name in names if name in wanted] == wanted
+        ):
+            continue
+        stale.append({"number": stack.get("number"), "branches": names})
+    return stale
+
+
+def _target_stack(runner: gh.Runner, kind: str, value: str, listing: list[dict]):
+    """The open stack the target names, or the one holding it."""
+    live = [stack for stack in listing or [] if stack.get("open")]
+    if kind == "stack":
+        return next((s for s in live if str(s.get("number")) == str(value)), None)
+    for stack in live:
+        for pull in stack.get("pull_requests") or []:
+            if kind == "pr" and str(pull.get("number")) == str(value):
+                return stack
+            if kind == "branch" and ((pull.get("head") or {}).get("ref")) == value:
+                return stack
+    return None
+
+
+def _adopt(runner: gh.Runner, out, target: dict, stale: list[dict]) -> list[str]:
+    """Drop the tracking that is in the way, then take the target's branches up
+    to their remote copies.
+
+    Lossless by construction, which is what makes `--force` a word about the
+    *arrangement* rather than about anybody's commits: the by-hand recipe for
+    this is `git branch -f <b> origin/<b>` per branch, which silently discards
+    unpushed work, and this reconciles instead -- a branch with commits of its
+    own is rebased onto its remote copy and keeps them.
+    """
+    for stack in stale:
+        number = stack["number"]
+        if number is None:
+            # A rebuilt stack has no number for `unstack` to name. It only
+            # exists here, so nothing on GitHub is lost by saying so.
+            out.warn(
+                "a stack tracked here has no number (never submitted, or rebuilt "
+                f"by a move): {' '.join(stack['branches'][:4])}... -- "
+                "`gh stack unstack --local` from one of its branches drops it"
+            )
+            continue
+        runner.run(["gh", "stack", "unstack", str(number), "--local"], capture=False)
+        out.info(f"dropped the local tracking of stack #{number}", stack=number)
+    return [
+        ((pull.get("head") or {}).get("ref"))
+        for pull in target.get("pull_requests") or []
+        if (pull.get("head") or {}).get("ref") and not _finished(pull)
+    ]
+
+
+def _restructured(stale: list[dict], target: dict) -> str:
+    """The refusal, which has to say what is in the way and what -f will do."""
+    rows = "\n".join(
+        f"  #{stack['number'] if stack['number'] else '-'}   "
+        + " ".join(stack["branches"][:8])
+        + (" ..." if len(stack["branches"]) > 8 else "")
+        for stack in stale
+    )
+    return (
+        f"stack #{target.get('number')} has been restructured since this checkout "
+        "last saw it: its branches are tracked here under "
+        + ", ".join(f"#{s['number'] if s['number'] else '-'}" for s in stale)
+        + ", which GitHub no longer has that way.\n"
+        + rows
+        + "\n  `tdd gsx checkout --force` drops that tracking and takes the "
+        "restructured chain (no commit of yours is lost: a branch with work of "
+        "its own is rebased onto its remote copy, not reset to it)"
+    )
+
+
 def checkout(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     """`gh stack checkout` by branch name or `#<PR>`, and nothing else."""
     # Parsed before anything is asked of gh: a target gsx will not accept is a
@@ -362,8 +464,40 @@ def checkout(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     kind, value = parse_checkout_target(args.target) if args.target else ("", "")
 
     gh.require_tools(runner)
+    # One listing answers two questions: whether `#N` is a stack rather than a
+    # PR, and whether adopting the target means dropping tracking this clone
+    # still holds. Unreachable, and both fall back to what gh alone would do --
+    # a repository whose stacks API is down can still be worked in.
+    listing = []
+    try:
+        listing = gh.stacks(runner)
+    except ToolError as error:
+        out.warn(
+            f"could not list the stacks on GitHub ({error}); checking out without "
+            "the restructure check"
+        )
+    if kind == "pr" and any(
+        stack.get("open") and str(stack.get("number")) == value for stack in listing
+    ):
+        # GitHub numbers stacks and PRs from ONE counter, so a number is a
+        # stack or a PR and never both -- verified against two repositories.
+        # That is what lets `#N` mean either without bringing back the
+        # ambiguity a bare `42` was refused for: the answer is a fact about
+        # the repository, not a guess about what the typist meant.
+        kind = "stack"
+    target = _target_stack(runner, kind, value, listing)
+    stale = stale_tracking(gh.read_state(runner), target) if target else []
+    if stale and not args.force:
+        raise ToolError(_restructured(stale, target))
+    wanted: list[str] = []
+    if stale:
+        wanted = _adopt(runner, out, target, stale)
+
     argv = ["gh", "stack", "checkout"]
-    if kind == "pr":
+    if kind == "stack":
+        argv.append(str(value))
+        what = f"stack #{value}"
+    elif kind == "pr":
         # The URL is the one shape gh cannot read as a stack number, so this is
         # what makes `#42` mean pull request 42 and not stack 42.
         argv.append(f"{gh.repo_url(runner)}/pull/{value}")
@@ -398,6 +532,18 @@ def checkout(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         # failing call is left first because the tracked case is the common one
         # and costs nothing extra.
         _checkout_by_pr(runner, value, extra, out)
+    if wanted:
+        # After gh has the branches -- it creates the missing ones and adopts
+        # the ones already here AS THEY ARE, which for an adopting clone means
+        # the old contents. This is the step that makes them current, and the
+        # step the by-hand recipe does with `git branch -f`, losing work.
+        remote = gh.stack_remote(runner)
+        gh.fetch(runner, remote)
+        here = gh.current_branch(runner)
+        live = [name for name in wanted if gh.sha(runner, f"refs/heads/{name}")]
+        sync_mod.reconcile(runner, live, remote, out)
+        if gh.current_branch(runner) != here:
+            gh.checkout(runner, here)
     return _where(runner)
 
 

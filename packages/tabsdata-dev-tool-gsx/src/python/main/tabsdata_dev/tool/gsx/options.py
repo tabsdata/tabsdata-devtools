@@ -170,21 +170,38 @@ def configure(parser: argparse.ArgumentParser) -> None:
 
     checkout = add(
         "checkout",
-        "check out a stack branch by name, or a pull request by #number",
+        "check out a stack branch by name, or a pull request or stack by #number",
         "examples:\n"
         "  tdd gsx checkout GCS-15      the branch of that name\n"
-        "  tdd gsx checkout '#42'       pull request 42 (quote it: # starts a\n"
-        "                               comment in most shells)\n"
-        "  tdd gsx checkout             gh's interactive picker\n\n"
-        "those two shapes and no others. `gh stack checkout` also takes a bare\n"
+        "  tdd gsx checkout '#42'       pull request 42, or stack 42 -- GitHub\n"
+        "                               numbers both from one counter, so a\n"
+        "                               number is one or the other, never both\n"
+        "                               (quote it: # starts a comment in most shells)\n"
+        "  tdd gsx checkout             gh's interactive picker\n"
+        "  tdd gsx checkout '#7' -f     adopt #7 after somebody restructured it\n\n"
+        "those shapes and no others. `gh stack checkout` also takes a BARE\n"
         "number and a PR URL, but it resolves a bare number as a stack number\n"
         "first, then a PR, then a branch -- so `42` means whichever exists at\n"
-        "the time. A number here says what it counts or is refused.\n\n",
+        "the time. A number here says what it counts or is refused; which of\n"
+        "the two `#42` is, is read off the repository rather than guessed.\n\n"
+        "a stack whose branches this checkout still tracks another way -- what\n"
+        "somebody else's `gsx move` leaves behind -- is REFUSED, naming the\n"
+        "stacks in the way, because gh's own prompt for it offers to dissolve\n"
+        "the stack on GitHub. --force takes the restructured chain, and loses\n"
+        "no commits: a branch with work of its own is rebased onto its remote\n"
+        "copy rather than reset to it.\n\n",
+    )
+    checkout.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="adopt a stack that has been restructured since this checkout last "
+        "saw it, dropping the local tracking that disagrees",
     )
     checkout.add_argument(
         "target",
         nargs="?",
-        metavar="BRANCH|#PR",
+        metavar="BRANCH|#PR|#STACK",
         help="a branch name, or #N for pull request N; omitted opens gh's picker",
     )
 

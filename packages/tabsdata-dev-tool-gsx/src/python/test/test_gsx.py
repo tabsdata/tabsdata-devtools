@@ -3843,3 +3843,120 @@ def test_init_reports_the_missing_extension_as_well_as_the_guard():
     assert "which gsx did not set" in commands._init_line(
         {"protected": False, "active": "elsewhere", "hooks_path": ".husky"}, True
     )
+
+
+# ------------------------------------------------------- checkout --force
+def test_a_local_stack_holding_the_targets_branches_another_way_is_in_the_way():
+    target = _listed(7, [(5, "C1"), (6, "C2"), (3, "A3")])
+    # exactly this stack, tracked as it is: nothing in the way
+    same = {
+        "stacks": [
+            {"number": 7, "branches": [{"branch": b} for b in ("C1", "C2", "A3")]}
+        ]
+    }
+    assert commands.stale_tracking(same, target) == []
+    # ...and its merged branches are not a difference: a tracked stack keeps
+    # every branch it ever had
+    with_history = {
+        "stacks": [
+            {
+                "number": 7,
+                "branches": [{"branch": b} for b in ("OLD-1", "C1", "C2", "A3")],
+            }
+        ]
+    }
+    assert commands.stale_tracking(with_history, target) == []
+    # the same branches under another number -- what somebody else's move
+    # leaves in every clone
+    stale = {
+        "stacks": [{"number": 4, "branches": [{"branch": b} for b in ("A1", "A3")]}]
+    }
+    assert commands.stale_tracking(stale, target) == [
+        {"number": 4, "branches": ["A1", "A3"]}
+    ]
+    # a rebuilt stack has no number at all
+    rebuilt = {"stacks": [{"number": None, "branches": [{"branch": "A3"}]}]}
+    assert commands.stale_tracking(rebuilt, target) == [
+        {"number": None, "branches": ["A3"]}
+    ]
+    # a stack sharing nothing is somebody else's business
+    other = {"stacks": [{"number": 9, "branches": [{"branch": "Z1"}]}]}
+    assert commands.stale_tracking(other, target) == []
+
+
+def test_a_restructured_stack_is_refused_and_names_the_way_through(
+    tmp_path, monkeypatch, capsys
+):
+    """gh's own prompt for this offers to dissolve the stack on GitHub, which
+    is the last thing an adopting clone means to do. gsx decides it first."""
+    calls = _fake_checkout(
+        monkeypatch, tmp_path, stacks=[_listed(7, [(5, "C1"), (3, "A3")])]
+    )
+    (tmp_path / "gh-stack").write_text(
+        json.dumps({"stacks": [{"number": 4, "branches": [{"branch": "A3"}]}]})
+    )
+    assert gsx.main(["checkout", "#7"]) == 1
+    said = capsys.readouterr().err
+    assert "has been restructured since this checkout last saw it" in said
+    assert "#4" in said and "--force" in said
+    # nothing was touched: not the tracking, not gh
+    assert not any(c[:3] == ["gh", "stack", "checkout"] for c in calls)
+    assert not any(c[:3] == ["gh", "stack", "unstack"] for c in calls)
+
+
+def test_force_drops_the_tracking_in_the_way_and_then_checks_the_stack_out(
+    tmp_path, monkeypatch, capsys
+):
+    calls = _fake_checkout(
+        monkeypatch, tmp_path, stacks=[_listed(7, [(5, "C1"), (3, "A3")])]
+    )
+    (tmp_path / "gh-stack").write_text(
+        json.dumps({"stacks": [{"number": 4, "branches": [{"branch": "A3"}]}]})
+    )
+    monkeypatch.setattr(gh, "sha", lambda runner, ref: "sha" if "heads" in ref else "")
+    monkeypatch.setattr(gh, "is_ancestor", lambda runner, a, b: True)
+    assert gsx.main(["checkout", "#7", "--force"]) == 0
+    # the stale tracking first -- gh would otherwise prompt -- and only local
+    assert ["gh", "stack", "unstack", "4", "--local"] in calls
+    # then the stack itself, by number
+    assert ["gh", "stack", "checkout", "7"] in calls
+    assert calls.index(["gh", "stack", "unstack", "4", "--local"]) < calls.index(
+        ["gh", "stack", "checkout", "7"]
+    )
+
+
+def test_a_number_is_a_stack_or_a_pr_and_the_repository_says_which(
+    tmp_path, monkeypatch
+):
+    """GitHub numbers stacks and PRs from one counter, so a number is one or
+    the other and never both -- verified against two repositories. That is
+    what lets `#N` mean either without bringing back the ambiguity a bare
+    `42` is refused for: it is read off the repository, not guessed."""
+    calls = _fake_checkout(
+        monkeypatch, tmp_path, stacks=[_listed(7, [(5, "C1"), (3, "A3")])]
+    )
+    assert gsx.main(["checkout", "#7"]) == 0
+    assert ["gh", "stack", "checkout", "7"] in calls
+
+    calls = _fake_checkout(
+        monkeypatch, tmp_path, stacks=[_listed(7, [(5, "C1"), (3, "A3")])]
+    )
+    # 3 is a PR of that stack, not a stack: the URL form, as before
+    assert gsx.main(["checkout", "#3"]) == 0
+    assert ["gh", "stack", "checkout", "https://github.com/o/n/pull/3"] in calls
+
+
+def test_a_listing_that_cannot_be_had_checks_out_the_way_gh_alone_would(
+    tmp_path, monkeypatch, capsys
+):
+    """A repository whose stacks API is unreachable can still be worked in;
+    what is lost is the restructure check, and that is said."""
+    calls = _fake_checkout(monkeypatch, tmp_path)
+
+    def explode(runner, **kw):
+        raise ToolError("no network")
+
+    monkeypatch.setattr(gh, "stacks", explode)
+    assert gsx.main(["checkout", "#42"]) == 0
+    assert "without the restructure check" in capsys.readouterr().err
+    assert ["gh", "stack", "checkout", "https://github.com/o/n/pull/42"] in calls

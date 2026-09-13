@@ -156,6 +156,42 @@ listing that cannot be read is therefore read as "there is a stack". `#N` reache
 by its other name, and a `#N` gh can name no branch for keeps its original failure: that is not
 this asymmetry, it is most likely a PR that does not exist.
 
+**`#N` is a stack or a pull request, and the repository says which.** GitHub numbers stacks and
+PRs from one counter, so a number is one or the other and **never both** -- verified against two
+repositories, where the stack numbers (3495, 3464, 3443, 3170) resolve to no PR at all. That is
+what lets one spelling carry both without bringing back the ambiguity a bare `42` is refused for:
+the answer is read off the listing `checkout` already makes, not guessed from what the typist
+probably meant. A bare number stays refused, because the third candidate -- a *branch* called
+`42` -- is not in that number space and nothing can tell them apart.
+
+**A stack that has been restructured is refused, not adopted.** When any locally tracked stack
+holds branches of the target and is not the target -- the state every other clone is left in by a
+published `gsx move` -- `checkout` stops and names them. This is not caution for its own sake:
+`gh stack checkout` meets the same situation with a prompt whose three options include **deleting
+the stack on GitHub**, which is the last thing an adopting clone means to do, and which a
+non-interactive run cannot even answer. Deciding it beforehand means the prompt never happens.
+
+"Is the target" is judged on the target's **open** branches in order, because a tracked stack
+keeps every branch it ever had and its merged ones are not a disagreement worth dropping the
+tracking over.
+
+**`--force` adopts, and loses nothing.** `gh stack unstack <n> --local` per stack in the way --
+which works even for a number GitHub no longer has, measured -- then `gh stack checkout`, then a
+**reconcile** of the target's branches. The reconcile is the part worth arguing for: the by-hand
+recipe for this is `git branch -f <b> origin/<b>` per branch, which silently discards unpushed
+work, while reconciling rebases a branch with commits of its own onto its remote copy and keeps
+them -- verified with a commit deliberately left unpushed, which came back on top of the full
+remote history with the next push a fast-forward. So `--force` is a word about the *arrangement*,
+never about anybody's commits, which is why it needs no confirmation.
+
+The reconcile runs **after** gh has the branches, because `gh stack checkout` creates the missing
+ones and adopts the ones already here *as they are* -- for an adopting clone, at their old
+contents. Without this step the tracking would be right and the branches stale.
+
+**A listing that cannot be had falls back to what gh alone would do**, with a warning: a
+repository whose stacks API is unreachable can still be worked in, and what is lost is the
+restructure check rather than the checkout.
+
 ## approve
 
 `approve --approvers NAME[,NAME...]` with `--pr N,...`, `--down-stack` or `--stack`. Each approver
