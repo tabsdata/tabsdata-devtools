@@ -1,5 +1,5 @@
 {
-  "fingerprint": "0156045e33994437",
+  "fingerprint": "ef6ac9e5d9087d06",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
@@ -111,7 +111,8 @@
       "reqs": [
         "git",
         "gh",
-        "op"
+        "op",
+        "sh"
       ],
       "summary": "GitHub issues + `gh stack`: an issue, a stack branch and a PR in one command",
       "toolset": "launchers"

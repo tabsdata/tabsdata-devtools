@@ -102,6 +102,36 @@ def own_commits(
     return kept
 
 
+def once_mine(runner: gh.Runner, branch: str, tracked: str) -> bool:
+    """Whether the remote tip was ever a tip of this local branch.
+
+    The question that tells a rewrite of our own history from a change by
+    somebody else, and it is answered from the reflog -- the same way the
+    guard's first rule answers it, so the two cannot disagree. After an
+    interleave the remote tip is the tip we rewrote, and it is there; after a
+    teammate's restack it is a sha this clone never held, and it is not.
+
+    The first attempt asked instead whether the remote held any patch we
+    lacked above the trunk, and that was too broad: a branch a teammate had
+    merely restacked onto a newer trunk answered "nothing new" too, was left on
+    the old trunk, restacked here, and force-pushed with fresh shas over
+    perfectly good ones -- every sync by anyone then rewrote every branch, and
+    in the sandbox the second round conflicted. Only a tip this clone once held
+    is a rewrite of its own.
+    """
+    if not tracked:
+        return False
+    tips = runner.run(
+        ["git", "log", "-g", "--format=%H", f"refs/heads/{branch}"], check=False
+    ).split()
+    if not tips:
+        return False
+    left = runner.run(
+        ["git", "rev-list", "-n", "1", tracked, "--not", *tips], check=False
+    ).strip()
+    return not left
+
+
 def classify(local: str, tracked: str, ancestor) -> str:
     """What one branch needs, from the two shas and an is-ancestor test.
 
@@ -176,9 +206,9 @@ def unreconciled(
             if own_commits(runner, branch, remote, f"{remote}/{base}", parent):
                 behind.append(branch)
             continue
-        if classify(local, tracked, lambda a, b: gh.is_ancestor(runner, a, b)) in (
-            BEHIND,
-            DIVERGED,
+        verdict = classify(local, tracked, lambda a, b: gh.is_ancestor(runner, a, b))
+        if verdict == BEHIND or (
+            verdict == DIVERGED and not once_mine(runner, branch, tracked)
         ):
             behind.append(branch)
     return behind
@@ -243,6 +273,47 @@ def moved_branches(
     return moved
 
 
+def integrated(runner: gh.Runner, branch: str, remote: str, tracked: str) -> None:
+    """Record in the branch's reflog that the remote tip has been taken in.
+
+    A moved branch is reconciled by cherry-pick, which never makes the remote
+    tip an ancestor of the branch -- and the guard's first rule, like
+    `once_mine`, reads the reflog to decide whether a forced push discards
+    somebody else's work. Without this the publish of a move whose branch a
+    teammate had pushed to was refused by the guard AFTER the old stack had
+    been dissolved on GitHub, which is the one order of events this whole tool
+    exists to prevent. Two `update-ref`s with honest messages: the branch
+    pointed at the remote tip, then at the result that holds its commits. The
+    working tree is the result throughout, so nothing moves under the
+    operator; and `git rebase <remote>/<branch>`, the other reconcile, leaves
+    the same fact in the reflog by making the tip an ancestor.
+    """
+    result = gh.sha(runner, f"refs/heads/{branch}")
+    ref = f"refs/heads/{branch}"
+    runner.run(
+        [
+            "git",
+            "update-ref",
+            "-m",
+            f"gsx sync: integrated {remote}/{branch}",
+            ref,
+            tracked,
+            result,
+        ]
+    )
+    runner.run(
+        [
+            "git",
+            "update-ref",
+            "-m",
+            f"gsx sync: {branch} holding {remote}/{branch}'s commits where it now sits",
+            ref,
+            result,
+            tracked,
+        ]
+    )
+
+
 def reconcile(
     runner: gh.Runner,
     branches: list[str],
@@ -290,20 +361,29 @@ def reconcile(
                 else trunk
             )
             taking = own_commits(runner, branch, remote, f"{remote}/{base}", parent)
-            if not taking:
+            if taking:
+                done[branch] = DIVERGED
+                gh.checkout(runner, branch)
+                runner.run(["git", "cherry-pick", *taking], capture=False)
+                out.info(
+                    f"{branch}: took {len(taking)} commit(s) from {remote}/{branch} "
+                    "(moved off its base here, so only its own came over)",
+                    branch=branch,
+                    took=len(taking),
+                )
+            else:
                 done[branch] = CURRENT
-                continue
-            done[branch] = DIVERGED
-            gh.checkout(runner, branch)
-            runner.run(["git", "cherry-pick", *taking], capture=False)
-            out.info(
-                f"{branch}: took {len(taking)} commit(s) from {remote}/{branch} "
-                "(moved off its base here, so only its own came over)",
-                branch=branch,
-                took=len(taking),
-            )
+            if tracked and tracked != gh.sha(runner, f"refs/heads/{branch}"):
+                integrated(runner, branch, remote, tracked)
             continue
         if verdict in (CURRENT, UNPUBLISHED):
+            continue
+        if verdict == DIVERGED and once_mine(runner, branch, tracked):
+            # Ours is a rewrite of theirs -- an interleave, a reorder -- and
+            # we once held exactly what the remote has. Rebasing onto it would
+            # put its order back. Left alone; the push forces, and the guard
+            # lets a rewrite of one's own history through.
+            done[branch] = CURRENT
             continue
         gh.checkout(runner, branch)
         runner.run(["git", "rebase", f"{remote}/{branch}"], capture=False)
@@ -332,6 +412,7 @@ def restack(
     trunk: str,
     out,
     before: dict[str, str] | None = None,
+    reconciled: dict[str, str] | None = None,
 ) -> list[str]:
     """Put each branch back on top of the one below it, where it is not already.
 
@@ -356,6 +437,7 @@ def restack(
     snapshot would name the wrong range.
     """
     before = before or {}
+    reconciled = reconciled or {}
     rewritten = []
     for index, branch in enumerate(branches):
         parent = branches[index - 1] if index else trunk
@@ -363,14 +445,58 @@ def restack(
             continue
         if gh.is_ancestor(runner, parent, branch):
             continue
-        was = before.get(parent, "")
-        if not was or not gh.is_ancestor(runner, was, branch):
-            was = runner.run(["git", "merge-base", parent, branch])
+        was = fork_point(
+            runner,
+            parent,
+            branch,
+            [before.get(parent, ""), reconciled.get(parent, "")],
+        )
         gh.checkout(runner, branch)
         runner.run(["git", "rebase", "--onto", parent, was, branch], capture=False)
         rewritten.append(branch)
         out.info(f"{branch}: restacked onto {parent}", branch=branch, parent=parent)
     return rewritten
+
+
+def fork_point(runner: gh.Runner, parent: str, branch: str, earlier: list[str]) -> str:
+    """Where `branch`'s own commits start: the LATEST of its merge-bases with
+    every state the parent has had this run -- before the run, after
+    reconcile, and now.
+
+    Each state is the fork point in some case, and every pair was tried and
+    found short. The current parent is wrong once it has been rewritten in
+    this run -- which is exactly when a restack is needed -- because the
+    merge-base then falls past the parent's own commits and the rebase replays
+    them onto a parent that already holds them (the tabsdata-os conflict). The
+    pre-run tip is wrong when the parent already carried a local commit the
+    child was not built on: bob committed to B3-3 and then synced, so the
+    snapshot held his commit while B3-4 had forked before it. And a child that
+    was itself reconciled onto a remote copy sitting on the parent's REMOTE
+    version forked from the parent as it stood after reconcile and before
+    restack, which neither of those two is: alice's B2-5, reconciled onto bob's
+    B2-5, met bob's B2-4 there, while B2-4 here had by then been restacked
+    again -- and the range from the next-best candidate replayed `[B2-4]
+    initial` onto a B2-4 that already had it.
+
+    Whichever candidate is the most recent is where the child was really
+    built, and the range above it holds the child's commits alone. gh-stack
+    keeps one recorded base per branch for this; three snapshots are that
+    fact, computed rather than stored, for a run that rewrites branches twice.
+    """
+    candidates = []
+    for ref in [*earlier, parent]:
+        if not ref:
+            continue
+        base = runner.run(["git", "merge-base", ref, branch], check=False).strip()
+        if base and base not in candidates:
+            candidates.append(base)
+    if not candidates:
+        return runner.run(["git", "merge-base", parent, branch])
+    latest = candidates[0]
+    for candidate in candidates[1:]:
+        if gh.is_ancestor(runner, latest, candidate):
+            latest = candidate
+    return latest
 
 
 def push_args(

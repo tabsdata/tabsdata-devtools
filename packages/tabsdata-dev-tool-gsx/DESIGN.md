@@ -175,6 +175,13 @@ non-interactive run cannot even answer. Deciding it beforehand means the prompt 
 keeps every branch it ever had and its merged ones are not a disagreement worth dropping the
 tracking over.
 
+**A stale stack with no number is dropped too**, by standing on one of its branches and
+`gh stack unstack --local`, which acts on the active stack; the numbered ones go first, so a
+branch shared with one of them has a single holder left by then. A stale clone's `gh stack sync`
+leaves exactly such a stack: when GitHub answers 404 for the tracked id, gh-stack clears the
+number and keeps the branches. The first version only warned about it, and `gh stack checkout`
+then refused with "local stack composition differs from remote" -- measured, twice.
+
 **`--adopt` takes the restructured chain, and loses nothing.** It is deliberately **not** called
 `--force`: gsx already uses that word for a real overwrite (`init --force` replaces a pre-push
 hook somebody else wrote), and spending it on an operation that provably discards nothing would
@@ -482,12 +489,36 @@ either command that cannot be undone**. It has to dissolve before it pushes:
 So the one thing to expect: **the stack number of what stays below you changes.** The PR numbers
 do not.
 
+**And after the submit, gsx grows the stack object itself where gh-stack stopped short.**
+`gh stack submit` adds to a GitHub stack only when the local stack lists every PR the GitHub one
+has -- and a GitHub stack keeps its merged PRs for ever, while a stack re-declared here after a
+move carries only what is open. Moving onto a stack with landed history therefore pushed the
+branches and fixed the PR base, then stopped with "A stack on GitHub already contains #454, which
+is not in your local stack" -- measured. The stacks API takes the missing PRs directly
+(`POST .../stacks/{n}/add`, `pull_requests[]`), provided each one's base is the previous one's
+head, which the submit has just made true. Non-fatal, since the push is done.
+
 **And it refuses to start while any branch it is about to push is behind its remote copy**,
 naming `tdd gsx sync`. The order above is why this check lives here and not in the guard alone:
 the dissolve happens *before* the push, so a push the guard refuses -- or worse, one that goes
 through and drops a teammate's commit -- would happen with the old arrangement already gone. It
 is the same `unreconciled()` the sync engine uses, run against the stack being stood in after one
 fetch.
+
+**And the installed guard is asked first.** Before the dissolve, the very script the push will run
+is fed the lines git would feed it -- local sha, remote sha, per branch this publish will push:
+the stack being stood in and every stack `_submit_the_rest` will submit -- and a refusal there is
+a refusal here, with the guard's own words and "nothing has been dissolved". This is not
+redundancy with `unreconciled()`: the two ask different questions in different code, and the
+sandbox showed them disagreeing three times, each time with the stack already gone. Asking the
+guard itself is the only way to be sure the guard will agree.
+
+**A moved branch reconciled by cherry-pick records the remote tip in its reflog** (two
+`update-ref`s with honest messages: the branch pointed at the remote tip, then at the result), so
+that the guard's first rule -- and `once_mine`, which is the same test -- can see the remote's
+state was integrated. A `git rebase <remote>/<branch>` leaves that fact behind by making the tip
+an ancestor; a cherry-pick never does, and without this the publish of a move whose branch a
+teammate had pushed to was refused after the dissolve.
 
 **And a moved branch is judged by patch, not by ancestry.** Reconciling one cherry-picks the
 remote's commits onto where it now sits, so they arrive under new shas and `<remote>/<branch>` is
@@ -799,17 +830,45 @@ GitHub has it: onto an ancestor it fast-forwards, onto a divergence it replays, 
 drops any commit whose patch the other side already has. That last part is what makes the step
 safe to repeat.
 
-**The cascade's upstream is the parent's tip from before the run**, not
-`git merge-base <parent> <branch>`. Once the parent has been rewritten -- which is exactly when a
-restack is needed -- the merge-base falls back past the parent's own commits, and the rebase
-replays them onto a parent that already holds them under new shas. Measured in tabsdata-os:
-restacking `OS-3482` after `OS-3481` had been rewritten took the merge-base to the tip of
-`TD-3329`, three branches below, and replayed `[OS-3481] Add excel file parsing logic` onto the
-new `OS-3481` -- an add/add conflict in a file neither side had really touched twice, reported to
-the operator as their conflict to resolve. gh-stack avoids this by keeping a recorded base per
-branch; a snapshot of every tip taken before the run is the same fact, and one this code already
-has to hand. The merge-base remains the fallback for a branch whose snapshot is not in its
-history at all.
+**The cascade's upstream is the child's fork point: the LATEST of its merge-bases with every state
+the parent has had this run -- before the run, after reconcile, and now.** No one of them, and no
+pair, survived testing.
+`git merge-base <parent> <branch>` is wrong once the parent has been rewritten -- which is exactly
+when a restack is needed -- because it falls back past the parent's own commits and the rebase
+replays them onto a parent that already holds them under new shas: in tabsdata-os, restacking
+`OS-3482` after `OS-3481` had been rewritten took it to the tip of `TD-3329`, three branches
+below, and replayed `[OS-3481] Add excel file parsing logic` onto the new `OS-3481`, an add/add
+conflict in a file neither side had touched twice. The parent's pre-run tip, the next attempt, is
+wrong when the parent already carried local commits the child was not built on: in the sandbox
+bob committed to `B3-3` and then synced, the snapshot of `B3-3` held his commit while `B3-4` had
+forked before it, the ancestry test failed and the fallback replayed three branches. And a
+child that was itself reconciled onto a remote copy sitting on the parent's *remote* version forked
+from the parent as it stood after reconcile and before restack, which is neither of those: alice's
+`B2-5`, reconciled onto bob's `B2-5`, met bob's `B2-4` there, while `B2-4` here had by then been
+restacked again, and the next-best candidate replayed `[B2-4] initial` onto a `B2-4` that already
+had it. Whichever candidate is the most recent is where the child was really built, and the range
+above it is the child's commits alone. gh-stack keeps a recorded base per branch for the same
+reason; three snapshots are that fact, computed rather than stored, for a run that rewrites
+branches twice.
+
+**The range has to be exact because git's dedup cannot be leaned on.** `rebase --onto` drops an
+identical-patch commit only while the file it adds is untouched afterwards on the onto side; the
+moment a later commit appends to that file the duplicate is applied and conflicts add/add --
+measured on a three-commit repository, and the shape of both cascade conflicts the first fork-point
+rule left behind. An over-wide range is therefore not "harmless, git will skip the duplicates".
+
+**A rewrite of the branch's own history is not a divergence to reconcile.** An interleave -- a
+commit inserted into the middle of a branch's own commits, which the workflow allows -- leaves the
+two tips with no shared ancestry while the remote holds nothing this clone lacks. `classify` reads
+that as diverged, and `git rebase <remote>/<branch>` then "takes" nothing and puts the remote's
+order back: measured, initial/interleaved/second came out initial/second/interleaved, the
+interleave silently undone. So a diverged branch is first asked, by patch and above the trunk,
+whether the remote has anything it does not (`remote_has_more`, the same question `stack` answers
+with `+`); when it does not, the branch is left alone, the push forces, and the guard lets a
+rewrite of one's own history through. The same test keeps `submit --move` from refusing a pure
+rewrite as "unreconciled". What is still lost is the interleave's *order* when a teammate pushed
+to the branch concurrently: then the remote's order is the base and ours-not-in-theirs is
+replayed on top, which is what a rebase means and is said here rather than hidden.
 
 **A branch this clone has MOVED is the exception, and it is not a small one.** The same rebase
 drags the old parent chain back in, because `<remote>/<branch>` still holds it: measured on a
@@ -892,6 +951,12 @@ does not fix.
 that out halfway through a cascade leaves the stack in pieces. A stopped `gh stack rebase` is
 refused for the same reason, naming gh-stack's own `--continue`/`--abort`.
 
+**A branch whose PR has landed is left out of every step, the push included.** A squash-merged
+bottom branch, deleted on GitHub, still exists here and in the tracking file; read as "unpublished"
+it was restacked onto the trunk and pushed back -- `* [new branch] E1-1 -> E1-1`, measured. The
+PR states come from the one GraphQL call that already fetches the bases, so this costs nothing,
+and the branch above a landed one then sits on the trunk, which is where its commits now are.
+
 **During an unpublished move it reconciles and restacks but pushes nothing**, and says which.
 Half an arrangement is not a thing to publish, and keeping the move sitting on top of current
 work is the useful half of syncing while one is open.
@@ -918,9 +983,17 @@ read any of this. Two rules, both about a branch the remote already has:
 - **rewrite**: refuse a forced update whose remote tip was never reachable from any past tip of
   this local branch. Someone else rewrote it; this push would discard their work. Rewrites of
   your own history pass, which is what leaves ordinary restacking alone.
-- **drop**: refuse a push that loses a commit the remote has, matched by patch-id and, failing
-  that, by subject. A rebase preserves both, so restacking and interleaving pass; a squash or a
-  deletion does not. Commits already in the trunk are not counted -- landing is not losing.
+- **drop**: refuse a push that loses a commit the remote branch has **of its own**, matched by
+  patch-id and, failing that, by subject. A rebase preserves both, so restacking and interleaving
+  pass; a squash or a deletion does not. "Of its own" is above the trunk and **not carried, by
+  patch, by any other remote branch that is not this one's descendant** -- which is what excludes
+  the parents a branch sat on. The first version counted everything above the trunk, and every
+  published move was refused for "dropping" its old parents' commits: three moves in one
+  afternoon, each refused *after* `submit --move` had dissolved the old stack on GitHub. A branch
+  moved onto another stack legitimately leaves its old parents behind; they are not its commits.
+  Descendants are left out of "other" because they hold this branch's commits and would cancel
+  them; the parents are matched by patch rather than by ancestry so that a parent restacked under
+  the branch since it was pushed still counts as the parent.
 
 The second rule is the **append-only policy**, not data safety, and it is the one with false
 positives: a conflict resolution that also rewrites the subject reads as a drop. So it names the
@@ -947,6 +1020,11 @@ it -- `--clone` said "installed", `--check` said "NOT active", and only the seco
 **A pre-push hook gsx did not write is never silently replaced** -- `--force` is the way through,
 and the refusal says so. The write is a temporary file and one rename, like every other write
 here: a half-written guard is a guard that passes everything.
+
+**Upgrading the guard is `init --force`.** A pre-push hook that differs from the one shipped is
+refused on purpose -- it may be somebody's own -- and after gsx changes the script, the committed
+`.githooks/pre-push` differs in exactly that way. One `tdd gsx init --force`, one commit, and every
+clone that pulls has it; `init --check` in a clone whose committed copy is older says "other".
 
 **And the missing `gh stack` extension is reported whatever else happens**, because a clone with
 the guard and without the extension is half-prepared in a way that only shows itself at submit

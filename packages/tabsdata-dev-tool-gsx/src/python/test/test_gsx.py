@@ -3468,8 +3468,18 @@ def test_a_branch_is_classified_by_what_the_remote_has_that_it_does_not():
     assert sync_mod.classify("a", "", _ancestor(set())) == sync_mod.UNPUBLISHED
 
 
-def _fake_git(monkeypatch, shas, ancestors, current="B2", window=()):
-    """A runner answering rev-parse, merge-base and rev-list from fixtures."""
+def _fake_git(
+    monkeypatch,
+    shas,
+    ancestors,
+    current="B2",
+    window=("theirs",),
+    reflog=("some-old-tip",),
+):
+    """A runner answering rev-parse, merge-base and rev-list from fixtures.
+    `window` is what every rev-list answers: by default one commit, so a
+    diverged branch is diverged by CONTENT too; pass `()` for a branch whose
+    remote copy holds nothing it lacks."""
     calls = []
 
     class FakeRunner:
@@ -3482,11 +3492,20 @@ def _fake_git(monkeypatch, shas, ancestors, current="B2", window=()):
             if argv[:2] == ["git", "rev-parse"] and "--verify" in argv:
                 return shas.get(argv[-1], "")
             if argv[:2] == ["git", "merge-base"]:
-                return "base-sha"
+                # honest enough: an ancestor is its own merge-base with the
+                # branch, anything else meets it at some older point
+                a, b = argv[2], argv[3]
+                return a if (a == b or (a, b) in ancestors) else "base-sha"
             if argv[:3] == ["git", "rev-parse", "--abbrev-ref"]:
                 return current
+            if argv[:2] == ["git", "rev-list"] and argv[2:4] == ["-n", "1"]:
+                # `rev-list -n 1 <tracked> --not <tips...>`: empty when tracked
+                # is reachable from a past tip
+                return "" if argv[4] in reflog else argv[4]
             if argv[:2] == ["git", "rev-list"]:
                 return " ".join(window)
+            if argv[:3] == ["git", "log", "-g"]:
+                return "\n".join(reflog) if reflog else ""
             return ""
 
         def json(self, argv):
@@ -4084,9 +4103,9 @@ def test_the_cascade_replays_a_branchs_OWN_commits_after_its_parent_was_rewritte
         runner, ["OS-3481", "OS-3482"], "TD-3329", _Say(), before
     ) == ["OS-3482"]
     rebases = [c for c in calls if c[:2] == ["git", "rebase"]]
-    # the parent's PRE-RUN tip, never the merge-base
+    # the parent's PRE-RUN tip -- the later of the two merge-bases here --
+    # and never the one with the rewritten parent
     assert rebases == [["git", "rebase", "--onto", "OS-3481", "OS-3481-old", "OS-3482"]]
-    assert not any(c[:2] == ["git", "merge-base"] for c in calls)
 
 
 def test_the_cascade_falls_back_to_the_merge_base_when_the_snapshot_is_no_use(
@@ -4257,3 +4276,142 @@ def test_a_genuinely_new_commit_is_still_taken(monkeypatch):
     assert sync_mod.own_commits(FakeRunner(), "A3", "origin", "origin/A2", "C2") == [
         "theirs"
     ]
+
+
+def test_the_fork_point_is_the_latest_merge_base_over_the_parents_states(monkeypatch):
+    """Three states of the parent -- before the run, after reconcile, now --
+    and each is the fork point in some measured case. The snapshot alone
+    failed when bob had committed to B3-3 before syncing; the current parent
+    alone failed once it had been rewritten; and B2-5, reconciled onto bob's
+    B2-5, forked from B2-4 as it stood after reconcile and before restack."""
+
+    def runner_with(table):
+        class FakeRunner:
+            out = None
+            dry_run = False
+
+            def run(self, argv, **kwargs):
+                if argv[:2] == ["git", "merge-base"]:
+                    return table.get((argv[2], argv[3]), argv[2])
+                return ""
+
+        return FakeRunner()
+
+    # the pre-run snapshot is the latest: bob's commit sat on B3-3 before the
+    # run, B3-4 forked below it, and B3-3 now is rewritten
+    monkeypatch.setattr(
+        gh, "is_ancestor", lambda r, a, b: (a, b) in {("old-main", "fork")}
+    )
+    r = runner_with({("B3-3-before", "B3-4"): "fork", ("B3-3", "B3-4"): "old-main"})
+    assert sync_mod.fork_point(r, "B3-3", "B3-4", ["B3-3-before", ""]) == "fork"
+
+    # the current parent is the latest: the child was reconciled onto a copy
+    # that already sits on the NEW parent
+    monkeypatch.setattr(
+        gh, "is_ancestor", lambda r, a, b: (a, b) in {("old-main", "new-tip")}
+    )
+    r = runner_with({("P-before", "C"): "old-main", ("P", "C"): "new-tip"})
+    assert sync_mod.fork_point(r, "P", "C", ["P-before", ""]) == "new-tip"
+
+    # the after-reconcile state is the latest: B2-5 reconciled onto bob's B2-5
+    # met bob's B2-4 there; B2-4 here was restacked again since (now meets
+    # B2-5 only at bob's B2-3), and the pre-run B2-4 is on the old chain
+    monkeypatch.setattr(
+        gh,
+        "is_ancestor",
+        lambda r, a, b: (a, b)
+        in {("old-b1", "bob-b3"), ("old-b1", "bob-b4"), ("bob-b3", "bob-b4")},
+    )
+    r = runner_with(
+        {
+            ("B2-4-before", "B2-5"): "old-b1",
+            ("B2-4-reconciled", "B2-5"): "bob-b4",
+            ("B2-4", "B2-5"): "bob-b3",
+        }
+    )
+    assert (
+        sync_mod.fork_point(r, "B2-4", "B2-5", ["B2-4-before", "B2-4-reconciled"])
+        == "bob-b4"
+    )
+
+
+def test_a_diverged_branch_whose_remote_tip_we_once_held_is_our_own_rewrite(
+    monkeypatch,
+):
+    """The interleave: the remote tip is the tip we rewrote, and it is in the
+    reflog. Left alone, so the interleave survives; the push forces."""
+    shas = {"refs/heads/B2": "l2", "refs/remotes/origin/B2": "r2"}
+    runner, calls = _fake_git(
+        monkeypatch, shas, ancestors=set(), reflog=("r2", "older")
+    )
+    out = _Say()
+    assert sync_mod.reconcile(runner, ["B2"], "origin", out) == {"B2": sync_mod.CURRENT}
+    assert not any(c[:2] == ["git", "rebase"] for c in calls)
+    assert sync_mod.unreconciled(runner, ["B2"], "origin") == []
+
+
+def test_a_diverged_branch_whose_remote_tip_we_never_held_is_taken(monkeypatch):
+    """A teammate's restack onto a newer trunk: same patches, a sha this clone
+    never held. The first rule -- "nothing new above the trunk" -- left such a
+    branch on the old trunk and force-pushed fresh shas over good ones."""
+    shas = {"refs/heads/B2": "l2", "refs/remotes/origin/B2": "r2"}
+    runner, calls = _fake_git(
+        monkeypatch, shas, ancestors=set(), window=(), reflog=("older",)
+    )
+    out = _Say()
+    assert sync_mod.reconcile(runner, ["B2"], "origin", out) == {
+        "B2": sync_mod.DIVERGED
+    }
+    assert ["git", "rebase", "origin/B2"] in calls
+    assert sync_mod.unreconciled(runner, ["B2"], "origin") == ["B2"]
+
+
+def test_a_moved_branch_records_the_remote_tip_it_integrated(monkeypatch):
+    """The guard's first rule reads the reflog. A cherry-pick never makes the
+    remote tip an ancestor, so without this the publish of a move whose branch
+    a teammate had pushed to was refused AFTER the old stack was dissolved."""
+    shas = {
+        "refs/heads/A3": "a3",
+        "refs/remotes/origin/A3": "r3",
+        "refs/remotes/origin/A2": "old-parent",
+    }
+    runner, calls = _fake_git(monkeypatch, shas, ancestors=set(), window=("theirs",))
+    sync_mod.reconcile(
+        runner, ["C2", "A3"], "origin", _Say(), bases={"A3": "A2"}, trunk="main"
+    )
+    updates = [c for c in calls if c[:2] == ["git", "update-ref"]]
+    # pointed at the remote tip, then back at the result: two honest entries
+    # argv: git update-ref -m <msg> <ref> <new> <old>
+    assert [c[5:7] for c in updates] == [["r3", "a3"], ["a3", "r3"]]
+    # and with nothing to take, the fact is still recorded
+    runner, calls = _fake_git(monkeypatch, shas, ancestors=set(), window=())
+    sync_mod.reconcile(
+        runner, ["C2", "A3"], "origin", _Say(), bases={"A3": "A2"}, trunk="main"
+    )
+    assert any(c[:2] == ["git", "update-ref"] for c in calls)
+
+
+def test_a_landed_branch_is_left_out_of_sync_entirely(monkeypatch):
+    """A squash-merged bottom branch, deleted on GitHub, still exists here and
+    in the tracking file; treated as unpublished, sync restacked it onto the
+    trunk and pushed it back -- `* [new branch] E1-1 -> E1-1`, measured."""
+    monkeypatch.setattr(
+        gh,
+        "pull_requests",
+        lambda runner, numbers: {
+            1: {"number": 1, "state": "MERGED", "baseRefName": "main"},
+            2: {"number": 2, "state": "OPEN", "baseRefName": "E1-1"},
+            3: {"number": 3, "state": "CLOSED", "baseRefName": "E1-2"},
+        },
+    )
+    bases, landed = commands._pr_info(None, {"E1-1": 1, "E1-2": 2, "E1-3": 3}, _Say())
+    assert landed == {"E1-1", "E1-3"}
+    assert bases == {"E1-1": "main", "E1-2": "E1-1", "E1-3": "E1-2"}
+
+    def explode(runner, numbers):
+        raise ToolError("no network")
+
+    monkeypatch.setattr(gh, "pull_requests", explode)
+    out = _Say()
+    assert commands._pr_info(None, {"E1-1": 1}, out) == ({}, set())
+    assert any("nothing has landed" in m for m in out.said)

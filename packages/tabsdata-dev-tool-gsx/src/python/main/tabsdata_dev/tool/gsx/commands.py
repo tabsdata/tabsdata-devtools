@@ -6,10 +6,11 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 
-from tabsdata_dev.common.core import cli, render
+from tabsdata_dev.common.core import cli, proc, render
 from tabsdata_dev.common.core.errors import ToolError
 
 from . import approve as approve_mod
@@ -417,19 +418,46 @@ def _adopt(runner: gh.Runner, out, target: dict, stale: list[dict]) -> list[str]
     unpushed work, and this reconciles instead -- a branch with commits of its
     own is rebased onto its remote copy and keeps them.
     """
-    for stack in stale:
+    # Numbered stacks first: `unstack <n> --local` names them directly, and
+    # once they are gone a branch shared with an unnumbered one has a single
+    # holder left, which is what "the active stack" then resolves to.
+    for stack in sorted(stale, key=lambda s: s["number"] is None):
         number = stack["number"]
-        if number is None:
-            # A rebuilt stack has no number for `unstack` to name. It only
-            # exists here, so nothing on GitHub is lost by saying so.
+        if number is not None:
+            runner.run(
+                ["gh", "stack", "unstack", str(number), "--local"], capture=False
+            )
+            out.info(f"dropped the local tracking of stack #{number}", stack=number)
+            continue
+        # A stack with no number -- rebuilt by a move here, or one whose id
+        # gh-stack cleared when GitHub answered 404 for it, which is what a
+        # stale clone's `gh stack sync` leaves behind. `unstack` cannot name
+        # it, but it can drop the ACTIVE stack, and standing on one of its
+        # branches makes it that. Measured: bob's gh stack sync after alice's
+        # published move left exactly this, and `gh stack checkout` then
+        # refused with "local stack composition differs from remote".
+        here = gh.current_branch(runner)
+        standing = next(
+            (b for b in stack["branches"] if gh.sha(runner, f"refs/heads/{b}")), None
+        )
+        if standing is None:
             out.warn(
-                "a stack tracked here has no number (never submitted, or rebuilt "
-                f"by a move): {' '.join(stack['branches'][:4])}... -- "
-                "`gh stack unstack --local` from one of its branches drops it"
+                "a stack tracked here has no number and none of its branches "
+                f"exist: {' '.join(stack['branches'][:4])}... -- left as it is"
             )
             continue
-        runner.run(["gh", "stack", "unstack", str(number), "--local"], capture=False)
-        out.info(f"dropped the local tracking of stack #{number}", stack=number)
+        gh.checkout(runner, standing)
+        try:
+            runner.run(["gh", "stack", "unstack", "--local"], capture=False)
+        finally:
+            if here and here != standing:
+                gh.checkout(runner, here)
+        out.info(
+            "dropped the local tracking of an unnumbered stack: "
+            + " ".join(stack["branches"][:6])
+            + (" ..." if len(stack["branches"]) > 6 else ""),
+            stack=None,
+        )
     return [
         ((pull.get("head") or {}).get("ref"))
         for pull in target.get("pull_requests") or []
@@ -651,9 +679,9 @@ def _require_reconciled(runner: gh.Runner, out) -> None:
         return
     remote = gh.stack_remote(runner)
     gh.fetch(runner, remote)
-    behind = sync_mod.unreconciled(
-        runner, branches, remote, _pr_bases(runner, prs, out), trunk
-    )
+    bases, landed = _pr_info(runner, prs, out)
+    branches = [b for b in branches if b not in landed]
+    behind = sync_mod.unreconciled(runner, branches, remote, bases, trunk)
     if behind:
         raise ToolError(
             f"{remote} has commits these branch(es) do not: "
@@ -661,6 +689,57 @@ def _require_reconciled(runner: gh.Runner, out) -> None:
             + " -- `tdd gsx sync` reconciles them first. Publishing a move "
             "dissolves the old stack before it pushes, so this has to be "
             "settled beforehand"
+        )
+
+
+def _preflight_guard(runner: gh.Runner, out, moved: move_mod.Pending) -> None:
+    """Ask the installed pre-push guard, before the dissolve, whether it would
+    let every branch this publish is about to push through.
+
+    `submit --move` dissolves the old stack on GitHub and THEN pushes, so a
+    push the guard refuses leaves the arrangement dissolved on one side and
+    unpublished on the other -- measured three times in one afternoon, on
+    three different moves, before this existed. The guard's own script is what
+    is asked, fed the same lines git would feed it (local sha, remote sha per
+    branch), so the two cannot disagree about what would happen. What is pushed
+    is the stack being stood in and, by `_submit_the_rest`, every other local
+    stack a dissolved one left behind.
+    """
+    found = hooks_mod.state(runner)
+    if not found["protected"]:
+        return  # `_require_guard` refused already; this is belt and braces
+    where = hooks_mod.REPO if found["active"] == hooks_mod.REPO else hooks_mod.CLONE
+    hook = hooks_mod.target(runner, where)
+    here = gh.current_branch(runner)
+    _, mine, _ = _stack_here(runner)
+    pushing = list(mine)
+    for branches in moved.stacks:
+        if branches and here not in branches:
+            pushing.extend(b for b in branches if b not in pushing)
+    remote = gh.stack_remote(runner)
+    lines = []
+    for branch in pushing:
+        local = gh.sha(runner, f"refs/heads/{branch}")
+        tracked = gh.sha(runner, f"refs/remotes/{remote}/{branch}")
+        if local and tracked:
+            lines.append(f"refs/heads/{branch} {local} refs/heads/{branch} {tracked}")
+    if not lines:
+        return
+    url = (
+        runner.run(["git", "remote", "get-url", remote], check=False).strip() or remote
+    )
+    out.debug(f"$ sh {hook} {remote} {url}  # pre-flight, {len(lines)} branch(es)")
+    result = proc.run(
+        ["sh", str(hook), remote, url],
+        input="\n".join(lines) + "\n",
+        capture_output=True,
+        text=True,
+        env=dict(os.environ),
+    )
+    if result.returncode != 0:
+        raise ToolError(
+            "the pre-push guard would refuse this publish, so nothing has been "
+            "dissolved:\n" + (result.stderr or result.stdout).strip()
         )
 
 
@@ -679,11 +758,12 @@ def _sync_before_submit(runner: gh.Runner, out) -> None:
     gh.fetch(runner, remote)
     current = gh.current_branch(runner)
     _forward_trunk(runner, trunk, remote, current, out)
+    bases, landed = _pr_info(runner, prs, out)
+    branches = [b for b in branches if b not in landed]
     before = sync_mod.tips(runner, branches)
-    sync_mod.reconcile(
-        runner, branches, remote, out, _pr_bases(runner, prs, out), trunk
-    )
-    sync_mod.restack(runner, branches, trunk, out, before)
+    sync_mod.reconcile(runner, branches, remote, out, bases, trunk)
+    after = sync_mod.tips(runner, branches)
+    sync_mod.restack(runner, branches, trunk, out, before, after)
     if gh.current_branch(runner) != current:
         gh.checkout(runner, current)
 
@@ -716,6 +796,7 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
 
     if args.move and moved:
         _require_reconciled(runner, out)
+        _preflight_guard(runner, out, moved)
         out.warn(
             "publishing a move: stack(s) "
             + ", ".join(f"#{number}" for number in moved.dissolve)
@@ -752,6 +833,7 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     argv.extend(extras.passthrough.get("p", []))
     runner.run(argv, capture=False)
     steps.step("pushed the stack and opened its PRs", stage="push")
+    _grow_stack(runner, out, steps)
 
     changed, failures = 0, []
     ops = labels_mod.with_defaults(repo, extras.lr_ops, args.no_defaults)
@@ -772,6 +854,62 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         f"pushed the stack; {changed} PR(s) updated\n" + _pr_lines(snapshot),
         {"updated": changed, "prs": [pull["number"] for pull in snapshot]},
     )
+
+
+def _grow_stack(runner: gh.Runner, out, steps) -> None:
+    """Add to the stack on GitHub any open PR of the local stack it is missing.
+
+    `gh stack submit` grows a stack only when the local stack lists every PR
+    the GitHub one has -- and a GitHub stack keeps its merged PRs for ever,
+    while a stack re-declared here after a move carries only what is open. So
+    a move onto a stack with landed history pushed the branches and fixed the
+    PR base, and then stopped short of the stack object with "A stack on
+    GitHub already contains #454, which is not in your local stack" --
+    measured. The API accepts the missing PRs directly, provided each one's
+    base is the previous one's head, which the submit has just made true.
+    Non-fatal: the push is done, and a warning naming the endpoint is better
+    than an error saying the submit failed.
+    """
+    trunk, branches, prs = _stack_here(runner)
+    if not prs:
+        return
+    _, landed = _pr_info(runner, prs, out)
+    wanted = [prs[b] for b in branches if b in prs and b not in landed]
+    if len(wanted) < 2:
+        return  # a stack on GitHub needs two PRs; one is a PR and no stack
+    try:
+        listing = gh.stacks(runner)
+    except ToolError as error:
+        out.debug(f"could not list the stacks on GitHub ({error})")
+        return
+    live = {
+        int(st["number"]): st for st in listing if st.get("open") and st.get("number")
+    }
+    same = _same_stack(set(branches), live)
+    if same is None:
+        return  # submit created it, or there is nothing to grow
+    holding = {
+        int(p["number"]) for p in same.get("pull_requests") or [] if p.get("number")
+    }
+    missing = [n for n in wanted if n not in holding]
+    if not missing:
+        return
+    number = same.get("number")
+    slug = gh.repo_slug(runner)
+    argv = ["gh", "api", "-X", "POST", f"repos/{slug}/stacks/{number}/add"]
+    for n in missing:
+        argv += ["-F", f"pull_requests[]={n}"]
+    try:
+        runner.run(argv)
+        steps.step(
+            f"added {', '.join(f'#{n}' for n in missing)} to stack #{number} on GitHub",
+            stage="grow",
+        )
+    except ToolError as error:
+        out.warn(
+            f"stack #{number} on GitHub is missing {', '.join(f'#{n}' for n in missing)} "
+            f"and could not be grown ({error}); by hand: {' '.join(argv)}"
+        )
 
 
 def _submit_the_rest(runner: gh.Runner, out, args, moved: move_mod.Pending, steps):
@@ -2298,31 +2436,45 @@ def _stack_branches(runner: gh.Runner, state: dict, current: str, every: bool):
     return chosen
 
 
-def _pr_bases(runner: gh.Runner, prs: dict[str, int], out) -> dict[str, str]:
-    """Each branch's base branch, as the PR on GitHub declares it.
+def _pr_info(
+    runner: gh.Runner, prs: dict[str, int], out
+) -> tuple[dict[str, str], set[str]]:
+    """Each branch's base branch as the PR on GitHub declares it, and the
+    branches whose PR has landed.
 
-    The only thing that knows where a branch sat before this clone moved it:
-    gh-stack's state file is rewritten by the move itself, so it agrees with
-    the move and can never notice one. One GraphQL call for the whole stack.
-    An answer that cannot be had leaves the bases empty, which reconciles the
-    ordinary way -- the wrong shape for a moved branch, so it is said.
+    The base is the only thing that knows where a branch sat before this clone
+    moved it: gh-stack's state file is rewritten by the move itself, so it
+    agrees with the move and can never notice one. The landed set is what
+    keeps `sync` from resurrecting history: a squash-merged bottom branch,
+    deleted on GitHub, still exists here and in the tracking file, and a sync
+    that treated it as unpublished restacked it onto the trunk and pushed it
+    back -- `* [new branch] E1-1 -> E1-1`, measured. One GraphQL call for the
+    whole stack; an answer that cannot be had leaves both empty and says so.
     """
     if not prs:
-        return {}
+        return {}, set()
     try:
         payload = gh.pull_requests(runner, list(prs.values()))
     except ToolError as error:
         out.warn(
-            f"could not read the PR bases from GitHub ({error}); reconciling as "
-            "though nothing has been moved here"
+            f"could not read the PRs from GitHub ({error}); reconciling as "
+            "though nothing has been moved here and nothing has landed"
         )
-        return {}
-    bases = {}
+        return {}, set()
+    bases: dict[str, str] = {}
+    landed: set[str] = set()
     for branch, number in prs.items():
-        base = (payload.get(number) or {}).get("baseRefName")
+        pull = payload.get(number) or {}
+        base = pull.get("baseRefName")
         if base:
             bases[branch] = base
-    return bases
+        if (pull.get("state") or "OPEN").upper() in ("MERGED", "CLOSED"):
+            landed.add(branch)
+    return bases, landed
+
+
+def _pr_bases(runner: gh.Runner, prs: dict[str, int], out) -> dict[str, str]:
+    return _pr_info(runner, prs, out)[0]
 
 
 def _forward_trunk(
@@ -2411,22 +2563,38 @@ def sync(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
             "an unpublished move is in progress; `tdd gsx submit --move` publishes it"
         )
     outcome = sync_mod.Outcome()
+    live: list[tuple[str, list[str]]] = []
     for trunk, branches, prs, known in chosen:
         _forward_trunk(runner, trunk, remote, current, out)
-        bases = _pr_bases(runner, prs, out)
+        bases, landed = _pr_info(runner, prs, out)
+        if landed:
+            # History, not state: its commits are in the trunk, its branch is
+            # gone from the remote, and the branch above it now sits on the
+            # trunk. Left out of every step, the push included.
+            out.info(
+                f"{len(landed)} landed branch(es) left out: "
+                + " ".join(b for b in branches if b in landed)
+            )
+            branches = [b for b in branches if b not in landed]
+        live.append((trunk, branches))
         # Before anything is touched: what each branch's own commits sit on.
         # Once a parent is rewritten nothing else remembers where that was.
         before = sync_mod.tips(runner, branches)
         outcome.reconciled.update(
             sync_mod.reconcile(runner, branches, remote, out, bases, trunk, known)
         )
-        outcome.restacked.extend(sync_mod.restack(runner, branches, trunk, out, before))
+        # ...and again after reconcile: a child reconciled onto a remote copy
+        # forked from the parent as it stands HERE, before the restack moves it.
+        after = sync_mod.tips(runner, branches)
+        outcome.restacked.extend(
+            sync_mod.restack(runner, branches, trunk, out, before, after)
+        )
     # Back where the operator was: the cascade walks the stack and leaving
     # them on its top would be a side effect of asking a question.
     if gh.current_branch(runner) != current:
         gh.checkout(runner, current)
 
-    every = [branch for _, branches, _, _ in chosen for branch in branches]
+    every = [branch for _, branches in live for branch in branches]
     plain, forced, leases = sync_mod.push_args(runner, every, remote)
     outcome.fast_forward, outcome.forced = plain, forced
     if args.no_push or holding:

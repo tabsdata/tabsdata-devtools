@@ -106,8 +106,10 @@ reconcile-then-restack push of §3 is allowed.
 Rule 1 of §1 is not data safety -- squashing your own commits passes the hook above, because it
 is your own history. Enforcing it needs a different test:
 
-> **Every commit `origin/B` has that is not in the trunk must still be present in the pushed
-> branch**, matched by patch-id, or failing that by subject line.
+> **Every commit `origin/B` has *of its own* must still be present in the pushed branch**,
+> matched by patch-id, or failing that by subject line. "Of its own" is above the trunk and not
+> carried, by patch, by any other remote branch that is not `B`'s descendant -- so the parents a
+> branch sat on do not count, and a move, which leaves them behind, is not a drop.
 
 Patch-id survives a rebase onto a new parent, so ordinary restacking passes. A squash collapses N
 commits into one with a new patch and usually a new subject, so it is caught. The subject
