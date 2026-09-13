@@ -3,6 +3,7 @@
 #
 
 import json
+import pathlib
 
 import pytest
 from tabsdata_dev.common.core.errors import ToolError
@@ -3960,3 +3961,43 @@ def test_a_listing_that_cannot_be_had_checks_out_the_way_gh_alone_would(
     assert gsx.main(["checkout", "#42"]) == 0
     assert "without the restructure check" in capsys.readouterr().err
     assert ["gh", "stack", "checkout", "https://github.com/o/n/pull/42"] in calls
+
+
+# --------------------------------------------------------------- quick ref
+def test_the_card_and_the_guide_are_the_same_bytes():
+    """`tdd gsx --quick-ref` and section 5 of docs/stack-workflow.md print the
+    same thing, because a card that has drifted from the guide is worse than
+    no card. The asset is the one copy; the guide embeds it."""
+    root = pathlib.Path(__file__).resolve().parents[5]
+    guide = (root / "docs" / "stack-workflow.md").read_text(encoding="utf-8")
+    card = hooks_mod.quick_ref().rstrip("\n")
+    assert card in guide, "docs/stack-workflow.md no longer embeds the shipped card"
+
+
+def test_the_card_answers_before_a_subcommand_is_asked_for(capsys):
+    """ "what are the commands" is what it answers, so it cannot require one."""
+    assert gsx.main(["--quick-ref"]) == 0
+    said = capsys.readouterr().out
+    assert "tdd gsx move --to" in said and "tdd gsx sync" in said
+    # one row per task, with the housekeeping pair on one of them
+    assert "tdd gsx purge" in said and "tdd gsx prune" in said
+    # `stack` spells its options out: `-as` is unreadable on a card whose job
+    # is to be read. (`create -s` keeps its short form, which is the spelling
+    # the tool's own synopsis uses.)
+    assert "[--all] [--short] [--remote | --local]" in said
+    assert "gsx stack -" not in said
+    assert "gsx sync [--all] [--no-push]" in said
+    # a move takes a stack OR its top branch, and the card shows both
+    assert "--to '#41'" in said and "--to FOO-16" in said
+    # and the label/reviewer grammar is the real one
+    assert "--label:<scope>[:<mode>] LIST" in said
+    assert "--reviewer:<scope>[:<mode>] LIST" in said
+    assert "new (default) | top | all | mine" in said
+    assert "replace (default) | add" in said
+
+
+def test_the_card_is_the_ok_message_so_it_pipes(capsys):
+    assert gsx.main(["--quick-ref", "--format", "json"]) == 0
+    last = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert last["event"] == "ok" and last["quick_ref"] is True
+    assert "tdd gsx init" in last["message"]

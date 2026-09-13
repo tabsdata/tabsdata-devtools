@@ -98,6 +98,11 @@ def configure(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--version", "-V", action="store_true", help="show the version and exit"
     )
+    parser.add_argument(
+        "--quick-ref",
+        action="store_true",
+        help="print the one-screen card of every task and its command, and exit",
+    )
     subs = parser.add_subparsers(dest="subcommand", metavar="SUBCOMMAND")
 
     def add(name: str, help_: str, epilog: str = "") -> argparse.ArgumentParser:

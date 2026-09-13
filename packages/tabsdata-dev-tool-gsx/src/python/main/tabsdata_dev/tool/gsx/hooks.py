@@ -34,6 +34,7 @@ from . import gh
 #: Inside the package, found with importlib.resources: the hook is a resource
 #: this tool ships, not a file anyone edits in place.
 ASSET = "assets/pre-push"
+QUICK_REF = "assets/quick-ref.txt"
 
 REPO = "repo"  # .githooks/pre-push + core.hooksPath
 CLONE = "clone"  # .git/hooks/pre-push
@@ -44,6 +45,16 @@ DIRECTORY = ".githooks"
 def script() -> str:
     """The guard's text, as shipped."""
     return (files("tabsdata_dev.tool.gsx") / ASSET).read_text(encoding="utf-8")
+
+
+def quick_ref() -> str:
+    """The one-screen card, as shipped.
+
+    An asset rather than a string in the source, because `docs/stack-workflow.md`
+    prints the same bytes and a test pins the two together: a card that has
+    drifted from the guide is worse than no card.
+    """
+    return (files("tabsdata_dev.tool.gsx") / QUICK_REF).read_text(encoding="utf-8")
 
 
 def top_level(runner: gh.Runner) -> pathlib.Path:

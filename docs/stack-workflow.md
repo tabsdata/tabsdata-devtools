@@ -315,20 +315,30 @@ they wear a red `!`.
 
 ## 5. Quick reference
 
-| task | gsx |
-|---|---|
-| prepare a clone | `tdd gsx init` |
-| new PR, on top of what you are on | `tdd gsx create -s "summary"` |
-| change a PR | commit, then `tdd gsx sync` |
-| push the stack, open/refresh the PRs | `tdd gsx submit` |
-| take the remote's changes and publish yours | `tdd gsx sync` (`--all`, `--no-push`) |
-| see the stacks | `tdd gsx stack` (`-a`, `-s`, `-r`, `-l`) |
-| fetch someone's PR or stack | `tdd gsx checkout FOO-16` / `'#22'` |
-| adopt a stack someone restructured | `tdd gsx checkout '#41' --adopt` |
-| move PRs to another stack | `tdd gsx move --to '#41'` (`--dry-run`, `--abort`) |
-| publish that move | `tdd gsx submit --move` |
-| labels and reviewers | `tdd gsx apply --label:all run-ci` |
-| delete landed branches | `tdd gsx purge` |
-| drop a stack's landed history | `tdd gsx prune` |
+Also `tdd gsx --quick-ref`, which prints exactly this (a test keeps the two identical).
 
-Every command takes `--help`, `--verbose`, `--format json` and `--dry-run` where it writes.
+```
+prepare this clone                   tdd gsx init [--clone] [--check]
+start a PR where you are             tdd gsx create -s "summary"
+change a PR                          commit, then tdd gsx sync
+push the stack, open its PRs         tdd gsx submit
+take the remote's work, push yours   tdd gsx sync [--all] [--no-push]
+see the stacks                       tdd gsx stack [--all] [--short] [--remote | --local]
+fetch someone's PR or stack          tdd gsx checkout FOO-16 | '#22' | '#41'
+adopt a restructured stack           tdd gsx checkout '#41' --adopt
+move PRs onto another stack          tdd gsx move --to '#41'      a stack by number
+                                     tdd gsx move --to FOO-16     or that stack's TOP branch
+publish that move                    tdd gsx submit --move
+labels and reviewers                 tdd gsx apply --label:<scope>[:<mode>] LIST
+                                     tdd gsx apply --reviewer:<scope>[:<mode>] LIST
+housekeeping                         tdd gsx purge    delete the branches whose PR has landed
+                                     tdd gsx prune    drop a stack's landed history
+
+  scope   new (default) | top | all | mine        n | t | a | m
+  mode    replace (default) | add                 r | a
+          --label:all:add run-ci       adds to every PR of the stack
+          --reviewer:new alice,bob     replaces on the PRs this run creates
+
+  every command takes --help, --verbose and --format json|view,
+  and --dry-run wherever it writes.
+```

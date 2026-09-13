@@ -65,6 +65,12 @@ def _body(parsed_args, out: render.Renderer, extras: args_mod.Extras) -> int:
         from .version import VERSION
 
         return out.ok(f"gsx {VERSION}", version=VERSION)
+    if getattr(parsed_args, "quick_ref", False):
+        # The card IS the answer, so it goes out as the ok message and pipes,
+        # the way `stack`'s rows do -- and before anything asks for a
+        # subcommand, since "what are the commands" is what it answers.
+        card = hooks_mod.quick_ref()
+        return out.ok(card.rstrip("\n"), quick_ref=True)
     subcommand = getattr(parsed_args, "subcommand", None)
     if not subcommand:
         raise ToolError(

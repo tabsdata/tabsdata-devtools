@@ -915,6 +915,24 @@ is left to the command itself to report: a confusing word about hooks is not an 
 "not a git repository". It lives in the dispatcher beside `_say_if_moving`, for the same reason:
 one wording, and no command that can forget it.
 
+## `--quick-ref`
+
+One screen, every task with the command that does it -- what a person reaches for in the first
+week and then once a month after. It sits beside `--version` rather than under a subcommand,
+because "what are the commands" cannot require naming one, and it is the **ok message** so it
+pipes, like `stack`'s rows.
+
+**It ships as an asset, not as a string in the source**, and `docs/stack-workflow.md` embeds the
+same bytes with a test pinning the two together. A card that has drifted from the guide is worse
+than no card, and two hand-maintained copies drift by the second edit.
+
+What it spells out, each for a reason a shorter card got wrong: `stack`'s options in full
+(`-as` is unreadable on something whose whole job is to be read); `move --to` in **both** its
+shapes, a stack number and that stack's top branch, because the second is the one nobody guesses;
+the label and reviewer grammar with its scopes and modes, since `--label:all:add` is unguessable
+and is the form actually wanted; and `purge` and `prune` on one row, because they are one
+question -- what is landed and can go -- asked of branches and of history.
+
 ## Config
 
 `<tdd_dir>/gsx.toml` -- every command's config file (`common.core.config`), so its `[options]`
