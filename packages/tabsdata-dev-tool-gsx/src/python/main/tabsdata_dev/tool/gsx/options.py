@@ -178,7 +178,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "                               number is one or the other, never both\n"
         "                               (quote it: # starts a comment in most shells)\n"
         "  tdd gsx checkout             gh's interactive picker\n"
-        "  tdd gsx checkout '#7' -f     adopt #7 after somebody restructured it\n\n"
+        "  tdd gsx checkout '#7' --adopt   take #7 as GitHub now has it\n\n"
         "those shapes and no others. `gh stack checkout` also takes a BARE\n"
         "number and a PR URL, but it resolves a bare number as a stack number\n"
         "first, then a PR, then a branch -- so `42` means whichever exists at\n"
@@ -187,16 +187,16 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "a stack whose branches this checkout still tracks another way -- what\n"
         "somebody else's `gsx move` leaves behind -- is REFUSED, naming the\n"
         "stacks in the way, because gh's own prompt for it offers to dissolve\n"
-        "the stack on GitHub. --force takes the restructured chain, and loses\n"
-        "no commits: a branch with work of its own is rebased onto its remote\n"
-        "copy rather than reset to it.\n\n",
+        "the stack on GitHub. --adopt takes the restructured chain. It is not\n"
+        "a --force and is deliberately not called one: no commit is lost, and\n"
+        "a branch with work of its own is rebased onto its remote copy rather\n"
+        "than reset to it. What it replaces is the local TRACKING.\n\n",
     )
     checkout.add_argument(
-        "--force",
-        "-f",
+        "--adopt",
         action="store_true",
-        help="adopt a stack that has been restructured since this checkout last "
-        "saw it, dropping the local tracking that disagrees",
+        help="take a stack that has been restructured since this checkout last "
+        "saw it, replacing the local tracking that disagrees",
     )
     checkout.add_argument(
         "target",

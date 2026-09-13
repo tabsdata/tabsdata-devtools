@@ -451,9 +451,9 @@ def _restructured(stale: list[dict], target: dict) -> str:
         + ", ".join(f"#{s['number'] if s['number'] else '-'}" for s in stale)
         + ", which GitHub no longer has that way.\n"
         + rows
-        + "\n  `tdd gsx checkout --force` drops that tracking and takes the "
-        "restructured chain (no commit of yours is lost: a branch with work of "
-        "its own is rebased onto its remote copy, not reset to it)"
+        + "\n  `tdd gsx checkout --adopt` replaces that tracking with what GitHub "
+        "has. No commit of yours is lost: a branch with work of its own is "
+        "rebased onto its remote copy, never reset to it"
     )
 
 
@@ -487,7 +487,7 @@ def checkout(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         kind = "stack"
     target = _target_stack(runner, kind, value, listing)
     stale = stale_tracking(gh.read_state(runner), target) if target else []
-    if stale and not args.force:
+    if stale and not args.adopt:
         raise ToolError(_restructured(stale, target))
     wanted: list[str] = []
     if stale:

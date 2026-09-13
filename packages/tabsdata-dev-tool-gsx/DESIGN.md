@@ -175,14 +175,19 @@ non-interactive run cannot even answer. Deciding it beforehand means the prompt 
 keeps every branch it ever had and its merged ones are not a disagreement worth dropping the
 tracking over.
 
-**`--force` adopts, and loses nothing.** `gh stack unstack <n> --local` per stack in the way --
+**`--adopt` takes the restructured chain, and loses nothing.** It is deliberately **not** called
+`--force`: gsx already uses that word for a real overwrite (`init --force` replaces a pre-push
+hook somebody else wrote), and spending it on an operation that provably discards nothing would
+make the vocabulary lie. What `--adopt` replaces is the local *tracking*; what it does to the
+branches is bring them up to date. `gh stack unstack <n> --local` per stack in the way --
 which works even for a number GitHub no longer has, measured -- then `gh stack checkout`, then a
 **reconcile** of the target's branches. The reconcile is the part worth arguing for: the by-hand
 recipe for this is `git branch -f <b> origin/<b>` per branch, which silently discards unpushed
 work, while reconciling rebases a branch with commits of its own onto its remote copy and keeps
 them -- verified with a commit deliberately left unpushed, which came back on top of the full
-remote history with the next push a fast-forward. So `--force` is a word about the *arrangement*,
-never about anybody's commits, which is why it needs no confirmation.
+remote history with the next push a fast-forward. So the flag is a word about the *arrangement*, never
+about anybody's commits, which is why it needs no confirmation and no short form: the one thing
+it asks the reader to acknowledge is that their local stacks are about to change.
 
 The reconcile runs **after** gh has the branches, because `gh stack checkout` creates the missing
 ones and adopts the ones already here *as they are* -- for an adopting clone, at their old

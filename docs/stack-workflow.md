@@ -268,7 +268,7 @@ Nothing here pushes.
 |---|---|
 | `gh api repos/{owner}/{repo}/stacks --jq '...'` *(find the new number)* | `tdd gsx checkout '#7'` |
 | `gh stack unstack <old#> --local` *(for each stale stack)* | ↑ *refused, naming the stacks in the way* |
-| `git switch main && git fetch origin` | `tdd gsx checkout '#7' --force` |
+| `git switch main && git fetch origin` | `tdd gsx checkout '#7' --adopt` |
 | `git branch -f <b> origin/<b>` *(every branch -- **discards unpushed work**)* | |
 | `gh stack checkout <new#>` | |
 
@@ -278,10 +278,12 @@ same situation with a prompt, and one of the three things it offers is *delete t
 GitHub* -- the last thing an adopting clone means to do. gsx decides it beforehand so the prompt
 never appears.
 
-**`--force` / `-f` loses no commits.** The by-hand column resets each branch to its remote copy
-and throws away anything unpushed; `-f` **reconciles** instead, so a branch with work of its own
-is rebased onto its remote copy and keeps it -- and the next push is a fast-forward. `--force`
-here is a word about the *arrangement*, not about your work.
+**`--adopt` loses no commits**, and is deliberately not called `--force`. The by-hand column
+resets each branch to its remote copy and throws away anything unpushed; `--adopt` **reconciles**
+instead, so a branch with work of its own is rebased onto its remote copy and keeps it -- and the
+next push is a fast-forward. What it replaces is your local *tracking*; the one thing it asks you
+to acknowledge is that your local stacks are about to change. (`gsx init --force` is a real
+overwrite -- it replaces a pre-push hook you wrote -- which is why that word is not spent here.)
 
 `tdd gsx stack --all --short` shows the stale stacks first if you want to look before acting:
 they wear a red `!`.
@@ -306,7 +308,7 @@ they wear a red `!`.
 | `origin has commits these branch(es) do not ... publishing a move dissolves the old stack` | you are about to publish over a branch you have not reconciled | `tdd gsx sync`, then `tdd gsx submit --move` |
 | `nothing was pushed (an unpublished move is in progress)` | expected: a half-made arrangement is not published | `tdd gsx submit --move` when ready |
 | `nothing was pushed (GitHub and this checkout disagree ...)` | somebody else's restructure that this clone has not adopted | §3.12 -- adopt it; do **not** publish |
-| `stack #N has been restructured since this checkout last saw it` | the same thing, met by `checkout` | `tdd gsx checkout '#N' --force` |
+| `stack #N has been restructured since this checkout last saw it` | the same thing, met by `checkout` | `tdd gsx checkout '#N' --adopt` |
 | `GH013: Repository rule violations found for refs/heads/main` | you tried to rewrite the trunk | you almost certainly did not mean to |
 
 ---
@@ -322,7 +324,7 @@ they wear a red `!`.
 | take the remote's changes and publish yours | `tdd gsx sync` (`--all`, `--no-push`) |
 | see the stacks | `tdd gsx stack` (`-a`, `-s`, `-r`, `-l`) |
 | fetch someone's PR or stack | `tdd gsx checkout FOO-16` / `'#22'` |
-| adopt a stack someone restructured | `tdd gsx checkout '#41' --force` |
+| adopt a stack someone restructured | `tdd gsx checkout '#41' --adopt` |
 | move PRs to another stack | `tdd gsx move --to '#41'` (`--dry-run`, `--abort`) |
 | publish that move | `tdd gsx submit --move` |
 | labels and reviewers | `tdd gsx apply --label:all run-ci` |

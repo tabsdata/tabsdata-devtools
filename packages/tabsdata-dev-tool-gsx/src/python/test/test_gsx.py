@@ -3898,13 +3898,13 @@ def test_a_restructured_stack_is_refused_and_names_the_way_through(
     assert gsx.main(["checkout", "#7"]) == 1
     said = capsys.readouterr().err
     assert "has been restructured since this checkout last saw it" in said
-    assert "#4" in said and "--force" in said
+    assert "#4" in said and "--adopt" in said
     # nothing was touched: not the tracking, not gh
     assert not any(c[:3] == ["gh", "stack", "checkout"] for c in calls)
     assert not any(c[:3] == ["gh", "stack", "unstack"] for c in calls)
 
 
-def test_force_drops_the_tracking_in_the_way_and_then_checks_the_stack_out(
+def test_adopt_drops_the_tracking_in_the_way_and_then_checks_the_stack_out(
     tmp_path, monkeypatch, capsys
 ):
     calls = _fake_checkout(
@@ -3915,7 +3915,7 @@ def test_force_drops_the_tracking_in_the_way_and_then_checks_the_stack_out(
     )
     monkeypatch.setattr(gh, "sha", lambda runner, ref: "sha" if "heads" in ref else "")
     monkeypatch.setattr(gh, "is_ancestor", lambda runner, a, b: True)
-    assert gsx.main(["checkout", "#7", "--force"]) == 0
+    assert gsx.main(["checkout", "#7", "--adopt"]) == 0
     # the stale tracking first -- gh would otherwise prompt -- and only local
     assert ["gh", "stack", "unstack", "4", "--local"] in calls
     # then the stack itself, by number
