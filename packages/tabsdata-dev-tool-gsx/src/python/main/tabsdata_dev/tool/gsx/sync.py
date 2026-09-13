@@ -39,7 +39,13 @@ WORDS = {
 }
 
 
-def own_commits(runner: gh.Runner, branch: str, remote: str, base: str) -> list[str]:
+def own_commits(
+    runner: gh.Runner,
+    branch: str,
+    remote: str,
+    base: str,
+    parent: str = "",
+) -> list[str]:
     """The commits `<remote>/<branch>` has of its OWN that `branch` lacks.
 
     "Of its own" is measured from the PR's base **as GitHub has it**, which is
@@ -47,6 +53,21 @@ def own_commits(runner: gh.Runner, branch: str, remote: str, base: str) -> list[
     parent's. Judged by patch (`--cherry-pick`), so a commit we already hold
     under a different sha -- every restack makes those -- is not fetched twice.
     Oldest first, because that is the order they have to be replayed in.
+
+    **And by subject where the patch has changed**, which a move's conflict
+    resolution does: measured in tabsdata-os, `OS-3512` was moved onto a stack
+    and its one commit resolved against newer work, so the local and remote
+    copies of the same commit came out with different patch-ids
+    (`d11fc7bb9716` against `48d95e6c9bd3`). By patch alone the remote's copy
+    reads as a commit we are missing, and reconciling would have re-applied the
+    superseded version on top of the resolved one. The subject is what survives
+    a resolution intact.
+
+    The cost is the same one the guard's second rule pays: two genuinely
+    different commits sharing a subject look like one, and the second is not
+    fetched. That way round is the right one -- a commit not picked up shows as
+    `-` in `gsx stack` and is asked for again next time, while a duplicate
+    applied over a resolution is a conflict at best.
     """
     if not base:
         return []
@@ -63,7 +84,22 @@ def own_commits(runner: gh.Runner, branch: str, remote: str, base: str) -> list[
         ],
         check=False,
     )
-    return [line for line in listed.split() if line]
+    candidates = [line for line in listed.split() if line]
+    if not candidates or not parent:
+        return candidates
+    mine = runner.run(
+        ["git", "log", "--format=%s", f"{parent}..{branch}"], check=False
+    ).splitlines()
+    here = {subject.strip() for subject in mine if subject.strip()}
+    kept = []
+    for commit in candidates:
+        subject = runner.run(
+            ["git", "log", "-1", "--format=%s", commit], check=False
+        ).strip()
+        if subject and subject in here:
+            continue
+        kept.append(commit)
+    return kept
 
 
 def classify(local: str, tracked: str, ancestor) -> str:
@@ -132,7 +168,12 @@ def unreconciled(
             continue
         base = bases.get(branch, "")
         if branch in moved and base:
-            if own_commits(runner, branch, remote, f"{remote}/{base}"):
+            parent = (
+                branches[branches.index(branch) - 1]
+                if branches.index(branch)
+                else trunk
+            )
+            if own_commits(runner, branch, remote, f"{remote}/{base}", parent):
                 behind.append(branch)
             continue
         if classify(local, tracked, lambda a, b: gh.is_ancestor(runner, a, b)) in (
@@ -183,7 +224,17 @@ def moved_branches(
         # now, so the ordinary reconcile drops them as already upstream. A base
         # OUTSIDE the stack is the move -- the branch has been taken off a
         # chain that is still somebody's.
-        if base and base != parent and base not in known and base != trunk:
+        #
+        # The trunk is not an exception to that, and an earlier version made it
+        # one. A branch whose PR still targets the trunk while it sits on a
+        # stack here is the plainest move there is -- `gsx move --to <top>` on
+        # an unsubmitted branch makes exactly it -- and excluding it sent the
+        # branch down the ordinary path, where `git rebase <remote>/<branch>`
+        # would have replayed a whole 32-branch stack onto a copy of the branch
+        # that still sat on the trunk. A bottom branch that really is on the
+        # trunk needs no exception: its base and its parent are both the trunk,
+        # so the comparison above already passes it.
+        if base and base != parent and base not in known:
             tainted = True
         # No PR, no recorded base: nothing to disagree with. It cannot start a
         # taint, but it inherits one.
@@ -233,7 +284,12 @@ def reconcile(
         done[branch] = verdict
         base = bases.get(branch, "")
         if branch in moved and base:
-            taking = own_commits(runner, branch, remote, f"{remote}/{base}")
+            parent = (
+                branches[branches.index(branch) - 1]
+                if branches.index(branch)
+                else trunk
+            )
+            taking = own_commits(runner, branch, remote, f"{remote}/{base}", parent)
             if not taking:
                 done[branch] = CURRENT
                 continue

@@ -835,6 +835,24 @@ them as already upstream. **A move taints everything above it**, because only th
 a moved slice gets a new base; the ones above keep theirs while their remote copies still sit on
 the old chain.
 
+**The trunk is not an exception to that**, and an earlier version made it one. A branch whose PR
+still targets the trunk while it sits on a stack here is the plainest move there is -- a
+`gsx move --to <top>` on an unsubmitted branch makes exactly it -- and excusing it sent the branch
+down the ordinary path, where `git rebase <remote>/<branch>` would have replayed a whole
+32-branch stack onto a copy that still sat on the trunk. A bottom branch that really is on the
+trunk needs no exception: its base and its parent are both the trunk, so the name comparison
+already passes it.
+
+**What is taken is matched by subject where the patch has changed**, which a move's conflict
+resolution does. Measured in tabsdata-os: `OS-3512` was moved onto a stack and its commit resolved
+against newer work, so the two copies of the same commit came out with different patch-ids
+(`d11fc7bb9716` against `48d95e6c9bd3`); by patch alone the remote's copy reads as one we are
+missing, and reconciling would have re-applied the superseded version on top of the resolved one.
+This is the guard's second rule again, and it pays the same price: two different commits sharing a
+subject look like one. That way round is right -- a commit not picked up shows as `-` in
+`gsx stack` and is asked for again, while a duplicate applied over a resolution is a conflict at
+best.
+
 `<base>` is the PR's base branch **as GitHub has it**, and that is the whole trick: gh-stack's
 state file is rewritten by the move the moment it runs, so it agrees with the move by
 construction and could never notice one. GitHub keeps the old base until `submit --move`

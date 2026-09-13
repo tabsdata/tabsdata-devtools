@@ -3713,6 +3713,25 @@ def test_a_move_is_noticed_by_the_parents_NAME_not_by_ancestry():
     assert sync_mod.moved_branches(["B1"], "main", {"B1": "main"}) == set()
     assert sync_mod.moved_branches(["B1"], "main", {"B1": "other"}) == {"B1"}
 
+    # ...and a branch whose PR still targets the TRUNK while it sits on a stack
+    # here is the plainest move there is: `gsx move --to <top>` on an
+    # unsubmitted branch makes exactly it. An earlier version excused the trunk
+    # and sent it down the ordinary path, where `git rebase <remote>/<branch>`
+    # would have replayed a whole 32-branch stack onto a copy of the branch
+    # that still sat on the trunk. Measured in tabsdata-os: OS-3512, PR base
+    # `main`, local parent `OS-3510`.
+    onto_stack = ["OS-3505", "OS-3508", "OS-3510", "OS-3512"]
+    bases_onto = {
+        "OS-3505": "OS-3504",
+        "OS-3508": "OS-3505",
+        "OS-3510": "OS-3508",
+        "OS-3512": "main",
+    }
+    # `known` is the whole stack as gh-stack tracks it, OS-3504 included, so
+    # only the branch whose base left the stack is the move
+    known = set(onto_stack) | {"OS-3504"}
+    assert sync_mod.moved_branches(onto_stack, "main", bases_onto, known) == {"OS-3512"}
+
 
 def test_a_moved_branch_takes_only_the_remotes_OWN_commits(monkeypatch):
     """Measured on a real move: reconciling a moved branch with a plain
@@ -4183,3 +4202,58 @@ def test_where_you_are_is_said_when_no_cell_can_say_it(tmp_path, monkeypatch, ca
     monkeypatch.setattr(gh, "current_branch", lambda runner: "main")
     assert gsx.main(["stack", "--all", "--short", "--no-fetch"]) == 0
     assert "is in none of the stacks below" not in capsys.readouterr().err
+
+
+def test_a_commit_whose_patch_a_resolution_changed_is_matched_by_subject(monkeypatch):
+    """Measured in tabsdata-os: OS-3512 was moved onto a stack and its one
+    commit resolved against newer work, so the two copies of the same commit
+    came out with different patch-ids (d11fc7bb9716 against 48d95e6c9bd3). By
+    patch alone the remote's copy reads as a commit we are missing, and
+    reconciling would have re-applied the superseded version on top of the
+    resolved one."""
+    calls = []
+
+    class FakeRunner:
+        out = None
+        dry_run = False
+
+        def run(self, argv, **kwargs):
+            calls.append(argv)
+            if argv[:2] == ["git", "rev-list"]:
+                return "remote-sha"
+            if argv[:2] == ["git", "log"] and "--format=%s" in argv and "-1" in argv:
+                return "[OS-3512] Add _api.validate_call"
+            if argv[:2] == ["git", "log"] and "--format=%s" in argv:
+                # the branch's own commits here, after the resolution
+                return "[OS-3512] Add _api.validate_call\n"
+            return ""
+
+    runner = FakeRunner()
+    # with the parent known, the subject matches and nothing is taken
+    assert (
+        sync_mod.own_commits(runner, "OS-3512", "origin", "origin/main", "OS-3510")
+        == []
+    )
+    # without it, patch-matching alone still reports the superseded commit
+    assert sync_mod.own_commits(runner, "OS-3512", "origin", "origin/main") == [
+        "remote-sha"
+    ]
+
+
+def test_a_genuinely_new_commit_is_still_taken(monkeypatch):
+    class FakeRunner:
+        out = None
+        dry_run = False
+
+        def run(self, argv, **kwargs):
+            if argv[:2] == ["git", "rev-list"]:
+                return "theirs"
+            if argv[:2] == ["git", "log"] and "-1" in argv:
+                return "[A3] a teammate's new commit"
+            if argv[:2] == ["git", "log"]:
+                return "[A3] something else entirely"
+            return ""
+
+    assert sync_mod.own_commits(FakeRunner(), "A3", "origin", "origin/A2", "C2") == [
+        "theirs"
+    ]
