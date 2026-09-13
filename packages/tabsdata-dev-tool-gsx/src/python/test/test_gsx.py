@@ -14,6 +14,19 @@ from tabsdata_dev.tool.gsx import commands, config, gh, labels, progress
 from tabsdata_dev.tool.gsx import move as move_mod
 from tabsdata_dev.tool.gsx import prune as prune_mod
 from tabsdata_dev.tool.gsx import purge as purge_mod
+from tabsdata_dev.tool.gsx import hooks as hooks_mod
+from tabsdata_dev.tool.gsx import sync as sync_mod
+
+
+@pytest.fixture(autouse=True)
+def _clone_is_prepared(monkeypatch):
+    """Every test but the guard's own runs as though `gsx init` has been run.
+
+    The guard is a precondition of the guarded commands rather than part of
+    what any of them does, so asserting it in each of their tests would be the
+    same fact 20 times. The tests that ARE about it drop this.
+    """
+    monkeypatch.setenv(gsx.ESCAPE, "1")
 
 
 class _Out:
@@ -2328,6 +2341,7 @@ def test_each_branch_carries_how_it_stands_against_the_remote():
             "sync": gh.IN_SYNC,
             "current": False,
             "remote_only": False,
+            "local_only": False,
         },
         {
             "name": "a2",
@@ -2335,6 +2349,7 @@ def test_each_branch_carries_how_it_stands_against_the_remote():
             "sync": gh.AHEAD,
             "current": True,
             "remote_only": False,
+            "local_only": False,
         },
     ]
     assert rows[0]["current"] is True and rows[1]["current"] is False
@@ -2514,17 +2529,135 @@ def test_what_only_github_has_is_a_magenta_question_mark():
         rows, lambda name, text: f"<{name or 'plain'}>{text}</>"
     )
     assert painted.splitlines() == [
-        "<white>[</>#34<white>]</>  main "
+        # a mark gets a column of ITS own, left of the brackets, because a
+        # stack can be both the one you are on and one GitHub does not have
+        " <white>[</>#34<white>]</>  main "
         "<-<green>=</><white>[</><green>a1</><white>]</>"
         "<- <magenta>?</><magenta>a3</>",
         # a whole stack this checkout does not track: the same `?` in the same
-        # magenta, in the slot a bracket would have used
-        # the tag is bracketed (or marked) tightly and the padding goes after
-        # it, so `#-` beside `#3443` does not read as `[#-   ]`
-        "<magenta>?#41</>   main <- <magenta>?</><magenta>c1</>",
+        # magenta, and the number takes the mark's colour as a branch's name
+        # takes its own. The tag is bracketed tightly and the padding goes
+        # after it, so `#-` beside `#3443` does not read as `[#-   ]`
+        "<magenta>?</> <magenta>#41</>   main <- <magenta>?</><magenta>c1</>",
     ]
     assert commands.REMOTE_MARK == ("?", "magenta")
     assert commands.GUARDS == {"current": ("[", "]", "white")}
+
+
+def test_a_stack_the_listing_has_no_open_number_for_is_local_only():
+    """Measured in tabsdata-os: the tracking file held #3488, #3478 and #3495
+    and GitHub had exactly one open stack, #3495 -- the other two had been
+    re-linked into it, and nothing in the view said so."""
+    state = _with_prs(_state(number=3478, names=("a1", "a2")), [(21, 22)])
+    state["stacks"].append(
+        {
+            "number": 3495,
+            "trunk": {"branch": "main"},
+            "branches": [
+                {"branch": "a1", "pullRequest": {"number": 21}},
+                {"branch": "a2", "pullRequest": {"number": 22}},
+                {"branch": "a3", "pullRequest": {"number": 29}},
+            ],
+        }
+    )
+    listing = [_listed(3495, [(21, "a1"), (22, "a2"), (29, "a3")])]
+    rows = commands.stack_rows(state, "a2", remote=listing, asked=True)
+    # by NUMBER: #3478's branches all sit in the stack that replaced it, which
+    # is exactly the case a reader has to be told about
+    assert [(row["number"], row["local_only"]) for row in rows] == [
+        (3478, True),
+        (3495, False),
+    ]
+    # ...and the branches are not marked as well: GitHub's stacks do have them
+    assert not any(b["local_only"] for row in rows for b in row["branches"])
+    assert commands.LOCAL_MARK == ("!", "red")
+
+
+def test_a_branch_no_stack_on_github_holds_is_local_only():
+    state = _with_prs(_state(names=("a1", "a2", "a3")), [(21, 22, None)])
+    rows = commands.stack_rows(
+        state, "a2", remote=[_listed(34, [(21, "a1")])], asked=True
+    )
+    assert [(b["name"], b["local_only"]) for b in rows[0]["branches"]] == [
+        ("a1", False),
+        # its PR is in the file and in no stack GitHub has
+        ("a2", True),
+        # and a branch with no PR has not been submitted rather than been
+        # forgotten: `-` in the number column says that, and `+` says the
+        # remote has nothing of it either
+        ("a3", False),
+    ]
+    assert rows[0]["local_only"] is False  # #34 is open on GitHub
+
+
+def test_nothing_is_local_only_unless_the_listing_was_really_had():
+    """An empty listing is what a repository with no open stacks and a listing
+    that could not be read both look like, and the difference between them is
+    the difference between a fact and a false alarm."""
+    state = _with_prs(_state(names=("a1", "a2")), [(21, 22)])
+    assert not any(
+        row["local_only"] or any(b["local_only"] for b in row["branches"])
+        for row in commands.stack_rows(state, "a2", remote=[])
+    )
+    # --local asks nobody, which is its point
+    assert not any(
+        row["local_only"]
+        for row in commands.stack_rows(state, "a2", remote=[], source=commands.LOCAL)
+    )
+    # asked, and GitHub really has no open stack: then it is a fact
+    every = commands.stack_rows(state, "a2", remote=[], asked=True)
+    assert every[0]["local_only"] is True
+    assert [b["local_only"] for b in every[0]["branches"]] == [True, True]
+
+
+def test_what_only_this_checkout_has_is_a_red_bang():
+    state = _with_prs(_state(names=("a1",)), [(21,)])
+    rows = commands.stack_rows(
+        state, "a1", _sync(a1=gh.AHEAD), remote=[_listed(41, [(52, "c1")])], asked=True
+    )
+    painted = commands.stack_lines(
+        rows, lambda name, text: f"<{name or 'plain'}>{text}</>"
+    )
+    assert painted.splitlines() == [
+        # the stack you are on AND one GitHub does not have: the mark has a
+        # column of its own precisely so both can be said
+        "<red>!</><white>[</><red>#34</><white>]</>  main "
+        # `!` takes the place of the sync symbol, as `?` does
+        "<-<red>!</><white>[</><red>a1</><white>]</>",
+        "<magenta>?</> <magenta>#41</>   main <- <magenta>?</><magenta>c1</>",
+    ]
+    line = commands.legend(rows, "origin", lambda name, text: f"<{name}>{text}</>")
+    # the mirror sits next to what it mirrors
+    assert "<magenta>?</> remote only  <red>!</> local only" in line
+    # and `?` is not also explained as "no local branch": the branch wearing a
+    # sync symbol is the only thing that entry is about
+    assert "no local branch" not in line
+
+
+def test_at_most_one_stack_is_the_one_you_are_on():
+    """A branch can sit in several tracked stacks -- leftovers do exactly
+    that -- and only one of them is what `submit` and `apply` act on."""
+    state = _with_prs(_state(number=3488, names=("a1", "a2")), [(21, 22)])
+    state["stacks"].append(
+        {
+            "number": 3495,
+            "trunk": {"branch": "main"},
+            "branches": [
+                {"branch": "a0", "pullRequest": {"number": 20}},
+                {"branch": "a2", "pullRequest": {"number": 22}},
+            ],
+        }
+    )
+    rows = commands.stack_rows(state, "a2", remote=[_listed(3495, [(20, "a0")])])
+    # the first in the file, because that is the one every other subcommand
+    # takes (`move.stack_of`)
+    assert [row["current"] for row in rows] == [True, False]
+    # the BRANCH keeps its brackets in every row it appears in: it is the
+    # branch you are on wherever it is listed, and seeing it twice is the news
+    assert [[b["current"] for b in row["branches"]] for row in rows] == [
+        [False, True],
+        [False, True],
+    ]
 
 
 def _merged(number, branch):
@@ -3182,8 +3315,8 @@ def test_remote_shows_githubs_own_stacks_and_local_the_tracked_ones(
     # the brackets ARE the spaces around `<-`, so a bracketed cell touches
     # what follows it
     # `a1` pads to the width of `?c1`: columns are measured across every stack
-    assert "[#34]  main <- a1  <-[a2]<- ?a3" in out
-    assert "?#41   main <- ?c1" in out
+    assert " [#34]  main <- a1  <-[a2]<- ?a3" in out
+    assert "? #41   main <- ?c1" in out
     assert "? remote only" in out and "in sync" not in out
 
     assert gsx.main(["stack", "--local", "--all", "--short"]) == 0
@@ -3211,6 +3344,46 @@ def test_a_stack_github_has_that_is_not_tracked_here_is_named_without_all(
     # an info event, so it goes to stderr; the rows on stdout are yours alone
     assert "1 stack(s) on GitHub are not tracked here; --all lists them" in said.err
     assert "#41" not in said.out
+
+
+def test_a_stack_github_no_longer_has_is_marked_and_named_without_all(
+    tmp_path, monkeypatch, capsys
+):
+    """The mirror, and the one that costs something: a stack this checkout
+    still tracks that GitHub has no open stack for is a leftover, and from
+    inside another stack it would otherwise be invisible."""
+    state = _with_prs(_state(number=3488, names=("a1", "a2")), [(21, 22)])
+    state["stacks"].append(
+        {
+            "number": 3478,
+            "trunk": {"branch": "main"},
+            "branches": [{"branch": "b1", "pullRequest": {"number": 11}}],
+        }
+    )
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(json.dumps(state))
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: "a2")
+    monkeypatch.setattr(
+        gh,
+        "branch_sync",
+        lambda runner, names, remote, *_: dict.fromkeys(names, gh.IN_SYNC),
+    )
+    monkeypatch.setattr(
+        gh, "stacks", lambda runner: [_listed(3495, [(21, "a1"), (22, "a2")])]
+    )
+    assert gsx.main(["stack", "--short", "--no-fetch"]) == 0
+    said = capsys.readouterr()
+    # the stack you are on is one of them, and it says so where it stands
+    assert "![#3488]  main <- =a1 <-=[a2]" in said.out
+    assert "! local only" in said.out
+    # the other one is not shown at all without --all, so it is named
+    assert "1 stack(s) tracked here are not open on GitHub; --all lists them" in (
+        said.err
+    )
+    assert gsx.main(["stack", "--short", "--no-fetch", "--all"]) == 0
+    out = capsys.readouterr().out
+    assert "! #3478   main <- !b1" in out
 
 
 def test_a_listing_github_cannot_give_is_fatal_only_for_remote(
@@ -3271,4 +3444,402 @@ def test_stack_puts_no_escape_in_the_json_message(tmp_path, monkeypatch, capsys)
         "sync": "ahead",
         "current": True,
         "remote_only": False,
+        "local_only": False,
     }
+
+
+# -------------------------------------------------------------------- sync
+def _ancestor(pairs):
+    """An is-ancestor oracle from the pairs that are true."""
+    return lambda older, newer: (older, newer) in pairs
+
+
+def test_a_branch_is_classified_by_what_the_remote_has_that_it_does_not():
+    # theirs already in ours: nothing to take
+    assert sync_mod.classify("a", "b", _ancestor({("b", "a")})) == sync_mod.CURRENT
+    # identical without asking git at all
+    assert sync_mod.classify("a", "a", _ancestor(set())) == sync_mod.CURRENT
+    # ours in theirs: a fast-forward
+    assert sync_mod.classify("a", "b", _ancestor({("a", "b")})) == sync_mod.BEHIND
+    # neither: both added commits, which is the case the whole design is about
+    assert sync_mod.classify("a", "b", _ancestor(set())) == sync_mod.DIVERGED
+    # and a branch the remote has never seen is submit's business, not sync's
+    assert sync_mod.classify("a", "", _ancestor(set())) == sync_mod.UNPUBLISHED
+
+
+def _fake_git(monkeypatch, shas, ancestors, current="B2", window=()):
+    """A runner answering rev-parse, merge-base and rev-list from fixtures."""
+    calls = []
+
+    class FakeRunner:
+        def __init__(self, out=None, dry_run=False):
+            self.out = out
+            self.dry_run = dry_run
+
+        def run(self, argv, **kwargs):
+            calls.append(argv)
+            if argv[:2] == ["git", "rev-parse"] and "--verify" in argv:
+                return shas.get(argv[-1], "")
+            if argv[:2] == ["git", "merge-base"]:
+                return "base-sha"
+            if argv[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+                return current
+            if argv[:2] == ["git", "rev-list"]:
+                return " ".join(window)
+            return ""
+
+        def json(self, argv):
+            return None
+
+    monkeypatch.setattr(
+        gh, "is_ancestor", lambda runner, a, b: a == b or (a, b) in ancestors
+    )
+    return FakeRunner(out=None), calls
+
+
+class _Say:
+    def __init__(self):
+        self.said = []
+
+    def info(self, message, **fields):
+        self.said.append(message)
+
+    def warn(self, message, **fields):
+        self.said.append(message)
+
+    def debug(self, message, **fields):
+        pass
+
+
+def test_reconcile_touches_only_what_needs_it(monkeypatch):
+    shas = {
+        "refs/heads/B1": "l1",
+        "refs/remotes/origin/B1": "l1",  # identical: nothing to do
+        "refs/heads/B2": "l2",
+        "refs/remotes/origin/B2": "r2",  # diverged
+        "refs/heads/B3": "l3",
+        "refs/remotes/origin/B3": "r3",  # we are behind
+    }
+    runner, calls = _fake_git(monkeypatch, shas, ancestors={("l3", "r3")})
+    out = _Say()
+    done = sync_mod.reconcile(runner, ["B1", "B2", "B3"], "origin", out)
+    assert done == {
+        "B1": sync_mod.CURRENT,
+        "B2": sync_mod.DIVERGED,
+        "B3": sync_mod.BEHIND,
+    }
+    rebases = [c for c in calls if c[:2] == ["git", "rebase"]]
+    # one plain `git rebase <remote>/<branch>` each, and none for B1: the same
+    # command fast-forwards onto an ancestor and replays onto a divergence
+    assert rebases == [
+        ["git", "rebase", "origin/B2"],
+        ["git", "rebase", "origin/B3"],
+    ]
+
+
+def test_restack_skips_a_branch_a_teammate_already_restacked(monkeypatch):
+    """The commonest case once reconcile has run: they pushed the answer and
+    our fast-forward to it left nothing to do."""
+    shas = {f"refs/heads/{b}": b for b in ("main", "B1", "B2", "B3")}
+    # B1 and B2 are already on their parents; B3 is not
+    runner, calls = _fake_git(
+        monkeypatch, shas, ancestors={("main", "B1"), ("B1", "B2")}
+    )
+    out = _Say()
+    assert sync_mod.restack(runner, ["B1", "B2", "B3"], "main", out) == ["B3"]
+    assert [c for c in calls if c[:2] == ["git", "rebase"]] == [
+        ["git", "rebase", "--onto", "B2", "base-sha", "B3"]
+    ]
+
+
+def test_only_a_rewritten_branch_is_pushed_with_a_lease(monkeypatch):
+    shas = {
+        "refs/heads/B1": "l1",
+        "refs/remotes/origin/B1": "l1",  # unchanged: not pushed at all
+        "refs/heads/B2": "l2",
+        "refs/remotes/origin/B2": "r2",  # fast-forward
+        "refs/heads/B3": "l3",
+        "refs/remotes/origin/B3": "r3",  # rewritten
+        "refs/heads/B4": "l4",
+        "refs/remotes/origin/B4": "",  # never pushed
+    }
+    runner, _ = _fake_git(monkeypatch, shas, ancestors={("r2", "l2")})
+    plain, forced, leases = sync_mod.push_args(
+        runner, ["B1", "B2", "B3", "B4"], "origin"
+    )
+    assert plain == ["B2", "B4"] and forced == ["B3"]
+    # the lease is pinned to the sha THIS run fetched, so a remote that moved
+    # in between is a refusal rather than a loss
+    assert leases == ["--force-with-lease=refs/heads/B3:r3"]
+
+
+def test_unreconciled_names_exactly_what_would_be_overwritten(monkeypatch):
+    shas = {
+        "refs/heads/B1": "l1",
+        "refs/remotes/origin/B1": "l1",
+        "refs/heads/B2": "l2",
+        "refs/remotes/origin/B2": "r2",  # diverged
+        "refs/heads/B3": "l3",
+        "refs/remotes/origin/B3": "r3",  # behind
+        "refs/heads/B4": "l4",
+        "refs/remotes/origin/B4": "",
+    }
+    runner, _ = _fake_git(monkeypatch, shas, ancestors={("l3", "r3")})
+    assert sync_mod.unreconciled(runner, ["B1", "B2", "B3", "B4"], "origin") == [
+        "B2",
+        "B3",
+    ]
+
+
+# ------------------------------------------------------------------- hooks
+def test_the_guard_ships_inside_the_package_and_says_what_it_refuses():
+    text = hooks_mod.script()
+    assert text.startswith("#!/bin/sh")
+    # both rules, and the override, are in the file itself: it is read by
+    # whoever is refused by it
+    assert "GIT_ALLOW_OVERWRITE" in text
+    assert "never reachable" in text or "never part of your local" in text
+    assert "append-only" in text
+
+
+def test_install_writes_an_executable_hook_and_points_git_at_it(tmp_path, monkeypatch):
+    root = tmp_path / "clone"
+    (root / ".git").mkdir(parents=True)
+    config = {}
+
+    class FakeRunner:
+        out = None
+        dry_run = False
+
+        def run(self, argv, **kwargs):
+            if argv[:3] == ["git", "rev-parse", "--show-toplevel"]:
+                return str(root)
+            if argv[:2] == ["git", "config"] and len(argv) == 4:
+                config[argv[2]] = argv[3]
+                return ""
+            if argv[:2] == ["git", "config"]:
+                return config.get(argv[2], "")
+            return ""
+
+    runner = FakeRunner()
+    path, changed = hooks_mod.install(runner, hooks_mod.REPO, force=False)
+    assert path == root / ".githooks" / "pre-push"
+    assert changed is True
+    assert path.read_text() == hooks_mod.script()
+    assert path.stat().st_mode & 0o111  # executable, or git ignores it
+    # a relative path, so the same string works in every clone -- which is what
+    # makes it committable
+    assert config["core.hooksPath"] == ".githooks"
+    # ...and running it again changes nothing
+    _, changed = hooks_mod.install(runner, hooks_mod.REPO, force=False)
+    assert changed is False
+
+
+def test_a_hook_gsx_did_not_write_is_not_silently_replaced(tmp_path):
+    root = tmp_path / "clone"
+    (root / ".githooks").mkdir(parents=True)
+    theirs = root / ".githooks" / "pre-push"
+    theirs.write_text("#!/bin/sh\n# somebody else's\n")
+
+    class FakeRunner:
+        out = None
+        dry_run = False
+
+        def run(self, argv, **kwargs):
+            if argv[:3] == ["git", "rev-parse", "--show-toplevel"]:
+                return str(root)
+            return ""
+
+    with pytest.raises(ToolError, match="already exists"):
+        hooks_mod.install(FakeRunner(), hooks_mod.REPO, force=False)
+    assert theirs.read_text() == "#!/bin/sh\n# somebody else's\n"
+    # --force is the way through, and it says so above
+    hooks_mod.install(FakeRunner(), hooks_mod.REPO, force=True)
+    assert theirs.read_text() == hooks_mod.script()
+
+
+def test_a_branch_moved_off_its_base_is_noticed_by_the_prs_base_not_the_state(
+    monkeypatch,
+):
+    """gh-stack's state file is rewritten by the move itself, so it agrees
+    with the move by construction and could never notice one. GitHub still
+    has the old base until `submit --move` publishes."""
+    shas = {"refs/remotes/origin/A2": "old-parent", "refs/heads/A3": "a3"}
+    runner, _ = _fake_git(monkeypatch, shas, ancestors={("old-parent", "A3")})
+    # still sitting on the base GitHub has: an ordinary branch
+    assert sync_mod.moved_away(runner, "A3", "origin", "A2") is False
+    runner, _ = _fake_git(monkeypatch, shas, ancestors=set())
+    assert sync_mod.moved_away(runner, "A3", "origin", "A2") is True
+    # ...and with no PR there is no base to have been moved off
+    assert sync_mod.moved_away(runner, "A3", "origin", "") is False
+
+
+def test_a_moved_branch_takes_only_the_remotes_OWN_commits(monkeypatch):
+    """Measured on a real move: reconciling a moved branch with a plain
+    `git rebase origin/<branch>` dragged the old parent chain back in -- a
+    branch that should have carried three commits over its new parent came
+    back carrying eight, the extra five belonging to the two PRs it had just
+    been moved away from."""
+    shas = {
+        "refs/heads/A3": "a3",
+        "refs/remotes/origin/A3": "r3",
+        "refs/remotes/origin/A2": "old-parent",
+    }
+    runner, calls = _fake_git(
+        monkeypatch, shas, ancestors=set(), window=("theirs1", "theirs2")
+    )
+    out = _Say()
+    done = sync_mod.reconcile(runner, ["A3"], "origin", out, bases={"A3": "A2"})
+    assert done == {"A3": sync_mod.DIVERGED}
+    # cherry-picked onto where it now sits, NOT rebased onto its remote copy
+    assert ["git", "cherry-pick", "theirs1", "theirs2"] in calls
+    assert not any(c[:2] == ["git", "rebase"] for c in calls)
+    # and the window is measured from the PR's base, oldest first
+    window = [c for c in calls if c[:2] == ["git", "rev-list"]][0]
+    assert "--reverse" in window and "--cherry-pick" in window
+    assert window[-2:] == ["--not", "origin/A2"]
+    assert "A3...origin/A3" in window
+
+
+def test_a_moved_branch_with_nothing_new_on_the_remote_is_left_alone(monkeypatch):
+    shas = {
+        "refs/heads/A3": "a3",
+        "refs/remotes/origin/A3": "r3",
+        "refs/remotes/origin/A2": "old-parent",
+    }
+    runner, calls = _fake_git(monkeypatch, shas, ancestors=set(), window=())
+    assert sync_mod.reconcile(runner, ["A3"], "origin", _Say(), bases={"A3": "A2"}) == {
+        "A3": sync_mod.CURRENT
+    }
+    assert not any(c[:2] == ["git", "cherry-pick"] for c in calls)
+
+
+def test_a_reconciled_move_is_not_reported_as_unreconciled(monkeypatch):
+    """The cherry-pick gives those commits new shas, so `origin/<branch>` is
+    deliberately not an ancestor afterwards. Asking whether it is called every
+    correctly reconciled move unreconciled -- and `submit --move` refused a
+    branch that was holding every commit the remote had."""
+    shas = {
+        "refs/heads/A3": "a3",
+        "refs/remotes/origin/A3": "r3",
+        "refs/remotes/origin/A2": "old-parent",
+    }
+    bases = {"A3": "A2"}
+    # nothing of the remote's own is missing: reconciled, whatever ancestry says
+    runner, _ = _fake_git(monkeypatch, shas, ancestors=set(), window=())
+    assert sync_mod.unreconciled(runner, ["A3"], "origin", bases) == []
+    # something IS missing: that is the refusal `submit --move` needs
+    runner, _ = _fake_git(monkeypatch, shas, ancestors=set(), window=("theirs",))
+    assert sync_mod.unreconciled(runner, ["A3"], "origin", bases) == ["A3"]
+
+
+# -------------------------------------------------------------- the refusal
+def _unprepared(monkeypatch, protected: bool):
+    monkeypatch.delenv(gsx.ESCAPE, raising=False)
+    monkeypatch.setattr(
+        hooks_mod,
+        "state",
+        lambda runner: {
+            "hooks_path": ".githooks" if protected else "",
+            "active": "repo" if protected else "clone",
+            "repo": "current" if protected else "missing",
+            "clone": "missing",
+            "protected": protected,
+        },
+    )
+
+
+@pytest.mark.parametrize("subcommand", sorted(gsx.GUARDED))
+def test_a_command_that_pushes_refuses_from_an_unguarded_clone(
+    subcommand, monkeypatch, capsys
+):
+    """The one gap the design cannot close is a clone where nobody installed
+    the hook: `gh stack sync` from such a clone overwrote a whole restructure,
+    and the same clone with the hook was refused. So the tool that knows how
+    to install it will not do the dangerous work until it has been."""
+    _unprepared(monkeypatch, protected=False)
+    assert gsx.main([subcommand]) == 1
+    said = capsys.readouterr().err
+    assert "the pre-push guard is not installed here" in said
+    # the way out is in the refusal, all three of them
+    assert "tdd gsx init" in said and "--clone" in said and "GSX_NO_GUARD=1" in said
+
+
+@pytest.mark.parametrize("subcommand", ["stack", "checkout", "apply", "purge", "init"])
+def test_a_command_that_pushes_nothing_is_not_guarded(subcommand, monkeypatch):
+    """The refusal is about pushing, not about gsx. Reading the stacks from an
+    unguarded clone is not dangerous, and `init` is how the guard arrives --
+    guarding it would be a door locked from the inside."""
+    _unprepared(monkeypatch, protected=False)
+    calls = []
+    monkeypatch.setitem(
+        gsx.HANDLERS,
+        subcommand,
+        lambda *a, **k: (calls.append(subcommand), ("done", {}))[1],
+    )
+    assert gsx.main([subcommand]) == 0
+    assert calls == [subcommand]
+
+
+def test_a_guarded_clone_runs_the_command(monkeypatch):
+    _unprepared(monkeypatch, protected=True)
+    calls = []
+    monkeypatch.setitem(
+        gsx.HANDLERS, "sync", lambda *a, **k: (calls.append("sync"), ("done", {}))[1]
+    )
+    assert gsx.main(["sync"]) == 0
+    assert calls == ["sync"]
+
+
+def test_the_escape_is_an_env_var_rather_than_a_flag(monkeypatch):
+    """A guard you can turn off by typing one more word on the line you were
+    already typing is not a guard."""
+    _unprepared(monkeypatch, protected=False)
+    monkeypatch.setenv(gsx.ESCAPE, "1")
+    calls = []
+    monkeypatch.setitem(
+        gsx.HANDLERS, "sync", lambda *a, **k: (calls.append("sync"), ("done", {}))[1]
+    )
+    assert gsx.main(["sync"]) == 0
+    assert calls == ["sync"]
+    # and there is no flag that does the same
+    import argparse
+
+    from tabsdata_dev.tool.gsx.options import configure
+
+    parser = argparse.ArgumentParser()
+    configure(parser)
+    with pytest.raises(SystemExit):
+        parser.parse_args(["sync", "--no-guard"])
+
+
+def test_a_checkout_the_guard_cannot_be_read_in_is_not_this_checks_business(
+    monkeypatch,
+):
+    """Not a git repository, no git at all: an error of the command that was
+    asked for, reported by it, rather than a confusing word about hooks."""
+    monkeypatch.delenv(gsx.ESCAPE, raising=False)
+
+    def explode(runner):
+        raise ToolError("not a git repository")
+
+    monkeypatch.setattr(hooks_mod, "state", explode)
+    calls = []
+    monkeypatch.setitem(
+        gsx.HANDLERS, "sync", lambda *a, **k: (calls.append("sync"), ("done", {}))[1]
+    )
+    assert gsx.main(["sync"]) == 0
+    assert calls == ["sync"]
+
+
+def test_init_reports_the_missing_extension_as_well_as_the_guard():
+    assert "extension is missing" in commands._init_line(
+        {"protected": True, "active": "repo", "hooks_path": ".githooks"}, False
+    )
+    assert "installed and active (repo)" in commands._init_line(
+        {"protected": True, "active": "repo", "hooks_path": ".githooks"}, True
+    )
+    # a hooksPath somebody else set is neither installed nor simply missing
+    assert "which gsx did not set" in commands._init_line(
+        {"protected": False, "active": "elsewhere", "hooks_path": ".husky"}, True
+    )

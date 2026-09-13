@@ -15,11 +15,13 @@ from tabsdata_dev.common.core.errors import ToolError
 from . import approve as approve_mod
 from . import config as config_mod
 from . import gh
+from . import hooks as hooks_mod
 from . import labels as labels_mod
 from . import move as move_mod
 from . import progress
 from . import prune as prune_mod
 from . import purge as purge_mod
+from . import sync as sync_mod
 from .args import Extras
 
 TRAILER_RE = re.compile(r"^\s*(?:closes|fixes|resolves)\s+#(\d+)\s*$", re.IGNORECASE)
@@ -465,6 +467,78 @@ def _publish_move(args, out, runner: gh.Runner, moved: move_mod.Pending, steps) 
         )
 
 
+def _stack_here(runner: gh.Runner) -> tuple[str, list[str], dict[str, int]]:
+    """The trunk, branches and PR numbers of the stack being stood in."""
+    state = gh.read_state(runner)
+    stack = move_mod.stack_of(state, gh.current_branch(runner))
+    if not stack:
+        return "", [], {}
+    trunk = ((stack.get("trunk") or {}).get("branch")) or "main"
+    live = [
+        entry
+        for entry in stack.get("branches") or []
+        if entry.get("branch") and gh.sha(runner, f"refs/heads/{entry['branch']}")
+    ]
+    return (
+        trunk,
+        [entry["branch"] for entry in live],
+        {
+            entry["branch"]: (entry.get("pullRequest") or {}).get("number")
+            for entry in live
+            if (entry.get("pullRequest") or {}).get("number")
+        },
+    )
+
+
+def _require_reconciled(runner: gh.Runner, out) -> None:
+    """Refuse to publish a move over a branch the remote is ahead of.
+
+    The one check that turns "sync before you publish" from a thing the
+    operator remembers into a thing the tool enforces. It matters here more
+    than anywhere else: `submit --move` dissolves a stack on GitHub before it
+    pushes, so a push refused by the guard -- or worse, one that goes through
+    and drops a teammate's commit -- happens with the old arrangement already
+    gone.
+    """
+    _, branches, prs = _stack_here(runner)
+    if not branches:
+        return
+    remote = gh.stack_remote(runner)
+    gh.fetch(runner, remote)
+    behind = sync_mod.unreconciled(
+        runner, branches, remote, _pr_bases(runner, prs, out)
+    )
+    if behind:
+        raise ToolError(
+            f"{remote} has commits these branch(es) do not: "
+            + ", ".join(behind)
+            + " -- `tdd gsx sync` reconciles them first. Publishing a move "
+            "dissolves the old stack before it pushes, so this has to be "
+            "settled beforehand"
+        )
+
+
+def _sync_before_submit(runner: gh.Runner, out) -> None:
+    """What `--sync` means now: gsx's own reconcile and restack, no push.
+
+    The push is the submit's own, a moment later, so a second one here would
+    be the same branches twice -- and `gh stack submit` is what fixes the PR
+    bases and the stack object, which this deliberately never touches.
+    """
+    trunk, branches, prs = _stack_here(runner)
+    if not branches:
+        out.warn("--sync: not in a tracked stack, nothing to reconcile")
+        return
+    remote = gh.stack_remote(runner)
+    gh.fetch(runner, remote)
+    current = gh.current_branch(runner)
+    _forward_trunk(runner, trunk, remote, current, out)
+    sync_mod.reconcile(runner, branches, remote, out, _pr_bases(runner, prs, out))
+    sync_mod.restack(runner, branches, trunk, out)
+    if gh.current_branch(runner) != current:
+        gh.checkout(runner, current)
+
+
 def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     """Push the stack, open its PRs, then apply the label/reviewer ops."""
     gh.require_tools(runner)
@@ -492,6 +566,7 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     steps = progress.Counter(out)
 
     if args.move and moved:
+        _require_reconciled(runner, out)
         out.warn(
             "publishing a move: stack(s) "
             + ", ".join(f"#{number}" for number in moved.dissolve)
@@ -512,9 +587,14 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         )
 
     if args.sync or extras.passthrough.get("s"):
-        runner.run(
-            ["gh", "stack", "sync", *extras.passthrough.get("s", [])], capture=False
-        )
+        if extras.passthrough.get("s"):
+            # `--s:` names flags of `gh stack sync`, which this no longer runs.
+            raise ToolError(
+                "`--s:` forwards flags to `gh stack sync`, which gsx does not "
+                "run any more: `tdd gsx sync` reconciles each branch with its "
+                "own remote copy first, and takes no gh-stack flags"
+            )
+        _sync_before_submit(runner, out)
         steps.step("synced the stack with the remote", stage="sync")
 
     argv = ["gh", "stack", "submit", "--auto"]
@@ -1269,6 +1349,14 @@ UNMARKED = ("", "")
 REMOTE_MARK = ("?", "magenta")
 REMOTE_WORD = "remote only"
 
+#: And its mirror: `!`, because this checkout has it and GitHub's listing does
+#: not -- a stack whose number no open stack on GitHub carries any more, or a
+#: branch whose PR no stack there holds. Red, which `x` also is: they are never
+#: the same character, and "GitHub does not have this" belongs to the same
+#: family of alarm as "the two sides hold different work".
+LOCAL_MARK = ("!", "red")
+LOCAL_WORD = "local only"
+
 #: The legend, in the order the symbols are worth learning: what is fine, what
 #: you have to push, what you have to pull, what needs sorting out.
 LEGEND = (gh.IN_SYNC, gh.AHEAD, gh.BEHIND, gh.DIVERGED)
@@ -1305,10 +1393,28 @@ def _mark(branch: dict) -> tuple[str, str]:
     Being absent from the tracking file comes first: there is nothing here for
     a comparison to be about, so `?` in magenta says "GitHub has this one and
     you do not" and no sync symbol could say anything truer.
+
+    Being absent from the LISTING comes next, and it does displace a sync
+    symbol that could have been shown. That is the trade one symbol per branch
+    forces, and it is the right way round: how this branch's commits compare
+    with its remote copy is a question about a stack GitHub still has, and
+    `!` says it does not. `--format json` keeps both.
     """
     if branch.get("remote_only"):
         return REMOTE_MARK
+    if branch.get("local_only"):
+        return LOCAL_MARK
     return MARKS.get(branch["sync"], UNMARKED)
+
+
+def _stack_mark(row: dict) -> tuple[str, str]:
+    """The symbol in a stack's own gutter, said of the stack rather than of
+    one of its branches: `?` GitHub's alone, `!` this checkout's alone."""
+    if row.get("remote_only"):
+        return REMOTE_MARK
+    if row.get("local_only"):
+        return LOCAL_MARK
+    return UNMARKED
 
 
 def _cell(symbol: str, name: str, colour: str, guard: tuple, paint) -> str:
@@ -1413,6 +1519,7 @@ def _remote_branches(
                 "sync": gh.NO_LOCAL,
                 "current": bool(current) and name == current,
                 "remote_only": not known,
+                "local_only": False,
             }
         )
     return rows
@@ -1456,6 +1563,7 @@ def stack_rows(
     sync: dict | None = None,
     remote: list[dict] | None = None,
     source: str = BOTH,
+    asked: bool = False,
 ) -> list[dict]:
     """The stacks, bottom-up, as `{number, trunk, branches}`.
 
@@ -1469,8 +1577,14 @@ def stack_rows(
     A stack with no number yet (never submitted) keeps `None`, which prints
     `#-` -- and exists only locally, by definition. Each branch carries how it
     stands against the remote (`sync`), the number of its PR (`pr`, `None` for
-    a branch that has none), whether it is the checked-out one (`current`) and
-    whether the tracking file is missing it (`remote_only`).
+    a branch that has none), whether it is the checked-out one (`current`),
+    whether the tracking file is missing it (`remote_only`) and whether the
+    listing is (`local_only`).
+
+    `asked` is whether the listing was really had, and only then is anything
+    called `local_only`: a listing that could not be read comes back empty,
+    exactly like a repository whose stacks are all closed, and the difference
+    between those two is the difference between a fact and a false alarm.
     """
     sync = sync or {}
     stacks = state.get("stacks") or []
@@ -1484,6 +1598,13 @@ def stack_rows(
     listed = {
         int(s["number"]): s for s in remote or [] if s.get("open") and s.get("number")
     }
+    # The mirror of `tracked_branches`, and matched the same way -- by name,
+    # across every stack rather than within one: a PR that moved to another
+    # stack on GitHub is still a PR GitHub's stacks have, and saying otherwise
+    # would put `!` on half a repository the day someone reorganised it.
+    listed_branches = {ref for stack in listed.values() for ref in stack_refs(stack)}
+    # Only with the listing in hand. `--local` asks nobody, which is its point.
+    known = asked and source == BOTH
 
     rows = []
     if source != REMOTE:
@@ -1495,6 +1616,14 @@ def stack_rows(
                     "sync": sync.get(entry["branch"], gh.NO_LOCAL),
                     "current": bool(current) and entry["branch"] == current,
                     "remote_only": False,
+                    # A branch with no PR has not been submitted rather than
+                    # been forgotten: `-` in the number column says so, and
+                    # `+` says the remote has nothing of it either.
+                    "local_only": bool(
+                        known
+                        and (entry.get("pullRequest") or {}).get("number")
+                        and entry["branch"] not in listed_branches
+                    ),
                 }
                 for entry in stack.get("branches") or []
                 if entry.get("branch")
@@ -1513,6 +1642,14 @@ def stack_rows(
                     "branches": branches,
                     "current": any(branch["current"] for branch in branches),
                     "remote_only": False,
+                    # By its NUMBER, which is the claim the file is making: it
+                    # says this checkout is tracking stack #N, and the listing
+                    # has no open #N -- dissolved, closed, or re-linked under
+                    # another number. Not by its branches: they may all sit in
+                    # the stack that replaced this one, which is precisely the
+                    # case a reader needs telling about. A stack with no number
+                    # has never been submitted, and `#-` already says that.
+                    "local_only": bool(known and number and number not in listed),
                 }
             )
     # A listed stack is "elsewhere" when this checkout tracks none of its
@@ -1535,8 +1672,20 @@ def stack_rows(
                 "branches": branches,
                 "current": any(branch["current"] for branch in branches),
                 "remote_only": number in elsewhere,
+                "local_only": False,
             }
         )
+    # At most ONE stack is the one you are on. A branch can sit in several
+    # tracked stacks -- leftovers do exactly that, and a stack GitHub no longer
+    # has keeps its copy of the branch for ever -- and bracketing every row
+    # holding it would say of each that it is the one `submit` and `apply` act
+    # on, which only one of them is: the first in the file, because that is the
+    # one every other subcommand takes (`move.stack_of`). The BRANCH keeps its
+    # brackets in every row it appears in: it is the branch you are on wherever
+    # it is listed, and seeing it twice is the news.
+    on = next((row for row in rows if row["current"]), None)
+    for row in rows:
+        row["current"] = row is on
     return rows
 
 
@@ -1544,28 +1693,45 @@ def _no_paint(name: str, text: str) -> str:
     return text
 
 
-def _tag(row: dict, tag: str, width: int, paint) -> str:
-    """A stack's number in its brackets, or in the spaces they would occupy."""
-    opening, closing, colour = _guard(row)
+def _gutter(rows: list[dict]) -> int:
+    """One column left of the brackets, and only when something is in it.
+
+    A stack's mark cannot share the bracket's slot the way a branch's does,
+    because a branch wears its symbol *outside* its brackets and a number has
+    nowhere to put one: a stack can be both the one you are on and one GitHub
+    does not have, and that is exactly when it must be said. So the mark gets a
+    column of its own -- which costs the whole table one space, and only on a
+    page that has a mark to show.
+    """
+    return max((len(_stack_mark(row)[0]) for row in rows), default=0)
+
+
+def _tag(row: dict, tag: str, width: int, paint, gutter: int = 0) -> str:
+    """A stack's mark, then its number in its brackets or in their spaces."""
+    symbol, colour = _stack_mark(row)
+    flag = (paint(colour, symbol) if colour else symbol) + " " * (gutter - len(symbol))
+    # the number takes the mark's colour, as a branch's name takes its own
+    number = paint(colour, tag) if colour else tag
+    opening, closing, guard_colour = _guard(row)
     if opening:
-        body = f"{opening}{tag}{closing}"
-        pad = " " * (width + 2 - len(body))
-        return paint(colour, opening) + tag + paint(colour, closing) + pad
-    if row.get("remote_only"):
-        # the same `?` the branches get, in the same magenta, in the slot a
-        # bracket would have used
-        body = f"{REMOTE_MARK[0]}{tag}"
-        return paint(REMOTE_MARK[1], body) + " " * (width + 2 - len(body))
-    return f" {tag}" + " " * (width + 1 - len(tag))
+        pad = " " * (width - len(tag))
+        return (
+            flag
+            + paint(guard_colour, opening)
+            + number
+            + paint(guard_colour, closing)
+            + pad
+        )
+    return flag + " " + number + " " * (width + 1 - len(tag))
 
 
 def stack_lines(rows: list[dict], paint=_no_paint) -> str:
     """One line per stack, every name aligned across all of them:
 
-        [#34]  main <- =insync   <-+[ahead]
-         #40   main <- -behind   <- xdiverged
-        ?#41   main <- ?theirs
-         #-    main <- +unpushed <- ?gone
+         [#34]  main <- =insync   <-+[ahead]
+        ! #40   main <- -behind   <- xdiverged
+        ? #41   main <- ?theirs
+          #-    main <- +unpushed <- ?gone
 
     Each branch carries one symbol saying how it stands against the remote --
     `=` in sync, `+` ahead, `-` behind, `x` diverged, `?` no local branch -- and
@@ -1577,7 +1743,11 @@ def stack_lines(rows: list[dict], paint=_no_paint) -> str:
     (`=[a2]`), because the symbol is about how the branch stands and the
     brackets are about which row this is. **Magenta `?` marks what only GitHub
     has**, a stack or a PR the tracking file does not list: there is nothing
-    here for a sync symbol to be about, so it takes the place of one.
+    here for a sync symbol to be about, so it takes the place of one -- and a
+    **red `!`** marks the mirror, what only this checkout has: a stack whose
+    number the listing no longer carries, a PR no stack on GitHub holds. A
+    stack's mark sits in a column of its own, left of the brackets, because a
+    stack can be both the one you are on and one GitHub does not have.
 
     Every cell reserves one slot on each side for its brackets, and those two
     slots are the spaces around `<-` -- so a bracketed cell is exactly as wide
@@ -1592,6 +1762,7 @@ def stack_lines(rows: list[dict], paint=_no_paint) -> str:
     """
     tags = ["#" + (str(row["number"]) if row["number"] else "-") for row in rows]
     tag_width = max((len(tag) for tag in tags), default=0)
+    gutter = _gutter(rows)
     # (symbol, name, paint, guard) per cell, the trunk first and never guarded
     grid = [
         [
@@ -1618,7 +1789,7 @@ def stack_lines(rows: list[dict], paint=_no_paint) -> str:
     ]
     lines = []
     for tag, row, cells in zip(tags, rows, grid):
-        parts = [_tag(row, tag, tag_width, paint), "  "]
+        parts = [_tag(row, tag, tag_width, paint, gutter), "  "]
         for index, (symbol, name, colour, guard) in enumerate(cells):
             last = index == len(cells) - 1
             if index:
@@ -1652,6 +1823,7 @@ def stack_summary(rows: list[dict], titles: dict, paint=_no_paint) -> str:
     """
     tags = ["#" + (str(row["number"]) if row["number"] else "-") for row in rows]
     tag_width = max((len(tag) for tag in tags), default=0)
+    gutter = _gutter(rows)
     cells = [
         f"{_mark(branch)[0]}{branch['name']}"
         for row in rows
@@ -1666,10 +1838,10 @@ def stack_summary(rows: list[dict], titles: dict, paint=_no_paint) -> str:
     ref_width = max((len(ref) for ref in refs.values()), default=0)
     # the branch names hang one column left of the trunk's, so a bracket sits
     # in the same relation to its name as it does in the one-line form
-    indent = " " * (tag_width + 3)
+    indent = " " * (tag_width + gutter + 3)
     blocks = []
     for tag, row in zip(tags, rows):
-        lines = [f"{_tag(row, tag, tag_width, paint)}  {row['trunk']}"]
+        lines = [f"{_tag(row, tag, tag_width, paint, gutter)}  {row['trunk']}"]
         for branch in row["branches"]:
             symbol, colour = _mark(branch)
             guard = _guard(branch)
@@ -1708,7 +1880,9 @@ def legend(
     # only"). A branch missing from a stack this checkout DOES track still
     # earns it.
     if marked and any(
-        branch["sync"] == gh.NO_LOCAL and not branch.get("remote_only")
+        branch["sync"] == gh.NO_LOCAL
+        and not branch.get("remote_only")
+        and not branch.get("local_only")
         for row in rows
         for branch in row["branches"]
     ):
@@ -1723,6 +1897,12 @@ def legend(
         for row in rows
     ):
         marks.append(f"{paint(REMOTE_MARK[1], REMOTE_MARK[0])} {REMOTE_WORD}")
+    # next to its mirror, because the two are one fact read from either end
+    if any(
+        row.get("local_only") or any(b.get("local_only") for b in row["branches"])
+        for row in rows
+    ):
+        marks.append(f"{paint(LOCAL_MARK[1], LOCAL_MARK[0])} {LOCAL_WORD}")
     marks.append(f"{paint('white', '[]')} current")
     line = f"  {'  '.join(marks)}"
     # The remote is not named -- it is `git config gh-stack.remote` and the
@@ -1819,7 +1999,7 @@ def stack(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         unpublished = move_mod.pending(state, listing)
         if unpublished:
             out.warn(unpublished.line())
-    every = stack_rows(state, current, remote=listing, source=source)
+    every = stack_rows(state, current, remote=listing, source=source, asked=asked)
     if not args.merged:
         # The listing is the only thing that knows a PR is merged, so --local
         # shows everything: it asks nobody, which is its point.
@@ -1837,6 +2017,15 @@ def stack(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         if elsewhere:
             out.info(
                 f"{len(elsewhere)} stack(s) on GitHub are not tracked here; "
+                "--all lists them"
+            )
+        # and the mirror, which is the one that costs something: a stack this
+        # checkout still tracks and GitHub has no open stack for is a leftover,
+        # and it would otherwise be invisible from the stack you are standing in
+        ghosts = [row for row in every if row.get("local_only") and not row["current"]]
+        if ghosts:
+            out.info(
+                f"{len(ghosts)} stack(s) tracked here are not open on GitHub; "
                 "--all lists them"
             )
     if not rows:
@@ -1894,4 +2083,291 @@ def stack(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         + legend(rows, remote, paint, fetched=fetched, marked=compared)
         + "\n",
         {"stacks": rows, "remote": remote, "fetched": fetched, "source": source},
+    )
+
+
+# ------------------------------------------------------------------ sync
+def _stack_branches(runner: gh.Runner, state: dict, current: str, every: bool):
+    """The stacks to sync, as `(trunk, [branch...])`, branches bottom-up.
+
+    Only branches this checkout actually has: a stack keeps every branch it
+    ever had, and a merged PR's branch is usually deleted on the remote and
+    gone here -- there is nothing to reconcile or restack about those.
+    """
+    stacks = state.get("stacks") or []
+    if not every:
+        holding = move_mod.stack_of(state, current)
+        stacks = [holding] if holding else []
+    chosen = []
+    for stack in stacks:
+        trunk = ((stack.get("trunk") or {}).get("branch")) or "main"
+        live = [
+            entry
+            for entry in stack.get("branches") or []
+            if entry.get("branch") and gh.sha(runner, f"refs/heads/{entry['branch']}")
+        ]
+        names = [entry["branch"] for entry in live]
+        prs = {
+            entry["branch"]: (entry.get("pullRequest") or {}).get("number")
+            for entry in live
+            if (entry.get("pullRequest") or {}).get("number")
+        }
+        if names:
+            chosen.append((trunk, names, prs))
+    return chosen
+
+
+def _pr_bases(runner: gh.Runner, prs: dict[str, int], out) -> dict[str, str]:
+    """Each branch's base branch, as the PR on GitHub declares it.
+
+    The only thing that knows where a branch sat before this clone moved it:
+    gh-stack's state file is rewritten by the move itself, so it agrees with
+    the move and can never notice one. One GraphQL call for the whole stack.
+    An answer that cannot be had leaves the bases empty, which reconciles the
+    ordinary way -- the wrong shape for a moved branch, so it is said.
+    """
+    if not prs:
+        return {}
+    try:
+        payload = gh.pull_requests(runner, list(prs.values()))
+    except ToolError as error:
+        out.warn(
+            f"could not read the PR bases from GitHub ({error}); reconciling as "
+            "though nothing has been moved here"
+        )
+        return {}
+    bases = {}
+    for branch, number in prs.items():
+        base = (payload.get(number) or {}).get("baseRefName")
+        if base:
+            bases[branch] = base
+    return bases
+
+
+def _forward_trunk(
+    runner: gh.Runner, trunk: str, remote: str, current: str, out
+) -> None:
+    """Fast-forward the trunk, which is everyone's base and never rewritten.
+
+    Checked out or not: `git fetch <remote> <trunk>:<trunk>` updates the ref
+    in place and refuses anything but a fast-forward, which is exactly the
+    guarantee wanted -- but it cannot touch the branch you are standing on,
+    so that one case is a merge.
+    """
+    tracked = gh.sha(runner, f"refs/remotes/{remote}/{trunk}")
+    local = gh.sha(runner, f"refs/heads/{trunk}")
+    if not tracked or not local or tracked == local:
+        return
+    if not gh.is_ancestor(runner, local, tracked):
+        # The trunk is not ours to rewrite, and a trunk that has diverged is
+        # somebody's accident rather than this command's business.
+        out.warn(
+            f"{trunk} has diverged from {remote}/{trunk}; leaving it alone "
+            "-- sort the trunk out before syncing a stack onto it"
+        )
+        return
+    if current == trunk:
+        runner.run(["git", "merge", "--ff-only", f"{remote}/{trunk}"], capture=False)
+    else:
+        runner.run(["git", "fetch", remote, f"{trunk}:{trunk}"], capture=False)
+    out.info(f"{trunk}: fast-forwarded to {remote}/{trunk}", branch=trunk)
+
+
+def sync(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
+    """Fetch, reconcile every branch with its own remote copy, restack, push."""
+    gh.require_binaries()
+    gh.require_repo(runner)
+    if gh.dirty(runner):
+        raise ToolError(
+            "the working tree has uncommitted changes; every rebase below "
+            "would refuse, and finding that out halfway through a cascade is "
+            "worse than being told now"
+        )
+    stopped = gh.rebase_stopped(runner)
+    if stopped:
+        raise ToolError(
+            f"a stack rebase is stopped on {stopped!r}: finish it with "
+            "`gh stack rebase --continue`, or `gh stack rebase --abort`"
+        )
+    current = gh.current_branch(runner)
+    state = gh.read_state(runner)
+    chosen = _stack_branches(runner, state, current, args.all)
+    if not chosen:
+        return (
+            "no stack to sync"
+            + (
+                ""
+                if args.all
+                else f": {current!r} is not in a tracked stack, --all syncs every one"
+            ),
+            {"stacks": 0, "pushed": []},
+        )
+    remote = gh.stack_remote(runner)
+    gh.fetch(runner, remote)
+
+    # A move is half an arrangement until `submit --move` publishes it, so
+    # this reconciles and restacks -- which is what keeps the move sitting on
+    # current work -- and pushes nothing.
+    #
+    # The two reasons to hold are NOT the same advice, and conflating them is
+    # how a stale clone gets told to publish its staleness. A session says
+    # THIS checkout moved something, and `submit --move` is the way out. A
+    # bare disagreement with GitHub says the two sides differ for a reason
+    # nothing here accounts for -- most often somebody else's restructure that
+    # this clone has not adopted -- and publishing would overwrite it.
+    session = move_mod.load(runner)
+    holding = session is not None
+    if not holding and not args.no_push and _moved_locally(runner, out):
+        holding = True
+        why_holding = (
+            "GitHub and this checkout disagree about the stacks, and no move of "
+            "this checkout's accounts for it -- `tdd gsx stack -a` shows how, and "
+            "`gh stack checkout <n>` re-imports what GitHub has. Pushing now "
+            "would publish this clone's older arrangement"
+        )
+    else:
+        why_holding = (
+            "an unpublished move is in progress; `tdd gsx submit --move` publishes it"
+        )
+    outcome = sync_mod.Outcome()
+    for trunk, branches, prs in chosen:
+        _forward_trunk(runner, trunk, remote, current, out)
+        bases = _pr_bases(runner, prs, out)
+        outcome.reconciled.update(
+            sync_mod.reconcile(runner, branches, remote, out, bases)
+        )
+        outcome.restacked.extend(sync_mod.restack(runner, branches, trunk, out))
+    # Back where the operator was: the cascade walks the stack and leaving
+    # them on its top would be a side effect of asking a question.
+    if gh.current_branch(runner) != current:
+        gh.checkout(runner, current)
+
+    every = [branch for _, branches, _ in chosen for branch in branches]
+    plain, forced, leases = sync_mod.push_args(runner, every, remote)
+    outcome.fast_forward, outcome.forced = plain, forced
+    if args.no_push or holding:
+        why = "--no-push" if args.no_push else why_holding
+        return (
+            _sync_line(outcome, remote, pushed=False) + f"\nnothing was pushed ({why})",
+            {"pushed": [], "forced": forced, "remote": remote, **_sync_fields(outcome)},
+        )
+    if not outcome.touched:
+        return (
+            _sync_line(outcome, remote, pushed=False)
+            + "\nthe remote already has it all",
+            {"pushed": [], "forced": [], "remote": remote, **_sync_fields(outcome)},
+        )
+    runner.run(
+        ["git", "push", "--atomic", *leases, remote, *outcome.touched], capture=False
+    )
+    return (
+        _sync_line(outcome, remote, pushed=True),
+        {
+            "pushed": outcome.touched,
+            "forced": forced,
+            "remote": remote,
+            **_sync_fields(outcome),
+        },
+    )
+
+
+def _sync_fields(outcome) -> dict:
+    return {
+        "reconciled": {
+            name: verdict
+            for name, verdict in outcome.reconciled.items()
+            if verdict in (sync_mod.BEHIND, sync_mod.DIVERGED)
+        },
+        "restacked": outcome.restacked,
+    }
+
+
+def _sync_line(outcome, remote: str, pushed: bool) -> str:
+    """What the run amounted to, in the order a reader wants it: what came
+    down, what moved here, what went up."""
+    took = [
+        name
+        for name, verdict in outcome.reconciled.items()
+        if verdict in (sync_mod.BEHIND, sync_mod.DIVERGED)
+    ]
+    parts = [
+        f"{len(took)} branch(es) reconciled with {remote}",
+        f"{len(outcome.restacked)} restacked",
+    ]
+    if pushed:
+        parts.append(
+            f"{len(outcome.touched)} pushed"
+            + (f" ({len(outcome.forced)} forced)" if outcome.forced else "")
+        )
+    return "; ".join(parts)
+
+
+# ------------------------------------------------------------------ init
+def init(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
+    """Prepare this clone: install the pre-push guard, check the tools."""
+    gh.require_binaries()
+    gh.require_repo(runner)
+    if args.clone and args.repo:
+        raise ToolError(
+            "init takes at most one of --repo and --clone; --repo is the default"
+        )
+    # Said whatever the outcome, because a clone with the guard and without the
+    # extension is half-prepared in a way that only shows up at submit time.
+    extension = "gh-stack" in runner.run(["gh", "extension", "list"], check=False)
+    if not extension:
+        out.warn(
+            "the `gh stack` extension is not installed: "
+            "gh extension install github/gh-stack"
+        )
+    if args.check:
+        found = hooks_mod.state(runner)
+        return (_init_line(found, extension), {**found, "extension": extension})
+    where = hooks_mod.CLONE if args.clone else hooks_mod.REPO
+    path, changed = hooks_mod.install(runner, where, args.force)
+    root = hooks_mod.top_level(runner)
+    try:
+        shown = path.relative_to(root)
+    except ValueError:
+        shown = path
+    found = hooks_mod.state(runner)
+    lines = [
+        f"guard installed at {shown}"
+        if changed
+        else f"guard already current at {shown}"
+    ]
+    if where == hooks_mod.REPO:
+        lines.append(
+            f"commit {shown} so it arrives with the code; every clone still runs "
+            "`tdd gsx init` once, because git never clones .git/hooks"
+        )
+    else:
+        lines.append("this clone only -- nothing to commit")
+    if not extension:
+        lines.append("the `gh stack` extension is still missing (above)")
+    return (
+        "\n".join(lines),
+        {
+            "path": str(path),
+            "where": where,
+            "changed": changed,
+            "extension": extension,
+            **found,
+        },
+    )
+
+
+def _init_line(found: dict, extension: bool) -> str:
+    """What `--check` says, and the same words the refusal uses."""
+    if found["protected"]:
+        return f"the guard is installed and active ({found['active']})" + (
+            "" if extension else "; the `gh stack` extension is missing"
+        )
+    if found["active"] == "elsewhere":
+        return (
+            f"core.hooksPath is {found['hooks_path']!r}, which gsx did not set: "
+            "chain to the guard from there, or `tdd gsx init --clone`"
+        )
+    return (
+        "the guard is NOT active here; `tdd gsx init` installs it "
+        "(--repo commits it for everyone, --clone is this clone only)"
     )

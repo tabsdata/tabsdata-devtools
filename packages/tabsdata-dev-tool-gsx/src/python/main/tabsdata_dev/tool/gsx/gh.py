@@ -570,7 +570,10 @@ def pull_requests(runner: Runner, numbers: list[int]) -> dict:
     """
     if not numbers:
         return {}
-    fields = "number state isInMergeQueue autoMergeRequest{enabledAt}"
+    fields = (
+        "number state baseRefName headRefName isInMergeQueue "
+        "autoMergeRequest{enabledAt}"
+    )
     parts = " ".join(
         f"p{n}: pullRequest(number:{n}){{ {fields} }}" for n in sorted(set(numbers))
     )

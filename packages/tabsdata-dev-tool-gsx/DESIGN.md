@@ -441,6 +441,20 @@ either command that cannot be undone**. It has to dissolve before it pushes:
 So the one thing to expect: **the stack number of what stays below you changes.** The PR numbers
 do not.
 
+**And it refuses to start while any branch it is about to push is behind its remote copy**,
+naming `tdd gsx sync`. The order above is why this check lives here and not in the guard alone:
+the dissolve happens *before* the push, so a push the guard refuses -- or worse, one that goes
+through and drops a teammate's commit -- would happen with the old arrangement already gone. It
+is the same `unreconciled()` the sync engine uses, run against the stack being stood in after one
+fetch.
+
+**And a moved branch is judged by patch, not by ancestry.** Reconciling one cherry-picks the
+remote's commits onto where it now sits, so they arrive under new shas and `<remote>/<branch>` is
+deliberately not an ancestor afterwards. Asking whether it is calls every correctly reconciled
+move unreconciled, which is what happened the first time this ran in the sandbox: `submit --move`
+refused a branch that was holding every commit the remote had. What is asked instead is whether
+anything of the remote's own is still missing.
+
 `--move` is required rather than inferred, and `submit` **refuses without it** when it notices
 one, because an irreversible step should never be a side effect. Noticing is `move.pending()`:
 a GitHub stack is still fine while its PRs are the bottom of one local stack, in order, since
@@ -484,20 +498,24 @@ per-PR lines for one line per stack; `--remote`/`-r` and `--local`/`-l` show one
 ```
 $ tdd gsx stack
 [#34]  main
-       =a1        #21  the loader
-      +[a2]       #22  wire it up
-       ?a3        #29  one someone else put in the stack
+       =insync  #21  the loader
+      +[ahead]  #22  wire it up
+       ?theirs  #29  one someone else put in the stack
 
   = in sync  + ahead  - behind  x diverged  ? remote only  [] current
 
 $ tdd gsx stack --all --short
 3 stack(s):
-[#34]  main <- =insync   <-+[ahead] <- ?a3
- #40   main <- -behind   <- xdiverged
-?#41   main <- ?theirs
+ [#34]  main <- =insync <-+[ahead]   <- ?theirs
+! #40   main <- -behind <- xdiverged
+? #41   main <- ?c1
+
+  = in sync  + ahead  - behind  x diverged  ? remote only  ! local only  [] current
 
 $ tdd gsx stack --remote --short        # GitHub's view, nothing compared
-[#34]  main <- insync <- ahead <- ?a3
+ [#34]  main <- insync <-[ahead]   <- ?theirs
+? #41   main <- ?c1
+  #42   main <- behind <- diverged
 
   ? remote only  [] current
 ```
@@ -527,6 +545,36 @@ magenta one are the same fact one step apart, which is why they are the same cha
 colour and the legend's words carry the step. **Only the one a row uses is explained**: a
 remote-only branch has no local copy by definition, so it is not also counted as one -- both
 entries at once ("? no local branch  ? remote only") read as one symbol explained twice.
+
+**And a red `!` marks the mirror: what only this checkout has.** A stack is local-only **by its
+number** -- the file says it is tracking #3488 and no open stack on GitHub carries that number
+any more, because it was dissolved, closed, or re-linked under a new one. Deliberately not by its
+branches: they are usually all sitting in the stack that replaced it, and matching on them would
+call the leftover healthy. A branch is local-only when **its PR is in the file and in no open
+stack on GitHub**, matched by name across the whole listing rather than within one stack, since a
+PR that moved to another stack is still a PR GitHub's stacks have. A branch with **no PR** is not
+marked: it has not been submitted rather than been forgotten, `-` in the number column says so,
+and `+` says the remote has nothing of it either.
+
+The two marks under a `!` stack are worth reading together. `! #40 main <- -behind <- xdiverged`
+says the stack is gone and its PRs live on somewhere else; `! #40 main <- !behind <- !diverged`
+says both are gone. That is the difference between a re-link someone else finished and something
+that needs looking at, so the branches are not silenced under a marked stack.
+
+For a branch, `!` does displace a sync symbol that had something to say, which `?` never does.
+That is the trade one symbol per branch forces, and it is the right way round: how a branch's
+commits compare with its remote copy is a question about a stack GitHub still has. `--format
+json` carries `sync` and `local_only` both, so nothing is lost to a machine.
+
+**Nothing is called local-only unless the listing was really had.** A listing that failed comes
+back empty and so does a repository whose stacks are all closed; marking every stack on the first
+would be a false alarm at the one moment the reader cannot check. So `--local` shows no `!` at
+all -- it asks nobody, which is its point -- and neither does a default run whose listing
+warned. This is the same price `--local` pays for not knowing which PRs are merged.
+
+This came from a real checkout: tabsdata-os tracked #3488, #3478 and #3495 while GitHub had
+exactly one open stack, #3495, which had absorbed the other two. All three rows read as ordinary
+stacks, two of them were leftovers, and the view had no way to say so.
 
 Remote-only PRs are appended at the top of their stack, which is where `gh stack sync` would put
 them when it pulls them down. A closed stack is skipped whole.
@@ -570,7 +618,8 @@ remote, so the default costs one `rev-list` per out-of-sync branch of one stack 
 all of them. The count line appears only with `--all`, and says which side it counted
 (`on GitHub`, `tracked here`): over a single stack the row already says the rest. A stack GitHub
 has that is not tracked here cannot be "the one you are on", so without `--all` it is named in
-one line rather than shown. Standing outside every stack answers so and names `--all`. `#-` is a
+one line rather than shown -- and so is its mirror, a stack tracked here that GitHub has no open
+stack for, which would otherwise be invisible from inside another one. Standing outside every stack answers so and names `--all`. `#-` is a
 stack that has never been submitted, so GitHub has given it no number yet -- and exists only
 locally, by definition.
 
@@ -581,7 +630,9 @@ is unreachable can still be worked in.
 **One symbol per branch, and it is also the colour.** `=` in sync (green), `+` ahead (blue), `-`
 behind (yellow), `x` diverged (red), `?` no local branch (uncoloured -- nothing is claimed about
 it). A branch with nothing on the remote reads `+`: there is no remote copy for it to be behind.
-`?` and `()` are independent: a PR the tracking file lacks may still have its branch here.
+`?` and `()` are independent: a PR the tracking file lacks may still have its branch here. `!` is
+red as well as `x`, which costs nothing -- they are never the same character, and "GitHub does
+not have this" belongs to the same family of alarm as "the two sides hold different work".
 
 **Commits are compared by their change, not their sha** (`git rev-list --cherry-pick`, which
 drops any commit whose patch already exists on the other side). `gh stack` rebases everything
@@ -610,6 +661,21 @@ that branch. A shape rather than a colour because the colours are spoken for: ea
 state, and being checked out is not a state. It is the only marker drawn as a shape, and it is
 the same shape at both scales, because it is the same fact said of a stack and of a branch.
 
+**At most one stack wears them.** A branch can sit in several tracked stacks -- leftovers do
+exactly that, since a stack GitHub has forgotten keeps its copy of every branch -- and the row
+bracketed is the **first in the file**, because that is the one every other subcommand takes
+(`move.stack_of`). Bracketing all of them said of each that it is the one `submit` acts on, which
+only one of them is. The **branch** keeps its brackets in every row it appears in: it is the
+branch you are on wherever it is listed, and seeing it in three rows is the news rather than the
+noise. The two together are how the leftover announces itself -- `![#3488]` is the stack your
+commands would act on and GitHub does not have.
+
+**A stack's mark sits in a column of its own**, left of the brackets, and that column exists only
+when something is in it. A branch wears its symbol outside its brackets (`=[a2]`) and a number
+has nowhere to put one, so sharing the bracket's slot -- which is where `?` used to sit -- meant
+a stack could be current or marked but never both. It can be both, and that is exactly when it
+matters most.
+
 **The brackets hold the name alone**, with the symbol outside: `=[a2]`, not `[=a2]`. The symbol
 says how the branch stands and the brackets say which row this is -- two facts about two
 different things, so the brackets hold only the one they are about. It also puts every **name**
@@ -626,8 +692,9 @@ everything after it plain.
 
 **One line of legend, set off by a blank line on each side** -- it is a key to what is above it,
 not another row of it -- with each symbol in its own colour, so it demonstrates what it explains
-rather than describing it twice; `?` and `()` earn their place only when a row uses them, and the
-sync symbols only when the view compared anything. Colour is never the only carrier -- the symbol
+rather than describing it twice; `?`, `!` and `()` earn their place only when a row uses them,
+and the sync symbols only when the view compared anything. `!` follows `?` there, because the two
+are one fact read from either end. Colour is never the only carrier -- the symbol
 or the bracket says the same thing under `NO_COLOR`, in a pipe, and to anyone who does not
 separate red from green.
 
@@ -647,10 +714,165 @@ differ costs a second call.
 
 The rows and the legend are the `ok` message, so they land on stdout and pipe; `--format json`
 gets no escapes at all and carries, per branch, `sync` in words (`in-sync`, `ahead`, `behind`,
-`diverged`, `no-local-branch`, or `null` where nothing was compared) and `remote_only`, plus the
-`source` (`local`, `remote`, `both`) and the `remote` it compared against. A checkout with no
+`diverged`, `no-local-branch`, or `null` where nothing was compared), `remote_only` and
+`local_only` -- the last two per stack as well -- plus the `source` (`local`, `remote`, `both`)
+and the `remote` it compared against. A checkout with no
 state file and a repository with no open stacks answers "none" and exits 0: asked what stacks
 exist, "none" is an answer rather than a failure.
+
+## sync
+
+`sync` is the command `gh stack sync` should have been: **it reconciles each branch with its own
+copy on the remote before the cascade touches anything**, and so almost never has to force.
+`docs/stack-collaboration.md` is the full argument; this is what the code does.
+
+```
+git fetch <remote>                             # once, for the whole run
+git fetch <remote> <trunk>:<trunk>             # or `merge --ff-only` when standing on it
+for each branch, bottom-up:                    # RECONCILE
+    <remote>/<branch> already in ours     -> nothing
+    ours in <remote>/<branch>             -> git rebase <remote>/<branch>   (a fast-forward)
+    neither                               -> git rebase <remote>/<branch>   (replay ours on theirs)
+for each branch, bottom-up:                    # RESTACK, only where needed
+    parent not an ancestor -> git rebase --onto <parent> <merge-base> <branch>
+git push --atomic [--force-with-lease=refs/heads/<b>:<fetched sha>...] <remote> <changed...>
+```
+
+**One `git rebase <remote>/<branch>` covers both live cases** for a branch still sitting where
+GitHub has it: onto an ancestor it fast-forwards, onto a divergence it replays, and either way it
+drops any commit whose patch the other side already has. That last part is what makes the step
+safe to repeat.
+
+**A branch this clone has MOVED is the exception, and it is not a small one.** The same rebase
+drags the old parent chain back in, because `<remote>/<branch>` still holds it: measured on a
+real move in the sandbox, a branch that should have carried three commits over its new parent
+came back carrying eight, the extra five belonging to the two PRs it had just been moved away
+from -- and the PR would have shown all of them. So a moved branch takes **only the remote's own
+commits**, cherry-picked onto where it now sits:
+
+```
+git rev-list --reverse --right-only --cherry-pick <branch>...<remote>/<branch> --not <remote>/<base>
+git cherry-pick <those>
+```
+
+`<base>` is the PR's base branch **as GitHub has it**, and that is the whole trick: gh-stack's
+state file is rewritten by the move the moment it runs, so it agrees with the move by
+construction and could never notice one. GitHub keeps the old base until `submit --move`
+publishes, which is exactly the window this matters in. One GraphQL call fetches every base in
+the stack; a listing that cannot be had reconciles the ordinary way and says so.
+
+The cost is real and worth naming: a cherry-picked branch no longer descends from its remote
+copy, so its push is forced. That is correct rather than unfortunate -- a moved branch is a
+rewrite by definition -- and the guard allows it, because the remote's own commits are all
+present.
+
+**A reconciled branch descends from its remote copy, so its push is an ordinary fast-forward.**
+That is the whole yield. Verified in two clones: a teammate's commit on one branch and on
+another, a local commit of our own on the second -- reconcile first and `git push` needs no force
+flag at all, with both people's commits present. The cascade then rewrites only the branches this
+clone genuinely moved, and those are forced with the remote tip already in their history, which
+is exactly what the guard asks for.
+
+**Only what changed is pushed**, and the lease is pinned to the sha *this run* fetched: a remote
+that moved between the fetch and the push is then a refusal rather than a loss. `--atomic`,
+because a stack half-published is worse than one not published at all.
+
+**It touches no stack object and calls no stacks API.** Every destructive path in gh-stack's sync
+is in its reconciliation of the *stack* -- the prompt that offers to dissolve it, the silent skip
+when the tracked id 404s, the push that follows either. None of that is needed to move commits
+between clones, and the stack object is `submit`'s business. This is also why `submit --sync` now
+runs this engine rather than `gh stack sync`, and why `--s:` is refused with a sentence saying so:
+it forwarded flags to a command gsx no longer runs.
+
+**There is no session file.** Every step asks whether it is already done -- is the remote copy in
+our history, is the parent an ancestor -- and does nothing when the answer is yes, so the command
+is idempotent: on a conflict it stops, you resolve and `git rebase --continue`, then run it again.
+`move` needs a session because it has an undo to offer; sync has nothing to undo that re-running
+does not fix.
+
+**A dirty tree is refused up front**, because every rebase below would refuse anyway and finding
+that out halfway through a cascade leaves the stack in pieces. A stopped `gh stack rebase` is
+refused for the same reason, naming gh-stack's own `--continue`/`--abort`.
+
+**During an unpublished move it reconciles and restacks but pushes nothing**, and says which.
+Half an arrangement is not a thing to publish, and keeping the move sitting on top of current
+work is the useful half of syncing while one is open.
+
+**And the two reasons to hold the push are not the same advice.** A session file says *this*
+checkout moved something, and `submit --move` is the way out. A bare disagreement with GitHub --
+`move.pending()` with no session -- says the two sides differ for a reason nothing here accounts
+for, and by far the commonest is somebody else's restructure that this clone has not adopted. The
+first draft gave both the same sentence, and a stale clone in the sandbox was duly told to
+`gsx submit --move`, which would have published its staleness over the restructure. The second
+sentence names `gsx stack -a` and `gh stack checkout <n>` instead, and says plainly that pushing
+would publish the older arrangement.
+
+**The trunk is fast-forwarded, never rewritten.** `git fetch <remote> <trunk>:<trunk>` updates the
+ref in place and refuses anything but a fast-forward, which is the guarantee wanted -- except on
+the branch you are standing on, where it cannot write, so that one case is `merge --ff-only`. A
+trunk that has actually diverged is somebody's accident: it is named in a warning and left alone.
+
+## init
+
+`init` prepares a clone: it installs the pre-push guard, which is the only thing protecting a clone whose owner never
+read any of this. Two rules, both about a branch the remote already has:
+
+- **rewrite**: refuse a forced update whose remote tip was never reachable from any past tip of
+  this local branch. Someone else rewrote it; this push would discard their work. Rewrites of
+  your own history pass, which is what leaves ordinary restacking alone.
+- **drop**: refuse a push that loses a commit the remote has, matched by patch-id and, failing
+  that, by subject. A rebase preserves both, so restacking and interleaving pass; a squash or a
+  deletion does not. Commits already in the trunk are not counted -- landing is not losing.
+
+The second rule is the **append-only policy**, not data safety, and it is the one with false
+positives: a conflict resolution that also rewrites the subject reads as a drop. So it names the
+commits it could not find and points at the override. Both share `GIT_ALLOW_OVERWRITE=1`, which
+is deliberately unpleasant to type.
+
+**The guard needs no network, no API and no stack awareness** -- it reads the reflog and the two
+shas git hands it. And because gh-stack shells out to `git push`, it covers `gh stack sync`,
+`push` and `submit` as well as everything gsx does; with `--atomic` one refusal stops the lot.
+
+**Git will not let a repository configure its own hooks**, by design: `.git/hooks` is never
+cloned, because a hook is code the clone's owner runs. There is therefore no arrangement where a
+teammate is protected without doing anything, and pretending otherwise would be the worst part of
+shipping this. The two honest shapes are `--repo` (`.githooks/pre-push` committed,
+`core.hooksPath` set to a *relative* path so the same string works everywhere) and `--clone`
+(`.git/hooks/pre-push`, nothing committed). `core.hooksPath` replaces `.git/hooks` rather than
+adding to it, so they are alternatives and `--check` says which is in force.
+
+**A pre-push hook gsx did not write is never silently replaced** -- `--force` is the way through,
+and the refusal says so. The write is a temporary file and one rename, like every other write
+here: a half-written guard is a guard that passes everything.
+
+**And the missing `gh stack` extension is reported whatever else happens**, because a clone with
+the guard and without the extension is half-prepared in a way that only shows itself at submit
+time, which is the wrong moment.
+
+### the refusal
+
+**`submit`, `sync`, `prune` and `move` will not run in a clone that has no guard.** The one gap
+this design cannot close is a clone where nobody installed the hook -- measured: `gh stack sync`
+from such a clone overwrote a whole restructure, and the same clone with the hook was refused. A
+tool that knows how to install the guard, knows it is missing, and does the dangerous work anyway
+is choosing the worst of the three options.
+
+`move` is in the list although it pushes nothing: it rewrites the branches a publish will push,
+and a clone that can move without a guard is a clone that can publish without one. The refusal
+belongs where the work starts, not where it lands. Everything that only reads -- `stack`,
+`checkout`, `apply`, `purge`, `create` -- is untouched, because the refusal is about pushing
+rather than about gsx, and `init` itself is untouched because guarding it would be a door locked
+from the inside.
+
+**The escape is `GSX_NO_GUARD=1`, an environment variable rather than a flag.** A guard you can
+turn off by typing one more word on the line you were already typing is not a guard; a variable
+has to be meant. It is named for what it removes.
+
+**The check is local to a fault** -- one file and one git config key, no network, no API -- so it
+costs nothing on every run. A checkout it cannot be answered for (not a git repository, no git)
+is left to the command itself to report: a confusing word about hooks is not an improvement on
+"not a git repository". It lives in the dispatcher beside `_say_if_moving`, for the same reason:
+one wording, and no command that can forget it.
 
 ## Config
 

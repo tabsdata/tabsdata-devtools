@@ -1,0 +1,109 @@
+#!/bin/sh
+#
+# Copyright 2026 Tabsdata Inc.
+#
+# gsx pre-push guard. Two rules, both about a branch that already exists on the
+# remote; new branches, deletions and fast-forwards always pass.
+#
+#   1. REWRITE: refuse a forced update whose remote tip was never reachable
+#      from any past tip of this local branch -- someone else rewrote it and
+#      this push would discard what they did. Rewrites of your own history
+#      pass, which is what makes ordinary restacking work.
+#
+#   2. DROP: refuse a push that loses a commit the remote already has, matched
+#      by patch-id and, failing that, by subject. A rebase keeps both, so
+#      restacking passes; a squash or a dropped commit does not. Commits that
+#      reached the trunk are not counted -- landing is not losing.
+#
+# Rule 1 is data safety, rule 2 is the append-only policy. One override for
+# both, deliberately ugly to type:
+#
+#     GIT_ALLOW_OVERWRITE=1 git push ...        (or gsx submit, gs sync, ...)
+#
+# Installed by `tdd gsx hooks --install`. Because gh-stack shells out to
+# `git push`, this covers `gh stack sync|push|submit` as well as gsx itself.
+
+remote="$1"
+[ -n "$GIT_ALLOW_OVERWRITE" ] && exit 0
+
+# The trunk the "already landed" test measures against. gh-stack's own remote
+# is whatever this push names, so the trunk is read the same way gsx reads it.
+trunk=$(git config gh-stack.trunk || echo main)
+
+status=0
+while read -r lref lsha rref rsha; do
+  case "$lref" in refs/heads/*) ;; *) continue ;; esac
+  case "$rsha" in *[!0]*) ;; *) continue ;; esac      # not on the remote yet
+  case "$lsha" in *[!0]*) ;; *) continue ;; esac      # a deletion, not a rewrite
+  branch=${lref#refs/heads/}
+
+  # A fast-forward adds and removes nothing: neither rule has anything to say.
+  git merge-base --is-ancestor "$rsha" "$lsha" </dev/null 2>/dev/null && continue
+
+  # The remote tip has to be here to be reasoned about at all. It normally is,
+  # because git fetched the ref advertisement to build this very line.
+  if ! git cat-file -e "$rsha^{commit}" </dev/null 2>/dev/null; then
+    echo "pre-push: REFUSING to force-push $branch to $remote." >&2
+    echo "  $remote/$branch is at $rsha, which this clone does not have: fetch first." >&2
+    status=1
+    continue
+  fi
+
+  # --- rule 1: did we ever have what is on the remote? --------------------
+  tips=$(git log -g --format=%H "$lref" </dev/null 2>/dev/null)
+  if [ -z "$tips" ] || [ -n "$(git rev-list -n 1 "$rsha" --not $tips </dev/null 2>/dev/null)" ]; then
+    short=$(git rev-parse --short "$rsha" </dev/null 2>/dev/null || echo "$rsha")
+    echo "pre-push: REFUSING to force-push $branch to $remote." >&2
+    echo "  $remote/$branch is at $short, which was never part of your local $branch:" >&2
+    echo "  someone else rewrote it, and this push would discard their work." >&2
+    echo "  Reconcile first -- \`tdd gsx sync\` does it, or by hand:" >&2
+    echo "      git checkout $branch && git rebase $remote/$branch" >&2
+    echo "  or set GIT_ALLOW_OVERWRITE=1 to override." >&2
+    status=1
+    continue
+  fi
+
+  # --- rule 2: is every commit the remote has still here? -----------------
+  # Only the branch's own commits: anything already in the trunk has landed,
+  # and a rebase rightly drops it.
+  base="$remote/$trunk"
+  git rev-parse --verify --quiet "$base" >/dev/null 2>&1 || base=$trunk
+  git rev-parse --verify --quiet "$base" >/dev/null 2>&1 || base=""
+
+  mine=$(git rev-list "$lsha" ${base:+--not "$base"} </dev/null 2>/dev/null)
+  # patch-ids of what is being pushed, and the subjects, as two lookup tables
+  mine_patches=$(for c in $mine; do git show "$c" </dev/null 2>/dev/null | git patch-id --stable 2>/dev/null | cut -d' ' -f1; done)
+  mine_subjects=$(for c in $mine; do git log -1 --format=%s "$c" </dev/null 2>/dev/null; done)
+
+  lost=""
+  for c in $(git rev-list "$rsha" ${base:+--not "$base"} </dev/null 2>/dev/null); do
+    # already here by sha? then nothing was lost, and no id has to be computed
+    git merge-base --is-ancestor "$c" "$lsha" </dev/null 2>/dev/null && continue
+    pid=$(git show "$c" </dev/null 2>/dev/null | git patch-id --stable 2>/dev/null | cut -d' ' -f1)
+    if [ -n "$pid" ]; then
+      case "
+$mine_patches" in *"
+$pid"*) continue ;; esac
+    fi
+    subject=$(git log -1 --format=%s "$c" </dev/null 2>/dev/null)
+    # A conflict resolution changes the patch but keeps the subject, so the
+    # subject is what stops an honest restack from reading as a squash.
+    if [ -n "$subject" ]; then
+      case "
+$mine_subjects" in *"
+$subject"*) continue ;; esac
+    fi
+    lost="$lost  $(git log -1 --format='%h %s' "$c" </dev/null 2>/dev/null)
+"
+  done
+
+  if [ -n "$lost" ]; then
+    echo "pre-push: REFUSING to push $branch to $remote." >&2
+    echo "  These commits are on $remote/$branch and not in what you are pushing:" >&2
+    printf '%s' "$lost" >&2
+    echo "  A submitted PR is append-only: add a commit rather than squashing or" >&2
+    echo "  dropping one. If this was deliberate, set GIT_ALLOW_OVERWRITE=1." >&2
+    status=1
+  fi
+done
+exit $status

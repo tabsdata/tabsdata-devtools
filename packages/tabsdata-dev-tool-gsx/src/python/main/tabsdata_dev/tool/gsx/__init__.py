@@ -20,6 +20,8 @@ repository that uses neither Jira nor Graphite.
     tdd gsx move     --to #STACK|BRANCH | --continue | --abort | --report
                      [--yes] [--dry-run]
     tdd gsx stack    [--all|-a] [--short|-s] [--remote|-r|--local|-l] [--no-fetch]
+    tdd gsx sync     [--all|-a] [--no-push]
+    tdd gsx init     [--repo|--clone] [--force] [--check]
 
 Branch and commit are named from the repository: `tabsdata-conn-gcs` issue 15
 -> branch `GCS-15`, commit `[GCS-15] <summary>`, trailer `Closes #15`. The
@@ -29,6 +31,7 @@ which gsx refreshes on its own when what it holds cannot answer a value.
 
 from __future__ import annotations
 
+import os
 import sys
 
 from tabsdata_dev.common.core import cli, render
@@ -36,6 +39,7 @@ from tabsdata_dev.common.core.errors import ToolError
 
 from . import args as args_mod
 from . import commands, gh
+from . import hooks as hooks_mod
 from . import move as move_mod
 from .args import NATIVES, TAKES_LR
 from .options import DESCRIPTION, NAME, CONFIG_PREAMBLE, CONFIG_TABLES, configure
@@ -51,6 +55,8 @@ HANDLERS = {
     "prune": commands.prune,
     "move": commands.move,
     "stack": commands.stack,
+    "sync": commands.sync,
+    "init": commands.init,
 }
 
 
@@ -67,9 +73,55 @@ def _body(parsed_args, out: render.Renderer, extras: args_mod.Extras) -> int:
     natives = NATIVES[subcommand]
     args_mod.check_overlaps(extras, natives, parsed_args.override, out)
     runner = gh.Runner(out=out, dry_run=parsed_args.dry_run)
+    _require_guard(runner, subcommand)
     _say_if_moving(runner, out, subcommand)
     message, fields = HANDLERS[subcommand](parsed_args, out, runner, extras)
     return out.ok(message, gsx=subcommand, dry_run=parsed_args.dry_run, **fields)
+
+
+#: The commands that reach the remote, plus the one that is the way into them.
+#: `move` pushes nothing, but it rewrites the branches a publish will push, and
+#: a clone that can move without a guard is a clone that can publish without
+#: one -- the refusal belongs where the work starts, not where it lands.
+GUARDED = {"submit", "sync", "prune", "move"}
+
+#: For a checkout where the hook genuinely cannot be installed. Named for what
+#: it removes rather than for what it permits, and it is not a flag: a guard
+#: you can turn off by typing one more word on the line you were already
+#: typing is not a guard.
+ESCAPE = "GSX_NO_GUARD"
+
+
+def _require_guard(runner: gh.Runner, subcommand: str) -> None:
+    """Refuse to push, or to prepare a push, from an unguarded clone.
+
+    The pre-push hook is the only thing standing between a stale clone and
+    somebody else's commits, and the one gap the design cannot close is a
+    clone where nobody installed it -- measured: `gh stack sync` from such a
+    clone overwrote a whole restructure, and the same clone with the hook was
+    refused. So the tool that knows how to install it will not do the
+    dangerous work until it has been.
+
+    Local to a fault: a file, one git config key, no network. A checkout this
+    cannot be answered for -- not a git repository, no git -- is not this
+    check's business and is left to the command itself to report.
+    """
+    if subcommand not in GUARDED or os.environ.get(ESCAPE):
+        return
+    try:
+        found = hooks_mod.state(runner)
+    except (ToolError, OSError):
+        return
+    if found["protected"]:
+        return
+    raise ToolError(
+        f"the pre-push guard is not installed here, and `gsx {subcommand}` "
+        "will not run without it: an unguarded clone can overwrite commits it "
+        "never had, which is the one failure this tool exists to prevent.\n"
+        "  `tdd gsx init`          installs it (and commits it for everyone)\n"
+        "  `tdd gsx init --clone`  installs it for this clone alone\n"
+        f"  {ESCAPE}=1          runs anyway, where it cannot be installed"
+    )
 
 
 def _say_if_moving(runner: gh.Runner, out: render.Renderer, subcommand: str) -> None:

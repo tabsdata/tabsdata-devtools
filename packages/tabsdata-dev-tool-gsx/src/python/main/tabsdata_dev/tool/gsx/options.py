@@ -195,7 +195,11 @@ def configure(parser: argparse.ArgumentParser) -> None:
         + LR_EPILOG
         + "\n",
     )
-    submit.add_argument("--sync", action="store_true", help="`gh stack sync` first")
+    submit.add_argument(
+        "--sync",
+        action="store_true",
+        help="reconcile and restack against the remote first, as `gsx sync` does",
+    )
     submit.add_argument(
         "--move",
         action="store_true",
@@ -366,6 +370,75 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help="do not ask; without it the plan is shown and a confirmation is read from the terminal",
     )
 
+    sync = add(
+        "sync",
+        "fetch, reconcile every branch with its own copy on the remote, restack, push",
+        "examples:\n"
+        "  tdd gsx sync              the stack you are on\n"
+        "  tdd gsx sync --all        every stack tracked here\n"
+        "  tdd gsx sync --no-push    reconcile and restack, publish nothing\n\n"
+        "the step `gh stack sync` does not have is the first one: each branch is\n"
+        "brought up to <remote>/<branch> BEFORE the cascade, so a teammate's\n"
+        "commits are integrated rather than rebased away and then overwritten.\n"
+        "A reconciled branch descends from its remote copy, which makes most of\n"
+        "the push an ordinary fast-forward; only branches this clone really moved\n"
+        "are forced, and with a lease pinned to what this run fetched.\n\n"
+        "It touches no stack object and calls no stacks API -- that is submit's\n"
+        "business. There is no session: every step asks whether it is already\n"
+        "done, so after resolving a conflict with `git rebase --continue` you\n"
+        "simply run it again.\n\n",
+    )
+    sync.add_argument(
+        "--all",
+        "-a",
+        action="store_true",
+        help="every stack tracked here, not just the one you are on",
+    )
+    sync.add_argument(
+        "--no-push",
+        action="store_true",
+        help="reconcile and restack locally; push nothing",
+    )
+
+    init = add(
+        "init",
+        "prepare this clone: install the pre-push guard, check the tools",
+        "examples:\n"
+        "  tdd gsx init             install the guard and report what is in place\n"
+        "  tdd gsx init --clone     .git/hooks/pre-push, nothing committed\n"
+        "  tdd gsx init --check     report only; install nothing\n\n"
+        "the guard refuses two pushes: one that would discard commits this clone\n"
+        "never had (someone else rewrote the branch), and one that loses a commit\n"
+        "the remote already has (a squash or a drop in a submitted PR). Rebases\n"
+        "and fast-forwards pass, so ordinary restacking is unaffected.\n"
+        "Override either with GIT_ALLOW_OVERWRITE=1.\n\n"
+        "run this once per clone. git never clones .git/hooks, so there is no\n"
+        "arrangement in which a teammate is protected without doing anything --\n"
+        "which is why submit, sync, prune and move REFUSE to run until it has\n"
+        "been run here. GSX_NO_GUARD=1 overrides, for a checkout where the hook\n"
+        "cannot be installed at all.\n\n",
+    )
+    init.add_argument(
+        "--repo",
+        action="store_true",
+        help="install into .githooks and point core.hooksPath at it (the default)",
+    )
+    init.add_argument(
+        "--clone",
+        action="store_true",
+        help="install into .git/hooks for this clone only, instead of .githooks",
+    )
+    init.add_argument(
+        "--check",
+        action="store_true",
+        help="report what is in place and install nothing",
+    )
+    init.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite a pre-push hook gsx did not write",
+    )
+
     stack = add(
         "stack",
         "the stacks: what this checkout tracks, what only GitHub has, and where "
@@ -380,12 +453,14 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "    [#34]  main <- =a1 <-+[a2] <- ?a3\n"
         "  tdd gsx stack -as        (--all --short)\n"
         "    3 stack(s):\n"
-        "    [#34]  main <- =a1  <-+[a2]\n"
-        "     #40   main <- -b24 <- xb25\n"
-        "    ?#41   main <- ?c1\n\n"
+        "     [#34]  main <- =a1  <-+[a2]\n"
+        "    ! #40   main <- -b24 <- xb25\n"
+        "    ? #41   main <- ?c1\n\n"
         "the stacks come from gh-stack's own state file AND from GitHub's own\n"
         "listing, so what only GitHub has -- a PR someone added to your stack, a\n"
-        "stack you have never checked out -- is shown too, as a magenta ?name.\n"
+        "stack you have never checked out -- is shown too, as a magenta ?name,\n"
+        "and what only this checkout has -- a stack GitHub has no open number\n"
+        "for any more, a PR no stack there holds -- as a red !name.\n"
         "White [brackets] mark the stack holding the branch you are on -- the one\n"
         "submit and apply act on -- and that branch, round the name alone.\n"
         "`#-` is a stack that has never been submitted, so it has no number yet.\n\n"

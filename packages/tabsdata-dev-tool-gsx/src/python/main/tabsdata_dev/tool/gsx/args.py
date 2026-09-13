@@ -238,9 +238,13 @@ UPDATE_NATIVES = [
     Native("e", "gh pr edit", TEXT_OWNED),
 ]
 CHECKOUT_NATIVES = [Native("c", "gh stack checkout")]
+#: `--s:` named `gh stack sync`, which submit no longer runs: `--sync` is
+#: gsx's own reconcile now (see sync.py). It is kept in the table so that a
+#: `--s:` still reaches the refusal in `submit`, which says what replaced it,
+#: rather than the generic "no such passthrough" of an unknown letter.
 SUBMIT_NATIVES = [
     Native("p", "gh stack submit", {"auto": "gsx always runs non-interactively"}),
-    Native("s", "gh stack sync"),
+    Native("s", "gh stack sync (no longer run; see --sync)"),
     Native("e", "gh pr edit", PR_EDIT_OWNED),
 ]
 APPLY_NATIVES = [Native("e", "gh pr edit", PR_EDIT_OWNED)]
@@ -258,6 +262,14 @@ APPROVE_NATIVES = [
 #: purge drives `git branch -D` and one `gh pr list`, and neither has a flag
 #: worth forwarding: the branch is named by the loop and the listing's shape is
 #: what the classification reads. No natives means `--x:` is refused by name.
+#: sync drives git alone -- fetch, rebase, push -- and every argument of each
+#: is computed from the two sides it is reconciling. Nothing to forward, and a
+#: `gh stack sync` flag forwarded here would name a command it does not run.
+SYNC_NATIVES: list[Native] = []
+
+#: init writes a file and one git config key. No child process worth a flag.
+INIT_NATIVES: list[Native] = []
+
 PURGE_NATIVES: list[Native] = []
 
 #: prune drives `gh stack unstack <n>`, `gh stack link <prs...>` and one local
@@ -288,5 +300,7 @@ NATIVES = {
     "prune": PRUNE_NATIVES,
     "move": MOVE_NATIVES,
     "stack": STACK_NATIVES,
+    "sync": SYNC_NATIVES,
+    "init": INIT_NATIVES,
 }
 TAKES_LR = {"submit", "apply"}
