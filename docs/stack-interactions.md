@@ -15,7 +15,7 @@ mutating ones instead of running them.
 
 Two things run before every gsx command and are not repeated below: the **guard check** (a file
 read and `git config core.hooksPath`; `submit`, `sync`, `prune` and `move` refuse if the pre-push
-guard is not installed) and the **move-session notice** (`<git-dir>/gsx-move`, read; a warning if
+guard is not installed) and the **move-session notice** (`<git-dir>/gsx/move.json`, read; a warning if
 a move is unpublished).
 
 ---
@@ -71,7 +71,8 @@ while others exist, `git checkout T` first: `create` then takes the `init` path 
 | reconcile, per branch bottom-up | `git rev-parse R/B`; `git merge-base --is-ancestor` both ways → here: `R/B` already in `B`, nothing to take |
 | snapshot again | every tip after reconcile |
 | restack, per branch bottom-up | `git merge-base --is-ancestor P B` → no; fork point = latest of `git merge-base <P before> B`, `git merge-base <P after reconcile> B`, `git merge-base P B`; then `git checkout B && git rebase --onto P <fork> B` |
-| push | `git push --atomic --force-with-lease=refs/heads/B:<fetched sha> ... R B...` -- forced, because every branch was rewritten |
+| session | `<git-dir>/gsx/sync.json` written before the first change (every tip, where you stood); removed when the run completes |
+| push | **only with `--push`**: `git push --atomic --force-with-lease=refs/heads/B:<fetched sha> ... R B...` -- forced, because every branch was rewritten. Without it: "N branch(es) to push: `tdd gsx sync --push`, or `tdd gsx submit`" |
 
 The trunk is fast-forwarded through `fetch T:T` rather than checked out, so the operator stays
 where they were; it refuses anything but a fast-forward, which is the guarantee wanted. **The
@@ -87,28 +88,29 @@ Same as §3 until a `git rebase --onto` stops:
 
 | step | command |
 |---|---|
-| gsx stops | the rebase is left in progress; the error names the branch and the command |
-| you | resolve, `git add`, `git rebase --continue` |
-| you | `tdd gsx sync` again: every step asks whether it is already done and skips what is |
+| gsx stops | the rebase is left in progress; the error names the branch, the command, and both ways out |
+| finish | resolve, `git add`; `tdd gsx sync --continue` = `git rebase --continue` (`GIT_EDITOR=true`), then the rest of the run with the session's pre-run tips |
+| or undo | `tdd gsx sync --abort` = `git rebase --abort`, `git checkout <where you stood>`, then `git branch -f B <pre-run tip>` for every touched branch (`git reset --hard` for the checked-out one); session removed |
+| a plain `sync` meanwhile | refused, naming both -- unless you already finished the rebase by hand, in which case it resumes |
 
-There is deliberately **no session file for sync**: reconcile and restack are idempotent, so
-re-running is the resume. What is *not* offered today is a cancel that puts the branches already
-rewritten back -- see the open question at the end.
+The session exists for `--abort`: `git rebase --abort` undoes only the branch the rebase stopped
+on, and the branches the cascade had already rewritten would stay rewritten. The trunk is not put
+back; it was only ever fast-forwarded.
 
 ## 5. Sync, local only
 
-`tdd gsx sync --no-push`
-
-Everything in §3 except the last row. Also what `sync` does on its own while a **move is
-unpublished** (`<git-dir>/gsx-move` exists) or while **GitHub and this checkout disagree about
-the stacks** with no move of this checkout's to explain it -- both are said, and the second
-warns that pushing would publish an older arrangement.
+`tdd gsx sync` -- the default. Everything in §3 except the push. While a **move is unpublished**
+(`<git-dir>/gsx/move.json` exists) the summary points at `tdd gsx submit --move` instead of
+`--push`.
 
 ## 6. Sync, local and remote
 
-`tdd gsx sync` -- §3 as written. Only branches whose tip changed are pushed; a branch whose
-remote copy is now an ancestor goes plain, a rewritten one goes with a lease; one `push
---atomic` carries both kinds.
+`tdd gsx sync --push` -- §3 with the last row. Only branches whose tip changed are pushed; a
+branch whose remote copy is now an ancestor goes plain, a rewritten one goes with a lease; one
+`push --atomic` carries both kinds. Held, with the reason said, while a move is unpublished or
+while **GitHub and this checkout disagree about the stacks** with no move of this checkout's to
+explain it (one `gh api .../stacks`, asked only when a push was asked for) -- pushing then would
+publish an older arrangement.
 
 ## 7. Working on top of another user's PR; they push new commits to it
 
@@ -119,7 +121,7 @@ You: `tdd gsx create` on top of their branch `X` (§2). Later `tdd gsx sync`:
 | reconcile `X` | `git merge-base --is-ancestor R/X X` → no; `--is-ancestor X R/X` → yes, they appended: `git checkout X && git rebase R/X` (a fast-forward) |
 | reconcile yours `Y` | `R/Y` in `Y` → nothing |
 | restack `Y` | `git merge-base --is-ancestor X Y` → no (X grew): fork = `git merge-base <X before> Y`; `git rebase --onto X <fork> Y` |
-| push | `X` not pushed (unchanged from remote); `Y` forced with a lease |
+| push (`--push`, or `submit`) | `X` not pushed (unchanged from remote); `Y` forced with a lease |
 
 Their commits come in **before** your branch is restacked, which is the whole point of the order:
 restack first and their commit would be rebased away and then force-pushed over.
@@ -133,7 +135,7 @@ Each: `git commit` on `B`, then `tdd gsx sync`. The second to sync:
 | classify | neither `R/B` in `B` nor `B` in `R/B` |
 | a rewrite of ours? | `git log -g --format=%H refs/heads/B`; `git rev-list -n 1 R/B --not <those tips>` → not empty: the remote tip was never ours |
 | reconcile | `git checkout B && git rebase R/B` -- theirs first, ours replayed on top; patches already present are dropped |
-| push | plain: `R/B` is now an ancestor |
+| push (`--push`, or `submit`) | plain: `R/B` is now an ancestor |
 
 Both people's commits end up on `B`, in the order *theirs, then mine*; the push needs no force.
 The reflog question is what tells this case from §9.
@@ -148,7 +150,7 @@ and insert the commit; `tdd gsx sync`:
 | classify | diverged by sha |
 | a rewrite of ours? | the remote tip **is** in `B`'s reflog (it is the tip you rewrote) → yes: the branch is left alone |
 | restack above | each branch above `B`: `git rebase --onto B <fork> <child>` |
-| push | `B` and its children forced, with leases |
+| push (`--push`, or `submit`) | `B` and its children forced, with leases |
 
 The guard passes it: the remote tip is reachable from a past tip (rule 1), and every commit the
 remote branch has of its own is still present by patch (rule 2). If a teammate pushed to `B`
@@ -169,7 +171,7 @@ and the interleave's *order* is lost; the commits are not.
 | re-declare the target | `git checkout T && gh stack init --base <base> <target...> <moved...>` |
 | replay the bottom of the slice | `git rebase --onto <target top> <old parent> <bottom moved>` |
 | the rest of the slice | `git checkout <bottom moved> && gh stack rebase --upstack --no-trunk` |
-| remember | `<git-dir>/gsx-move` written: the moves, and the tracking file's bytes before |
+| remember | `<git-dir>/gsx/move.json` written: the moves, and the tracking file's bytes before |
 
 **Nothing reaches GitHub.** Each `init` runs from the trunk because `gh stack init` refuses while
 the current branch is in a stack -- including the one it just made. The landed run at the bottom
@@ -190,7 +192,7 @@ every branch from the session and the tracking file byte for byte.
 | publish the stack you are on | `gh stack submit --auto --open`: pushes the rewritten branches, fixes each PR's base, grows the target |
 | grow what gh-stack would not | `gh api -X POST repos/{owner}/{repo}/stacks/<n>/add -F pull_requests[]=...` for any open PR of the local stack the GitHub stack still lacks |
 | the remainder | `gh stack checkout <its top> && gh stack submit --auto --open`, non-fatal; then back |
-| the session | `<git-dir>/gsx-move` removed |
+| the session | `<git-dir>/gsx/move.json` removed |
 
 The dissolve is unavoidable -- the API cannot take a PR out of a stack -- and it is why every
 check runs before it: a push refused *after* the dissolve leaves the arrangement dissolved on one
@@ -276,16 +278,14 @@ nothing, and `link` gives the result a new number.
 
 ---
 
-## Two open questions
+## Two questions, decided
 
-**Should `sync` be local by default, with a flag to push?** Today `gsx sync` pushes and
-`--no-push` holds. The case for turning it round: every other publishing act in gsx is an
-explicit verb (`submit`, `submit --move`), a conflict resolved during a sync would be looked at
-before it is published, and "sync" in git's own vocabulary is inbound. The case against: two
-steps for the commonest action, and `gh stack sync` has taught people that sync pushes. Either
-way the reconcile is the same work; only the last row of §3 moves.
+**`sync` is local by default; `--push` publishes; `submit` refuses over an unreconciled branch.**
+Every publishing act is then an explicit verb, a resolved conflict is looked at before it goes
+anywhere, and skipping the sync is caught rather than trusted. `--push` rather than `--remote`,
+because in `stack` that word means *show* that side.
 
-**Should a sync be cancellable after a conflict?** Today a stopped sync leaves the branches
-already rewritten as they are; `git rebase --abort` undoes only the current branch. A cancel that
-puts every touched branch back to its pre-run tip is cheap -- the snapshot exists -- and would
-give `sync --abort` and `sync --continue` the shape `move` already has.
+**A stopped sync is finishable and cancellable** -- `--continue` and `--abort`, with the
+pre-run snapshot kept in `<git-dir>/gsx/sync.json` until the run completes. See §4.
+
+Both were run through the scenario campaign before landing (`docs/gsx-scenario-report.md`).

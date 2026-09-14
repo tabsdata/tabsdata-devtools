@@ -15,11 +15,11 @@ def a1(steps):
     steps.append(f"alice: stack #{num} {names}")
     track("bob", num)
     write_commit("bob", "A1-1", "[A1-1] bob adds to the bottom")
-    rc, o = gsx("bob", "sync")
+    rc, o = gsx("bob", "sync", "--push")
     expect_not_in(o, "CONFLICT")
     steps.append("bob: commit on A1-1, sync")
     write_commit("alice", "A1-3", "[A1-3] alice adds to the top")
-    rc, o = gsx("alice", "sync")
+    rc, o = gsx("alice", "sync", "--push")
     expect_not_in(o, "CONFLICT")
     steps.append("alice: commit on A1-3, sync (must integrate bob's)")
     fetch("alice")
@@ -31,7 +31,7 @@ def a1(steps):
     expect_no_dups("alice", "A1-3")
     expect_stacked("alice", names)
     expect(stack_map().get(num) == names, f"stack #{num} changed: {stack_map()}")
-    rc, o = gsx("bob", "sync")
+    rc, o = gsx("bob", "sync", "--push")
     fetch("bob")
     expect_local_equals_remote("bob", names)
     steps.append("bob: sync brings everything down; local == remote")
@@ -42,9 +42,9 @@ def a2(steps):
     names, num = make_stack("alice", "A2", 3)
     track("bob", num)
     write_commit("bob", "A2-2", "[A2-2] bob's change", "bob.txt")
-    gsx("bob", "sync")
+    gsx("bob", "sync", "--push")
     write_commit("alice", "A2-2", "[A2-2] alice's change", "alice.txt")
-    rc, o = gsx("alice", "sync")
+    rc, o = gsx("alice", "sync", "--push")
     expect_not_in(o, "CONFLICT")
     steps.append("bob then alice, both on A2-2")
     fetch("alice")
@@ -62,7 +62,7 @@ def a2(steps):
 def a3(steps):
     names, num = make_stack("alice", "A3", 3)
     write_commit("alice", "A3-2", "[A3-2] second")
-    gsx("alice", "sync")
+    gsx("alice", "sync", "--push")
     track("bob", num)
     # alice inserts a commit between A3-2's two commits
     git("alice", "checkout", "-q", "A3-2")
@@ -74,7 +74,7 @@ def a3(steps):
     mid = sha("alice", "HEAD")
     git("alice", "checkout", "-q", "A3-2")
     git("alice", "rebase", "-q", "--onto", mid, first, "A3-2")
-    rc, o = gsx("alice", "sync")
+    rc, o = gsx("alice", "sync", "--push")
     expect_not_in(o, "REFUSING")
     steps.append("alice interleaved on A3-2, sync forced A3-2 and A3-3")
     fetch("alice")
@@ -84,7 +84,7 @@ def a3(steps):
         f"order wrong: {subjects('alice', 'origin/A3-1..origin/A3-2')}",
     )
     expect_stacked("alice", names)
-    rc, o = gsx("bob", "sync")
+    rc, o = gsx("bob", "sync", "--push")
     expect_not_in(o, "CONFLICT")
     fetch("bob")
     expect_local_equals_remote("bob", names)
@@ -99,7 +99,7 @@ def b1(steps):
     git("bob", "push", "-q", "origin", "main")
     steps.append("bob landed on main")
     git("alice", "checkout", "-q", "B1-5")
-    rc, o = gsx("alice", "sync")
+    rc, o = gsx("alice", "sync", "--push")
     expect_not_in(o, "CONFLICT")
     expect_in(o, "5 restacked")
     fetch("alice")
@@ -119,11 +119,11 @@ def b2(steps):
     names, num = make_stack("alice", "B2", 5)
     track("bob", num)
     write_commit("bob", "B2-1", "[B2-1] bob at the bottom")
-    gsx("bob", "sync")
+    gsx("bob", "sync", "--push")
     for n in ("B2-3", "B2-4", "B2-5"):
         write_commit("alice", n, f"[{n}] alice local")
     git("alice", "checkout", "-q", "B2-5")
-    rc, o = gsx("alice", "sync")
+    rc, o = gsx("alice", "sync", "--push")
     expect_not_in(o, "CONFLICT")
     fetch("alice")
     expect_present_once(
@@ -139,7 +139,7 @@ def b2(steps):
     expect_no_dups("alice", "B2-5")
     expect_stacked("alice", names)
     steps.append("both people's commits present once each; stack intact")
-    gsx("bob", "sync")
+    gsx("bob", "sync", "--push")
     fetch("bob")
     expect_local_equals_remote("bob", names)
 
@@ -153,10 +153,10 @@ def b3(steps):
     write_commit("carol", "main", "[main] carol landed")
     git("carol", "push", "-q", "origin", "main")
     write_commit("bob", "B3-3", "[B3-3] bob mid")
-    gsx("bob", "sync")
+    gsx("bob", "sync", "--push")
     write_commit("alice", "B3-5", "[B3-5] alice top")
     git("alice", "checkout", "-q", "B3-5")
-    rc, o = gsx("alice", "sync")
+    rc, o = gsx("alice", "sync", "--push")
     expect_not_in(o, "CONFLICT")
     fetch("alice")
     expect_present_once("alice", "B3-5", ["[B3-3] bob mid", "[B3-5] alice top"])
@@ -164,7 +164,7 @@ def b3(steps):
     expect_stacked("alice", names)
     expect(is_ancestor("alice", "origin/main", "origin/B3-1"), "not on new main")
     steps.append("all three sources integrated, once each")
-    gsx("bob", "sync")
+    gsx("bob", "sync", "--push")
     fetch("bob")
     expect_local_equals_remote("bob", names)
 
@@ -179,10 +179,10 @@ def b4(steps):
         who = "alice" if round_ == 1 else "bob"
         write_commit(who, f"B4-{6 * round_}", f"[B4-{6 * round_}] {who} r{round_}")
         git(who, "checkout", "-q", names[-1])
-        rc, o = gsx(who, "sync")
+        rc, o = gsx(who, "sync", "--push")
         expect_not_in(o, "CONFLICT")
         other = "bob" if who == "alice" else "alice"
-        rc, o = gsx(other, "sync")
+        rc, o = gsx(other, "sync", "--push")
         expect_not_in(o, "CONFLICT")
     fetch("alice")
     expect_present_once("alice", "B4-12", ["[B4-6] alice r1", "[B4-12] bob r2"])
@@ -201,10 +201,10 @@ def b5(steps):
     names, num = make_stack("alice", "B5", 3)
     track("bob", num)
     write_commit("bob", "B5-2", "[B5-2] bob line", "shared.txt", "bob's line")
-    gsx("bob", "sync")
+    gsx("bob", "sync", "--push")
     write_commit("alice", "B5-2", "[B5-2] alice line", "shared.txt", "alice's line")
     git("alice", "checkout", "-q", "B5-2")
-    rc, o = gsx("alice", "sync", check=False)
+    rc, o = gsx("alice", "sync", "--push", check=False)
     expect(
         rc != 0 and "CONFLICT" in o, f"expected a conflict, got rc={rc}:\n{o[-800:]}"
     )
@@ -216,7 +216,7 @@ def b5(steps):
     p.write_text(text + "alice's line\n")
     git("alice", "add", "-A")
     sh("alice", ["git", "rebase", "--continue"], env={"GIT_EDITOR": "true"})
-    rc, o = gsx("alice", "sync")
+    rc, o = gsx("alice", "sync", "--push")
     expect_not_in(o, "CONFLICT")
     steps.append("resolved, --continue, sync again: idempotent")
     fetch("alice")
@@ -224,7 +224,83 @@ def b5(steps):
     expect_stacked("alice", names)
 
 
-SCENARIOS = [a1, a2, a3, b1, b2, b3, b4, b5]
+@scenario(
+    "B6: a sync stops mid-cascade; --abort puts every touched branch back; plain sync is local"
+)
+def b6(steps):
+    names, num = make_stack("alice", "B6", 4)
+    track("bob", num)
+    # bob changes shared.txt on B6-1 and pushes; alice has a conflicting change
+    # on B6-3 and her own commit on B6-4 -- so alice's cascade rewrites B6-2
+    # cleanly and stops on B6-3
+    write_commit("bob", "B6-1", "[B6-1] bob line", "shared.txt", "bob's line")
+    gsx("bob", "sync", "--push")
+    write_commit("alice", "B6-3", "[B6-3] alice line", "shared.txt", "alice's line")
+    write_commit("alice", "B6-4", "[B6-4] alice top")
+    before = {n: sha("alice", n) for n in names}
+    git("alice", "checkout", "-q", "B6-4")
+    rc, o = gsx("alice", "sync", check=False)
+    expect(
+        rc != 0 and "CONFLICT" in o and "--continue" in o and "--abort" in o,
+        f"expected a stopped sync naming both ways out:\n{o[-700:]}",
+    )
+    expect(
+        sha("alice", "B6-2") != before["B6-2"],
+        "B6-2 should have been restacked before the stop",
+    )
+    steps.append(
+        "sync stopped on B6-3 with B6-2 already rewritten; both ways out named"
+    )
+    rc, o = gsx("alice", "sync", check=False)
+    expect(
+        rc != 0 and "is stopped" in o, "a plain sync over a stopped one should refuse"
+    )
+    rc, o = gsx("alice", "sync", "--abort")
+    expect_in(o, "aborted")
+    after = {n: sha("alice", n) for n in names}
+    changed = {
+        k: (before[k][:7], after[k][:7]) for k in before if before[k] != after[k]
+    }
+    expect(after == before, f"abort did not restore: {changed}")
+    expect(
+        out("alice", "rev-parse", "--abbrev-ref", "HEAD") == "B6-4",
+        "not back on the branch",
+    )
+    expect(
+        git("alice", "status", "--porcelain", check=False)[1].strip() == "",
+        "tree not clean",
+    )
+    steps.append(
+        "--abort: all four branches back to their pre-run tips, on B6-4, clean tree"
+    )
+    # now for real: stop again, resolve, --continue -- and the default is
+    # LOCAL: nothing reaches the remote until --push
+    rc, o = gsx("alice", "sync", check=False)
+    p = ROOT / "alice" / "shared.txt"
+    text = re.sub(
+        r"<<<<<<<.*?=======\n(.*?)>>>>>>>.*?\n", r"\1", p.read_text(), flags=re.S
+    )
+    p.write_text(text + "alice's line\n")
+    git("alice", "add", "-A")
+    rc, o = gsx("alice", "sync", "--continue")
+    expect_not_in(o, "CONFLICT")
+    expect_in(o, "to push")
+    expect_in(o, "--push")
+    fetch("alice")
+    expect(sha("alice", "origin/B6-4") != sha("alice", "B6-4"), "a plain sync pushed")
+    steps.append(
+        "--continue finished the cascade; nothing pushed; the summary names --push"
+    )
+    rc, o = gsx("alice", "sync", "--push")
+    fetch("alice")
+    expect_local_equals_remote("alice", names)
+    expect_present_once(
+        "alice", "B6-4", ["[B6-1] bob line", "[B6-3] alice line", "[B6-4] alice top"]
+    )
+    steps.append("--push published it; both people's commits present once")
+
+
+SCENARIOS = [a1, a2, a3, b1, b2, b3, b4, b5, b6]
 
 if __name__ == "__main__":
     run_all(SCENARIOS, only=sys.argv[1:] or None)

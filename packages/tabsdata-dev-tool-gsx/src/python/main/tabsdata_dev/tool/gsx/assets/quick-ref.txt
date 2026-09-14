@@ -1,8 +1,9 @@
 prepare this clone                   tdd gsx init [--clone] [--check]
 start a PR where you are             tdd gsx create -s "summary"
-change a PR                          commit, then tdd gsx sync
+change a PR                          commit, tdd gsx sync, tdd gsx submit
 push the stack, open its PRs         tdd gsx submit
-take the remote's work, push yours   tdd gsx sync [--all] [--no-push]
+take the remote's work, locally      tdd gsx sync [--all]          --continue | --abort after a conflict
+...and publish it                    tdd gsx sync --push           or tdd gsx submit
 see the stacks                       tdd gsx stack [--all] [--short] [--remote | --local]
 fetch someone's PR or stack          tdd gsx checkout FOO-16 | '#22' | '#41'
 adopt a restructured stack           tdd gsx checkout '#41' --adopt

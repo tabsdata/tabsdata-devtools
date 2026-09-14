@@ -271,8 +271,8 @@ def cleanup(prefix):
                 )
             ]
             p.write_text(json.dumps(d))
-        # the move session, if a scenario left one
-        for f in ("gsx-move", "gsx-move.json"):
+        # gsx's own state -- a move or a sync session a scenario left behind
+        for f in ("gsx/move.json", "gsx/sync.json", "gsx-move"):
             (ROOT / who / ".git" / f).unlink(missing_ok=True)
         # remote branches with the prefix, in case a PR never existed
         for b in out(who, "branch", "-r", "--format=%(refname:short)").splitlines():

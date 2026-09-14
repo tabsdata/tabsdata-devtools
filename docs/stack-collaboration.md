@@ -209,7 +209,7 @@ gh stack submit --auto --open            # push, fix PR bases, grow the target's
 
 | gsx | what it runs | new? |
 |---|---|---|
-| `gsx sync [--no-push] [--all]` | the whole first block of §6, in git alone | **new** |
+| `gsx sync [--all] [--push] [--continue] [--abort]` | the whole first block of §6, in git alone; local unless `--push` | **new** |
 | `gsx hooks --install [--repo\|--clone] [--check]` | writes the hook, sets `core.hooksPath` | **new** |
 | `gsx move --to ...` | unchanged: four local `gh stack` commands + the cascade | no |
 | `gsx submit --move` | unchanged, **plus** a reconciliation check that refuses and names `gsx sync` | changed |

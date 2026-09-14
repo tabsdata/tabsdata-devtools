@@ -664,7 +664,7 @@ def _stack_here(runner: gh.Runner) -> tuple[str, list[str], dict[str, int]]:
     )
 
 
-def _require_reconciled(runner: gh.Runner, out) -> None:
+def _require_reconciled(runner: gh.Runner, out, moving: bool = False) -> None:
     """Refuse to publish a move over a branch the remote is ahead of.
 
     The one check that turns "sync before you publish" from a thing the
@@ -686,9 +686,13 @@ def _require_reconciled(runner: gh.Runner, out) -> None:
         raise ToolError(
             f"{remote} has commits these branch(es) do not: "
             + ", ".join(behind)
-            + " -- `tdd gsx sync` reconciles them first. Publishing a move "
-            "dissolves the old stack before it pushes, so this has to be "
-            "settled beforehand"
+            + " -- `tdd gsx sync` reconciles them first"
+            + (
+                ". Publishing a move dissolves the old stack before it pushes, "
+                "so this has to be settled beforehand"
+                if moving
+                else ""
+            )
         )
 
 
@@ -794,8 +798,22 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     # units of it too: they are the slowest thing gsx does.
     steps = progress.Counter(out)
 
+    if args.sync or extras.passthrough.get("s"):
+        if extras.passthrough.get("s"):
+            # `--s:` names flags of `gh stack sync`, which this no longer runs.
+            raise ToolError(
+                "`--s:` forwards flags to `gh stack sync`, which gsx does not "
+                "run any more: `tdd gsx sync` reconciles each branch with its "
+                "own remote copy first, and takes no gh-stack flags"
+            )
+        _sync_before_submit(runner, out)
+        steps.step("synced the stack with the remote", stage="sync")
+    # Every publish, not only a move's: sync is local now, and a submit that
+    # pushed over a branch the remote had moved on from is the thing the whole
+    # design exists to prevent. Refused with the command that fixes it.
+    _require_reconciled(runner, out, moving=bool(args.move and moved))
+
     if args.move and moved:
-        _require_reconciled(runner, out)
         _preflight_guard(runner, out, moved)
         out.warn(
             "publishing a move: stack(s) "
@@ -815,17 +833,6 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         out.info(
             f"{len(session.moves) or 1} move(s) published; the session file is gone"
         )
-
-    if args.sync or extras.passthrough.get("s"):
-        if extras.passthrough.get("s"):
-            # `--s:` names flags of `gh stack sync`, which this no longer runs.
-            raise ToolError(
-                "`--s:` forwards flags to `gh stack sync`, which gsx does not "
-                "run any more: `tdd gsx sync` reconciles each branch with its "
-                "own remote copy first, and takes no gh-stack flags"
-            )
-        _sync_before_submit(runner, out)
-        steps.step("synced the stack with the remote", stage="sync")
 
     argv = ["gh", "stack", "submit", "--auto"]
     if not args.draft:
@@ -2507,25 +2514,54 @@ def _forward_trunk(
 
 
 def sync(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
-    """Fetch, reconcile every branch with its own remote copy, restack, push."""
+    """Fetch, reconcile every branch with its own remote copy, restack; push
+    only with --push."""
     gh.require_binaries()
     gh.require_repo(runner)
+    continuing = getattr(args, "continue", False)
+    if args.abort and continuing:
+        raise ToolError("sync takes at most one of --abort and --continue")
+    session = sync_mod.load_session(runner)
+    if args.abort:
+        if session is None:
+            raise ToolError("no sync is stopped here; there is nothing to abort")
+        restored = sync_mod.abort(runner, session)
+        sync_mod.clear_session(runner)
+        return (
+            f"sync aborted: {len(restored)} branch(es) put back"
+            + (": " + " ".join(restored) if restored else "")
+            + f"; back on {gh.current_branch(runner)!r}",
+            {"aborted": True, "restored": restored},
+        )
+    stopped = sync_mod.in_progress(runner)
+    if continuing:
+        if session is None:
+            raise ToolError("no sync is stopped here; there is nothing to continue")
+        if stopped:
+            sync_mod.finish(runner, stopped)
+    elif session is not None and stopped:
+        raise ToolError(
+            f"a sync is stopped in a {stopped}: resolve the conflict, `git add` "
+            "the files, then `tdd gsx sync --continue`; or `tdd gsx sync --abort` "
+            "puts every branch it touched back"
+        )
     if gh.dirty(runner):
         raise ToolError(
             "the working tree has uncommitted changes; every rebase below "
             "would refuse, and finding that out halfway through a cascade is "
             "worse than being told now"
         )
-    stopped = gh.rebase_stopped(runner)
-    if stopped:
+    gh_stopped = gh.rebase_stopped(runner)
+    if gh_stopped:
         raise ToolError(
-            f"a stack rebase is stopped on {stopped!r}: finish it with "
+            f"a stack rebase is stopped on {gh_stopped!r}: finish it with "
             "`gh stack rebase --continue`, or `gh stack rebase --abort`"
         )
-    current = gh.current_branch(runner)
+    current = (session or {}).get("branch") or gh.current_branch(runner)
     state = gh.read_state(runner)
     chosen = _stack_branches(runner, state, current, args.all)
     if not chosen:
+        sync_mod.clear_session(runner)
         return (
             "no stack to sync"
             + (
@@ -2540,86 +2576,108 @@ def sync(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
 
     # A move is half an arrangement until `submit --move` publishes it, so
     # this reconciles and restacks -- which is what keeps the move sitting on
-    # current work -- and pushes nothing.
+    # current work -- and holds the push whatever was asked.
     #
     # The two reasons to hold are NOT the same advice, and conflating them is
     # how a stale clone gets told to publish its staleness. A session says
     # THIS checkout moved something, and `submit --move` is the way out. A
     # bare disagreement with GitHub says the two sides differ for a reason
     # nothing here accounts for -- most often somebody else's restructure that
-    # this clone has not adopted -- and publishing would overwrite it.
-    session = move_mod.load(runner)
-    holding = session is not None
-    if not holding and not args.no_push and _moved_locally(runner, out):
-        holding = True
-        why_holding = (
+    # this clone has not adopted -- and publishing would overwrite it. The
+    # second costs a listing, so it is asked only when a push was asked for.
+    moving = move_mod.load(runner) is not None
+    held = ""
+    if moving:
+        held = (
+            "an unpublished move is in progress; `tdd gsx submit --move` publishes it"
+        )
+    elif args.push and _moved_locally(runner, out):
+        held = (
             "GitHub and this checkout disagree about the stacks, and no move of "
             "this checkout's accounts for it -- `tdd gsx stack -a` shows how, and "
             "`gh stack checkout <n>` re-imports what GitHub has. Pushing now "
             "would publish this clone's older arrangement"
         )
-    else:
-        why_holding = (
-            "an unpublished move is in progress; `tdd gsx submit --move` publishes it"
-        )
     outcome = sync_mod.Outcome()
     live: list[tuple[str, list[str]]] = []
-    for trunk, branches, prs, known in chosen:
-        _forward_trunk(runner, trunk, remote, current, out)
-        bases, landed = _pr_info(runner, prs, out)
-        if landed:
-            # History, not state: its commits are in the trunk, its branch is
-            # gone from the remote, and the branch above it now sits on the
-            # trunk. Left out of every step, the push included.
-            out.info(
-                f"{len(landed)} landed branch(es) left out: "
-                + " ".join(b for b in branches if b in landed)
+    # Every tip before anything moves -- the fork points below need it, and so
+    # does --abort. A resumed run keeps the tips its first half took, since by
+    # now some branches have already been rewritten.
+    remembered = dict((session or {}).get("tips") or {})
+    all_branches = [b for _, branches, _, _ in chosen for b in branches]
+    before_all = {
+        b: remembered.get(b) or sha
+        for b, sha in sync_mod.tips(runner, all_branches).items()
+    }
+    sync_mod.save_session(runner, current, before_all, remote)
+    try:
+        for trunk, branches, prs, known in chosen:
+            _forward_trunk(runner, trunk, remote, current, out)
+            bases, landed = _pr_info(runner, prs, out)
+            if landed:
+                # History, not state: its commits are in the trunk, its branch
+                # is gone from the remote, and the branch above it now sits on
+                # the trunk. Left out of every step, the push included.
+                out.info(
+                    f"{len(landed)} landed branch(es) left out: "
+                    + " ".join(b for b in branches if b in landed)
+                )
+                branches = [b for b in branches if b not in landed]
+            live.append((trunk, branches))
+            before = {b: before_all[b] for b in branches if b in before_all}
+            outcome.reconciled.update(
+                sync_mod.reconcile(runner, branches, remote, out, bases, trunk, known)
             )
-            branches = [b for b in branches if b not in landed]
-        live.append((trunk, branches))
-        # Before anything is touched: what each branch's own commits sit on.
-        # Once a parent is rewritten nothing else remembers where that was.
-        before = sync_mod.tips(runner, branches)
-        outcome.reconciled.update(
-            sync_mod.reconcile(runner, branches, remote, out, bases, trunk, known)
-        )
-        # ...and again after reconcile: a child reconciled onto a remote copy
-        # forked from the parent as it stands HERE, before the restack moves it.
-        after = sync_mod.tips(runner, branches)
-        outcome.restacked.extend(
-            sync_mod.restack(runner, branches, trunk, out, before, after)
-        )
+            # ...and again after reconcile: a child reconciled onto a remote
+            # copy forked from the parent as it stands HERE, before the
+            # restack moves it.
+            after = sync_mod.tips(runner, branches)
+            outcome.restacked.extend(
+                sync_mod.restack(runner, branches, trunk, out, before, after)
+            )
+    except ToolError as error:
+        if sync_mod.in_progress(runner):
+            raise ToolError(
+                f"{error}\n  resolve it, `git add` the files, then `tdd gsx sync "
+                "--continue`; or `tdd gsx sync --abort` puts every branch this "
+                "sync touched back"
+            ) from error
+        raise
     # Back where the operator was: the cascade walks the stack and leaving
     # them on its top would be a side effect of asking a question.
     if gh.current_branch(runner) != current:
         gh.checkout(runner, current)
+    sync_mod.clear_session(runner)
 
     every = [branch for _, branches in live for branch in branches]
     plain, forced, leases = sync_mod.push_args(runner, every, remote)
     outcome.fast_forward, outcome.forced = plain, forced
-    if args.no_push or holding:
-        why = "--no-push" if args.no_push else why_holding
-        return (
-            _sync_line(outcome, remote, pushed=False) + f"\nnothing was pushed ({why})",
-            {"pushed": [], "forced": forced, "remote": remote, **_sync_fields(outcome)},
-        )
+    fields = {
+        "remote": remote,
+        "to_push": outcome.touched,
+        "forced": forced,
+        **_sync_fields(outcome),
+    }
+    line = _sync_line(outcome, remote, pushed=False)
     if not outcome.touched:
+        return (line + "\nthe remote already has it all", {"pushed": [], **fields})
+    count = f"{len(outcome.touched)} branch(es) to push"
+    if held:
+        tail = (
+            f"{count}, held: {held}" if not args.push else f"nothing was pushed: {held}"
+        )
+        return (line + "\n" + tail, {"pushed": [], "held": held, **fields})
+    if not args.push:
         return (
-            _sync_line(outcome, remote, pushed=False)
-            + "\nthe remote already has it all",
-            {"pushed": [], "forced": [], "remote": remote, **_sync_fields(outcome)},
+            line + f"\n{count}: `tdd gsx sync --push`, or `tdd gsx submit`",
+            {"pushed": [], **fields},
         )
     runner.run(
         ["git", "push", "--atomic", *leases, remote, *outcome.touched], capture=False
     )
     return (
         _sync_line(outcome, remote, pushed=True),
-        {
-            "pushed": outcome.touched,
-            "forced": forced,
-            "remote": remote,
-            **_sync_fields(outcome),
-        },
+        {"pushed": outcome.touched, **fields},
     )
 
 

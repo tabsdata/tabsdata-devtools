@@ -147,7 +147,7 @@ The normal way to change anything already submitted. **Never amend or squash a p
 | `git fetch origin` | `tdd gsx sync` |
 | `git rebase origin/FOO-16` *(take anyone else's commits first)* | |
 | `git checkout FOO-17 && git rebase --onto FOO-16 $(git merge-base FOO-16 FOO-17) FOO-17` *(and each branch above)* | |
-| `git push --atomic --force-with-lease origin FOO-16 FOO-17` | |
+| `git push --atomic --force-with-lease origin FOO-16 FOO-17` | `tdd gsx submit` (or `tdd gsx sync --push`) |
 
 This is the sequence `gsx sync` exists to get right, and the row order is the whole point:
 **reconcile with `origin/<branch>` before restacking anything above it.** Do it in the other order
@@ -165,7 +165,7 @@ fast-forwards onto theirs and nothing is rewritten at all.
 |---|---|
 | `git checkout FOO-16` | `git checkout FOO-16` |
 | `git rebase -i FOO-15` *(insert your commit where you want it)* | `git rebase -i FOO-15` |
-| `git push --force-with-lease origin FOO-16` | `tdd gsx sync` |
+| `git push --force-with-lease origin FOO-16` | `tdd gsx sync`, then `tdd gsx submit` |
 | *(then restack everything above, as in §3.4)* | |
 
 Allowed by both guard rules: the patches all survive the rebase, so nothing looks dropped.
@@ -184,7 +184,11 @@ what exists that day. `#42` is safe because GitHub numbers stacks and PRs from *
 a number is one or the other and never both -- gsx reads which off the repository rather than
 guessing.
 
-### 3.8 Sync -- take what the remote has, keep what you have, push the union
+### 3.8 Sync -- take what the remote has, keep what you have; then publish
+
+`gsx sync` is **local by default**: it fetches, integrates, restacks, and tells you how many
+branches are ready to push. Publishing is `tdd gsx submit` -- or `tdd gsx sync --push` when you
+want both in one step.
 
 | by hand | with gsx |
 |---|---|
@@ -196,7 +200,7 @@ guessing.
 | **then, per branch, bottom-up:** | |
 | `git merge-base --is-ancestor <parent> B && continue` | |
 | `git rebase --onto <parent> $(git merge-base <parent> B) B` | |
-| `git push --atomic origin <fast-forwarded...>` | |
+| `git push --atomic origin <fast-forwarded...>` | `tdd gsx sync --push` (or `tdd gsx submit`) |
 | `git push --atomic --force-with-lease=refs/heads/B:<fetched sha> origin <rewritten...>` | |
 
 **Do not use `gh stack sync` for this.** It rebases from your local copies and force-pushes with
@@ -205,10 +209,15 @@ missing a teammate's commit, it is rebased away and then overwritten. `gsx sync`
 and touches no stack object at all.
 
 After a reconcile, most pushes are plain fast-forwards -- **in the steady state nothing is
-forced.** `tdd gsx sync --all` does every stack; `--no-push` stops before publishing.
+forced.** `tdd gsx sync --all` does every stack.
 
-**If a rebase conflicts**: resolve it, `git rebase --continue`, then run `tdd gsx sync` again.
-There is no session to repair -- every step asks whether it is already done.
+**If a rebase conflicts**, the sync stops and names both ways out: resolve, `git add`, then
+`tdd gsx sync --continue`; or `tdd gsx sync --abort`, which puts **every** branch the sync touched
+back where it was -- not just the one the rebase stopped on, which is all `git rebase --abort`
+would do.
+
+**`tdd gsx submit` refuses if any branch is behind its remote copy** and says to sync first --
+for every publish, not only a move's.
 
 ### 3.9 See where everything stands
 
@@ -308,8 +317,9 @@ they wear a red `!`.
 | `pre-push: REFUSING to push B ... These commits are on origin/B and not in what you are pushing` | a squash or a dropped commit in a submitted PR | add a commit instead; `GIT_ALLOW_OVERWRITE=1` if you truly meant it |
 | `the pre-push guard is not installed here` | this clone has never been prepared | `tdd gsx init` |
 | `origin has commits these branch(es) do not ... publishing a move dissolves the old stack` | you are about to publish over a branch you have not reconciled | `tdd gsx sync`, then `tdd gsx submit --move` |
-| `nothing was pushed (an unpublished move is in progress)` | expected: a half-made arrangement is not published | `tdd gsx submit --move` when ready |
-| `nothing was pushed (GitHub and this checkout disagree ...)` | somebody else's restructure that this clone has not adopted | §3.12 -- adopt it; do **not** publish |
+| `N branch(es) to push, held: an unpublished move is in progress` | expected: a half-made arrangement is not published | `tdd gsx submit --move` when ready |
+| `a sync is stopped in a rebase` | a previous sync hit a conflict | resolve, `git add`, `tdd gsx sync --continue`; or `--abort` |
+| `... held: GitHub and this checkout disagree ...` | somebody else's restructure that this clone has not adopted | §3.12 -- adopt it; do **not** publish |
 | `stack #N has been restructured since this checkout last saw it` | the same thing, met by `checkout` | `tdd gsx checkout '#N' --adopt` |
 | `GH013: Repository rule violations found for refs/heads/main` | you tried to rewrite the trunk | you almost certainly did not mean to |
 
@@ -322,9 +332,10 @@ Also `tdd gsx --quick-ref`, which prints exactly this (a test keeps the two iden
 ```
 prepare this clone                   tdd gsx init [--clone] [--check]
 start a PR where you are             tdd gsx create -s "summary"
-change a PR                          commit, then tdd gsx sync
+change a PR                          commit, tdd gsx sync, tdd gsx submit
 push the stack, open its PRs         tdd gsx submit
-take the remote's work, push yours   tdd gsx sync [--all] [--no-push]
+take the remote's work, locally      tdd gsx sync [--all]          --continue | --abort after a conflict
+...and publish it                    tdd gsx sync --push           or tdd gsx submit
 see the stacks                       tdd gsx stack [--all] [--short] [--remote | --local]
 fetch someone's PR or stack          tdd gsx checkout FOO-16 | '#22' | '#41'
 adopt a restructured stack           tdd gsx checkout '#41' --adopt

@@ -396,9 +396,15 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "sync",
         "fetch, reconcile every branch with its own copy on the remote, restack, push",
         "examples:\n"
-        "  tdd gsx sync              the stack you are on\n"
+        "  tdd gsx sync              the stack you are on, locally\n"
+        "  tdd gsx sync --push       ...and push what changed\n"
         "  tdd gsx sync --all        every stack tracked here\n"
-        "  tdd gsx sync --no-push    reconcile and restack, publish nothing\n\n"
+        "  tdd gsx sync --continue   after resolving the conflict it stopped on\n"
+        "  tdd gsx sync --abort      put every branch it touched back\n\n"
+        "LOCAL by default: it fetches, takes what the remote has, and puts your\n"
+        "stack in order here. Publishing is a separate act -- `tdd gsx submit`,\n"
+        "or --push -- so a conflict you resolved is looked at before it goes\n"
+        "anywhere, the way every other publishing step in gsx is deliberate.\n\n"
         "the step `gh stack sync` does not have is the first one: each branch is\n"
         "brought up to <remote>/<branch> BEFORE the cascade, so a teammate's\n"
         "commits are integrated rather than rebased away and then overwritten.\n"
@@ -406,9 +412,9 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "the push an ordinary fast-forward; only branches this clone really moved\n"
         "are forced, and with a lease pinned to what this run fetched.\n\n"
         "It touches no stack object and calls no stacks API -- that is submit's\n"
-        "business. There is no session: every step asks whether it is already\n"
-        "done, so after resolving a conflict with `git rebase --continue` you\n"
-        "simply run it again.\n\n",
+        "business. A sync that stops on a conflict can be finished (--continue)\n"
+        "or undone (--abort): every branch it touched goes back to its tip from\n"
+        "before the run, not just the one the rebase stopped on.\n\n",
     )
     sync.add_argument(
         "--all",
@@ -417,9 +423,20 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help="every stack tracked here, not just the one you are on",
     )
     sync.add_argument(
-        "--no-push",
+        "--push",
         action="store_true",
-        help="reconcile and restack locally; push nothing",
+        help="also push what changed; without it the sync is local and "
+        "`tdd gsx submit` is what publishes",
+    )
+    sync.add_argument(
+        "--continue",
+        action="store_true",
+        help="finish a sync that stopped on a conflict you have resolved",
+    )
+    sync.add_argument(
+        "--abort",
+        action="store_true",
+        help="undo a stopped sync: every branch it touched goes back to where it was",
     )
 
     init = add(

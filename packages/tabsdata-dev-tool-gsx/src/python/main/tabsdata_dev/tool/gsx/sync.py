@@ -20,9 +20,101 @@ needed to move commits between clones. The stack object is `submit`'s business.
 
 from __future__ import annotations
 
+import json
+import pathlib
 from dataclasses import dataclass, field
 
 from . import gh
+
+#: `<git-dir>/gsx/sync.json`, beside move's: what a sync that stopped needs in
+#: order to be finished or undone -- every branch's tip before the run, and
+#: where the operator stood. Written before anything moves, removed when the
+#: run completes; its presence IS "a sync is stopped here".
+SESSION = "gsx/sync.json"
+
+
+def session_path(runner: gh.Runner) -> pathlib.Path:
+    return gh.git_dir(runner) / SESSION
+
+
+def save_session(
+    runner: gh.Runner, branch: str, tips: dict[str, str], remote: str
+) -> None:
+    """A temporary file and one rename, like every other write here."""
+    path = session_path(runner)
+    if runner.dry_run:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    scratch = path.with_name(path.name + ".tmp")
+    scratch.write_text(
+        json.dumps({"branch": branch, "tips": tips, "remote": remote}, indent=1),
+        encoding="utf-8",
+    )
+    scratch.replace(path)
+
+
+def load_session(runner: gh.Runner) -> dict | None:
+    path = session_path(runner)
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def clear_session(runner: gh.Runner) -> None:
+    if not runner.dry_run:
+        session_path(runner).unlink(missing_ok=True)
+
+
+def in_progress(runner: gh.Runner) -> str:
+    """`"rebase"`, `"cherry-pick"` or `""`: what git has left half-done."""
+    git_dir = gh.git_dir(runner)
+    if (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists():
+        return "rebase"
+    if (git_dir / "CHERRY_PICK_HEAD").exists():
+        return "cherry-pick"
+    return ""
+
+
+def finish(runner: gh.Runner, kind: str) -> None:
+    """Carry on what the operator has resolved. GIT_EDITOR is off: `--continue`
+    opens the message otherwise, and the message is the one the commit had."""
+    runner.run(["git", kind, "--continue"], env={"GIT_EDITOR": "true"}, capture=False)
+
+
+def abort(runner: gh.Runner, session: dict) -> list[str]:
+    """Put every branch the run touched back to its pre-run tip.
+
+    `git rebase --abort` undoes only the branch the rebase stopped on; the
+    branches the cascade had already rewritten stay rewritten, which is a
+    half-restacked stack nobody asked for. The snapshot every run takes for
+    its fork points is exactly what is needed to undo them all, so it is kept
+    until the run completes. The trunk is not put back: it was only ever
+    fast-forwarded, and that is wanted whatever happens to the stack.
+    """
+    kind = in_progress(runner)
+    if kind:
+        runner.run(["git", kind, "--abort"], capture=False)
+    branch = session.get("branch") or ""
+    tips = session.get("tips") or {}
+    if branch and gh.sha(runner, f"refs/heads/{branch}"):
+        gh.checkout(runner, branch)
+    standing = gh.current_branch(runner)
+    restored = []
+    for name, sha in tips.items():
+        if not sha or not gh.sha(runner, f"refs/heads/{name}"):
+            continue
+        if gh.sha(runner, f"refs/heads/{name}") == sha:
+            continue
+        if name == standing:
+            runner.run(["git", "reset", "-q", "--hard", sha])
+        else:
+            runner.run(["git", "branch", "-f", name, sha])
+        restored.append(name)
+    return restored
+
 
 #: What a branch needs before the cascade may touch it.
 CURRENT = "current"  # the remote's copy is already in our history

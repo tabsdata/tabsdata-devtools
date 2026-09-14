@@ -941,11 +941,29 @@ between clones, and the stack object is `submit`'s business. This is also why `s
 runs this engine rather than `gh stack sync`, and why `--s:` is refused with a sentence saying so:
 it forwarded flags to a command gsx no longer runs.
 
-**There is no session file.** Every step asks whether it is already done -- is the remote copy in
-our history, is the parent an ancestor -- and does nothing when the answer is yes, so the command
-is idempotent: on a conflict it stops, you resolve and `git rebase --continue`, then run it again.
-`move` needs a session because it has an undo to offer; sync has nothing to undo that re-running
-does not fix.
+**Local by default; `--push` publishes.** Every other publishing act in gsx is an explicit verb
+(`submit`, `submit --move`), a conflict resolved during a sync is worth looking at before it goes
+anywhere, and in git's own vocabulary "sync" is inbound. So `gsx sync` fetches, takes what the
+remote has, and puts the stack in order here; the summary then says how many branches are ready to
+push and names both ways to do it. `submit` is the ordinary way, and it now **refuses over a branch
+the remote is ahead of** for every publish, not only a move's -- the pair is coherent only if
+skipping the sync is caught. `--push` is the spelling rather than `--remote` because in `stack`
+that word means *show* that side, and reusing it for *act* would muddle it.
+
+**A sync that stops can be finished or undone**, and that needed a session after all. Every run
+already snapshots every tip before it moves anything, for the fork points; keeping that snapshot
+in `<git-dir>/gsx/sync.json` until the run completes is what lets `--abort` put every touched
+branch back -- `git rebase --abort` undoes only the branch the rebase stopped on, and the ones the
+cascade had already rewritten would stay rewritten, a half-restacked stack nobody asked for.
+`--continue` runs git's own `--continue` for the rebase or cherry-pick and resumes with the
+session's tips as the pre-run state, since by then some branches have moved. A plain `sync` over a
+stopped one refuses and names both; over a session whose rebase the operator has already finished
+by hand it simply resumes. The trunk is never put back: it was only ever fast-forwarded. The
+snapshot is taken before the trunk moves, which is why it is per branch and not per stack.
+
+**gsx's state lives under `<git-dir>/gsx/`** -- `move.json`, `sync.json` -- rather than as flat
+files at the top of the git directory: one directory for everything of ours, and no chance of a
+name a future git reserves.
 
 **A dirty tree is refused up front**, because every rebase below would refuse anyway and finding
 that out halfway through a cascade leaves the stack in pieces. A stopped `gh stack rebase` is
@@ -1043,7 +1061,8 @@ and a clone that can move without a guard is a clone that can publish without on
 belongs where the work starts, not where it lands. Everything that only reads -- `stack`,
 `checkout`, `apply`, `purge`, `create` -- is untouched, because the refusal is about pushing
 rather than about gsx, and `init` itself is untouched because guarding it would be a door locked
-from the inside.
+from the inside. `sync` stays guarded although it no longer pushes by default: `--push` is one
+word away, and the guard is what makes that word safe.
 
 **The escape is `GSX_NO_GUARD=1`, an environment variable rather than a flag.** A guard you can
 turn off by typing one more word on the line you were already typing is not a guard; a variable

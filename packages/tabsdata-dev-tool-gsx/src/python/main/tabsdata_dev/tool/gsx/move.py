@@ -35,7 +35,7 @@ draft had all three.
 
 A conflict stops the replay, and by then the tracking is already the new
 arrangement -- so "resolve and rerun" is not available and neither is "just
-abort". `<git-dir>/gsx-move` is what makes both directions one command each:
+abort". `<git-dir>/gsx/move.json` is what makes both directions one command each:
 it holds what is left to replay and what an undo needs (every moved branch's
 tip, and gh-stack's whole tracking file as text). `--continue` finishes,
 `--abort` puts the branches and both stacks back, and while it exists a second
@@ -469,7 +469,10 @@ def _abbreviated(branches: list[str], most: int = 6) -> str:
 REBASE = "rebase"  # the branch that moved is being replayed
 CASCADE = "cascade"  # ...and now the branches above it
 PUBLISH = "publish"  # every branch replayed; `gsx submit --move` is what is left
-STATE_FILE = "gsx-move"
+#: Under `<git-dir>/gsx/`, with `sync.json` beside it: one directory for
+#: everything gsx keeps in a checkout, so nothing of ours can collide with a
+#: name a future git reserves at the top of its own directory.
+STATE_FILE = "gsx/move.json"
 
 #: The stages a `--continue` can act on: the replay is what it continues.
 REPLAYING = (REBASE, CASCADE)
@@ -512,7 +515,7 @@ class Stopped(ToolError):
 
 @dataclass
 class Session:
-    """The unpublished moves, as `<git-dir>/gsx-move` carries them.
+    """The unpublished moves, as `<git-dir>/gsx/move.json` carries them.
 
     One file for a *sequence*: every `gsx move` adds to it, `gsx submit --move`
     publishes the lot and removes it, `gsx move --abort` undoes the lot. So its
@@ -650,6 +653,7 @@ def save(runner: gh.Runner, session: Session) -> None:
         runner.out.debug(f"[dry-run] write {state_path(runner)}")
         return
     path = state_path(runner)
+    path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(session.to_json(), indent=2), encoding="utf-8")
     temporary.replace(path)

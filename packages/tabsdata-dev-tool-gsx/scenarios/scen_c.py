@@ -14,7 +14,7 @@ def resolve_all(who, keep="both"):
     files = [
         line[3:]
         for line in out(who, "status", "--porcelain").splitlines()
-        if l[:2] in ("UU", "AA")
+        if line[:2] in ("UU", "AA")
     ]
     for f in files:
         p = ROOT / who / f
@@ -44,11 +44,14 @@ def c1(steps):
     steps.append(f"alice: C1A-3 -> #{nb}")
     # bob appends to the moved branch on the OLD arrangement and pushes
     write_commit("bob", "C1A-3", "[C1A-3] bob after the move", "bob.txt")
-    rc, o = gsx("bob", "sync")
+    rc, o = gsx("bob", "sync", "--push")
     steps.append("bob pushed to C1A-3 (still on its old base for him)")
     # alice syncs during the pending move: takes bob's commit, keeps the move, pushes nothing
     rc, o = gsx("alice", "sync")
     expect_in(o, "took 1 commit")
+    expect_in(o, "submit --move")
+    steps.append("plain sync is local: reconciled and restacked, nothing pushed")
+    rc, o = gsx("alice", "sync", "--push")
     expect_in(o, "nothing was pushed")
     expect(is_ancestor("alice", "C1B-2", "C1A-3"), "move undone by sync")
     expect(
@@ -88,7 +91,7 @@ def c1(steps):
     rc, o = gsx("bob", "checkout", f"#{nb}", "--adopt")
     rc, o = gsx("bob", "checkout", f"#{remainder[0]}", "--adopt", check=False)
     git("bob", "checkout", "-q", "C1A-2")
-    rc, o = gsx("bob", "sync")
+    rc, o = gsx("bob", "sync", "--push")
     expect_not_in(o, "CONFLICT")
     fetch("bob")
     expect_present_once("bob", "C1A-2", ["[C1A-2] bob stale work"])
@@ -108,9 +111,9 @@ def c2(steps):
     steps.append("alice: C2A-3..5 -> #%d" % nb)
     # the middle of the moved slice gets a teammate commit on the old arrangement
     write_commit("bob", "C2A-4", "[C2A-4] bob mid-slice", "bob.txt")
-    gsx("bob", "sync")
+    gsx("bob", "sync", "--push")
     rc, o = gsx("alice", "sync")
-    expect_in(o, "nothing was pushed")
+    expect_in(o, "submit --move")
     expect_not_in(o, "CONFLICT")
     # the taint: C2A-4 and C2A-5 must be treated as moved too, not rebased onto their remote copies
     expect(
@@ -165,7 +168,7 @@ def c3(steps):
     write_commit(
         "alice", "C3A-3", "[C3A-3] stack touches shared", "shared.txt", "stack line"
     )
-    gsx("alice", "sync")
+    gsx("alice", "sync", "--push")
     git("alice", "checkout", "-q", "C3S-1")
     rc, o = gsx("alice", "move", "--to", "C3A-3", "--yes", check=False)
     expect(
@@ -180,7 +183,7 @@ def c3(steps):
     # THE close call: sync during the pending move must (a) detect the move though its base is the trunk,
     # (b) not re-apply the superseded remote copy whose patch the resolution changed
     rc, o = gsx("alice", "sync")
-    expect_in(o, "nothing was pushed")
+    expect_in(o, "submit --move")
     expect_not_in(o, "CONFLICT")
     expect(is_ancestor("alice", "C3A-3", "C3S-1"), "sync undid the move")
     expect(
@@ -207,7 +210,7 @@ def c4(steps):
         "slice not on trunk",
     )
     rc, o = gsx("alice", "sync")
-    expect_in(o, "nothing was pushed")
+    expect_in(o, "submit --move")
     expect(
         not is_ancestor("alice", "C4A-2", "C4A-3"), "sync dragged the old chain back"
     )
@@ -254,7 +257,7 @@ def c6(steps):
     git("alice", "checkout", "-q", "C6A-3")
     gsx("alice", "move", "--to", f"#{nb}", "--yes")
     write_commit("bob", "C6A-3", "[C6A-3] bob meanwhile", "bob.txt")
-    gsx("bob", "sync")
+    gsx("bob", "sync", "--push")
     rc, o = gsx("alice", "submit", "--move", check=False)
     expect(rc != 0 and "gsx sync" in o, f"expected the reconcile refusal:\n{o[-800:]}")
     sm = stack_map()
@@ -283,7 +286,7 @@ def c7(steps):
     git("alice", "checkout", "-q", "C7A-2")  # now top of B's local stack
     gsx("alice", "move", "--to", f"#{nc}", "--yes")
     rc, o = gsx("alice", "sync")
-    expect_in(o, "nothing was pushed")
+    expect_in(o, "submit --move")
     expect(is_ancestor("alice", "C7C-2", "C7A-2"), "second move lost")
     rc, o = gsx("alice", "submit", "--move")
     sm = stack_map()

@@ -4063,7 +4063,9 @@ def test_the_card_answers_before_a_subcommand_is_asked_for(capsys):
     # the tool's own synopsis uses.)
     assert "[--all] [--short] [--remote | --local]" in said
     assert "gsx stack -" not in said
-    assert "gsx sync [--all] [--no-push]" in said
+    # sync is local by default; the card shows the local line and the push line
+    assert "gsx sync [--all]" in said and "gsx sync --push" in said
+    assert "--continue | --abort" in said
     # a move takes a stack OR its top branch, and the card shows both
     assert "--to '#41'" in said and "--to FOO-16" in said
     # and the label/reviewer grammar is the real one
@@ -4415,3 +4417,117 @@ def test_a_landed_branch_is_left_out_of_sync_entirely(monkeypatch):
     out = _Say()
     assert commands._pr_info(None, {"E1-1": 1}, out) == ({}, set())
     assert any("nothing has landed" in m for m in out.said)
+
+
+# ------------------------------------------------------ sync: local, session
+def _fake_sync_run(
+    monkeypatch, tmp_path, *, current="B2", pushed=None, session=None, stopped=""
+):
+    """A whole sync run with git faked: two branches, both changed locally
+    (so there is something to push), nothing on the remote to take."""
+    _fake_purge(monkeypatch, tmp_path, ["main"], {})
+    (tmp_path / "gh-stack").write_text(
+        json.dumps(_with_prs(_state(names=("B1", "B2")), [(21, 22)]))
+    )
+    monkeypatch.setattr(gh, "git_dir", lambda runner: tmp_path)
+    monkeypatch.setattr(gh, "current_branch", lambda runner: current)
+    monkeypatch.setattr(gh, "dirty", lambda runner: False)
+    monkeypatch.setattr(gh, "rebase_stopped", lambda runner: "")
+    monkeypatch.setattr(gh, "fetch", lambda runner, remote: None)
+    monkeypatch.setattr(gh, "stack_remote", lambda runner: "origin")
+    monkeypatch.setattr(gh, "checkout", lambda runner, b: None)
+    monkeypatch.setattr(gh, "sha", lambda runner, ref: "l" if "heads" in ref else "r")
+    monkeypatch.setattr(
+        gh, "is_ancestor", lambda runner, a, b: a == b or (a, b) == ("r", "l")
+    )
+    monkeypatch.setattr(gh, "pull_requests", lambda runner, numbers: {})
+    monkeypatch.setattr(gh, "stacks", lambda runner, **kw: [])
+    monkeypatch.setattr(sync_mod, "in_progress", lambda runner: stopped)
+    if session is not None:
+        (tmp_path / "gsx").mkdir(exist_ok=True)
+        (tmp_path / "gsx" / "sync.json").write_text(json.dumps(session))
+    pushes = pushed if pushed is not None else []
+
+    class Runner(gh.Runner):
+        def run(self, argv, **kwargs):
+            if argv[:2] == ["git", "push"]:
+                pushes.append(argv)
+                return ""
+            if argv[:2] == ["git", "rev-list"]:
+                return ""
+            return ""
+
+    monkeypatch.setattr(gh, "Runner", Runner)
+    return pushes
+
+
+def test_sync_is_local_by_default_and_says_how_to_publish(
+    tmp_path, monkeypatch, capsys
+):
+    pushes = _fake_sync_run(monkeypatch, tmp_path)
+    assert gsx.main(["sync"]) == 0
+    said = capsys.readouterr().out
+    assert pushes == []
+    assert "to push" in said and "--push" in said and "tdd gsx submit" in said
+    # and the session is gone: the run completed
+    assert not (tmp_path / "gsx" / "sync.json").exists()
+
+
+def test_sync_push_pushes(tmp_path, monkeypatch, capsys):
+    pushes = _fake_sync_run(monkeypatch, tmp_path)
+    assert gsx.main(["sync", "--push"]) == 0
+    assert len(pushes) == 1 and pushes[0][:3] == ["git", "push", "--atomic"]
+
+
+def test_a_plain_sync_over_a_stopped_one_refuses_and_names_both_ways_out(
+    tmp_path, monkeypatch, capsys
+):
+    _fake_sync_run(
+        monkeypatch, tmp_path, session={"branch": "B2", "tips": {}}, stopped="rebase"
+    )
+    assert gsx.main(["sync"]) == 1
+    err = capsys.readouterr().err
+    assert "is stopped" in err and "--continue" in err and "--abort" in err
+
+
+def test_sync_abort_puts_every_touched_branch_back(tmp_path, monkeypatch, capsys):
+    """`git rebase --abort` undoes only the branch the rebase stopped on; the
+    branches the cascade had already rewritten stay rewritten."""
+    calls = []
+
+    class Runner(gh.Runner):
+        def run(self, argv, **kwargs):
+            calls.append(argv)
+            return ""
+
+    _fake_sync_run(
+        monkeypatch,
+        tmp_path,
+        session={"branch": "B2", "tips": {"B1": "t1", "B2": "t2"}},
+        stopped="rebase",
+    )
+    monkeypatch.setattr(gh, "Runner", Runner)
+    monkeypatch.setattr(gh, "sha", lambda runner, ref: "changed")
+    assert gsx.main(["sync", "--abort"]) == 0
+    assert ["git", "rebase", "--abort"] in calls
+    # the checked-out branch by reset, the other by branch -f
+    assert ["git", "reset", "-q", "--hard", "t2"] in calls
+    assert ["git", "branch", "-f", "B1", "t1"] in calls
+    assert not (tmp_path / "gsx" / "sync.json").exists()
+    assert "aborted" in capsys.readouterr().out
+
+
+def test_sync_abort_and_continue_without_a_stopped_sync_say_so(
+    tmp_path, monkeypatch, capsys
+):
+    _fake_sync_run(monkeypatch, tmp_path)
+    assert gsx.main(["sync", "--abort"]) == 1
+    assert "nothing to abort" in capsys.readouterr().err
+    assert gsx.main(["sync", "--continue"]) == 1
+    assert "nothing to continue" in capsys.readouterr().err
+    assert gsx.main(["sync", "--abort", "--continue"]) == 1
+
+
+def test_the_state_files_live_under_git_gsx():
+    assert sync_mod.SESSION == "gsx/sync.json"
+    assert move_mod.STATE_FILE == "gsx/move.json"
