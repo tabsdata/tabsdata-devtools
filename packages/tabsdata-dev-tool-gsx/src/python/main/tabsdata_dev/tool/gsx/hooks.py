@@ -13,21 +13,21 @@
   this tree that does not start with the house header, because it is not ours
   and a Gerrit user should be able to diff it against the original.
 
-Git will not let a repository configure its own hooks -- `.git/hooks` is never
-cloned, by design, because a hook is code the clone's owner runs. So there is
-no arrangement in which everybody is protected automatically, and the honest
-shapes are two:
+Git will not let a repository configure its own hooks -- neither `.git/hooks`
+nor `core.hooksPath` is cloned, by design, because a hook is code the clone's
+owner runs. So there is no arrangement in which everybody is protected
+automatically, and the honest shape is one: the files live in `.githooks/`,
+committed, so they arrive with the code, are reviewed with it and are upgraded
+by a commit; and each clone runs `init` once, which points `core.hooksPath` at
+that directory. In a clone that already has the files, that is all it does.
 
-- **repo**: `.githooks/<hook>` committed, `core.hooksPath` pointed at it.
-  The hooks arrive with the code and are reviewed with it; each clone still
-  runs one command once, because the config key is local too. This is the one
-  to prefer, and the one a bootstrap target should call.
-- **clone**: `.git/hooks/<hook>`, nothing committed and nothing in the
-  worktree. For a repository you do not own, or one you would rather not add
-  a directory to.
-
-Setting `core.hooksPath` makes git ignore `.git/hooks` entirely, so the two are
-alternatives rather than layers, and `--check` says which is in force.
+There used to be a `--clone` form that wrote the same files to `.git/hooks`
+and set nothing. It went because nobody could state its difference from the
+default -- every clone runs `init` either way -- and because it had a failure
+mode of its own: `core.hooksPath` REPLACES `.git/hooks`, so in a clone whose
+config still named a removed `.githooks` it reported success for a hook git
+would never run. Its one real use, a repository that is not yours to add a
+directory to, is served by listing `.githooks` in `.git/info/exclude`.
 """
 
 from __future__ import annotations
@@ -58,9 +58,14 @@ CHANGE_ID_SOURCE = "https://gerrit-review.googlesource.com/tools/hooks/commit-ms
 CHANGE_ID_STAMP = "# From Gerrit Code Review "
 QUICK_REF = "assets/quick-ref.txt"
 
-REPO = "repo"  # .githooks/<hook> + core.hooksPath
-CLONE = "clone"  # .git/hooks/<hook>
 DIRECTORY = ".githooks"
+
+#: What `core.hooksPath` says, for `state()["active"]`: ours, somebody else's,
+#: or nothing -- in which case git would run `.git/hooks`, where gsx puts
+#: nothing any more.
+REPO = "repo"
+ELSEWHERE = "elsewhere"
+NONE = "none"
 
 
 def script(hook: str = GUARD) -> str:
@@ -93,10 +98,8 @@ def top_level(runner: gh.Runner) -> pathlib.Path:
     return pathlib.Path(runner.run(["git", "rev-parse", "--show-toplevel"])).resolve()
 
 
-def target(runner: gh.Runner, where: str, hook: str = GUARD) -> pathlib.Path:
-    if where == REPO:
-        return top_level(runner) / DIRECTORY / hook
-    return gh.git_dir(runner) / "hooks" / hook
+def target(runner: gh.Runner, hook: str = GUARD) -> pathlib.Path:
+    return top_level(runner) / DIRECTORY / hook
 
 
 def configured(runner: gh.Runner) -> str:
@@ -117,10 +120,9 @@ def write(path: pathlib.Path, text: str) -> None:
     scratch.replace(path)
 
 
-def install(
-    runner: gh.Runner, where: str, force: bool
-) -> dict[str, tuple[pathlib.Path, bool]]:
-    """Write every hook and, for `repo`, point git at them.
+def install(runner: gh.Runner, force: bool) -> dict[str, tuple[pathlib.Path, bool]]:
+    """Write every hook that is not already the shipped one, and point git at
+    the directory.
 
     Returns, per hook, its path and whether anything changed; the config key
     counts as a change of the guard's, since the guard is what it activates.
@@ -128,24 +130,22 @@ def install(
     guard and then stopped at a commit-msg somebody else wrote would be half
     done with no way to say so.
     """
-    if where == CLONE:
-        # `core.hooksPath` REPLACES .git/hooks rather than adding to it, so
-        # installing there while it is set writes a file git will never read --
-        # and reports success for a guard that cannot fire. Seen in a real
-        # checkout whose .githooks had been removed but whose config still
-        # named it: `--clone` said "installed", `--check` said "NOT active",
-        # and only the second one was right.
-        elsewhere = configured(runner)
-        if elsewhere:
-            raise ToolError(
-                f"core.hooksPath is {elsewhere!r}, so git ignores .git/hooks "
-                "entirely and a guard installed there would never run.\n"
-                f"  `tdd gsx init`                    installs into {elsewhere} instead\n"
-                "  `git config --unset core.hooksPath`  then --clone works"
-            )
+    elsewhere = configured(runner)
+    if elsewhere and elsewhere != DIRECTORY and not force:
+        # git runs ONE hooks directory. Pointing it at ours silences whatever a
+        # husky or a house hook had in theirs, which is not gsx's call to make
+        # without being told.
+        raise ToolError(
+            f"core.hooksPath is {elsewhere!r}, which gsx did not set: git runs one "
+            f"hooks directory, so pointing it at {DIRECTORY} would silence whatever "
+            "is there.\n"
+            f"  `tdd gsx init --force`   points it at {DIRECTORY} anyway\n"
+            f"  or chain to {DIRECTORY}/{GUARD} and {DIRECTORY}/{CHANGE_ID} from "
+            f"{elsewhere}"
+        )
     plans = []
     for hook in HOOKS:
-        path = target(runner, where, hook)
+        path = target(runner, hook)
         wanted = script(hook)
         existing = path.read_text(encoding="utf-8") if path.is_file() else ""
         if existing and existing != wanted and not force:
@@ -164,7 +164,7 @@ def install(
             else:
                 write(path, wanted)
         done[hook] = (path, changed)
-    if where == REPO and configured(runner) != DIRECTORY:
+    if elsewhere != DIRECTORY:
         # A relative path resolves against the worktree root for every hook,
         # so it is the same string in every clone -- which is what makes it
         # committable.
@@ -176,33 +176,28 @@ def install(
 def state(runner: gh.Runner) -> dict:
     """What is installed here, for `--check` and for `--format json`.
 
-    `repo`/`clone`/`protected` are the guard's, because the refusal reads
-    them; the Change-Id hook has its own `commit_msg` and `change_id`, since a
-    clone without it is unprotected against nothing -- it only commits without
-    an identity.
+    `guard`/`protected` are the guard's, because the refusal reads them; the
+    Change-Id hook has its own `commit_msg` and `change_id`, since a clone
+    without it is unprotected against nothing -- it only commits without an
+    identity.
     """
     path = configured(runner)
-    wanted = {hook: script(hook) for hook in HOOKS}
+    active = REPO if path == DIRECTORY else ELSEWHERE if path else NONE
 
-    def status(where: str, hook: str) -> str:
-        file = target(runner, where, hook)
+    def status(hook: str) -> str:
+        file = target(runner, hook)
         if not file.is_file():
             return "missing"
         text = file.read_text(encoding="utf-8", errors="replace")
-        return "current" if text == wanted[hook] else "other"
+        return "current" if text == script(hook) else "other"
 
-    # Only one of the two can run: core.hooksPath, when set, replaces
-    # .git/hooks rather than adding to it.
-    active = REPO if path == DIRECTORY else CLONE if not path else "elsewhere"
-    guard = {where: status(where, GUARD) for where in (REPO, CLONE)}
-    change_id = {where: status(where, CHANGE_ID) for where in (REPO, CLONE)}
+    guard, change_id = status(GUARD), status(CHANGE_ID)
     return {
         "hooks_path": path,
         "active": active,
-        "repo": guard[REPO],
-        "clone": guard[CLONE],
-        "protected": guard.get(active) == "current",
+        "guard": guard,
         "commit_msg": change_id,
-        "change_id": change_id.get(active) == "current",
+        "protected": active == REPO and guard == "current",
+        "change_id": active == REPO and change_id == "current",
         "gerrit_version": change_id_version(),
     }

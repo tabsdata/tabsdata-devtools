@@ -77,22 +77,21 @@ Review 3.14.2-774-g4d022d2bdb, verbatim from
 <https://gerrit-review.googlesource.com/tools/hooks/commit-msg>), which stamps
 every commit with a `Change-Id:` trailer -- an identity that survives rebases, cherry-picks and
 conflict resolutions because it lives in the message (`gsx update` keeps it through its amend).
-Neither `.git/hooks` nor `core.hooksPath` is **ever cloned**, by design: a hook is code the
-clone's owner runs. So there is no arrangement in which a teammate is protected without doing
-anything, and every clone runs one command, in one of two forms:
+They live in `.githooks/`, committed (§1.3), so they arrive with the code, are reviewed with it
+and are upgraded by a commit. What does not arrive is the switch: neither `.git/hooks` nor
+`core.hooksPath` is **ever cloned**, by design, because a hook is code the clone's owner runs. So
+every clone runs one command once, and in a clone that pulled the files already it is one config
+key and nothing else:
 
 | by hand | with gsx |
 |---|---|
-| `git config core.hooksPath .githooks` *(the committed hooks)* | `tdd gsx init` |
-| *or* `cp .githooks/pre-push .githooks/commit-msg .git/hooks/` | *or* `tdd gsx init --clone` |
-| `chmod +x .git/hooks/pre-push .git/hooks/commit-msg` | |
+| `git config core.hooksPath .githooks` | `tdd gsx init` |
 | `gh extension install github/gh-stack` | (checked and reported by `init`) |
 
-The two forms differ in **where the hook files live**, not in who runs the command. The default
-points git at the committed `.githooks/`, so the hooks arrive with the code, are reviewed with it
-and are upgraded by a commit -- in a clone that already has them, `init` is the config key and
-nothing else. `--clone` copies them into `.git/hooks/` instead: nothing in the worktree, nothing
-to commit, for a repository that is not yours to add a directory to.
+`init` also writes the two files when they are not there yet (the first clone of a repository,
+§1.3), and it refuses to point git away from a `core.hooksPath` it did not set -- chain to the two
+files from your own hooks, or `--force`. For a repository that is not yours to add a directory
+to, list `.githooks` in `.git/info/exclude` and carry on.
 
 `tdd gsx init --check` reports what is in place without writing anything, and so does
 `--dry-run`. When gsx ships a newer hook, `tdd gsx init --force` in one clone plus a commit
@@ -347,7 +346,7 @@ they wear a red `!`.
 Also `tdd gsx --quick-ref`, which prints exactly this (a test keeps the two identical).
 
 ```
-prepare this clone                   tdd gsx init [--clone] [--check]
+prepare this clone                   tdd gsx init [--check]
 start a PR where you are             tdd gsx create -s "summary"
 change a PR                          commit, tdd gsx sync, tdd gsx submit
 push the stack, open its PRs         tdd gsx submit

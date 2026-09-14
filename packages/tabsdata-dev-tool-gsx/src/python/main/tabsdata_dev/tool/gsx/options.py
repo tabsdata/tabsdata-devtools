@@ -448,37 +448,29 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "check the tools",
         "examples:\n"
         "  tdd gsx init             install both hooks and report what is in place\n"
-        "  tdd gsx init --clone     into .git/hooks: nothing in the worktree\n"
-        "  tdd gsx init --check     report only; install nothing\n\n"
-        "two hooks. The pre-push GUARD refuses two pushes: one that would discard\n"
-        "commits this clone never had (someone else rewrote the branch), and one\n"
-        "that loses a commit the remote already has (a squash or a drop in a\n"
-        "submitted PR). Rebases and fast-forwards pass, so ordinary restacking\n"
-        "is unaffected; GIT_ALLOW_OVERWRITE=1 overrides either. Gerrit's\n"
-        "COMMIT-MSG hook, shipped verbatim, gives every commit a Change-Id:\n"
-        "trailer -- an identity that survives rebases, cherry-picks and conflict\n"
-        "resolutions, because it lives in the message; `gsx update` carries it\n"
-        "through its amend. `git config gerrit.createChangeId false` turns it off.\n\n"
-        "every clone runs this once, whichever form: git clones neither .git/hooks\n"
-        "nor core.hooksPath, so there is no arrangement in which a teammate is\n"
-        "protected without doing anything. The default writes .githooks/<hook>\n"
-        "in the worktree and sets core.hooksPath: commit the files once and they\n"
-        "arrive with the code, reviewed with it, upgraded by a commit; a teammate\n"
-        "who pulls them still runs init, for the config key. --clone writes\n"
-        ".git/hooks/<hook> instead -- nothing in the worktree, nothing to commit,\n"
-        "for a repository that is not yours to add a directory to. submit, sync,\n"
-        "prune and move REFUSE to run until the guard is in place; GSX_NO_GUARD=1\n"
-        "overrides, for a checkout where it cannot be installed at all.\n\n",
-    )
-    init.add_argument(
-        "--repo",
-        action="store_true",
-        help="install into .githooks and point core.hooksPath at it (the default)",
-    )
-    init.add_argument(
-        "--clone",
-        action="store_true",
-        help="install into .git/hooks instead: nothing in the worktree, nothing to commit",
+        "  tdd gsx init --check     report only; install nothing\n"
+        "  tdd gsx init --force     replace a hook that is not the one gsx ships\n\n"
+        "two hooks, in .githooks/ at the root of the worktree, with core.hooksPath\n"
+        "pointed at it. The pre-push GUARD refuses two pushes: one that would\n"
+        "discard commits this clone never had (someone else rewrote the branch),\n"
+        "and one that loses a commit the remote already has (a squash or a drop\n"
+        "in a submitted PR). Rebases and fast-forwards pass, so ordinary\n"
+        "restacking is unaffected; GIT_ALLOW_OVERWRITE=1 overrides either.\n"
+        "Gerrit's COMMIT-MSG hook, shipped verbatim, gives every commit a\n"
+        "Change-Id: trailer -- an identity that survives rebases, cherry-picks and\n"
+        "conflict resolutions, because it lives in the message; `gsx update`\n"
+        "carries it through its amend. `git config gerrit.createChangeId false`\n"
+        "turns it off.\n\n"
+        "every clone runs this once. git clones neither .git/hooks nor\n"
+        "core.hooksPath, so the files travel with the code -- commit them once and\n"
+        "they are reviewed with it and upgraded by a commit -- and each clone still\n"
+        "flips the config key; in a clone that already has the files, that is all\n"
+        "init does. A core.hooksPath gsx did not set is not taken over without\n"
+        "--force, since git runs one hooks directory: chain to the two files from\n"
+        "yours instead. For a repository that is not yours to add a directory to,\n"
+        "list .githooks in .git/info/exclude and carry on. submit, sync, prune and\n"
+        "move REFUSE to run until the guard is in place; GSX_NO_GUARD=1 overrides,\n"
+        "for a checkout where it cannot be installed at all.\n\n",
     )
     init.add_argument(
         "--check",
@@ -488,7 +480,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
     init.add_argument(
         "--force",
         action="store_true",
-        help="overwrite a hook gsx did not write",
+        help="overwrite a hook gsx did not write, or take over a core.hooksPath it did not set",
     )
 
     stack = add(

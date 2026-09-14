@@ -759,8 +759,7 @@ def _preflight_guard(runner: gh.Runner, out, moved: move_mod.Pending) -> None:
     found = hooks_mod.state(runner)
     if not found["protected"]:
         return  # `_require_guard` refused already; this is belt and braces
-    where = hooks_mod.REPO if found["active"] == hooks_mod.REPO else hooks_mod.CLONE
-    hook = hooks_mod.target(runner, where)
+    hook = hooks_mod.target(runner)
     here = gh.current_branch(runner)
     _, mine, _ = _stack_here(runner)
     pushing = list(mine)
@@ -2765,10 +2764,6 @@ def init(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     tools."""
     gh.require_binaries()
     gh.require_repo(runner)
-    if args.clone and args.repo:
-        raise ToolError(
-            "init takes at most one of --repo and --clone; --repo is the default"
-        )
     # Said whatever the outcome, because a clone with the guard and without the
     # extension is half-prepared in a way that only shows up at submit time.
     extension = "gh-stack" in runner.run(["gh", "extension", "list"], check=False)
@@ -2780,8 +2775,7 @@ def init(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     if args.check:
         found = hooks_mod.state(runner)
         return (_init_line(found, extension), {**found, "extension": extension})
-    where = hooks_mod.CLONE if args.clone else hooks_mod.REPO
-    installed = hooks_mod.install(runner, where, args.force)
+    installed = hooks_mod.install(runner, args.force)
     root = hooks_mod.top_level(runner)
 
     def shown(path) -> str:
@@ -2799,20 +2793,17 @@ def init(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         f"{words[hook]} {'installed' if changed else 'already current'} at {shown(path)}"
         for hook, (path, changed) in installed.items()
     ]
-    if where == hooks_mod.REPO:
-        # Only what git does not track yet is asked for: in a repository that
-        # committed the hooks long ago, init is the config key and nothing to
-        # commit, and saying otherwise every time teaches people to skip it.
-        to_commit = _untracked(runner, [shown(path) for path, _ in installed.values()])
-        if to_commit:
-            lines.append(
-                f"commit {' and '.join(to_commit)} so "
-                f"{'it arrives' if len(to_commit) == 1 else 'they arrive'} with the "
-                "code; every clone still runs `tdd gsx init` once, because git never "
-                "clones .git/hooks"
-            )
-    else:
-        lines.append("this clone only -- nothing to commit")
+    # Only what git does not track yet is asked for: in a repository that
+    # committed the hooks long ago, init is the config key and nothing to
+    # commit, and saying otherwise every time teaches people to skip it.
+    to_commit = _untracked(runner, [shown(path) for path, _ in installed.values()])
+    if to_commit:
+        lines.append(
+            f"commit {' and '.join(to_commit)} so "
+            f"{'it arrives' if len(to_commit) == 1 else 'they arrive'} with the "
+            "code; every clone still runs `tdd gsx init` once, because git never "
+            "clones core.hooksPath"
+        )
     if not extension:
         lines.append("the `gh stack` extension is still missing (above)")
     guard_path, guard_changed = installed[hooks_mod.GUARD]
@@ -2820,7 +2811,6 @@ def init(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         "\n".join(lines),
         {
             "path": str(guard_path),
-            "where": where,
             "changed": guard_changed,
             "hooks": {
                 hook: {"path": str(path), "changed": changed}
@@ -2851,13 +2841,16 @@ def _init_line(found: dict, extension: bool) -> str:
         else:
             line += "; the Change-Id hook is missing: `tdd gsx init` adds it"
         return line + ("" if extension else "; the `gh stack` extension is missing")
-    if found["active"] == "elsewhere":
+    if found["active"] == hooks_mod.ELSEWHERE:
         return (
             f"core.hooksPath is {found['hooks_path']!r}, which gsx did not set: "
-            "chain to the guard from there, or `tdd gsx init --clone`"
+            f"chain to {hooks_mod.DIRECTORY}/{hooks_mod.GUARD} and "
+            f"{hooks_mod.DIRECTORY}/{hooks_mod.CHANGE_ID} from there, or "
+            f"`tdd gsx init --force` to point git at {hooks_mod.DIRECTORY}"
         )
-    return (
-        "the guard is NOT active here; `tdd gsx init` installs it into .githooks, "
-        "for the repository to commit, and `tdd gsx init --clone` into .git/hooks, "
-        "for this clone alone"
-    )
+    if found["active"] == hooks_mod.REPO and found.get("guard") == "other":
+        return (
+            f"the guard at {hooks_mod.DIRECTORY}/{hooks_mod.GUARD} is not the one gsx "
+            "ships; `tdd gsx init --force` replaces it"
+        )
+    return "the guard is NOT active here; `tdd gsx init` installs it"

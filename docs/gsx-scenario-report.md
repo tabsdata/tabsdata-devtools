@@ -61,7 +61,8 @@ Each was fixed and the matrix replayed until clean.
 6. **`init --clone` reported success for a guard git would never run** when `core.hooksPath` was
    set (found earlier in the same work, kept here because the campaign leaned on it): it now
    refuses and says what to do; and **upgrading a committed guard is `init --force`**, since a
-   differing hook is refused on purpose.
+   differing hook is refused on purpose. (`--clone` has since been removed altogether: one
+   form, `.githooks/`.)
 
 After the first clean run, three changes were made on the user's decision and the matrix was
 replayed once more: **`gsx sync` is local by default and `--push` publishes** (so `submit` now

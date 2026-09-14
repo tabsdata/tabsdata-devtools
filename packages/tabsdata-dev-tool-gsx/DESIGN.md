@@ -1024,18 +1024,28 @@ is deliberately unpleasant to type.
 shas git hands it. And because gh-stack shells out to `git push`, it covers `gh stack sync`,
 `push` and `submit` as well as everything gsx does; with `--atomic` one refusal stops the lot.
 
-**Git will not let a repository configure its own hooks**, by design: `.git/hooks` is never
-cloned, because a hook is code the clone's owner runs. There is therefore no arrangement where a
-teammate is protected without doing anything, and pretending otherwise would be the worst part of
-shipping this. The two honest shapes are `--repo` (`.githooks/pre-push` committed,
-`core.hooksPath` set to a *relative* path so the same string works everywhere) and `--clone`
-(`.git/hooks/pre-push`, nothing committed). `core.hooksPath` replaces `.git/hooks` rather than
-adding to it, so they are alternatives and `--check` says which is in force.
+**Git will not let a repository configure its own hooks**, by design: neither `.git/hooks` nor
+`core.hooksPath` is cloned, because a hook is code the clone's owner runs. There is therefore no
+arrangement where a teammate is protected without doing anything, and pretending otherwise would
+be the worst part of shipping this. The honest shape is one: the files in `.githooks/`, committed,
+and `core.hooksPath` set to that *relative* path so the same string works in every clone -- which
+is the one thing each clone has to do for itself, and all `init` does in a clone that already has
+the files.
 
-**`--clone` refuses where `core.hooksPath` is set**, because it replaces `.git/hooks` rather than
-adding to it: a guard installed there would never run, and reporting success for it is worse than
-refusing. Seen in a real checkout whose `.githooks` had been removed while the config still named
-it -- `--clone` said "installed", `--check` said "NOT active", and only the second was right.
+**There is no `--clone` form any more.** It wrote the same two files to `.git/hooks` and set
+nothing, and it went for three reasons. Nobody could state its difference from the default --
+every clone runs `init` either way, and the user said so. It had a failure mode of its own:
+`core.hooksPath` replaces `.git/hooks` rather than adding to it, so `--clone` in a clone whose
+config still named a removed `.githooks` reported success for a hook git would never run (seen in
+a real checkout; `--check` disagreed and was right). And its one legitimate use, a repository that
+is not yours to add a directory to, is served by listing `.githooks` in `.git/info/exclude`. A
+clone that installed with the old form runs `init` once; the copy in `.git/hooks` is ignored from
+then on.
+
+**`init` will not take over a `core.hooksPath` it did not set.** git runs one hooks directory, so
+pointing it at `.githooks` silences whatever a husky or a house hook had there. Without `--force`
+it refuses and says to chain to the two files from there; `--check` reports the path as
+"elsewhere".
 
 **A pre-push hook gsx did not write is never silently replaced** -- `--force` is the way through,
 and the refusal says so. The write is a temporary file and one rename, like every other write

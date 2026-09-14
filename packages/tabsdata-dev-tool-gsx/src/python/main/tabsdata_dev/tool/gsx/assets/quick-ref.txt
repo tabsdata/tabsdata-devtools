@@ -1,4 +1,4 @@
-prepare this clone                   tdd gsx init [--clone] [--check]
+prepare this clone                   tdd gsx init [--check]
 start a PR where you are             tdd gsx create -s "summary"
 change a PR                          commit, tdd gsx sync, tdd gsx submit
 push the stack, open its PRs         tdd gsx submit

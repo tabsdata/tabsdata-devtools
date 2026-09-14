@@ -3642,7 +3642,7 @@ def test_install_writes_an_executable_hook_and_points_git_at_it(tmp_path, monkey
             return ""
 
     runner = FakeRunner()
-    installed = hooks_mod.install(runner, hooks_mod.REPO, force=False)
+    installed = hooks_mod.install(runner, force=False)
     path, changed = installed[hooks_mod.GUARD]
     assert path == root / ".githooks" / "pre-push"
     assert changed is True
@@ -3657,7 +3657,7 @@ def test_install_writes_an_executable_hook_and_points_git_at_it(tmp_path, monkey
     # makes it committable
     assert config["core.hooksPath"] == ".githooks"
     # ...and running it again changes nothing
-    again = hooks_mod.install(runner, hooks_mod.REPO, force=False)
+    again = hooks_mod.install(runner, force=False)
     assert [changed for _, changed in again.values()] == [False, False]
 
 
@@ -3677,10 +3677,10 @@ def test_a_hook_gsx_did_not_write_is_not_silently_replaced(tmp_path):
             return ""
 
     with pytest.raises(ToolError, match="already exists"):
-        hooks_mod.install(FakeRunner(), hooks_mod.REPO, force=False)
+        hooks_mod.install(FakeRunner(), force=False)
     assert theirs.read_text() == "#!/bin/sh\n# somebody else's\n"
     # --force is the way through, and it says so above
-    hooks_mod.install(FakeRunner(), hooks_mod.REPO, force=True)
+    hooks_mod.install(FakeRunner(), force=True)
     assert theirs.read_text() == hooks_mod.script()
 
 
@@ -3718,7 +3718,7 @@ def test_a_dry_run_init_writes_no_hook(tmp_path):
                 asked.append(argv)  # the real runner prints this one itself
             return ""
 
-    installed = hooks_mod.install(FakeRunner(), hooks_mod.REPO, force=False)
+    installed = hooks_mod.install(FakeRunner(), force=False)
     assert not (root / ".githooks").exists()
     assert all(changed for _, changed in installed.values())
     assert [m for m in said if m.startswith("[dry-run] write")] == [
@@ -3752,7 +3752,7 @@ def test_state_reports_the_change_id_hook_beside_the_guard(tmp_path):
     # protected, and yet no Change-Id hook: two facts, two fields, and the
     # refusal reads only the first
     assert found["change_id"] is False
-    assert found["commit_msg"] == {"repo": "missing", "clone": "missing"}
+    assert found["commit_msg"] == "missing" and found["guard"] == "current"
     assert "Change-Id hook is missing" in commands._init_line(found, True)
     (root / ".githooks" / "commit-msg").write_text(
         hooks_mod.script(hooks_mod.CHANGE_ID)
@@ -3950,8 +3950,8 @@ def test_a_command_that_pushes_refuses_from_an_unguarded_clone(
     assert gsx.main([subcommand]) == 1
     said = capsys.readouterr().err
     assert "the pre-push guard is not installed here" in said
-    # the way out is in the refusal, all three of them
-    assert "tdd gsx init" in said and "--clone" in said and "GSX_NO_GUARD=1" in said
+    # the way out is in the refusal, both of them
+    assert "tdd gsx init" in said and "GSX_NO_GUARD=1" in said
 
 
 @pytest.mark.parametrize("subcommand", ["stack", "checkout", "apply", "purge", "init"])
@@ -4239,14 +4239,15 @@ def test_tips_are_taken_before_anything_is_touched(monkeypatch):
     assert sync_mod.tips(runner, ["B1", "B2", "gone"]) == {"B1": "s1", "B2": "s2"}
 
 
-def test_clone_mode_refuses_where_core_hookspath_would_hide_it(tmp_path):
-    """`core.hooksPath` replaces .git/hooks rather than adding to it, so
-    installing there while it is set writes a file git will never read. Seen in
-    a real checkout whose .githooks had been removed but whose config still
-    named it: `--clone` said "installed", `--check` said "NOT active", and only
-    the second was right."""
+def test_init_will_not_take_over_a_hooks_path_it_did_not_set(tmp_path):
+    """git runs ONE hooks directory. A clone whose `core.hooksPath` names
+    something else -- husky, a house hook -- would have it silenced by init
+    pointing git at .githooks, so that is refused unless --force, and the
+    refusal says to chain to the two files instead. (This replaced the old
+    `--clone` form's refusal: that form is gone.)"""
     root = tmp_path / "clone"
-    (root / ".git" / "hooks").mkdir(parents=True)
+    (root / ".git").mkdir(parents=True)
+    config = {"core.hooksPath": ".husky"}
 
     class FakeRunner:
         out = None
@@ -4255,15 +4256,23 @@ def test_clone_mode_refuses_where_core_hookspath_would_hide_it(tmp_path):
         def run(self, argv, **kwargs):
             if argv[:3] == ["git", "rev-parse", "--show-toplevel"]:
                 return str(root)
-            if argv[:2] == ["git", "config"] and argv[2] == "core.hooksPath":
-                return ".githooks"
-            if argv[:3] == ["git", "rev-parse", "--git-dir"]:
-                return str(root / ".git")
+            if argv[:2] == ["git", "config"] and len(argv) == 4:
+                config[argv[2]] = argv[3]
+                return ""
+            if argv[:2] == ["git", "config"]:
+                return config.get(argv[2], "")
             return ""
 
-    with pytest.raises(ToolError, match="core.hooksPath"):
-        hooks_mod.install(FakeRunner(), hooks_mod.CLONE, force=False)
-    assert not (root / ".git" / "hooks" / "pre-push").exists()
+    with pytest.raises(ToolError, match="which gsx did not set"):
+        hooks_mod.install(FakeRunner(), force=False)
+    assert not (root / ".githooks").exists() and config["core.hooksPath"] == ".husky"
+    found = hooks_mod.state(FakeRunner())
+    assert found["active"] == hooks_mod.ELSEWHERE and found["protected"] is False
+    assert "chain to" in commands._init_line(found, True)
+    # --force is the way through, and then the guard is active here
+    hooks_mod.install(FakeRunner(), force=True)
+    assert config["core.hooksPath"] == ".githooks"
+    assert hooks_mod.state(FakeRunner())["protected"] is True
 
 
 # ------------------------------------------------- standing on the trunk

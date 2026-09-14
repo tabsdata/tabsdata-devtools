@@ -21,7 +21,7 @@ repository that uses neither Jira nor Graphite.
                      [--yes] [--dry-run]
     tdd gsx stack    [--all|-a] [--short|-s] [--remote|-r|--local|-l] [--no-fetch]
     tdd gsx sync     [--all|-a] [--push] | --continue | --abort
-    tdd gsx init     [--repo|--clone] [--force] [--check]
+    tdd gsx init     [--force] [--check]
 
 Branch and commit are named from the repository: `tabsdata-conn-gcs` issue 15
 -> branch `GCS-15`, commit `[GCS-15] <summary>`, trailer `Closes #15`. The
@@ -124,9 +124,8 @@ def _require_guard(runner: gh.Runner, subcommand: str) -> None:
         f"the pre-push guard is not installed here, and `gsx {subcommand}` "
         "will not run without it: an unguarded clone can overwrite commits it "
         "never had, which is the one failure this tool exists to prevent.\n"
-        "  `tdd gsx init`          installs it into .githooks, for the repository to commit\n"
-        "  `tdd gsx init --clone`  installs it into .git/hooks, for this clone alone\n"
-        f"  {ESCAPE}=1          runs anyway, where it cannot be installed"
+        "  `tdd gsx init`     installs it (into .githooks, for the repository to commit)\n"
+        f"  {ESCAPE}=1     runs anyway, where it cannot be installed"
     )
 
 
