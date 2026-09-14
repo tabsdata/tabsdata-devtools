@@ -59,33 +59,44 @@ A ruleset on the stack branches is still useful for one thing -- a **temporary f
 after a big restructure, with whoever did it in the bypass list, until everyone has adopted the
 new layout. Remove it afterwards.
 
-### 1.3 Commit the guard
+### 1.3 Commit the hooks
 
-Once (see §2), so the hook arrives with the code:
+Once (see §2), so the hooks arrive with the code:
 
 ```bash
-tdd gsx init            # writes .githooks/pre-push and sets core.hooksPath
-git add .githooks/pre-push && git commit -m "add the gsx pre-push guard"
+tdd gsx init            # writes .githooks/pre-push and .githooks/commit-msg, sets core.hooksPath
+git add .githooks && git commit -m "add the gsx hooks"
 ```
 
 ---
 
-## 2. Once per clone -- the guard
+## 2. Once per clone -- the hooks
 
-`.git/hooks` is **never cloned**, by design: a hook is code the clone's owner runs. So there is no
-arrangement in which a teammate is protected without doing anything, and every clone runs one
-command.
+Two hooks: the **pre-push guard** described below, and Gerrit's **commit-msg** hook (Gerrit Code
+Review 3.14.2-774-g4d022d2bdb, verbatim from
+<https://gerrit-review.googlesource.com/tools/hooks/commit-msg>), which stamps
+every commit with a `Change-Id:` trailer -- an identity that survives rebases, cherry-picks and
+conflict resolutions because it lives in the message (`gsx update` keeps it through its amend).
+Neither `.git/hooks` nor `core.hooksPath` is **ever cloned**, by design: a hook is code the
+clone's owner runs. So there is no arrangement in which a teammate is protected without doing
+anything, and every clone runs one command, in one of two forms:
 
 | by hand | with gsx |
 |---|---|
-| `cp .githooks/pre-push .git/hooks/pre-push` | `tdd gsx init` |
-| `chmod +x .git/hooks/pre-push` | |
-| *or* `git config core.hooksPath .githooks` | *or* `tdd gsx init --clone` for this clone only |
+| `git config core.hooksPath .githooks` *(the committed hooks)* | `tdd gsx init` |
+| *or* `cp .githooks/pre-push .githooks/commit-msg .git/hooks/` | *or* `tdd gsx init --clone` |
+| `chmod +x .git/hooks/pre-push .git/hooks/commit-msg` | |
 | `gh extension install github/gh-stack` | (checked and reported by `init`) |
 
-`tdd gsx init --check` reports what is in place without writing anything. When gsx ships a newer
-guard, `tdd gsx init --force` in one clone plus a commit upgrades everyone -- a differing hook is
-refused otherwise, since it might be yours.
+The two forms differ in **where the hook files live**, not in who runs the command. The default
+points git at the committed `.githooks/`, so the hooks arrive with the code, are reviewed with it
+and are upgraded by a commit -- in a clone that already has them, `init` is the config key and
+nothing else. `--clone` copies them into `.git/hooks/` instead: nothing in the worktree, nothing
+to commit, for a repository that is not yours to add a directory to.
+
+`tdd gsx init --check` reports what is in place without writing anything, and so does
+`--dry-run`. When gsx ships a newer hook, `tdd gsx init --force` in one clone plus a commit
+upgrades everyone -- a differing hook is refused otherwise, since it might be yours.
 
 **What the guard refuses**, for a branch the remote already has:
 
@@ -133,8 +144,14 @@ gsx derives the branch name from the repository (`tabsdata-conn-gcs` → `GCS-15
 | by hand | with gsx |
 |---|---|
 | `gh stack submit --auto --open` | `tdd gsx submit` |
+| `gh stack submit --auto` *(new PRs as drafts)* | `tdd gsx submit --draft` |
 | `gh pr edit 21 --add-label run-ci --add-reviewer alice` | `tdd gsx submit --label:new run-ci --reviewer:new alice` |
 | *(one `gh pr edit` per PR)* | *(one call per changed PR, the rest skipped)* |
+
+`--open` is gh-stack's *ready for review*, and it applies to the whole stack: a plain
+`tdd gsx submit` creates new PRs ready **and marks every existing draft in the stack ready too**.
+`--draft` creates new PRs as drafts and leaves existing drafts alone. A draft PR in a stack cannot
+be merged.
 
 ### 3.4 Change a PR -- add a commit
 

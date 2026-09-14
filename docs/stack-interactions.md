@@ -32,7 +32,7 @@ a move is unpublished).
 | the commit | `git commit --file -` with `[<POSTFIX>-N] summary` and trailer `Closes #N` |
 | — submit — | |
 | the listing | `gh api repos/{owner}/{repo}/stacks` (is anything here an unpublished move? no) |
-| push and PR | `gh stack submit --auto --open` (`--draft` drops `--open`) |
+| push and PR | `gh stack submit --auto --open`; `--draft` drops `--open`, which is gh-stack's *ready for review* for the whole stack: without it new PRs are drafts and existing drafts stay drafts, with it every draft in the stack is marked ready |
 | grow the stack object | `gh api repos/{owner}/{repo}/stacks` again; nothing to add for one PR |
 | labels, reviewers | `gh pr edit N --add-label ... --add-reviewer ...`, one per PR that changes |
 

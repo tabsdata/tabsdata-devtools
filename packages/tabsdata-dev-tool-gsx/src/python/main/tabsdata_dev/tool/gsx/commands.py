@@ -28,27 +28,74 @@ from .args import Extras
 TRAILER_RE = re.compile(r"^\s*(?:closes|fixes|resolves)\s+#(\d+)\s*$", re.IGNORECASE)
 
 
-def build_message(tag: str, summary: str, body: str | None, issue: int) -> str:
+#: Any `Token: value` line -- what git itself calls a trailer, and what the
+#: commit-msg hook adds: `Change-Id: I...`.
+TRAILER_LINE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]*:\s+\S")
+
+
+def is_trailer(line: str) -> bool:
+    return bool(TRAILER_RE.match(line) or TRAILER_LINE_RE.match(line.strip()))
+
+
+def build_message(
+    tag: str, summary: str, body: str | None, issue: int, trailers: str = ""
+) -> str:
+    """The commit message: `[tag] summary`, the body, `Closes #issue`, and then
+    every other trailer handed in -- as a paragraph of its own.
+
+    The others are what `update` found on the commit it is about to amend: the
+    `Change-Id:` the commit-msg hook gave it, a `Signed-off-by:`. Dropping them
+    would hand the hook a message without its Change-Id, and the amended commit
+    would get a new one -- a new identity for the same change, the one thing
+    the trailer exists to prevent. The closes-family line is regenerated rather
+    than kept, so the issue number is always the one the branch belongs to.
+
+    Its own paragraph, because `Closes #N` is not a trailer to git -- no `:`
+    -- and a paragraph mixing it with `Change-Id:` is not a trailer block to
+    `git interpret-trailers --parse`, which is how the hook looks for one. It
+    then finds none and adds a second: measured in the sandbox, two Change-Ids
+    on one amended commit. Apart is how the hook lays it out itself.
+    """
+    kept = [
+        line.strip()
+        for line in trailers.splitlines()
+        if line.strip() and not TRAILER_RE.match(line)
+    ]
     parts = [f"[{tag}] {summary}"]
     if body:
         parts.append(body.strip())
     parts.append(f"Closes #{issue}")
+    if kept:
+        parts.append("\n".join(kept))
     return "\n\n".join(parts) + "\n"
 
 
 def split_message(message: str) -> tuple[str, str, str]:
-    """A commit message as (subject, body, trailers)."""
+    """A commit message as (subject, body, trailers).
+
+    The trailers are the last paragraph, when every line of it is one -- git's
+    own notion, near enough -- so a body whose paragraph happens to end in
+    `Note: ...` stays a body. Consecutive all-trailer paragraphs are taken
+    together, which is the shape an earlier gsx wrote.
+    """
     lines = message.rstrip("\n").split("\n")
     subject = lines[0] if lines else ""
     rest = lines[1:]
     while rest and not rest[0].strip():
         rest.pop(0)
     trailers: list[str] = []
-    while rest and (TRAILER_RE.match(rest[-1]) or not rest[-1].strip()):
-        candidate = rest.pop()
-        if candidate.strip():
-            trailers.insert(0, candidate.strip())
-    return subject, "\n".join(rest).strip(), "\n".join(trailers).strip()
+    while rest:
+        while rest and not rest[-1].strip():
+            rest.pop()
+        start = len(rest)
+        while start > 0 and rest[start - 1].strip():
+            start -= 1
+        paragraph = rest[start:]
+        if not paragraph or not all(is_trailer(line) for line in paragraph):
+            break
+        trailers = [line.strip() for line in paragraph] + trailers
+        del rest[start:]
+    return subject, "\n".join(rest).strip(), "\n".join(trailers)
 
 
 def read_body(value: str | None) -> str | None:
@@ -131,7 +178,7 @@ def create(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         f"  issue   #{issue}  {issue_url}\n"
         f"  branch  {branch}\n"
         f"  commit  [{branch}] {summary}\n"
-        "  not pushed yet: use `tdd gsx submit` to push the stack and open the PR",
+        "  not pushed yet: use `tdd gsx submit` to push the stack and create the PR",
         {"issue": issue, "issue_url": issue_url, "branch": branch, "summary": summary},
     )
 
@@ -173,7 +220,7 @@ def update(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         else (tag_match.group(2) if tag_match else old_subject)
     )
     new_body = body if body is not None else (old_body or None)
-    new_message = build_message(tag, new_summary, new_body, issue)
+    new_message = build_message(tag, new_summary, new_body, issue, old_trailers)
 
     out.info(f"updating issue #{issue}")
     issue_argv = ["gh", "issue", "edit", str(issue)]
@@ -839,7 +886,7 @@ def submit(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         argv.append("--open")
     argv.extend(extras.passthrough.get("p", []))
     runner.run(argv, capture=False)
-    steps.step("pushed the stack and opened its PRs", stage="push")
+    steps.step("pushed the stack and created or refreshed its PRs", stage="push")
     _grow_stack(runner, out, steps)
 
     changed, failures = 0, []
@@ -2714,7 +2761,8 @@ def _sync_line(outcome, remote: str, pushed: bool) -> str:
 
 # ------------------------------------------------------------------ init
 def init(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
-    """Prepare this clone: install the pre-push guard, check the tools."""
+    """Prepare this clone: install the guard and the Change-Id hook, check the
+    tools."""
     gh.require_binaries()
     gh.require_repo(runner)
     if args.clone and args.repo:
@@ -2733,51 +2781,83 @@ def init(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         found = hooks_mod.state(runner)
         return (_init_line(found, extension), {**found, "extension": extension})
     where = hooks_mod.CLONE if args.clone else hooks_mod.REPO
-    path, changed = hooks_mod.install(runner, where, args.force)
+    installed = hooks_mod.install(runner, where, args.force)
     root = hooks_mod.top_level(runner)
-    try:
-        shown = path.relative_to(root)
-    except ValueError:
-        shown = path
+
+    def shown(path) -> str:
+        try:
+            return str(path.relative_to(root))
+        except ValueError:
+            return str(path)
+
     found = hooks_mod.state(runner)
+    words = {
+        hooks_mod.GUARD: "guard",
+        hooks_mod.CHANGE_ID: f"Change-Id hook (Gerrit {hooks_mod.change_id_version()})",
+    }
     lines = [
-        f"guard installed at {shown}"
-        if changed
-        else f"guard already current at {shown}"
+        f"{words[hook]} {'installed' if changed else 'already current'} at {shown(path)}"
+        for hook, (path, changed) in installed.items()
     ]
     if where == hooks_mod.REPO:
-        lines.append(
-            f"commit {shown} so it arrives with the code; every clone still runs "
-            "`tdd gsx init` once, because git never clones .git/hooks"
-        )
+        # Only what git does not track yet is asked for: in a repository that
+        # committed the hooks long ago, init is the config key and nothing to
+        # commit, and saying otherwise every time teaches people to skip it.
+        to_commit = _untracked(runner, [shown(path) for path, _ in installed.values()])
+        if to_commit:
+            lines.append(
+                f"commit {' and '.join(to_commit)} so "
+                f"{'it arrives' if len(to_commit) == 1 else 'they arrive'} with the "
+                "code; every clone still runs `tdd gsx init` once, because git never "
+                "clones .git/hooks"
+            )
     else:
         lines.append("this clone only -- nothing to commit")
     if not extension:
         lines.append("the `gh stack` extension is still missing (above)")
+    guard_path, guard_changed = installed[hooks_mod.GUARD]
     return (
         "\n".join(lines),
         {
-            "path": str(path),
+            "path": str(guard_path),
             "where": where,
-            "changed": changed,
+            "changed": guard_changed,
+            "hooks": {
+                hook: {"path": str(path), "changed": changed}
+                for hook, (path, changed) in installed.items()
+            },
             "extension": extension,
             **found,
         },
     )
 
 
+def _untracked(runner: gh.Runner, paths: list[str]) -> list[str]:
+    """The ones of `paths` git does not track, in the order given."""
+    tracked = set(
+        runner.run(["git", "ls-files", "--", *paths], check=False).split("\n")
+    )
+    return [path for path in paths if path not in tracked]
+
+
 def _init_line(found: dict, extension: bool) -> str:
     """What `--check` says, and the same words the refusal uses."""
     if found["protected"]:
-        return f"the guard is installed and active ({found['active']})" + (
-            "" if extension else "; the `gh stack` extension is missing"
-        )
+        line = f"the guard is installed and active ({found['active']})"
+        if found.get("change_id"):
+            line += (
+                f", and so is the Change-Id hook (Gerrit {found.get('gerrit_version')})"
+            )
+        else:
+            line += "; the Change-Id hook is missing: `tdd gsx init` adds it"
+        return line + ("" if extension else "; the `gh stack` extension is missing")
     if found["active"] == "elsewhere":
         return (
             f"core.hooksPath is {found['hooks_path']!r}, which gsx did not set: "
             "chain to the guard from there, or `tdd gsx init --clone`"
         )
     return (
-        "the guard is NOT active here; `tdd gsx init` installs it "
-        "(--repo commits it for everyone, --clone is this clone only)"
+        "the guard is NOT active here; `tdd gsx init` installs it into .githooks, "
+        "for the repository to commit, and `tdd gsx init --clone` into .git/hooks, "
+        "for this clone alone"
     )

@@ -210,7 +210,7 @@ gh stack submit --auto --open            # push, fix PR bases, grow the target's
 | gsx | what it runs | new? |
 |---|---|---|
 | `gsx sync [--all] [--push] [--continue] [--abort]` | the whole first block of §6, in git alone; local unless `--push` | **new** |
-| `gsx hooks --install [--repo\|--clone] [--check]` | writes the hook, sets `core.hooksPath` | **new** |
+| `gsx init [--repo\|--clone] [--check] [--force]` | writes the guard and Gerrit's commit-msg hook, sets `core.hooksPath` | **new** |
 | `gsx move --to ...` | unchanged: four local `gh stack` commands + the cascade | no |
 | `gsx submit --move` | unchanged, **plus** a reconciliation check that refuses and names `gsx sync` | changed |
 | `gsx submit --sync` | `gsx sync`'s own engine, not `gh stack sync` | changed |
@@ -221,10 +221,13 @@ reason it exists rather than wrapping `gs sync`: every destructive path in §2 i
 reconciliation of the *stack object*, and none of it is needed to move commits between clones.
 The stack object is `gsx submit`'s business, and it is the one place a dissolve can happen.
 
-**It has no session file.** Every step asks "is the parent already an ancestor?" and does nothing
-when the answer is yes, so the command is idempotent: on a conflict it stops, you resolve and
-`git rebase --continue`, and you run `gsx sync` again. `move` needs a session because it has an
-undo; sync has nothing to undo that re-running does not fix.
+**It keeps a session only while it is stopped.** The tip of every branch it is about to touch is
+recorded in `<git-dir>/gsx/sync.json` before the first change -- the fork points need those shas
+anyway -- and the file is gone when the run completes. A conflict stops it; `--continue` finishes
+after the resolution and `--abort` puts every touched branch back, not only the one the rebase
+stopped on. The first design had no session and said "resolve and rerun"; the campaign showed a
+cascade that had already rewritten the branches below the conflict, which a rerun does not undo
+(scenario B6 in the report).
 
 **It refuses on a dirty tree**, because every rebase below it would refuse anyway, and finding
 that out halfway through a cascade is worse than being told at the start.
@@ -233,8 +236,8 @@ that out halfway through a cascade is worse than being told at the start.
 an arrangement is not a thing to publish, and `gsx submit --move` is the step that makes the
 other half true.
 
-**`gsx submit --move` refuses when any branch it is about to push is not reconciled** --
-`origin/B` not an ancestor of `B`, with a remote `B` that exists. This is the check that turns
+**`gsx submit` refuses, with or without `--move`, when any branch it is about to push is not
+reconciled** -- `origin/B` not an ancestor of `B`, with a remote `B` that exists. This is the check that turns
 rule 5 into something the tool enforces rather than something the operator remembers.
 
 ## 8. How this gets tested

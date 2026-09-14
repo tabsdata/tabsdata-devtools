@@ -207,12 +207,12 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "target",
         nargs="?",
         metavar="BRANCH|#PR|#STACK",
-        help="a branch name, or #N for pull request N; omitted opens gh's picker",
+        help="a branch name, or #N for pull request or stack N; omitted opens gh's picker",
     )
 
     submit = add(
         "submit",
-        "push the stack, open or refresh its PRs, then apply label/reviewer ops",
+        "push the stack, create or refresh its PRs, then apply label/reviewer ops",
         "example:\n  tdd gsx submit --label:new skip-ci --label:top run-ci\n\n"
         + LR_EPILOG
         + "\n",
@@ -229,7 +229,10 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "on GitHub and relink their PRs (the one step that cannot be undone)",
     )
     submit.add_argument(
-        "--draft", action="store_true", help="do not open the PRs in a browser"
+        "--draft",
+        action="store_true",
+        help="create new PRs as drafts and leave existing drafts alone; without it "
+        "every PR of the stack is marked ready for review",
     )
     submit.add_argument(
         "--no-defaults",
@@ -256,10 +259,9 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "example:\n  tdd gsx approve --approvers dimas,tucu --down-stack\n\n"
         "an approver is impersonated with the review token 1Password holds for\n"
         "their GitHub username ([approver-credentials] in the config); a PR\n"
-        "they wrote\n"
-        "is skipped, since GitHub refuses a self-approval. A [reviewer-aliases]\n"
-        'name is resolved first, so with `dimas = "aoinokimi"`, `--approvers\n'
-        "dimas` reads the token `aoinokimi.review.pat`.\n\n",
+        "they wrote is skipped, since GitHub refuses a self-approval. A\n"
+        '[reviewer-aliases] name is resolved first, so with `dimas = "aoinokimi"`,\n'
+        "`--approvers dimas` reads the token `aoinokimi.review.pat`.\n\n",
     )
     approve.add_argument(
         "--approvers",
@@ -352,8 +354,8 @@ def configure(parser: argparse.ArgumentParser) -> None:
         "--upstack` -- only what moved is rewritten. A conflict stops the replay:\n"
         "resolve it, `git add` (or commit) the files, then `--continue` to finish\n"
         "or `--abort` to put every branch and both stacks back. The move in flight\n"
-        "lives in <git-dir>/gsx-move, and while it is there a second move is\n"
-        "refused.\n\n"
+        "lives in <git-dir>/gsx/move.json, and while it is there a second move\n"
+        "is refused.\n\n"
         "moves accumulate: every one is local, a further `gsx move` joins the ones\n"
         "before it, and they all become effective together on `gsx submit --move`\n"
         "-- the irreversible step, since the old stacks have to be dissolved on\n"
@@ -394,7 +396,8 @@ def configure(parser: argparse.ArgumentParser) -> None:
 
     sync = add(
         "sync",
-        "fetch, reconcile every branch with its own copy on the remote, restack, push",
+        "fetch, reconcile every branch with its own copy on the remote, restack; "
+        "--push publishes",
         "examples:\n"
         "  tdd gsx sync              the stack you are on, locally\n"
         "  tdd gsx sync --push       ...and push what changed\n"
@@ -441,21 +444,31 @@ def configure(parser: argparse.ArgumentParser) -> None:
 
     init = add(
         "init",
-        "prepare this clone: install the pre-push guard, check the tools",
+        "prepare this clone: install the pre-push guard and the Change-Id hook, "
+        "check the tools",
         "examples:\n"
-        "  tdd gsx init             install the guard and report what is in place\n"
-        "  tdd gsx init --clone     .git/hooks/pre-push, nothing committed\n"
+        "  tdd gsx init             install both hooks and report what is in place\n"
+        "  tdd gsx init --clone     into .git/hooks: nothing in the worktree\n"
         "  tdd gsx init --check     report only; install nothing\n\n"
-        "the guard refuses two pushes: one that would discard commits this clone\n"
-        "never had (someone else rewrote the branch), and one that loses a commit\n"
-        "the remote already has (a squash or a drop in a submitted PR). Rebases\n"
-        "and fast-forwards pass, so ordinary restacking is unaffected.\n"
-        "Override either with GIT_ALLOW_OVERWRITE=1.\n\n"
-        "run this once per clone. git never clones .git/hooks, so there is no\n"
-        "arrangement in which a teammate is protected without doing anything --\n"
-        "which is why submit, sync, prune and move REFUSE to run until it has\n"
-        "been run here. GSX_NO_GUARD=1 overrides, for a checkout where the hook\n"
-        "cannot be installed at all.\n\n",
+        "two hooks. The pre-push GUARD refuses two pushes: one that would discard\n"
+        "commits this clone never had (someone else rewrote the branch), and one\n"
+        "that loses a commit the remote already has (a squash or a drop in a\n"
+        "submitted PR). Rebases and fast-forwards pass, so ordinary restacking\n"
+        "is unaffected; GIT_ALLOW_OVERWRITE=1 overrides either. Gerrit's\n"
+        "COMMIT-MSG hook, shipped verbatim, gives every commit a Change-Id:\n"
+        "trailer -- an identity that survives rebases, cherry-picks and conflict\n"
+        "resolutions, because it lives in the message; `gsx update` carries it\n"
+        "through its amend. `git config gerrit.createChangeId false` turns it off.\n\n"
+        "every clone runs this once, whichever form: git clones neither .git/hooks\n"
+        "nor core.hooksPath, so there is no arrangement in which a teammate is\n"
+        "protected without doing anything. The default writes .githooks/<hook>\n"
+        "in the worktree and sets core.hooksPath: commit the files once and they\n"
+        "arrive with the code, reviewed with it, upgraded by a commit; a teammate\n"
+        "who pulls them still runs init, for the config key. --clone writes\n"
+        ".git/hooks/<hook> instead -- nothing in the worktree, nothing to commit,\n"
+        "for a repository that is not yours to add a directory to. submit, sync,\n"
+        "prune and move REFUSE to run until the guard is in place; GSX_NO_GUARD=1\n"
+        "overrides, for a checkout where it cannot be installed at all.\n\n",
     )
     init.add_argument(
         "--repo",
@@ -465,7 +478,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
     init.add_argument(
         "--clone",
         action="store_true",
-        help="install into .git/hooks for this clone only, instead of .githooks",
+        help="install into .git/hooks instead: nothing in the worktree, nothing to commit",
     )
     init.add_argument(
         "--check",
@@ -475,7 +488,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
     init.add_argument(
         "--force",
         action="store_true",
-        help="overwrite a pre-push hook gsx did not write",
+        help="overwrite a hook gsx did not write",
     )
 
     stack = add(

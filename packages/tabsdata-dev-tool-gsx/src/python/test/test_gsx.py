@@ -493,7 +493,7 @@ def test_submit_counts_without_a_total_because_its_prs_do_not_exist_yet(
     _fake_gh(monkeypatch, tmp_path, _three_prs())
     assert gsx.main(["submit", "--label:all", "run-ci", "--no-defaults"]) == 0
     assert _counter_lines(capsys.readouterr().err) == [
-        "[1] pushed the stack and opened its PRs",
+        "[1] pushed the stack and created or refreshed its PRs",
         "[2] updated #6: +label run-ci",
         "[3] #7 already as asked",
         "[4] updated #8: +label run-ci",
@@ -3642,17 +3642,23 @@ def test_install_writes_an_executable_hook_and_points_git_at_it(tmp_path, monkey
             return ""
 
     runner = FakeRunner()
-    path, changed = hooks_mod.install(runner, hooks_mod.REPO, force=False)
+    installed = hooks_mod.install(runner, hooks_mod.REPO, force=False)
+    path, changed = installed[hooks_mod.GUARD]
     assert path == root / ".githooks" / "pre-push"
     assert changed is True
     assert path.read_text() == hooks_mod.script()
     assert path.stat().st_mode & 0o111  # executable, or git ignores it
+    # the Change-Id hook lands beside it, Gerrit's own and just as executable
+    other, changed = installed[hooks_mod.CHANGE_ID]
+    assert other == root / ".githooks" / "commit-msg" and changed is True
+    assert other.read_text() == hooks_mod.script(hooks_mod.CHANGE_ID)
+    assert other.stat().st_mode & 0o111
     # a relative path, so the same string works in every clone -- which is what
     # makes it committable
     assert config["core.hooksPath"] == ".githooks"
     # ...and running it again changes nothing
-    _, changed = hooks_mod.install(runner, hooks_mod.REPO, force=False)
-    assert changed is False
+    again = hooks_mod.install(runner, hooks_mod.REPO, force=False)
+    assert [changed for _, changed in again.values()] == [False, False]
 
 
 def test_a_hook_gsx_did_not_write_is_not_silently_replaced(tmp_path):
@@ -3676,6 +3682,111 @@ def test_a_hook_gsx_did_not_write_is_not_silently_replaced(tmp_path):
     # --force is the way through, and it says so above
     hooks_mod.install(FakeRunner(), hooks_mod.REPO, force=True)
     assert theirs.read_text() == hooks_mod.script()
+
+
+def test_the_change_id_hook_is_gerrits_own_verbatim():
+    text = hooks_mod.script(hooks_mod.CHANGE_ID)
+    assert text.startswith("#!/bin/sh")
+    assert "Part of Gerrit Code Review" in text
+    assert "Change-Id" in text and "gerrit.createChangeId" in text
+    # the release it came from is on the file's own header line, and that is
+    # what init reports -- pinned so that an upgrade of the asset is a visible
+    # change here too
+    assert hooks_mod.change_id_version() == "3.14.2-774-g4d022d2bdb"
+    assert hooks_mod.CHANGE_ID_STAMP + hooks_mod.change_id_version() in text
+
+
+def test_a_dry_run_init_writes_no_hook(tmp_path):
+    """The file is the one write the shared runner does not see, so the flag
+    has to be honoured by hand -- and it was not: `init --dry-run` installed."""
+    root = tmp_path / "clone"
+    (root / ".git").mkdir(parents=True)
+    said, asked = [], []
+
+    class Out:
+        def info(self, message, **fields):
+            said.append(message)
+
+    class FakeRunner:
+        out = Out()
+        dry_run = True
+
+        def run(self, argv, **kwargs):
+            if argv[:3] == ["git", "rev-parse", "--show-toplevel"]:
+                return str(root)
+            if argv[:2] == ["git", "config"] and len(argv) == 4:
+                asked.append(argv)  # the real runner prints this one itself
+            return ""
+
+    installed = hooks_mod.install(FakeRunner(), hooks_mod.REPO, force=False)
+    assert not (root / ".githooks").exists()
+    assert all(changed for _, changed in installed.values())
+    assert [m for m in said if m.startswith("[dry-run] write")] == [
+        f"[dry-run] write {root / '.githooks' / 'pre-push'}",
+        f"[dry-run] write {root / '.githooks' / 'commit-msg'}",
+    ]
+    assert asked == [["git", "config", "core.hooksPath", ".githooks"]]
+
+
+def test_state_reports_the_change_id_hook_beside_the_guard(tmp_path):
+    root = tmp_path / "clone"
+    (root / ".git" / "hooks").mkdir(parents=True)
+    (root / ".githooks").mkdir()
+    (root / ".githooks" / "pre-push").write_text(hooks_mod.script())
+
+    class FakeRunner:
+        out = None
+        dry_run = False
+
+        def run(self, argv, **kwargs):
+            if argv[:3] == ["git", "rev-parse", "--show-toplevel"]:
+                return str(root)
+            if argv[:2] == ["git", "rev-parse"]:
+                return str(root / ".git")
+            if argv[:3] == ["git", "config", "core.hooksPath"]:
+                return ".githooks"
+            return ""
+
+    found = hooks_mod.state(FakeRunner())
+    assert found["protected"] is True and found["active"] == "repo"
+    # protected, and yet no Change-Id hook: two facts, two fields, and the
+    # refusal reads only the first
+    assert found["change_id"] is False
+    assert found["commit_msg"] == {"repo": "missing", "clone": "missing"}
+    assert "Change-Id hook is missing" in commands._init_line(found, True)
+    (root / ".githooks" / "commit-msg").write_text(
+        hooks_mod.script(hooks_mod.CHANGE_ID)
+    )
+    found = hooks_mod.state(FakeRunner())
+    assert found["change_id"] is True
+    assert "so is the Change-Id hook" in commands._init_line(found, True)
+
+
+def test_split_and_build_carry_the_change_id_through_an_amend():
+    """`update` rebuilds the message; the trailer the commit-msg hook added
+    must come out the other side, or the amended commit gets a new identity."""
+    message = commands.build_message(
+        "FOO-15", "Fix it", "Why.", 15, "Closes #15\nChange-Id: I0123abcd"
+    )
+    # the Change-Id in a paragraph of its own: `Closes #15` is no trailer to
+    # git, and a paragraph mixing the two is no trailer block -- the hook then
+    # finds no Change-Id and adds a second (measured)
+    assert message == "[FOO-15] Fix it\n\nWhy.\n\nCloses #15\n\nChange-Id: I0123abcd\n"
+    assert commands.split_message(message) == (
+        "[FOO-15] Fix it",
+        "Why.",
+        "Closes #15\nChange-Id: I0123abcd",
+    )
+    # the closes line is regenerated rather than kept: the issue is the branch's
+    rebuilt = commands.build_message(
+        "FOO-16", "Fix it", None, 16, "Closes #15\nChange-Id: I0123abcd"
+    )
+    assert rebuilt == "[FOO-16] Fix it\n\nCloses #16\n\nChange-Id: I0123abcd\n"
+    # a `Token: value` line inside a body paragraph is body, not a trailer
+    _, body, trailers = commands.split_message(
+        "[FOO-15] Fix it\n\nSee the log.\nNote: flaky on CI.\n\nCloses #15\n"
+    )
+    assert body == "See the log.\nNote: flaky on CI." and trailers == "Closes #15"
 
 
 def test_a_move_is_noticed_by_the_parents_NAME_not_by_ancestry():

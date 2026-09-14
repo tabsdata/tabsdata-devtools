@@ -4,7 +4,8 @@ Copyright 2026 Tabsdata Inc.
 
 # gsx
 
-`tdd gsx create|update|checkout|submit|apply|approve|purge|move|stack`: GitHub issues +
+`tdd gsx create|update|checkout|submit|apply|approve|purge|prune|move|stack|sync|init`: GitHub
+issues +
 `gh stack`, the way `gtx` does Jira + Graphite -- for a repository that uses neither. One command
 turns the pending changes into an issue, a stack branch and a commit; another pushes the stack,
 opens its PRs and labels them. Ported from the standalone `~/gsx` (1.5.0).
@@ -39,8 +40,8 @@ Both leave argv before the shared runner parses what is left (`args.split`), so 
 
 - **passthrough** `--<char>:<flag> [VALUE]` forwards a flag to one of the native `gh` commands a
   subcommand drives (`create` `--i:` issue create, `--s:` stack init/add; `update` `--i:` issue
-  edit, `--e:` pr edit; `checkout` `--c:`; `submit` `--p:` stack submit, `--s:` stack sync,
-  `--e:` pr edit; `apply` `--e:`). The char names the *operation*, so a letter can mean different
+  edit, `--e:` pr edit; `checkout` `--c:`; `submit` `--p:` stack submit, `--e:` pr edit, and
+  `--s:` only to be refused with what replaced it -- `--sync`; `apply` `--e:`). The char names the *operation*, so a letter can mean different
   things in different subcommands. Arity is inferred -- a following token that does not start
   with `-` is the value -- and `--i:name=value` is unambiguous. A flag gsx derives itself is
   **refused** unless `--override/-o`, which appends yours last so gh's last-wins applies.
@@ -387,7 +388,7 @@ it pulls first.
 anything can conflict the tracking is already the new arrangement -- both old stacks forgotten,
 both new ones written -- so "resolve and rerun" is not available, and neither is "just abort":
 gh-stack's own `rebase --abort` restores the branches it was replaying but knows nothing about
-the rearrangement, or about the branch this command replayed itself. So `<git-dir>/gsx-move`
+the rearrangement, or about the branch this command replayed itself. So `<git-dir>/gsx/move.json`
 holds what finishing needs (the stage it stopped in, what is left to replay, where to end up)
 and what undoing needs:
 
@@ -995,8 +996,9 @@ trunk that has actually diverged is somebody's accident: it is named in a warnin
 
 ## init
 
-`init` prepares a clone: it installs the pre-push guard, which is the only thing protecting a clone whose owner never
-read any of this. Two rules, both about a branch the remote already has:
+`init` prepares a clone: it installs two hooks. The **pre-push guard** is the only thing
+protecting a clone whose owner never read any of this. Two rules, both about a branch the remote
+already has:
 
 - **rewrite**: refuse a forced update whose remote tip was never reachable from any past tip of
   this local branch. Someone else rewrote it; this push would discard their work. Rewrites of
@@ -1047,6 +1049,45 @@ clone that pulls has it; `init --check` in a clone whose committed copy is older
 **And the missing `gh stack` extension is reported whatever else happens**, because a clone with
 the guard and without the extension is half-prepared in a way that only shows itself at submit
 time, which is the wrong moment.
+
+**The second hook is Gerrit's `commit-msg`, shipped verbatim.** It appends a `Change-Id: I<sha1>`
+trailer to every commit that lacks one, and a Change-Id survives what nothing else about a commit
+does -- rebase, cherry-pick, a conflict resolution that changes the patch, a reword that changes
+the subject -- because it lives in the message. That is the identity the guard's second rule and
+`sync`'s own-commit matching approximate today with patch-id and then subject; with the trailer
+on every commit they have something exact to match on, which is the next step and not this one.
+It is Gerrit's own file rather than a rewrite for two reasons: the Change-Id scheme is Gerrit's,
+and a team that also pushes to a Gerrit should be able to diff the hook against the original. So
+it is the one file in this tree without the house header -- its Apache header stays, as the
+licence asks. `git config gerrit.createChangeId false` turns it off, and the hook itself skips
+`fixup!`/`squash!` commits. The copy shipped is **Gerrit Code Review 3.14.2-774-g4d022d2bdb**,
+fetched from <https://gerrit-review.googlesource.com/tools/hooks/commit-msg> on 2026-09-13; the
+file's own second line says so, `init` and `--check` print what that line says rather than a
+constant of their own, and a test pins it, so upgrading the asset is a visible change. Upgrading
+is: fetch the URL again, replace `assets/commit-msg` byte for byte, then `init --force` and a
+commit in each repository that carries it.
+
+**`update` carries the trailers through its amend.** It rebuilds the message from the issue and
+the new wording, and the first version rebuilt only `Closes #N`: the hook then saw a message with
+no Change-Id and the amended commit got a new one -- a new identity for the same change, the one
+thing the trailer exists to prevent. `split_message` now takes the last paragraph as trailers when
+every line of it is one (git's own notion, near enough), and `build_message` puts back every
+trailer that is not the closes-family line it regenerates -- **in a paragraph of its own, after
+`Closes #N`**. `Closes #N` is not a trailer to git (no separator), so a paragraph mixing it with
+`Change-Id:` is not a trailer block to `git interpret-trailers --parse`, which is how the hook
+looks for an existing one: the first version put them together, the hook found no Change-Id and
+added a second, and the sandbox commit came back with two. Apart is how the hook lays it out
+itself, and `split_message` takes consecutive all-trailer paragraphs together, so the round trip
+is stable.
+
+**Both hooks are installed together, refused together and reported apart.** One `--force` covers
+a differing copy of either; every refusal comes before any write, so an install is never half
+done. `--check` and the JSON report the Change-Id hook in its own fields (`commit_msg`,
+`change_id`) beside the guard's, and the refusal reads only the guard's: a clone without the
+commit-msg hook is unprotected against nothing, it only commits without an identity.
+
+**`--dry-run` writes nothing.** The hook file is the one write in gsx the shared runner does not
+see, so `install` honours the flag itself; before it did, `init --dry-run` installed.
 
 ### the refusal
 
@@ -1197,6 +1238,13 @@ Facts that cost real testing; the code depends on them.
    ("if some of the PRs are already in a stack, the existing stack is updated ... existing PRs
    are never removed") and rejects a PR that belongs to a different one. Read off its `--help`;
    it is why `prune` and `submit --move` pass PR numbers only.
+15. `gh stack submit --auto` creates new PRs **as drafts unless `--open`**, and `--open` also
+   marks every existing draft in the stack ready for review. gsx passes `--open` unless
+   `--draft`, so a plain `gsx submit` un-drafts a PR a teammate parked as a draft, and `--draft`
+   creates as draft and leaves existing drafts alone. A draft PR in a stack cannot be merged by
+   `gh stack merge`, which is why the scenario harness never submits without `--open`. Read off
+   `gh stack submit --help` and measured in the sandbox; the flag's help had said "do not open the
+   PRs in a browser", which nothing in that path does.
 
 ## Differences from the standalone gsx
 
