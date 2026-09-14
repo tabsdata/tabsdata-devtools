@@ -113,6 +113,48 @@ def d3(steps):
         git("carol", "config", "core.hooksPath", ".githooks")
 
 
+@scenario(
+    "D4: the guard knows a commit by its Change-Id: rewritten patch and subject pass, a drop is refused"
+)
+def d4(steps):
+    names, num = make_stack("alice", "D4", 2)
+    track("bob", num)
+    write_commit("bob", "D4-1", "[D4-1] bob's commit", "bob.txt")
+    gsx("bob", "sync", "--push")
+    cid = change_id_of("bob", "D4-1")
+    expect(cid.startswith("I"), f"bob's commit has no Change-Id: {cid!r}")
+    steps.append(f"bob pushed a commit to D4-1, stamped {cid[:12]}")
+    gsx("alice", "sync")
+    git("alice", "checkout", "-q", "D4-1")
+    expect(
+        change_id_of("alice", "D4-1") == cid,
+        "sync did not bring bob's commit to the tip",
+    )
+    rewrite_tip("alice", "bob.txt", "[D4-1] bob's commit, reworded and changed", cid)
+    rc, o = git("alice", "push", "--force-with-lease", "origin", "D4-1", check=False)
+    expect(
+        rc == 0,
+        f"rewritten in patch and subject, Change-Id kept, and refused:\n{o[-700:]}",
+    )
+    fetch("alice")
+    ids = change_ids_of("alice", "origin/main..origin/D4-1")
+    expect(ids.count(cid) == 1, f"{cid} not exactly once on origin/D4-1: {ids}")
+    expect_present_once("alice", "D4-1", ["[D4-1] bob's commit, reworded and changed"])
+    steps.append(
+        "alice rewrote its patch AND subject keeping the Change-Id: the guard let it through"
+    )
+    git("alice", "reset", "-q", "--hard", "HEAD~1")
+    rc, o = git("alice", "push", "--force-with-lease", "origin", "D4-1", check=False)
+    expect(
+        rc != 0 and "append-only" in o and "reworded" in o and cid in o,
+        f"dropping it was not refused, or the refusal did not name it:\n{o[-700:]}",
+    )
+    git("alice", "reset", "-q", "--hard", "origin/D4-1")
+    steps.append(
+        "dropping it (the Change-Id gone) is refused; the refusal names commit and Change-Id"
+    )
+
+
 # ========================================================== E: landed history
 @scenario(
     "E1: the bottom PR is squash-merged; both users sync; nothing recreates the landed branch"
@@ -280,7 +322,7 @@ def f3(steps):
     p.write_text(json.dumps(d))
 
 
-SCENARIOS = [d1, d2, d3, e1, e2, e3, f1, f2, f3]
+SCENARIOS = [d1, d2, d3, d4, e1, e2, e3, f1, f2, f3]
 
 if __name__ == "__main__":
     run_all(SCENARIOS, only=sys.argv[1:] or None)

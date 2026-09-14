@@ -13,7 +13,8 @@ and asserts what each user ends up with -- on GitHub and in every clone.
 deletion on merge), three clones `alice`, `bob`, `carol`, each prepared with `tdd gsx init`; the
 guard is committed in `.githooks/pre-push`.
 
-**How:** a Python harness (`packages/tabsdata-dev-tool-gsx/scenarios/`) builds each scenario's stacks under its own branch prefix, performs the users'
+**How:** a Python harness (`harness.py`, `scen_ab.py`, `scen_c.py`, `scen_def.py`, kept in the
+session scratchpad) builds each scenario's stacks under its own branch prefix, performs the users'
 actions in the respective clones, asserts the outcome, and cleans up on GitHub and in every clone
 -- before a scenario as well as after, since a run killed mid-rebase leaves a checked-out branch
 `git branch -D` refuses.
@@ -71,6 +72,19 @@ finishable and cancellable** (`--continue`, `--abort`, the pre-run snapshot kept
 `<git-dir>/gsx/sync.json`, every touched branch put back -- not just the one the rebase stopped
 on); and **gsx's state moved under `.git/gsx/`**. Scenario B6 was added for the first two.
 
+A third replay followed two more decisions and one more find. `init` installs Gerrit's
+`commit-msg` hook beside the guard, so every commit carries a `Change-Id:`; **a commit is now known
+by its Change-Id** (a commit made without one by its author, author date and subject), in the
+guard's second rule and in `sync`'s own-commit matching alike, and **nothing is matched by patch**:
+the patch is compared only to report whether two copies of one commit are identical or differ (a
+conflict resolution, or a change to the commit). `init --clone` is gone. Two scenarios were added:
+**D4**, the guard letting through a commit rewritten in patch and subject with its Change-Id kept
+and refusing its drop, and **C8**, `sync` taking nothing twice when a moved branch's commit was
+rewritten that way. D4 found a hole that predates all of this: a **stale child branch** still on
+the old tip carried the very commit a drop removed and cancelled it out of the parent's own, so a
+drop from a middle PR passed whenever its children had not been restacked yet. Children and
+siblings cancel nothing now.
+
 Three harness mistakes are worth recording because they look like tool failures until read: two
 users appending to the *same file* at the same spot is a genuine conflict, not a sync failure; a
 PR that is in a stack cannot be merged with `gh pr merge` -- GitHub demands the stack merge API
@@ -79,42 +93,44 @@ leftover checked-out branch from a killed run gets *adopted* by `gh stack checko
 conflicts from another universe.
 
 ## Results
-**25 of 25 scenarios pass.**
+**27 of 27 scenarios pass.**
 
 | # | scenario | result | time |
 |---|---|---|---|
-| A1 | two users, different PRs of one stack, both sync | **PASS** | 65s |
-| A2 | two users append to the SAME middle PR; second to sync integrates | **PASS** | 57s |
-| A3 | interleave a commit into a branch's own history, sync, teammate syncs | **PASS** | 61s |
-| B1 | trunk moves; a 5-branch stack restacks once each, no duplicates | **PASS** | 66s |
-| B2 | teammate adds to the bottom; alice holds local commits on three upper branches | **PASS** | 79s |
-| B3 | trunk moved AND bob pushed to the middle AND alice has local work on top | **PASS** | 81s |
-| B4 | 12-branch stack, trunk moves twice, two users alternate syncs | **PASS** | 157s |
-| B5 | sync stops on a REAL conflict; resolve; git rebase --continue; sync again | **PASS** | 61s |
-| B6 | a sync stops mid-cascade; --abort puts every touched branch back; plain sync is local | **PASS** | 75s |
-| C1 | move the top branch onto another stack; sync while pending; publish; bob adopts | **PASS** | 136s |
-| C2 | move a 3-branch SLICE onto another stack; teammate pushes to the middle of the slice; sync; publish | **PASS** | 134s |
-| C3 | move an UNSUBMITTED single-PR branch from the trunk onto a stack top, with a conflict (the OS-3512 case) | **PASS** | 91s |
-| C4 | move a slice onto the TRUNK (a stack of its own); publish | **PASS** | 87s |
-| C5 | move, then --abort: every branch and both stacks back exactly | **PASS** | 70s |
-| C6 | submit --move refuses over an unreconciled branch, BEFORE dissolving anything | **PASS** | 111s |
-| C7 | two moves queued (A top -> B, then B top -> C), one publish | **PASS** | 112s |
-| D1 | a squash of pushed commits is refused; the override lets it through | **PASS** | 43s |
-| D2 | gh stack sync from a STALE clone after a restructure is refused by the guard | **PASS** | 119s |
-| D3 | an unguarded clone is refused by every pushing command, not by the readers | **PASS** | 41s |
-| E1 | the bottom PR is squash-merged; both users sync; nothing recreates the landed branch | **PASS** | 76s |
-| E2 | gsx stack hides landed PRs; --merged shows them | **PASS** | 51s |
-| E3 | move onto a stack whose bottom has landed (the finished-run logic) | **PASS** | 108s |
-| F1 | sync --all with two stacks both needing work; dirty tree refused first | **PASS** | 65s |
-| F2 | checkout '#N' resolves a stack or a PR from the repository; a bare number is refused | **PASS** | 41s |
-| F3 | the gsx create/submit path: issue, branch, commit, stack, labels | **PASS** | 51s |
+| A1 | two users, different PRs of one stack, both sync | **PASS** | 66s |
+| A2 | two users append to the SAME middle PR; second to sync integrates | **PASS** | 58s |
+| A3 | interleave a commit into a branch's own history, sync, teammate syncs | **PASS** | 66s |
+| B1 | trunk moves; a 5-branch stack restacks once each, no duplicates | **PASS** | 70s |
+| B2 | teammate adds to the bottom; alice holds local commits on three upper branches | **PASS** | 84s |
+| B3 | trunk moved AND bob pushed to the middle AND alice has local work on top | **PASS** | 89s |
+| B4 | 12-branch stack, trunk moves twice, two users alternate syncs | **PASS** | 172s |
+| B5 | sync stops on a REAL conflict; resolve; git rebase --continue; sync again | **PASS** | 64s |
+| B6 | a sync stops mid-cascade; --abort puts every touched branch back; plain sync is local | **PASS** | 76s |
+| C1 | move the top branch onto another stack; sync while pending; publish; bob adopts | **PASS** | 149s |
+| C2 | move a 3-branch SLICE onto another stack; teammate pushes to the middle of the slice; sync; publish | **PASS** | 150s |
+| C3 | move an UNSUBMITTED single-PR branch from the trunk onto a stack top, with a conflict (the OS-3512 case) | **PASS** | 93s |
+| C4 | move a slice onto the TRUNK (a stack of its own); publish | **PASS** | 91s |
+| C5 | move, then --abort: every branch and both stacks back exactly | **PASS** | 75s |
+| C6 | submit --move refuses over an unreconciled branch, BEFORE dissolving anything | **PASS** | 123s |
+| C7 | two moves queued (A top -> B, then B top -> C), one publish | **PASS** | 119s |
+| C8 | a moved branch's commit, rewritten in patch and subject, is known by its Change-Id: sync takes nothing twice | **PASS** | 106s |
+| D1 | a squash of pushed commits is refused; the override lets it through | **PASS** | 44s |
+| D2 | gh stack sync from a STALE clone after a restructure is refused by the guard | **PASS** | 126s |
+| D3 | an unguarded clone is refused by every pushing command, not by the readers | **PASS** | 42s |
+| D4 | the guard knows a commit by its Change-Id: rewritten patch and subject pass, a drop is refused | **PASS** | 53s |
+| E1 | the bottom PR is squash-merged; both users sync; nothing recreates the landed branch | **PASS** | 83s |
+| E2 | gsx stack hides landed PRs; --merged shows them | **PASS** | 57s |
+| E3 | move onto a stack whose bottom has landed (the finished-run logic) | **PASS** | 118s |
+| F1 | sync --all with two stacks both needing work; dirty tree refused first | **PASS** | 69s |
+| F2 | checkout '#N' resolves a stack or a PR from the repository; a bare number is refused | **PASS** | 45s |
+| F3 | the gsx create/submit path: issue, branch, commit, stack, labels | **PASS** | 55s |
 
 
 ### A. Baseline collaboration
 
 **A1 — two users, different PRs of one stack, both sync** · PASS
 
-- alice: stack #626 ['A1-1', 'A1-2', 'A1-3']
+- alice: stack #864 ['A1-1', 'A1-2', 'A1-3']
 - bob: commit on A1-1, sync
 - alice: commit on A1-3, sync (must integrate bob's)
 - bob: sync brings everything down; local == remote
@@ -165,18 +181,18 @@ conflicts from another universe.
 
 **C1 — move the top branch onto another stack; sync while pending; publish; bob adopts** · PASS
 
-- alice: C1A-3 -> #681
+- alice: C1A-3 -> #919
 - bob pushed to C1A-3 (still on its old base for him)
 - plain sync is local: reconciled and restacked, nothing pushed
 - alice sync: took bob's commit, move intact, no push
 - alice published the move
-- GitHub: #681 grew, remainder is #682
+- GitHub: #919 grew, remainder is #920
 - bob's gh stack sync refused by the guard; remote intact
 - bob adopted both stacks; his stale commit survived and was pushed
 
 **C2 — move a 3-branch SLICE onto another stack; teammate pushes to the middle of the slice; sync; publish** · PASS
 
-- alice: C2A-3..5 -> #691
+- alice: C2A-3..5 -> #929
 - alice sync: bob's commit taken into the slice, old chain NOT dragged back
 - published; bases and contents correct
 
@@ -204,6 +220,12 @@ conflicts from another universe.
 
 - both moves published in one submit
 
+**C8 — a moved branch's commit, rewritten in patch and subject, is known by its Change-Id: sync takes nothing twice** · PASS
+
+- alice moved C8X-2 onto Y (local) and rewrote bob's commit, patch and subject, Change-Id kept
+- sync took nothing: the remote's copy is known by its Change-Id
+- published: the remote holds the rewritten commit once, under its Change-Id, on Y
+
 
 ### D. The guard
 
@@ -222,12 +244,18 @@ conflicts from another universe.
 
 - sync/submit/move refused; stack reads; GSX_NO_GUARD=1 runs
 
+**D4 — the guard knows a commit by its Change-Id: rewritten patch and subject pass, a drop is refused** · PASS
+
+- bob pushed a commit to D4-1, stamped I301bc802de4
+- alice rewrote its patch AND subject keeping the Change-Id: the guard let it through
+- dropping it (the Change-Id gone) is refused; the refusal names commit and Change-Id
+
 
 ### E. Landed history
 
 **E1 — the bottom PR is squash-merged; both users sync; nothing recreates the landed branch** · PASS
 
-- PR #742 (E1-1) squash-merged, branch deleted on GitHub
+- PR #989 (E1-1) squash-merged, branch deleted on GitHub
 - alice: E1-2..4 restacked onto the squash, E1-1 not pushed back
 - bob synced and purged the landed branch
 
@@ -248,9 +276,9 @@ conflicts from another universe.
 
 **F2 — checkout '#N' resolves a stack or a PR from the repository; a bare number is refused** · PASS
 
-- #766 -> stack, #764 -> PR, 766 refused
+- #1013 -> stack, #1011 -> PR, 1013 refused
 
 **F3 — the gsx create/submit path: issue, branch, commit, stack, labels** · PASS
 
-- create x2 -> SCENARIOS-767 <- SCENARIOS-768; submit opened both PRs in one stack
+- create x2 -> SCENARIOS-1014 <- SCENARIOS-1015; submit opened both PRs in one stack
 

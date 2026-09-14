@@ -102,7 +102,7 @@ upgrades everyone -- a differing hook is refused otherwise, since it might be yo
 | | |
 |---|---|
 | **rewrite** | a forced update whose remote tip was never in your branch's history -- someone else rewrote it and you would discard their work |
-| **drop** | a push that loses a commit the remote branch has *of its own* (a squash, a deleted commit) -- matched by patch-id, then by subject. Its old parents' commits are not its own, so a move passes |
+| **drop** | a push that loses a commit the remote branch has *of its own* (a squash, a deleted commit) -- known by its Change-Id (a commit made without one by its author, date and subject); a copy that differs by patch is reported, not refused. Its old parents' commits are not its own, so a move passes |
 
 Fast-forwards, new branches, deletions and rewrites of *your own* history all pass, so ordinary
 restacking and interleaving are untouched. `GIT_ALLOW_OVERWRITE=1 <command>` overrides either,

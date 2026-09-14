@@ -153,7 +153,7 @@ and insert the commit; `tdd gsx sync`:
 | push (`--push`, or `submit`) | `B` and its children forced, with leases |
 
 The guard passes it: the remote tip is reachable from a past tip (rule 1), and every commit the
-remote branch has of its own is still present by patch (rule 2). If a teammate pushed to `B`
+remote branch has of its own is still present, by identity -- the Change-Id, or author, date and subject (rule 2); a copy that differs by patch is noted, not refused. If a teammate pushed to `B`
 concurrently, the reflog test fails and §8 applies instead -- the remote's order becomes the base
 and the interleave's *order* is lost; the commits are not.
 
@@ -185,7 +185,7 @@ every branch from the session and the tracking file byte for byte.
 
 | step | command |
 |---|---|
-| reconciled? | `git fetch R`; GraphQL for bases and states; per branch the §3 classify, or for a moved branch `git rev-list --reverse --right-only --cherry-pick B...R/B --not R/<base>` filtered by subject → anything missing **refuses**, naming `gsx sync` |
+| reconciled? | `git fetch R`; GraphQL for bases and states; per branch the §3 classify, or for a moved branch `git rev-list --reverse R/B --not R/<base>`, each commit known by its identity (`git log --format=%H%x09%ae|%at|%s%x09%(trailers:key=Change-Id,valueonly,separator=%x2C)`: the Change-Id, else author|date|subject); a present copy's patch compared with `git diff-tree -p --root` + `git patch-id --stable`, to report → anything missing **refuses**, naming `gsx sync` |
 | the guard, first | `sh .githooks/pre-push R <url>` fed `refs/heads/B <local> refs/heads/B <remote>` for every branch about to be pushed → a refusal here **refuses before anything is dissolved** |
 | dissolve | `gh stack unstack <n>` for each stack the move took PRs out of |
 | really gone? | `gh api repos/{owner}/{repo}/stacks/<n>` → 404, else stop (a queued PR keeps a stack) |

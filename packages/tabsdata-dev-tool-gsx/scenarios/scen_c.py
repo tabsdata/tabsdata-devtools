@@ -295,7 +295,56 @@ def c7(steps):
     steps.append("both moves published in one submit")
 
 
-SCENARIOS = [c1, c2, c3, c4, c5, c6, c7]
+@scenario(
+    "C8: a moved branch's commit, rewritten in patch and subject, is known by its Change-Id: sync takes nothing twice"
+)
+def c8(steps):
+    xs, nx = make_stack("alice", "C8X", 2)
+    ys, ny = make_stack("alice", "C8Y", 2)
+    track("bob", nx)
+    write_commit("bob", "C8X-2", "[C8X-2] bob's commit", "bob.txt")
+    gsx("bob", "sync", "--push")
+    cid = change_id_of("bob", "C8X-2")
+    expect(cid.startswith("I"), f"bob's commit has no Change-Id: {cid!r}")
+    gsx("alice", "sync", "--all")
+    git("alice", "checkout", "-q", "C8X-2")
+    gsx("alice", "move", "--to", f"#{ny}", "--yes")
+    expect(is_ancestor("alice", "C8Y-2", "C8X-2"), "move did not put C8X-2 on C8Y-2")
+    expect(
+        change_id_of("alice", "C8X-2") == cid,
+        "bob's commit is not the tip after the move",
+    )
+    rewrite_tip("alice", "bob.txt", "[C8X-2] bob's commit, reworded and changed", cid)
+    steps.append(
+        "alice moved C8X-2 onto Y (local) and rewrote bob's commit, patch and subject, Change-Id kept"
+    )
+    rc, o = gsx("alice", "sync", check=False)
+    expect(rc == 0, f"sync stopped: the rewritten commit was taken again:\n{o[-900:]}")
+    ids = change_ids_of("alice", "C8Y-2..C8X-2")
+    expect(ids.count(cid) == 1, f"{cid} not exactly once on C8X-2 after sync: {ids}")
+    subs = subjects("alice", "C8Y-2..C8X-2")
+    expect(
+        "[C8X-2] bob's commit" not in subs
+        and "[C8X-2] bob's commit, reworded and changed" in subs,
+        f"subjects after sync: {subs}",
+    )
+    steps.append("sync took nothing: the remote's copy is known by its Change-Id")
+    rc, o = gsx("alice", "submit", "--move")
+    expect(rc == 0, f"publish refused:\n{o[-900:]}")
+    fetch("alice")
+    expect_stacked("alice", ["C8Y-1", "C8Y-2", "C8X-2"])
+    expect(
+        change_ids_of("alice", "origin/main..origin/C8X-2").count(cid) == 1,
+        "the remote holds the commit twice, or not at all",
+    )
+    sm = stack_map()
+    expect(sm.get(ny) == ["C8Y-1", "C8Y-2", "C8X-2"], f"Y wrong: {sm}")
+    steps.append(
+        "published: the remote holds the rewritten commit once, under its Change-Id, on Y"
+    )
+
+
+SCENARIOS = [c1, c2, c3, c4, c5, c6, c7, c8]
 
 if __name__ == "__main__":
     run_all(SCENARIOS, only=sys.argv[1:] or None)

@@ -83,6 +83,32 @@ def sha(who, ref):
     return o.strip() if rc == 0 else ""
 
 
+CHANGE_ID_FORMAT = "--format=%(trailers:key=Change-Id,valueonly)"
+
+
+def change_id_of(who, ref):
+    """The Change-Id trailer on one commit, or ""."""
+    lines = out(who, "log", "-1", CHANGE_ID_FORMAT, ref).splitlines()
+    return next((line.strip() for line in lines if line.strip()), "")
+
+
+def change_ids_of(who, rng):
+    """The Change-Ids over a range, one per commit that has one."""
+    lines = out(who, "log", CHANGE_ID_FORMAT, rng).splitlines()
+    return [line.strip() for line in lines if line.strip()]
+
+
+def rewrite_tip(who, filename, subject, change_id):
+    """Amend the tip of the checked-out branch: new content in `filename`, a
+    new subject, and the Change-Id kept -- the same change, by its identity,
+    with neither its patch nor its subject left to match on."""
+    p = ROOT / who / filename
+    with open(p, "a") as f:
+        f.write("rewritten\n")
+    git(who, "add", "--", filename)
+    git(who, "commit", "-q", "--amend", "-m", subject, "-m", f"Change-Id: {change_id}")
+
+
 def subjects(who, rng):
     return [line for line in out(who, "log", "--format=%s", rng).splitlines() if line]
 

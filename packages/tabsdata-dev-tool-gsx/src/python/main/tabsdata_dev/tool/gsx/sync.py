@@ -131,66 +131,116 @@ WORDS = {
 }
 
 
+#: One line per commit: sha, then author|author-date|subject, then the
+#: Change-Id(s) comma-separated -- what `identities` reads a commit's identity
+#: off. `%x09` is a tab, `%x2C` a comma.
+IDENTITY_FORMAT = (
+    "%H%x09%ae|%at|%s%x09%(trailers:key=Change-Id,valueonly,separator=%x2C)"
+)
+
+
+def identities(runner: gh.Runner, *revs: str) -> dict[str, str]:
+    """identity -> sha for the commits `revs` select, `git log` style.
+
+    A commit's identity is its Change-Id -- the trailer the commit-msg hook
+    puts on every commit -- or, for one made without, its author, author date
+    and subject: what every rebase, cherry-pick and amend preserves and a
+    squash does not. The newest carrier of an identity wins, which only
+    matters if a history holds two copies of one commit.
+    """
+    text = runner.run(["git", "log", f"--format={IDENTITY_FORMAT}", *revs], check=False)
+    found: dict[str, str] = {}
+    for line in text.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2 or not parts[0].strip():
+            continue
+        change_id = parts[2].split(",")[0].strip() if len(parts) > 2 else ""
+        identity = change_id or parts[1].strip()
+        if identity:
+            found.setdefault(identity, parts[0].strip())
+    return found
+
+
+def identity(runner: gh.Runner, commit: str) -> str:
+    """One commit's identity (see `identities`)."""
+    return next(iter(identities(runner, "-n", "1", commit)), "")
+
+
+def patch_id(runner: gh.Runner, commit: str) -> str:
+    """The patch-id of one commit, for telling two copies of it apart."""
+    diff = runner.run(["git", "diff-tree", "-p", "--root", commit], check=False)
+    if not diff.strip():
+        return ""
+    words = runner.run(
+        ["git", "patch-id", "--stable"], stdin_text=diff, check=False
+    ).split()
+    return words[0] if words else ""
+
+
 def own_commits(
     runner: gh.Runner,
     branch: str,
     remote: str,
     base: str,
-    parent: str = "",
+    out=None,
 ) -> list[str]:
     """The commits `<remote>/<branch>` has of its OWN that `branch` lacks.
 
     "Of its own" is measured from the PR's base **as GitHub has it**, which is
     the only thing that knows where the remote copy's history stops being the
-    parent's. Judged by patch (`--cherry-pick`), so a commit we already hold
-    under a different sha -- every restack makes those -- is not fetched twice.
-    Oldest first, because that is the order they have to be replayed in.
+    parent's. Oldest first, because that is the order they have to be replayed
+    in.
 
-    **And by subject where the patch has changed**, which a move's conflict
-    resolution does: measured in tabsdata-os, `OS-3512` was moved onto a stack
-    and its one commit resolved against newer work, so the local and remote
-    copies of the same commit came out with different patch-ids
-    (`d11fc7bb9716` against `48d95e6c9bd3`). By patch alone the remote's copy
-    reads as a commit we are missing, and reconciling would have re-applied the
-    superseded version on top of the resolved one. The subject is what survives
-    a resolution intact.
-
-    The cost is the same one the guard's second rule pays: two genuinely
-    different commits sharing a subject look like one, and the second is not
-    fetched. That way round is the right one -- a commit not picked up shows as
-    `-` in `gsx stack` and is asked for again next time, while a duplicate
-    applied over a resolution is a conflict at best.
+    **A commit is known by its identity, never by its patch.** The identity is
+    the Change-Id the commit-msg hook gave it, or for a commit made without one
+    its author, author date and subject; a remote commit is lacking here
+    exactly when no commit of `branch` above the base carries that identity.
+    The patch is compared only to *say* something: two copies of one commit
+    that differ by patch are a conflict resolution, or a change somebody made
+    to the commit, and `out` is told which -- measured in tabsdata-os, where
+    `OS-3512`'s one commit came out with a different patch-id on each side
+    after a resolution. The first version matched by patch and then by
+    subject; the user's decision is that the patch is a fact to report, not an
+    identity to match on.
     """
     if not base:
         return []
-    listed = runner.run(
-        [
-            "git",
-            "rev-list",
-            "--reverse",
-            "--right-only",
-            "--cherry-pick",
-            f"{branch}...{remote}/{branch}",
-            "--not",
-            base,
-        ],
-        check=False,
-    )
-    candidates = [line for line in listed.split() if line]
-    if not candidates or not parent:
-        return candidates
-    mine = runner.run(
-        ["git", "log", "--format=%s", f"{parent}..{branch}"], check=False
-    ).splitlines()
-    here = {subject.strip() for subject in mine if subject.strip()}
-    kept = []
-    for commit in candidates:
-        subject = runner.run(
-            ["git", "log", "-1", "--format=%s", commit], check=False
-        ).strip()
-        if subject and subject in here:
-            continue
-        kept.append(commit)
+    tracked = f"{remote}/{branch}"
+    theirs = runner.run(
+        ["git", "rev-list", "--reverse", tracked, "--not", base], check=False
+    ).split()
+    if not theirs:
+        return []
+    mine = identities(runner, branch, "--not", base)
+    kept, same, differ = [], 0, []
+    for commit in theirs:
+        here = mine.get(identity(runner, commit))
+        if not here:
+            kept.append(commit)
+        elif here == commit or patch_id(runner, commit) == patch_id(runner, here):
+            same += 1
+        else:
+            differ.append(commit)
+    if out is not None and (same or differ):
+        for commit in differ:
+            named = runner.run(
+                ["git", "log", "-1", "--format=%h %s", commit], check=False
+            ).strip()
+            out.warn(
+                f"{branch}: {named}: present here with a DIFFERENT PATCH from "
+                f"{tracked}'s copy -- a conflict resolution, or a change to the commit",
+                branch=branch,
+                commit=commit,
+            )
+        out.info(
+            f"{branch}: {same + len(differ)} commit(s) of {tracked} present here "
+            f"({same} identical by patch"
+            + (f", {len(differ)} with a different patch" if differ else "")
+            + ")",
+            branch=branch,
+            identical=same,
+            different=len(differ),
+        )
     return kept
 
 
@@ -290,12 +340,7 @@ def unreconciled(
             continue
         base = bases.get(branch, "")
         if branch in moved and base:
-            parent = (
-                branches[branches.index(branch) - 1]
-                if branches.index(branch)
-                else trunk
-            )
-            if own_commits(runner, branch, remote, f"{remote}/{base}", parent):
+            if own_commits(runner, branch, remote, f"{remote}/{base}"):
                 behind.append(branch)
             continue
         verdict = classify(local, tracked, lambda a, b: gh.is_ancestor(runner, a, b))
@@ -447,12 +492,7 @@ def reconcile(
         done[branch] = verdict
         base = bases.get(branch, "")
         if branch in moved and base:
-            parent = (
-                branches[branches.index(branch) - 1]
-                if branches.index(branch)
-                else trunk
-            )
-            taking = own_commits(runner, branch, remote, f"{remote}/{base}", parent)
+            taking = own_commits(runner, branch, remote, f"{remote}/{base}", out=out)
             if taking:
                 done[branch] = DIVERGED
                 gh.checkout(runner, branch)

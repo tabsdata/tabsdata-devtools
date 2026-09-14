@@ -903,15 +903,17 @@ down the ordinary path, where `git rebase <remote>/<branch>` would have replayed
 trunk needs no exception: its base and its parent are both the trunk, so the name comparison
 already passes it.
 
-**What is taken is matched by subject where the patch has changed**, which a move's conflict
-resolution does. Measured in tabsdata-os: `OS-3512` was moved onto a stack and its commit resolved
-against newer work, so the two copies of the same commit came out with different patch-ids
-(`d11fc7bb9716` against `48d95e6c9bd3`); by patch alone the remote's copy reads as one we are
-missing, and reconciling would have re-applied the superseded version on top of the resolved one.
-This is the guard's second rule again, and it pays the same price: two different commits sharing a
-subject look like one. That way round is right -- a commit not picked up shows as `-` in
-`gsx stack` and is asked for again, while a duplicate applied over a resolution is a conflict at
-best.
+**What is taken is known by its identity, and the patch is reported.** The remote's commit is
+lacking here exactly when no commit of the branch above the base carries its identity -- the
+Change-Id, or author, date and subject for a commit made without one. Where it is present, the two
+copies' patch-ids are compared and the answer is said, not acted on: `sync` names each copy that
+differs ("a conflict resolution, or a change to the commit") and counts the identical ones.
+Measured in tabsdata-os: `OS-3512` was moved onto a stack and its commit resolved against newer
+work, so the two copies of the same commit came out with different patch-ids (`d11fc7bb9716`
+against `48d95e6c9bd3`); by patch alone the remote's copy read as one we were missing, and
+reconciling would have re-applied the superseded version on top of the resolved one. The first
+version matched by patch and then by subject; the user's decision is that the patch is a fact to
+report, not an identity to match on.
 
 `<base>` is the PR's base branch **as GitHub has it**, and that is the whole trick: gh-stack's
 state file is rewritten by the move the moment it runs, so it agrees with the move by
@@ -1003,21 +1005,31 @@ already has:
 - **rewrite**: refuse a forced update whose remote tip was never reachable from any past tip of
   this local branch. Someone else rewrote it; this push would discard their work. Rewrites of
   your own history pass, which is what leaves ordinary restacking alone.
-- **drop**: refuse a push that loses a commit the remote branch has **of its own**, matched by
-  patch-id and, failing that, by subject. A rebase preserves both, so restacking and interleaving
-  pass; a squash or a deletion does not. "Of its own" is above the trunk and **not carried, by
-  patch, by any other remote branch that is not this one's descendant** -- which is what excludes
+- **drop**: refuse a push that loses a commit the remote branch has **of its own**. A commit is
+  known by its Change-Id, and one made without a Change-Id by its author, author date and
+  subject -- what every rebase, cherry-pick and amend preserves and a squash does not. The patch
+  is not an identity: two copies of one commit differ by patch after a conflict resolution, so it
+  is only compared, to say whether the copies are identical and to name the ones that are not.
+  A squash or a deletion loses an identity, and is refused. "Of its own" is above the trunk and
+  **not carried, by identity, by a parent or by a branch that shares nothing with this one above
+  the trunk** -- which is what excludes
   the parents a branch sat on. The first version counted everything above the trunk, and every
   published move was refused for "dropping" its old parents' commits: three moves in one
   afternoon, each refused *after* `submit --move` had dissolved the old stack on GitHub. A branch
   moved onto another stack legitimately leaves its old parents behind; they are not its commits.
-  Descendants are left out of "other" because they hold this branch's commits and would cancel
-  them; the parents are matched by patch rather than by ancestry so that a parent restacked under
-  the branch since it was pushed still counts as the parent.
+  A branch forked from this one's own history above the trunk -- a child, on the current tip or a
+  stale one, or a sibling -- is left out of "other": a child holds this branch's commits and would
+  cancel them, and a sibling holds nothing a parent does not. The first version left out only
+  children *on the current tip*, and scenario D4 found the gap: a child still sitting on the old
+  tip carried the very commit a drop removed, cancelled it out of "own", and the drop passed. The
+  parents are matched by content rather than by ancestry so that a parent restacked onto a newer
+  trunk since the branch was pushed still counts as the parent.
 
-The second rule is the **append-only policy**, not data safety, and it is the one with false
-positives: a conflict resolution that also rewrites the subject reads as a drop. So it names the
-commits it could not find and points at the override. Both share `GIT_ALLOW_OVERWRITE=1`, which
+The second rule is the **append-only policy**, not data safety, and it had the one false positive
+the Change-Id removes: a conflict resolution that also rewrote the subject read as a drop. The
+refusal names the commits it could not find, each with its identity, and points at the override;
+a push that passes gets one line saying how many of the remote's commits it accounts for and how
+many of those differ by patch, with the differing ones listed above it. Both share `GIT_ALLOW_OVERWRITE=1`, which
 is deliberately unpleasant to type.
 
 **The guard needs no network, no API and no stack awareness** -- it reads the reflog and the two
@@ -1063,9 +1075,17 @@ time, which is the wrong moment.
 **The second hook is Gerrit's `commit-msg`, shipped verbatim.** It appends a `Change-Id: I<sha1>`
 trailer to every commit that lacks one, and a Change-Id survives what nothing else about a commit
 does -- rebase, cherry-pick, a conflict resolution that changes the patch, a reword that changes
-the subject -- because it lives in the message. That is the identity the guard's second rule and
-`sync`'s own-commit matching approximate today with patch-id and then subject; with the trailer
-on every commit they have something exact to match on, which is the next step and not this one.
+the subject -- because it lives in the message. It is the identity the guard's second rule and
+`sync`'s own-commit matching go by: a commit that has one is the same commit wherever its
+Change-Id is and a different one wherever it is not, whatever became of its patch or its subject.
+A commit made without one -- before the hook, or with it turned off -- is known by its author,
+author date and subject, which every rebase, cherry-pick and amend preserves and a squash does
+not. **Nothing is matched by patch.** The user's decision, in two steps: first that the Change-Id
+is the identity, after the false positive the patch-id and subject fallbacks shared had been named
+(a conflict resolution that also rewrites the subject read as a drop to the guard and as a missing
+commit to `sync`); then that the patch-id is not a fallback at all but a fact to report -- two
+copies of one commit that differ by patch are a conflict resolution or a change somebody made, and
+both the guard and `sync` say so, and say how many copies are identical.
 It is Gerrit's own file rather than a rewrite for two reasons: the Change-Id scheme is Gerrit's,
 and a team that also pushes to a Gerrit should be able to diff the hook against the original. So
 it is the one file in this tree without the house header -- its Apache header stays, as the

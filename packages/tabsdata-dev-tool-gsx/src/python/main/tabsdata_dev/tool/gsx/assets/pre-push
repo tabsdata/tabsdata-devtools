@@ -11,12 +11,17 @@
 #      pass, which is what makes ordinary restacking work.
 #
 #   2. DROP: refuse a push that loses a commit the remote branch has OF ITS
-#      OWN, matched by patch-id and, failing that, by subject. "Of its own"
-#      excludes the trunk and every other remote branch's commits -- the
-#      parents a branch sat on -- so a branch moved onto another stack, which
-#      legitimately leaves its old parents behind, is not read as a drop. A
-#      rebase keeps patches and subjects, so restacking passes; a squash or a
-#      dropped commit does not.
+#      OWN. A commit is known by its Change-Id trailer (the commit-msg hook
+#      `tdd gsx init` installs); one made without a Change-Id is known by its
+#      author, author date and subject -- what every rebase, cherry-pick and
+#      amend preserves and a squash does not. The PATCH is not an identity:
+#      two copies of one commit differ by patch after a conflict resolution,
+#      so it is only compared to say whether the copies are identical, and
+#      to point out the ones that are not. "Of its own" excludes the trunk
+#      and what its parents carry -- so a branch moved onto another stack,
+#      which legitimately leaves its old parents behind, is not read as a
+#      drop -- but not what a CHILD carries: a branch still sitting on this
+#      one's old tip holds the very commits a drop removes.
 #
 # Rule 1 is data safety, rule 2 is the append-only policy. One override for
 # both, deliberately ugly to type:
@@ -28,6 +33,16 @@
 
 remote="$1"
 [ -n "$GIT_ALLOW_OVERWRITE" ] && exit 0
+
+# What a commit IS, one line per commit a rev-list selects: its Change-Id, or
+# for a commit made without one, author|author-date|subject. `id_of` gives one
+# commit's; `patch_of` its patch-id, for telling two copies of a commit apart.
+ids_in() {
+  git log --format='%H%x09%ae|%at|%s%x09%(trailers:key=Change-Id,valueonly,separator=%x2C)' "$@" </dev/null 2>/dev/null |
+    awk -F'\t' '{ id = $2; if ($3 != "") { split($3, a, ","); id = a[1] }; if (id != "") print id }'
+}
+id_of() { ids_in -n 1 "$1"; }
+patch_of() { git show "$1" </dev/null 2>/dev/null | git patch-id --stable 2>/dev/null | cut -d' ' -f1; }
 
 trunk=$(git config gh-stack.trunk || echo main)
 base="$remote/$trunk"
@@ -66,53 +81,85 @@ while read -r lref lsha rref rsha; do
   fi
 
   # --- rule 2: is every commit the remote branch has OF ITS OWN still here?
-  # Its own: above the trunk, and not carried by any other remote branch that
-  # is not this one's descendant -- by patch, so a parent that was restacked
-  # under it still counts as the parent. The remote copy of this very branch
-  # and the branches built on top of it are left out of "other", since both
-  # hold this branch's commits and would cancel them.
+  # A commit is known by its identity -- Change-Id, or author|date|subject for
+  # one made without -- never by its patch. Its own: above the trunk, minus
+  # what its PARENTS carry (a parent's tip is in this branch's history) and
+  # what a branch sharing nothing with it above the trunk carries (another
+  # stack, or a parent restacked onto a newer trunk -- which is how the
+  # parents a moved branch left behind stop counting). NOT what a branch
+  # forked from this one's own history carries: a child, on the current tip
+  # or a stale one, holds this branch's commits and would cancel them --
+  # measured: a stale child let a dropped commit through -- and a sibling
+  # holds nothing a parent does not.
   rref_name="refs/remotes/$remote/$branch"
   own=$(git rev-list "$rsha" ${base:+--not "$base"} </dev/null 2>/dev/null)
   [ -z "$own" ] && continue
   for other in $(git for-each-ref --format='%(refname)' "refs/remotes/$remote/" </dev/null 2>/dev/null); do
     [ "$other" = "$rref_name" ] && continue
     case "$other" in */HEAD) continue ;; esac
-    git merge-base --is-ancestor "$rsha" "$other" </dev/null 2>/dev/null && continue   # a descendant
-    # commits of $rsha whose patch is not in $other
-    kept=$(git rev-list --right-only --cherry-pick "$other...$rsha" ${base:+--not "$base"} </dev/null 2>/dev/null)
-    kept_flat=" $(echo $kept) "
+    git merge-base --is-ancestor "$rsha" "$other" </dev/null 2>/dev/null && continue   # a child on the current tip
+    if ! git merge-base --is-ancestor "$other" "$rsha" </dev/null 2>/dev/null; then     # not a parent, so:
+      mb=$(git merge-base "$rsha" "$other" </dev/null 2>/dev/null)
+      if [ -n "$mb" ]; then
+        # forked from this branch above the trunk: a stale child, or a sibling
+        if [ -z "$base" ] || ! git merge-base --is-ancestor "$mb" "$base" </dev/null 2>/dev/null; then
+          continue
+        fi
+      fi
+    fi
+    other_ids=$(ids_in "$other" ${base:+--not "$base"})
     still=""
     for c in $own; do
-      case "$kept_flat" in *" $c "*) still="$still $c" ;; esac
+      id=$(id_of "$c")
+      case "
+$other_ids" in *"
+$id"*) continue ;; esac                  # carried by $other, whatever its sha or patch there
+      still="$still $c"
     done
     own=$still
     [ -z "$own" ] && break
   done
   [ -z "$own" ] && continue
 
-  mine=$(git rev-list "$lsha" ${base:+--not "$base"} </dev/null 2>/dev/null)
-  mine_patches=$(for c in $mine; do git show "$c" </dev/null 2>/dev/null | git patch-id --stable 2>/dev/null | cut -d' ' -f1; done)
-  mine_subjects=$(for c in $mine; do git log -1 --format=%s "$c" </dev/null 2>/dev/null; done)
+  # identity -> the local commit carrying it, in what is being pushed
+  mine_map=$(git log --format='%H%x09%ae|%at|%s%x09%(trailers:key=Change-Id,valueonly,separator=%x2C)' "$lsha" ${base:+--not "$base"} </dev/null 2>/dev/null |
+    awk -F'\t' '{ id = $2; if ($3 != "") { split($3, a, ","); id = a[1] }; if (id != "") print id "\t" $1 }')
+  mine_ids=$(printf '%s\n' "$mine_map" | cut -f1)
 
   lost=""
+  differ=""
+  same=0
   for c in $own; do
-    git merge-base --is-ancestor "$c" "$lsha" </dev/null 2>/dev/null && continue
-    pid=$(git show "$c" </dev/null 2>/dev/null | git patch-id --stable 2>/dev/null | cut -d' ' -f1)
-    if [ -n "$pid" ]; then
-      case "
-$mine_patches" in *"
-$pid"*) continue ;; esac
+    if git merge-base --is-ancestor "$c" "$lsha" </dev/null 2>/dev/null; then
+      same=$((same + 1))
+      continue
     fi
-    subject=$(git log -1 --format=%s "$c" </dev/null 2>/dev/null)
-    if [ -n "$subject" ]; then
-      case "
-$mine_subjects" in *"
-$subject"*) continue ;; esac
-    fi
-    lost="$lost  $(git log -1 --format='%h %s' "$c" </dev/null 2>/dev/null)
+    id=$(id_of "$c")
+    case "
+$mine_ids" in *"
+$id"*) ;; *)
+      lost="$lost  $(git log -1 --format='%h %s' "$c" </dev/null 2>/dev/null)  [$id]
 "
+      continue ;;
+    esac
+    here=$(printf '%s\n' "$mine_map" | awk -F'\t' -v id="$id" '$1 == id { print $2; exit }')
+    if [ -n "$here" ] && [ "$(patch_of "$c")" = "$(patch_of "$here")" ]; then
+      same=$((same + 1))
+    else
+      differ="$differ  $(git log -1 --format='%h %s' "$c" </dev/null 2>/dev/null)  [$id]
+"
+    fi
   done
 
+  if [ -n "$differ" ]; then
+    echo "pre-push: note: $remote/$branch has these commits with a DIFFERENT PATCH from your copy --" >&2
+    echo "  a conflict resolution, or a change to the commit. They are kept, by identity:" >&2
+    printf '%s' "$differ" >&2
+  fi
+  if [ -z "$lost" ]; then
+    ndiff=$(printf '%s' "$differ" | grep -c '^  ')
+    echo "pre-push: $branch: $((same + ndiff)) commit(s) of $remote/$branch present in what you push ($same identical by patch${differ:+, $ndiff with a different patch})" >&2
+  fi
   if [ -n "$lost" ]; then
     echo "pre-push: REFUSING to push $branch to $remote." >&2
     echo "  These commits are $remote/$branch's own and not in what you are pushing:" >&2

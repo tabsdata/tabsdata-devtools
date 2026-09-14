@@ -2793,10 +2793,11 @@ def init(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         f"{words[hook]} {'installed' if changed else 'already current'} at {shown(path)}"
         for hook, (path, changed) in installed.items()
     ]
-    # Only what git does not track yet is asked for: in a repository that
-    # committed the hooks long ago, init is the config key and nothing to
-    # commit, and saying otherwise every time teaches people to skip it.
-    to_commit = _untracked(runner, [shown(path) for path, _ in installed.values()])
+    # Only what is not committed as it stands is asked for -- a hook not tracked
+    # yet, or a tracked one this run replaced: in a repository that committed
+    # the hooks long ago, init is the config key and nothing to commit, and
+    # saying otherwise every time teaches people to skip it.
+    to_commit = _uncommitted(runner, [shown(path) for path, _ in installed.values()])
     if to_commit:
         lines.append(
             f"commit {' and '.join(to_commit)} so "
@@ -2822,12 +2823,21 @@ def init(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
     )
 
 
-def _untracked(runner: gh.Runner, paths: list[str]) -> list[str]:
-    """The ones of `paths` git does not track, in the order given."""
-    tracked = set(
-        runner.run(["git", "ls-files", "--", *paths], check=False).split("\n")
+def _uncommitted(runner: gh.Runner, paths: list[str]) -> list[str]:
+    """The ones of `paths` that differ from HEAD -- untracked, or changed --
+    in the order given."""
+    status = runner.run(
+        ["git", "status", "--porcelain", "--untracked-files=all", "--", *paths],
+        check=False,
     )
-    return [path for path in paths if path not in tracked]
+    # `XY path`: the runner strips the output, so the first line may have lost
+    # the leading column -- split on the first run of whitespace, not a width
+    pending = {
+        parts[1]
+        for parts in (line.split(None, 1) for line in status.splitlines())
+        if len(parts) == 2
+    }
+    return [path for path in paths if path in pending]
 
 
 def _init_line(found: dict, extension: bool) -> str:

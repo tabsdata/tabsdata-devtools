@@ -107,14 +107,20 @@ Rule 1 of §1 is not data safety -- squashing your own commits passes the hook a
 is your own history. Enforcing it needs a different test:
 
 > **Every commit `origin/B` has *of its own* must still be present in the pushed branch**,
-> matched by patch-id, or failing that by subject line. "Of its own" is above the trunk and not
-> carried, by patch, by any other remote branch that is not `B`'s descendant -- so the parents a
-> branch sat on do not count, and a move, which leaves them behind, is not a drop.
+> known by its Change-Id, or for a commit made without one by its author, author date and subject.
+> "Of its own" is above the trunk and not carried, by identity, by a parent or by a branch sharing
+> nothing with `B` above the trunk -- so the parents a branch sat on do not count, and a move,
+> which leaves them behind, is not a drop. A child of `B`, on its current tip or a stale one,
+> cancels nothing: it holds the very commits a drop removes.
 
-Patch-id survives a rebase onto a new parent, so ordinary restacking passes. A squash collapses N
-commits into one with a new patch and usually a new subject, so it is caught. The subject
-fallback is what keeps a *conflict-resolved* commit -- whose patch legitimately changed -- from
-reading as a dropped one.
+A Change-Id survives a rebase, a cherry-pick and a conflict resolution, so ordinary restacking
+passes and a commit resolved against newer work and reworded in the process is still itself. A
+squash collapses N commits into one and N-1 identities are gone, so it is caught. The patch is not
+an identity and nothing is matched by it: two copies of one commit differ by patch after a
+resolution, so the guard compares patches only to report -- one line per push saying how many of
+the remote's commits are accounted for and how many of those differ, the differing ones named.
+Author, date and subject stand in for commits made before the hook; a rebase preserves all three
+and a squash none.
 
 **It will still have false positives**: a conflict resolution that also changes the subject, or a
 commit deliberately dropped because its change landed in the trunk another way. So it names the

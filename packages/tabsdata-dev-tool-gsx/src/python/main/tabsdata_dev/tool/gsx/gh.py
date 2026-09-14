@@ -34,6 +34,8 @@ READ_ONLY_PAIRS = {
     ("git", "branch"),
     ("git", "for-each-ref"),
     ("git", "ls-files"),
+    ("git", "diff-tree"),
+    ("git", "patch-id"),
     ("git", "rev-list"),
     ("git", "config"),
     # A fetch writes only remote-tracking refs, and everything that reads them

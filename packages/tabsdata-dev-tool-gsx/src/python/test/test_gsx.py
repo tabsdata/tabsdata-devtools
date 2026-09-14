@@ -3,6 +3,9 @@
 #
 
 import json
+import os
+import shutil
+import subprocess
 import pathlib
 
 import pytest
@@ -3883,11 +3886,13 @@ def test_a_moved_branch_takes_only_the_remotes_OWN_commits(monkeypatch):
     # cherry-picked onto where it now sits, NOT rebased onto its remote copy
     assert ["git", "cherry-pick", "theirs1", "theirs2"] in calls
     assert not any(c[:2] == ["git", "rebase"] for c in calls)
-    # and the window is measured from the PR's base, oldest first
-    window = [c for c in calls if c[:2] == ["git", "rev-list"]][0]
-    assert "--reverse" in window and "--cherry-pick" in window
+    # and the window is measured from the PR's base, oldest first; nothing is
+    # matched by patch, so there is no --cherry-pick anywhere
+    listed = [c for c in calls if c[:2] == ["git", "rev-list"]]
+    window = listed[0]
+    assert "--reverse" in window and "origin/A3" in window
     assert window[-2:] == ["--not", "origin/A2"]
-    assert "A3...origin/A3" in window
+    assert not any("--cherry-pick" in c for c in listed)
 
 
 def test_a_moved_branch_with_nothing_new_on_the_remote_is_left_alone(monkeypatch):
@@ -4019,6 +4024,29 @@ def test_a_checkout_the_guard_cannot_be_read_in_is_not_this_checks_business(
     )
     assert gsx.main(["sync"]) == 0
     assert calls == ["sync"]
+
+
+def test_init_asks_for_a_commit_of_what_is_untracked_or_changed_only():
+    """A hook not tracked yet and a tracked one this run replaced both need a
+    commit; a hook already committed as it stands does not. The runner strips
+    its output, so the first status line arrives without its leading column."""
+
+    class FakeRunner:
+        out = None
+        dry_run = False
+
+        def run(self, argv, **kwargs):
+            assert argv[:3] == ["git", "status", "--porcelain"]
+            return "M .githooks/pre-push\n?? .githooks/commit-msg"
+
+    both = [".githooks/pre-push", ".githooks/commit-msg", ".githooks/other"]
+    assert commands._uncommitted(FakeRunner(), both) == both[:2]
+
+    class Clean(FakeRunner):
+        def run(self, argv, **kwargs):
+            return ""
+
+    assert commands._uncommitted(Clean(), both) == []
 
 
 def test_init_reports_the_missing_extension_as_well_as_the_guard():
@@ -4345,59 +4373,173 @@ def test_where_you_are_is_said_when_no_cell_can_say_it(tmp_path, monkeypatch, ca
     assert "is in none of the stacks below" not in capsys.readouterr().err
 
 
-def test_a_commit_whose_patch_a_resolution_changed_is_matched_by_subject(monkeypatch):
-    """Measured in tabsdata-os: OS-3512 was moved onto a stack and its one
-    commit resolved against newer work, so the two copies of the same commit
-    came out with different patch-ids (d11fc7bb9716 against 48d95e6c9bd3). By
-    patch alone the remote's copy reads as a commit we are missing, and
-    reconciling would have re-applied the superseded version on top of the
-    resolved one."""
-    calls = []
-
-    class FakeRunner:
-        out = None
-        dry_run = False
-
-        def run(self, argv, **kwargs):
-            calls.append(argv)
-            if argv[:2] == ["git", "rev-list"]:
-                return "remote-sha"
-            if argv[:2] == ["git", "log"] and "--format=%s" in argv and "-1" in argv:
-                return "[OS-3512] Add _api.validate_call"
-            if argv[:2] == ["git", "log"] and "--format=%s" in argv:
-                # the branch's own commits here, after the resolution
-                return "[OS-3512] Add _api.validate_call\n"
-            return ""
-
-    runner = FakeRunner()
-    # with the parent known, the subject matches and nothing is taken
-    assert (
-        sync_mod.own_commits(runner, "OS-3512", "origin", "origin/main", "OS-3510")
-        == []
+def test_a_commit_is_known_by_its_identity_and_its_patch_is_only_reported():
+    """A remote copy resolved against newer work AND reworded is still the
+    same commit while its Change-Id is here -- and its different patch is
+    said, not acted on. A commit made without a Change-Id is known by its
+    author, date and subject. Nothing is matched by patch: measured in
+    tabsdata-os, OS-3512's one commit came out with a different patch-id on
+    each side of a resolution, and by patch the remote's copy read as a commit
+    we were missing."""
+    fmt = f"--format={sync_mod.IDENTITY_FORMAT}"
+    theirs = {
+        "r1": "r1\ta@x|100|[B] one\tIaaa",  # here, with a different patch
+        "r2": "r2\ta@x|101|[B] same subject\tIccc",  # not here: taken
+        "r3": "r3\ta@x|102|[B] three\t",  # no Change-Id; here by author|date|subject
+        "r4": "r4\ta@x|103|[B] four\t",  # no Change-Id, not here: taken
+    }
+    mine = (
+        "l1\ta@x|100|[B] one, reworded\tIaaa\n"
+        "l3\ta@x|102|[B] three\t\n"
+        "l5\tb@x|500|[B] same subject\tIbbb\n"  # shares r2's subject, not r2
     )
-    # without it, patch-matching alone still reports the superseded commit
-    assert sync_mod.own_commits(runner, "OS-3512", "origin", "origin/main") == [
-        "remote-sha"
-    ]
+    patches = {"r1": "P1", "l1": "P1-resolved", "r3": "P3", "l3": "P3"}
 
-
-def test_a_genuinely_new_commit_is_still_taken(monkeypatch):
     class FakeRunner:
         out = None
         dry_run = False
 
-        def run(self, argv, **kwargs):
-            if argv[:2] == ["git", "rev-list"]:
-                return "theirs"
-            if argv[:2] == ["git", "log"] and "-1" in argv:
-                return "[A3] a teammate's new commit"
-            if argv[:2] == ["git", "log"]:
-                return "[A3] something else entirely"
+        def run(self, argv, stdin_text=None, **kwargs):
+            if argv[:3] == ["git", "rev-list", "--reverse"]:
+                return "r1\nr2\nr3\nr4\n"
+            if argv[:2] == ["git", "log"] and fmt in argv and "-n" in argv:
+                return theirs[argv[-1]]
+            if argv[:2] == ["git", "log"] and fmt in argv:
+                return mine
+            if argv[:3] == ["git", "diff-tree", "-p"]:
+                return "diff of " + patches[argv[-1]]
+            if argv[:2] == ["git", "patch-id"]:
+                return stdin_text.replace("diff of ", "pid-") + " sha"
+            if argv[:2] == ["git", "log"] and "--format=%h %s" in argv:
+                return f"{argv[-1]} subject"
             return ""
 
-    assert sync_mod.own_commits(FakeRunner(), "A3", "origin", "origin/A2", "C2") == [
-        "theirs"
-    ]
+    said = _Say()
+    taken = sync_mod.own_commits(FakeRunner(), "B", "origin", "origin/A", out=said)
+    assert taken == ["r2", "r4"]
+    # r1's patch differs from its copy here: said, and counted apart
+    assert any("r1 subject" in m and "DIFFERENT PATCH" in m for m in said.said)
+    assert any(
+        "2 commit(s) of origin/B present here (1 identical by patch, 1 with a "
+        "different patch)" in m
+        for m in said.said
+    )
+    # and nothing is said to nobody
+    assert sync_mod.own_commits(FakeRunner(), "B", "origin", "origin/A") == ["r2", "r4"]
+
+
+def _real_git(cwd, *args, env=None, input=None):
+    return subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        input=input,
+        env=env,
+        check=True,
+    ).stdout
+
+
+@pytest.mark.skipif(
+    shutil.which("git") is None or shutil.which("sh") is None, reason="needs git and sh"
+)
+def test_the_guard_knows_a_commit_by_its_change_id_in_a_real_repository(tmp_path):
+    """Rule 2 against real git: a remote commit whose patch AND subject were
+    rewritten here survives by its Change-Id, and its different patch is
+    reported; one whose Change-Id is gone is a drop, and the refusal names it
+    even though a stale child branch still carries the commit; a commit made
+    without a Change-Id is known by its author, date and subject."""
+    env = {
+        **os.environ,
+        "GIT_CONFIG_GLOBAL": str(tmp_path / "gitconfig"),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@x",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@x",
+    }
+    origin = tmp_path / "origin.git"
+    work = tmp_path / "work"
+    _real_git(tmp_path, "init", "-q", "--bare", str(origin), env=env)
+    _real_git(tmp_path, "init", "-q", "-b", "main", str(work), env=env)
+    git = lambda *a, **k: _real_git(work, *a, env=env, **k)  # noqa: E731
+
+    def commit(name, subject, change_id=""):
+        (work / name).write_text(subject + "\n")
+        git("add", "--", name)
+        extra = ["-m", f"Change-Id: {change_id}"] if change_id else []
+        git("commit", "-q", "-m", subject, *extra)
+
+    commit("root.txt", "root")
+    git("remote", "add", "origin", str(origin))
+    git("push", "-q", "-u", "origin", "main")
+    git("checkout", "-q", "-b", "B")
+    commit("b1.txt", "b one", "I" + "1" * 40)
+    commit("b2.txt", "b two", "I" + "2" * 40)
+    commit("b3.txt", "b three")  # made without the hook
+    git("push", "-q", "-u", "origin", "B")
+    # a child on B's tip, with a commit of its own: once B is rewritten below
+    # it, it is a STALE child that still carries every commit B had -- and it
+    # must not cancel them out of B's own, or a drop passes (measured)
+    git("checkout", "-q", "-b", "C")
+    commit("c1.txt", "c one", "I" + "c" * 40)
+    git("push", "-q", "-u", "origin", "C")
+    git("checkout", "-q", "B")
+    # outside the worktree: the test drives the script by path, and a hook
+    # inside would be swept up by the commits below
+    hook = tmp_path / "pre-push"
+    hooks_mod.write(hook, hooks_mod.script())
+    remote_tip = git("rev-parse", "origin/B").strip()
+
+    def guard():
+        local = git("rev-parse", "B").strip()
+        return subprocess.run(
+            ["sh", str(hook), "origin", str(origin)],
+            cwd=work,
+            text=True,
+            capture_output=True,
+            input=f"refs/heads/B {local} refs/heads/B {remote_tip}\n",
+            env=env,
+        )
+
+    # b three, without a Change-Id: a content-only amend keeps author, date and
+    # subject, so it is the same commit -- with a different patch, which is said
+    (work / "b3.txt").write_text("b three, more\n")
+    git("add", "--", "b3.txt")
+    git("commit", "-q", "--amend", "--no-edit")
+    ran = guard()
+    assert ran.returncode == 0, ran.stderr
+    assert "DIFFERENT PATCH" in ran.stderr and "b three" in ran.stderr
+    assert "3 commit(s) of origin/B present" in ran.stderr
+    assert "2 identical by patch, 1 with a different patch" in ran.stderr
+    # b two: patch AND subject rewritten, Change-Id kept -> the same commit;
+    # b three replayed on top by cherry-pick, which keeps author and date --
+    # a commit made anew with the same subject would be a different commit
+    b3 = git("rev-parse", "B").strip()
+    git("reset", "-q", "--hard", "HEAD~1")
+    (work / "b2.txt").write_text("b two, more\n")
+    git("add", "--", "b2.txt")
+    git(
+        "commit",
+        "-q",
+        "--amend",
+        "-m",
+        "b two, reworded",
+        "-m",
+        "Change-Id: I" + "2" * 40,
+    )
+    git("cherry-pick", b3)
+    ran = guard()
+    assert ran.returncode == 0, ran.stderr
+    assert "DIFFERENT PATCH" in ran.stderr and "b two" in ran.stderr
+    assert "1 identical by patch, 2 with a different patch" in ran.stderr
+    # b two dropped altogether: its Change-Id is gone, whatever else is there
+    git("reset", "-q", "--hard", "HEAD~2")
+    git("cherry-pick", b3)
+    ran = guard()
+    assert ran.returncode == 1
+    assert "append-only" in ran.stderr and "b two" in ran.stderr
+    assert "I" + "2" * 40 in ran.stderr
 
 
 def test_the_fork_point_is_the_latest_merge_base_over_the_parents_states(monkeypatch):
