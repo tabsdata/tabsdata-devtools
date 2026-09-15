@@ -18,16 +18,16 @@ wheels = [
 
 [[package]]
 name = "botocore"
-version = "1.43.90"
+version = "1.43.94"
 source = { registry = "http://localhost:3141/tabsdata/td/" }
 dependencies = [
     { name = "jmespath" },
     { name = "python-dateutil" },
     { name = "urllib3" },
 ]
-sdist = { url = "http://localhost:3141/root/pypi/+f/a13/9ed601e8b8fb1/botocore-1.43.90.tar.gz", hash = "sha256:a139ed601e8b8fb1d730022355fe2b284b8c15cfe9ac0f100254a35d2273e1d3" }
+sdist = { url = "http://localhost:3141/root/pypi/+f/cb9/7cedec5fceee3/botocore-1.43.94.tar.gz", hash = "sha256:cb97cedec5fceee3261f7fff75d0b0aa2cf68b32eeb2e8c2649e4657419773a6" }
 wheels = [
-    { url = "http://localhost:3141/root/pypi/+f/65f/3394ef07314e4/botocore-1.43.90-py3-none-any.whl", hash = "sha256:65f3394ef07314e45c92a90120988531d651136390d464a94938a92f665893f7" },
+    { url = "http://localhost:3141/root/pypi/+f/1df/b86603a87fdae/botocore-1.43.94-py3-none-any.whl", hash = "sha256:1dfb86603a87fdaebda2540db56aef5b226ec58ab72c13ca56737e4d66dea9ab" },
 ]
 
 [[package]]

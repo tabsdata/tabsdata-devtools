@@ -27,6 +27,7 @@ The executable half: `tdd-exe` (dispatch, `help`, `doctor`, `info`, `--reqs`, `-
 - **Generator** (`discover.py`, `generate.py`): reads every `tool-*`/`deps-*`/`common-*`
   `pyproject.toml` and the shell scripts, writes the `toolset-*` packages and the catalog, and
   rejects layout mistakes (one `deps-*` per tool, name collisions, bad `bin-reqs`, lock drift).
+  A tool with `[tool.tdd] disabled = true` is skipped whole, before any check: commented out.
 - **Install** (`initialize.py`): one relocatable venv per toolset (`uv venv --relocatable`,
   `UV_LINK_MODE=copy`), editable from the checkout or from `<dir>/wheels` with hashed locks;
   copies the catalog (the "initialized" marker), stamps `VERSION`, writes `tdd-source.sh`.

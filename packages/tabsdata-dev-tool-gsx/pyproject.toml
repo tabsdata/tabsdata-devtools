@@ -12,6 +12,13 @@ dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
 [project.scripts]
 gsx = "tabsdata_dev.tool.gsx:main"
 
+# Commented out: the generator treats a disabled tool as if the package were
+# not there -- no catalog entry, no toolset membership, no env, no config file.
+# The code and its tests stay put; drop the marker and `cargo make gen` brings
+# the tool back (the alias in tddsrc.sh is commented out beside it).
+[tool.tdd]
+disabled = true
+
 [tool.hatch.version]
 path = "../../VERSION"
 pattern = '^(?P<version>\S+)'

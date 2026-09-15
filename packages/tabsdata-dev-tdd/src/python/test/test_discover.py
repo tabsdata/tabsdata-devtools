@@ -29,8 +29,29 @@ def test_bin_reqs_rejects_a_path(tmp_path):
 
 def test_discover_real_repo():
     found = discover.discover(paths.repo_root())
-    assert found["tools"]["gsx"]["toolset"] == "launchers"
+    assert found["tools"]["km"]["toolset"] == "launchers"
     assert found["tools"]["xp"]["toolset"] == "systems"
+    # commented out with `[tool.tdd] disabled = true`: the package is in the
+    # tree and the generator does not see it
+    assert "gsx" not in found["tools"]
+    assert "tabsdata-dev-tool-gsx" not in found["toolsets"]["launchers"]
+
+
+def test_a_disabled_tool_is_skipped_whole(tmp_path):
+    pkgs = tmp_path / "packages"
+    (pkgs / "tabsdata-dev-shell" / "scripts" / "unix").mkdir(parents=True)
+    (pkgs / "tabsdata-dev-deps-d").mkdir()
+    for name, marker in (("a", ""), ("b", "[tool.tdd]\ndisabled = true\n")):
+        pkg = pkgs / f"tabsdata-dev-tool-{name}"
+        pkg.mkdir()
+        (pkg / "pyproject.toml").write_text(
+            f'[project]\nname = "tabsdata-dev-tool-{name}"\n'
+            'dependencies = ["tabsdata-dev-deps-d"]\n'
+            f'[project.scripts]\n{name} = "m:main"\n' + marker
+        )
+    found = discover.discover(tmp_path)
+    assert sorted(found["tools"]) == ["a"]
+    assert found["toolsets"] == {"d": ["tabsdata-dev-tool-a"]}
 
 
 def test_shell_commands_and_their_reqs_reach_the_catalog():

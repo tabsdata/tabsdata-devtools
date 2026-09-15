@@ -398,11 +398,15 @@ def test_a_secret_option_value_is_masked_in_the_log_and_the_resolved_line():
     assert '_tdd_info "resolved: tdd $(_tdd_mask_argv "$*")"' in shell.source_template()
 
 
-def test_the_aliases_section_defines_gsx_over_the_command():
+def test_the_aliases_section_keeps_gsx_commented_out_with_its_tool():
+    """The gsx tool is disabled (`[tool.tdd] disabled = true`); the alias that
+    would reach `tdd gsx` is commented out beside it, not removed, so the
+    shape stays on record: a function, not `alias` (not expanded
+    non-interactively), handing every argument to the command."""
     text = shell.source_template()
     aliases = text.split("---- aliases", 1)[1]
-    assert 'gsx() {\n    tdd gsx "$@"\n}' in aliases  # the command keeps every option
-    # functions, not `alias`: a shell alias is not expanded non-interactively
+    assert '# gsx() {\n#     tdd gsx "$@"\n# }' in aliases
+    assert "\ngsx() {" not in text  # nothing live: `tdd gsx` is not a command
     assert "alias gsx=" not in text
 
 

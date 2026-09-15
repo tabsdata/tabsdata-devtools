@@ -561,9 +561,12 @@ unset _tdd_star
 # these have to work the same in a script.
 #
 #     alias                command
-gsx() {
-    tdd gsx "$@"
-}
+# gsx is commented out with its tool (`[tool.tdd] disabled = true` in
+# tabsdata-dev-tool-gsx): the function would only reach a `tdd gsx` that no
+# longer exists. Uncomment it when the marker goes.
+# gsx() {
+#     tdd gsx "$@"
+# }
 
 # ---------------------------------------------------------------- hello
 # One line, blank lines around it, in interactive shells only, so a shell that

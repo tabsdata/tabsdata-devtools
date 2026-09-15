@@ -34,8 +34,8 @@ tdd-install    executable -> the only way to build a tdd dir (`cargo make instal
 Packages, all `tabsdata-dev-*` under the `tabsdata_dev` namespace: `-tdd` (stdlib only),
 `-shell` (shell files as data), `-common-*` (shared code, third-party ranges), `-deps-*`
 (pins; its name is the toolset), `-tool-*` (one tool; exactly one `-deps-*`), `-toolset-*`
-(**generated**, committed `uv.lock`). Tools: `system`, `domain`, `domain-sf` (hidden), `xp`, `gsx`,
-`tdk`, `tdkserver`, `km`, `smoke` (the end-to-end scripts, exported with
+(**generated**, committed `uv.lock`). Tools: `system`, `domain`, `domain-sf` (hidden), `xp`,
+`gsx` (disabled), `tdk`, `tdkserver`, `km`, `smoke` (the end-to-end scripts, exported with
 `tdd smoke export-scripts --dir DIR`); shell: `venv`, `env`, `tdd-env`, `pycache`; samples
 Details: the design docs.
 
@@ -68,8 +68,9 @@ holds the user's system and domain descriptors.
 9. **Layout is `src/python/main/` + `src/python/test/`** with hatchling `only-include` + `sources`.
 10. **`VERSION` at the repo root is the only version.** Every `pyproject.toml` is `dynamic`;
     `-tdd` force-includes it; `tdd-install` stamps `<tdd_dir>/VERSION`.
-11. **`[tool.tdd] hidden|launcher = true` are explicit markers**: hidden is a listing concern
-    only (the tool still dispatches); a launcher owns no options, so it has no config file.
+11. **`[tool.tdd] hidden|launcher|disabled = true` are explicit markers**: hidden is a listing
+    concern only (the tool still dispatches); a launcher owns no options, so it has no config
+    file; disabled comments the tool out -- the generator treats the package as absent.
 12. **A `-deps-*` may pin its interpreter** with `[tool.tdd] python = "3.12"`.
 13. **Generic code goes in `common-core`, family code in a `common-<family>`.**
 14. **Variables**: `TDD_*` public (`TDD_DIR`, `TDD_PARALLELISM`), `_TDD_*` private

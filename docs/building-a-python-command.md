@@ -151,8 +151,9 @@ Tests in `src/python/test/` run in the toolset venv; `bin-reqs` enforcement is o
 are live in an editable install; dependency changes, new tools and entry points need
 `cargo make install -- -e` (which also regenerates the toolset package and the catalog --
 commit them, never edit them). While iterating, `tdd tdd-env activate --toolset legacy` puts the
-toolset's `bin/` on `PATH` so `audit` runs without `tdd`. `[tool.tdd] hidden = true` hides a
-sample from `tdd help`; `hidden = true` hides plumbing another tool dispatches to. Reuse before
+toolset's `bin/` on `PATH` so `audit` runs without `tdd`. `[tool.tdd] hidden = true` hides
+plumbing another tool dispatches to from `tdd help`; `disabled = true` comments the tool out
+(the generator treats the package as absent; the code and tests stay). Reuse before
 writing: `common.core` has `batch`, `ports`, `passwords`, `docker`, `ssh`, `secrets`,
 `datadir.data_dir()`, `latch`, `managedvenv` + `launcher`; family code goes in a
 `common-<family>`.

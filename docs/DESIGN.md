@@ -77,7 +77,7 @@ range resolved differently across locks (`cargo make lock` fixes it).
 `catalog.json` (generated, shipped inside `-tdd`, copied into the tdd dir as the "initialized"
 marker) lists toolsets, `members` (every first-party dist per toolset -- wheels mode installs
 `--no-deps`, which blocks first-party resolution too), tools (toolset, summary, `reqs`,
-`hidden`/`launcher`), shell commands (read statically, for `--reqs` and collision checks), the
+`hidden`/`launcher`; a `disabled` tool is not in it), shell commands (read statically, for `--reqs` and collision checks), the
 interpreter map and a fingerprint. **Names only**: paths are composed at call time from the tdd
 dir, so a dir is self-describing and relocatable.
 
@@ -133,7 +133,9 @@ private to the tool chain (`_TDD_TOOL`, `_TDD_VENV`, `_TDD_COMMON_SH`, `_TDD_XP_
 
 One `deps-*` per tool; at least one entry point; no duplicate tool names, none equal to a
 builtin or a shell command; every shell script registers a command; every `bin-reqs` line a bare
-name with a script beside it; every toolset has its bundle; no lock drift.
+name with a script beside it; every toolset has its bundle; no lock drift. A tool marked
+`[tool.tdd] disabled = true` is skipped before any of these: commented out, its package in
+the tree and the generator blind to it.
 
 ## Per-tool design docs
 

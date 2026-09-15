@@ -117,6 +117,12 @@ def discover(root: pathlib.Path) -> dict:
         # (a sibling in a second toolset): dispatchable, but left out of
         # `tdd help` -- a listing concern only.
         tdd_cfg = doc.get("tool", {}).get("tdd", {})
+        # `[tool.tdd] disabled = true` comments a tool out: the package stays
+        # in the tree, tests and all, and the generator treats it as absent
+        # -- no catalog entry, no toolset membership, no env, no config file.
+        # Skipped before any check, so a parked package need not be complete.
+        if bool(tdd_cfg.get("disabled", False)):
+            continue
         hidden = bool(tdd_cfg.get("hidden", False))
         # `[tool.tdd] launcher = true` marks a tool that owns no options at all:
         # every argument belongs to the program it runs (the one exception to the
