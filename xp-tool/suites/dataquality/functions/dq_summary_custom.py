@@ -34,6 +34,7 @@ try:
         Expect,
         subset_equal,
         unordered_equal,
+        verdict,
     )
 except ImportError:
     from _harness import (
@@ -43,6 +44,7 @@ except ImportError:
         Expect,
         subset_equal,
         unordered_equal,
+        verdict,
     )
 
 # Raw input of known composition: positive / negative / zero / null / nan.
@@ -57,7 +59,7 @@ _INPUT = pl.DataFrame(
 # 2 positive (true), 3 non-positive (false), 1 nan, 1 null.
 _SUMMARY = pl.DataFrame(
     {
-        "dq.classifier": ["value_is_positive"],
+        "dq.classifier": [verdict("value_is_positive")],
         "dq.type": ["boolean"],
         "dq.true": [2],
         "dq.false": [3],

@@ -35,6 +35,7 @@ try:
         Sentinel,
         subset_equal,
         unordered_equal,
+        verdict,
     )
 except ImportError:
     from _harness import (
@@ -45,6 +46,7 @@ except ImportError:
         Sentinel,
         subset_equal,
         unordered_equal,
+        verdict,
     )
 
 _T, _F = Sentinel.TRUE, Sentinel.FALSE
@@ -62,8 +64,8 @@ _INPUT = pl.DataFrame(
 #   a_is_positive: TRUE for a>0  -> [5>0, -2>0, 0>0, 1>0]  = [T, F, F, T]
 #   b_is_null    : TRUE for null -> [1, None, 3, None]      = [F, T, F, T]
 _ENRICHED = _INPUT.with_columns(
-    pl.Series("a_is_positive", [_T, _F, _F, _T], dtype=pl.UInt8),
-    pl.Series("b_is_null", [_F, _T, _F, _T], dtype=pl.UInt8),
+    pl.Series(verdict("a_is_positive"), [_T, _F, _F, _T], dtype=pl.UInt8),
+    pl.Series(verdict("b_is_null"), [_F, _T, _F, _T], dtype=pl.UInt8),
 )
 
 # ``checked_dq_summary``: one row per classifier, in sorted column-name order.
@@ -71,7 +73,7 @@ _ENRICHED = _INPUT.with_columns(
 #   b_is_null    : 2 true (nulls), 2 false (1, 3), 0 nan, 0 none
 _SUMMARY = pl.DataFrame(
     {
-        "dq.classifier": ["a_is_positive", "b_is_null"],
+        "dq.classifier": [verdict("a_is_positive"), verdict("b_is_null")],
         "dq.type": ["boolean", "boolean"],
         "dq.true": [2, 2],
         "dq.false": [2, 2],

@@ -32,6 +32,7 @@ try:
         Sentinel,
         subset_equal,
         unordered_equal,
+        verdict,
     )
 except ImportError:
     from _harness import (
@@ -42,6 +43,7 @@ except ImportError:
         Sentinel,
         subset_equal,
         unordered_equal,
+        verdict,
     )
 
 _T, _F, _NAN, _NULL = Sentinel.TRUE, Sentinel.FALSE, Sentinel.NAN, Sentinel.NULL
@@ -58,7 +60,7 @@ _INPUT = pl.DataFrame(
 # TRUE for <0, FALSE for >=0, and the reserved NULL / NAN sentinels.
 _ENRICHED = _INPUT.with_columns(
     pl.Series(
-        "value_is_negative",
+        verdict("value_is_negative"),
         [_F, _T, _F, _NULL, _F, _T, _NAN],
         dtype=pl.UInt8,
     )
@@ -68,7 +70,7 @@ _ENRICHED = _INPUT.with_columns(
 # 2 negative (true), 3 non-negative (false), 1 nan, 1 null.
 _SUMMARY = pl.DataFrame(
     {
-        "dq.classifier": ["value_is_negative"],
+        "dq.classifier": [verdict("value_is_negative")],
         "dq.type": ["boolean"],
         "dq.true": [2],
         "dq.false": [3],

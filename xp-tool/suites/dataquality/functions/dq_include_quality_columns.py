@@ -43,6 +43,7 @@ try:
         Expect,
         Sentinel,
         unordered_equal,
+        verdict,
     )
 except ImportError:
     from _harness import (
@@ -52,6 +53,7 @@ except ImportError:
         Expect,
         Sentinel,
         unordered_equal,
+        verdict,
     )
 
 _T, _F, _NAN, _NULL = Sentinel.TRUE, Sentinel.FALSE, Sentinel.NAN, Sentinel.NULL
@@ -71,7 +73,7 @@ _KEPT = pl.DataFrame(
         "id": [0, 4],
         "value": [10.0, 3.0],
     }
-).with_columns(pl.Series("value_is_positive", [_T, _T], dtype=pl.UInt8))
+).with_columns(pl.Series(verdict("value_is_positive"), [_T, _T], dtype=pl.UInt8))
 
 # ``rejected`` — the not-passing rows, verdict column carried through: false for
 # <=0, and the reserved NULL / NAN sentinels for the null / nan rows.
@@ -81,7 +83,7 @@ _REJECTED = pl.DataFrame(
         "value": [-5.0, 0.0, None, -1.0, float("nan")],
     }
 ).with_columns(
-    pl.Series("value_is_positive", [_F, _F, _NULL, _F, _NAN], dtype=pl.UInt8)
+    pl.Series(verdict("value_is_positive"), [_F, _F, _NULL, _F, _NAN], dtype=pl.UInt8)
 )
 
 CASE = DQCase(

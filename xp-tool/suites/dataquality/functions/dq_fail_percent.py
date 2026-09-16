@@ -52,6 +52,7 @@ try:
         Expect,
         Sentinel,
         unordered_equal,
+        verdict,
     )
 except ImportError:
     from _harness import (
@@ -61,6 +62,7 @@ except ImportError:
         Expect,
         Sentinel,
         unordered_equal,
+        verdict,
     )
 
 _T, _F = Sentinel.TRUE, Sentinel.FALSE
@@ -77,7 +79,7 @@ _INPUT = pl.DataFrame(
 # ``checked`` after Enrich(): the verdict column appended, one UInt8 per row —
 # TRUE for >0, FALSE for <=0.
 _ENRICHED = _INPUT.with_columns(
-    pl.Series("value_is_positive", [_T, _T, _F, _F], dtype=pl.UInt8)
+    pl.Series(verdict("value_is_positive"), [_T, _T, _F, _F], dtype=pl.UInt8)
 )
 
 CASE = DQCase(

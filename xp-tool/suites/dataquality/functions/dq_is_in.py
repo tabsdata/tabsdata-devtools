@@ -41,6 +41,7 @@ try:
         Sentinel,
         subset_equal,
         unordered_equal,
+        verdict,
     )
 except ImportError:
     from _harness import (
@@ -51,6 +52,7 @@ except ImportError:
         Sentinel,
         subset_equal,
         unordered_equal,
+        verdict,
     )
 
 _T, _F, _NULL = Sentinel.TRUE, Sentinel.FALSE, Sentinel.NULL
@@ -67,7 +69,7 @@ _INPUT = pl.DataFrame(
 # TRUE for a member of {10, 20}, FALSE otherwise, NULL sentinel for a null.
 _ENRICHED = _INPUT.with_columns(
     pl.Series(
-        "value_is_in",
+        verdict("value_is_in"),
         [_T, _T, _F, _F, _NULL, _T],
         dtype=pl.UInt8,
     )
@@ -78,7 +80,7 @@ _ENRICHED = _INPUT.with_columns(
 # 1 null.
 _SUMMARY = pl.DataFrame(
     {
-        "dq.classifier": ["value_is_in"],
+        "dq.classifier": [verdict("value_is_in")],
         "dq.type": ["boolean"],
         "dq.true": [3],
         "dq.false": [2],

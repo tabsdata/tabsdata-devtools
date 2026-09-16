@@ -59,6 +59,20 @@ DERIVED-TABLE NAMES
     :meth:`DQCase.selfcheck` verifies the names you listed are exactly the ones
     the engine produces.
 
+VERDICT COLUMN NAMES
+    The engine names the verdict column a classifier produces for a column
+    ``<prefix><column>_<classifier>``: ``value_is_positive`` for
+    ``IsPositive(["value"])``, ``value_category`` for a ``ScaleCategorizer``,
+    under its default prefix (``@td.dq.`` today; a classifier's ``prefix``
+    argument can change it, this suite tests the default). That prefixed name is
+    also what a summary row's ``dq.classifier`` holds and what a category criteria
+    (``InBins`` / ``NotInBins``) must be given as ``column_name``. Test files,
+    their docstrings and comments spell the BARE ``<column>_<classifier>`` name,
+    the part that says what the column is, and pass it through :func:`verdict`
+    wherever code states the real column name. The prefix is imported from the
+    engine rather than spelled here, so the next rename fails every test at
+    import, in one place, instead of one expectation at a time.
+
 ENRICH SENTINELS
     An enrich/classifier column is a ``UInt8`` whose values are the classifier's
     verdict per row: ``1`` true, ``0`` false, and the reserved sentinels
@@ -70,7 +84,8 @@ ENRICH SENTINELS
 
 ADDING A TEST
     Copy an existing file. Define the input frame(s) of known composition, build
-    the ``DataQuality`` action, author the expected output frames, and assemble one
+    the ``DataQuality`` action, author the expected output frames (every verdict
+    column named through :func:`verdict`), and assemble one
     module-level ``CASE = DQCase(inputs=..., action=..., main_tables=...,
     expects=...)``. Wire the thin pub/tfr/sub triple (the transformer just returns
     its input and carries ``on_tables=[CASE.action]``); spell out the subscriber
@@ -91,9 +106,9 @@ ADDING A TEST
 Import this module from a test file with the relative-then-absolute fallback::
 
     try:
-        from ._harness import OPS, SRC, DQCase, Expect, subset_equal, unordered_equal
+        from ._harness import OPS, SRC, DQCase, Expect, subset_equal, verdict
     except ImportError:
-        from _harness import OPS, SRC, DQCase, Expect, subset_equal, unordered_equal
+        from _harness import OPS, SRC, DQCase, Expect, subset_equal, verdict
 
 At registration the CLI loads the function file as a submodule of a synthetic
 package (the RELATIVE import resolves); on the worker the file is imported
@@ -114,6 +129,11 @@ from polars.testing import assert_frame_equal
 
 from tabsdatak.conn.dev import Data
 from tabsdatak.dataquality import DataQuality
+
+# The engine's verdict-column prefix (see VERDICT COLUMN NAMES): not re-exported
+# by the public package, hence the private module. Imported rather than spelled
+# so the next rename fails every test at import, in this one place.
+from tabsdatak.dataquality._typing import DEFAULT_VERDICT_COLUMN_PREFIX
 from tabsdatak.tableframe import TableFrame
 
 # A DQCase ``name`` must be a table-safe identifier; capped so ``<name>__<relative>``
@@ -142,6 +162,18 @@ class Sentinel(IntEnum):
     OVERFLOW = 253
     NAN = 254
     NULL = 255
+
+
+def verdict(name: str) -> str:
+    """The real column name for the bare verdict name ``name``.
+
+    ``name`` is ``<column>_<classifier>`` (``value_is_positive``,
+    ``value_category``); the engine prepends its default prefix (see VERDICT
+    COLUMN NAMES in the module docstring). Use it wherever a test states a verdict
+    column in code: an expected frame's column, a summary frame's
+    ``dq.classifier`` value, a category criteria's ``column_name``.
+    """
+    return f"{DEFAULT_VERDICT_COLUMN_PREFIX}{name}"
 
 
 # --- type aliases: the harness's vocabulary ---------------------------------

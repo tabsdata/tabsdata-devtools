@@ -48,6 +48,7 @@ try:
         Sentinel,
         subset_equal,
         unordered_equal,
+        verdict,
     )
 except ImportError:
     from _harness import (
@@ -58,6 +59,7 @@ except ImportError:
         Sentinel,
         subset_equal,
         unordered_equal,
+        verdict,
     )
 
 _U, _O, _NULL = Sentinel.UNDERFLOW, Sentinel.OVERFLOW, Sentinel.NULL
@@ -83,7 +85,7 @@ _INPUT = pl.DataFrame(
 
 _ENRICHED = _INPUT.with_columns(
     pl.Series(
-        "value_category",
+        verdict("value_category"),
         [_U, 0, 1, 2, 3, 4, 5, _O, _NULL],
         dtype=pl.UInt8,
     )
@@ -91,7 +93,7 @@ _ENRICHED = _INPUT.with_columns(
 
 _SUMMARY = pl.DataFrame(
     {
-        "dq.classifier": ["value_category"],
+        "dq.classifier": [verdict("value_category")],
         "dq.type": ["categorical"],
         "dq.bins": [6],
         "dq.under": [1],

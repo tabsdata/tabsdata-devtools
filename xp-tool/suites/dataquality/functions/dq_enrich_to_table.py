@@ -35,6 +35,7 @@ try:
         Expect,
         Sentinel,
         unordered_equal,
+        verdict,
     )
 except ImportError:
     from _harness import (
@@ -44,6 +45,7 @@ except ImportError:
         Expect,
         Sentinel,
         unordered_equal,
+        verdict,
     )
 
 _T, _F, _NAN, _NULL = Sentinel.TRUE, Sentinel.FALSE, Sentinel.NAN, Sentinel.NULL
@@ -60,7 +62,7 @@ _INPUT = pl.DataFrame(
 # row — TRUE for >0, FALSE for <=0, and the reserved NULL / NAN sentinels.
 _ENRICHED = _INPUT.with_columns(
     pl.Series(
-        "value_is_positive",
+        verdict("value_is_positive"),
         [_T, _F, _F, _NULL, _T, _F, _NAN],
         dtype=pl.UInt8,
     )

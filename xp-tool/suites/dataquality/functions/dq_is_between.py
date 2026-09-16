@@ -35,6 +35,7 @@ try:
         Sentinel,
         subset_equal,
         unordered_equal,
+        verdict,
     )
 except ImportError:
     from _harness import (
@@ -45,6 +46,7 @@ except ImportError:
         Sentinel,
         subset_equal,
         unordered_equal,
+        verdict,
     )
 
 _T, _F, _NAN, _NULL = Sentinel.TRUE, Sentinel.FALSE, Sentinel.NAN, Sentinel.NULL
@@ -62,7 +64,7 @@ _INPUT = pl.DataFrame(
 # closed_on="both" -> the boundary values 0.0 and 10.0 are both TRUE.
 _ENRICHED = _INPUT.with_columns(
     pl.Series(
-        "value_is_between",
+        verdict("value_is_between"),
         [_T, _T, _T, _F, _F, _NULL, _NAN],
         dtype=pl.UInt8,
     )
@@ -72,7 +74,7 @@ _ENRICHED = _INPUT.with_columns(
 # 3 in-range (true), 2 out-of-range (false), 1 nan, 1 null.
 _SUMMARY = pl.DataFrame(
     {
-        "dq.classifier": ["value_is_between"],
+        "dq.classifier": [verdict("value_is_between")],
         "dq.type": ["boolean"],
         "dq.true": [3],
         "dq.false": [2],

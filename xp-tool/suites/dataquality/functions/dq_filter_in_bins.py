@@ -52,6 +52,7 @@ try:
         DQCase,
         Expect,
         unordered_equal,
+        verdict,
     )
 except ImportError:
     from _harness import (
@@ -60,6 +61,7 @@ except ImportError:
         DQCase,
         Expect,
         unordered_equal,
+        verdict,
     )
 
 # Raw input of known composition. Cuts are [2, 4, 6, 8, 10]; min_val 0 is its own
@@ -114,7 +116,10 @@ CASE = DQCase(
         ],
         operators=[
             Filter(
-                InBins(column_name="value_category", bins={0, 1, 2, "underflow"}),
+                InBins(
+                    column_name=verdict("value_category"),
+                    bins={0, 1, 2, "underflow"},
+                ),
                 to_table="out_of_bins",
             )
         ],
