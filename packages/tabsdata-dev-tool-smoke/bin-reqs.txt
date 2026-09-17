@@ -1,0 +1,10 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# bin-reqs.txt -- external binaries the smoke tool needs on PATH: bash, which
+# `tdd smoke run` hands the carried script to (the wheel carries no exec bit,
+# so the script is not run directly). What a script needs of its own --
+# kubectl, python3, uv, the venv manager -- is the script's to check, as it
+# already does at its first stages; export-scripts and list need nothing.
+bash

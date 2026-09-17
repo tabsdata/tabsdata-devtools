@@ -1,5 +1,5 @@
 {
-  "fingerprint": "85abfaeb66870adb",
+  "fingerprint": "a4ec0a0ff4b8e5ee",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
@@ -143,8 +143,10 @@
       "hidden": false,
       "launcher": false,
       "package": "tabsdata-dev-tool-smoke",
-      "reqs": [],
-      "summary": "the end-to-end smoke test scripts: export them somewhere to run them",
+      "reqs": [
+        "bash"
+      ],
+      "summary": "the end-to-end smoke test scripts: run one, or export them to read and edit",
       "toolset": "launchers"
     },
     "system": {

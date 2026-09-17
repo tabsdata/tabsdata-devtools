@@ -734,3 +734,176 @@ def test_every_cluster_smoke_checks_the_forward_before_each_suite_and_skips_it_o
         assert loop.index("common_kubeportforward_ensure") < loop.index(
             "common_run tdd xp one-shot"
         ), path.name
+
+
+def test_run_owns_script_and_hands_the_script_everything_else():
+    """`run` is the launchers' arrangement: one option of its own, everything
+    else the script's, in order. `--script` is taken from anywhere after the
+    word because `tdd` appends a config preset at the END of the line. Help is
+    the tool's until the script is named and the script's after -- the person
+    asking has named what they want to read about."""
+    split = smoke.split_run
+    assert split(["run", "--script", "eks", "--name", "x", "--verbose"]) == (
+        ["run", "--script", "eks"],
+        ["--name", "x", "--verbose"],
+    )
+    assert split(["run", "--name", "x", "--script", "eks"]) == (
+        ["run", "--script", "eks"],
+        ["--name", "x"],
+    )
+    assert split(["run", "--script=gke", "--keep"]) == (
+        ["run", "--script=gke"],
+        ["--keep"],
+    )
+    assert split(["run", "--help"]) == (["run", "--help"], [])
+    assert split(["run", "-h", "--script", "eks"]) == (
+        ["run", "-h", "--script", "eks"],
+        [],
+    )
+    assert split(["run", "--script", "eks", "--help"]) == (
+        ["run", "--script", "eks"],
+        ["--help"],
+    )
+    assert split(["run", "--script", "eks", "--", "--name", "x"]) == (
+        ["run", "--script", "eks"],
+        ["--name", "x"],
+    )
+    # the tool's own leading options stay with it, --format's value included
+    assert split(["--format", "json", "run", "--script", "km", "--port", "1"]) == (
+        ["--format", "json", "run", "--script", "km"],
+        ["--port", "1"],
+    )
+    assert split(["--verbose", "run", "--script", "km"]) == (
+        ["--verbose", "run", "--script", "km"],
+        [],
+    )
+    # every other line passes through untouched
+    for argv in (
+        ["list"],
+        ["export-scripts", "--dir", "d"],
+        ["config", "--show"],
+        [],
+        ["--help"],
+    ):
+        assert split(argv) == (argv, [])
+
+
+def test_a_script_is_named_in_any_spelling_and_the_choices_are_named_otherwise():
+    import pytest
+
+    from tabsdata_dev.common.core.errors import ToolError
+
+    root = smoke.scripts_dir()
+    for spelling in ("eks", "smoke-eks", "smoke-eks.sh"):
+        assert smoke.resolve_script(spelling) == root / "smoke-eks.sh"
+    assert smoke.script_names() == ["aks", "eks", "gke", "km"]
+    for bad in ("nope", "_common", "_common.sh", "", "../smoke-eks"):
+        with pytest.raises(ToolError) as caught:
+            smoke.resolve_script(bad)
+        assert "aks, eks, gke, km" in str(caught.value), bad
+    # what `list` says each one is: the script's own first line, not a table here
+    assert smoke.summary(root / "smoke-eks.sh") == "Tabsdata EKS smoke test"
+    assert (
+        smoke.summary(root / smoke.SHARED) == "the plumbing every smoke script shares"
+    )
+    for path in smoke.scripts():
+        if path.name != smoke.SHARED:
+            assert smoke.summary(path).startswith("Tabsdata "), path.name
+
+
+def test_run_executes_the_carried_copy_through_bash_without_tdds_private_variable(
+    monkeypatch,
+):
+    """Through bash because the wheel keeps no exec bit. TDD_DIR travels on so
+    the script's --tdd-dir defaults to the dir the tool runs from; _TDD_TOOL does
+    not, since the sourced `tdd` function warns about a shell carrying one. A
+    non-zero exit is one error event and 1, the launchers' way; an unknown script
+    never reaches bash."""
+    import argparse
+
+    import pytest
+
+    from tabsdata_dev.common.core.errors import ToolError
+
+    calls: list[tuple[list[str], dict]] = []
+    statuses = [0, 3]
+
+    class Done:
+        def __init__(self, rc: int):
+            self.returncode = rc
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs.get("env") or {}))
+        return Done(statuses.pop(0))
+
+    monkeypatch.setattr(smoke.proc, "run", fake_run)
+    monkeypatch.setenv("_TDD_TOOL", "smoke")
+    monkeypatch.setenv("TDD_DIR", "/somewhere/tdd")
+    out = render.Renderer("smoke", fmt="json")
+    args = argparse.Namespace(action="run", script="eks", script_options=[])
+    assert (
+        smoke.body(args, out, script_args=["--name", "x", "--td-version", "2.1.0"]) == 0
+    )
+    argv, env = calls[0]
+    assert argv == [
+        "bash",
+        str(smoke.scripts_dir() / "smoke-eks.sh"),
+        "--name",
+        "x",
+        "--td-version",
+        "2.1.0",
+    ]
+    assert "_TDD_TOOL" not in env and env["TDD_DIR"] == "/somewhere/tdd"
+    assert smoke.body(args, out, script_args=[]) == 1
+    with pytest.raises(ToolError):
+        smoke.body(
+            argparse.Namespace(action="run", script="nope", script_options=[]),
+            out,
+            script_args=[],
+        )
+    assert len(calls) == 2
+    # and the one binary run needs is the one the tool declares
+    declared = (
+        smoke.scripts_dir().parent
+        / "packages"
+        / "tabsdata-dev-tool-smoke"
+        / "bin-reqs.txt"
+    )
+    if declared.is_file():  # the checkout layout; a wheel carries the catalog instead
+        names = [
+            ln.split("#", 1)[0].strip()
+            for ln in declared.read_text().splitlines()
+            if ln.split("#", 1)[0].strip()
+        ]
+        assert names == ["bash"], names
+
+
+def test_list_names_the_scripts_with_how_to_run_each_and_not_the_engine():
+    """`list` is what a person can run. `_common.sh` is carried and exported --
+    four scripts without it do not run -- but it is not a script to run, so it
+    is not on the list (the user: "it should not list script starting with _")."""
+    import argparse
+    import io
+    import json
+
+    buf = io.StringIO()
+    out = render.Renderer("smoke", fmt="json", out=buf, err=buf)
+    assert smoke.body(argparse.Namespace(action="list"), out) == 0
+    events = [
+        json.loads(ln) for ln in buf.getvalue().splitlines() if ln.startswith("{")
+    ]
+    infos = [e["message"] for e in events if e["event"] == "info"]
+    assert [m.split()[0] for m in infos] == [
+        "smoke-aks.sh",
+        "smoke-eks.sh",
+        "smoke-gke.sh",
+        "smoke-km.sh",
+    ], infos
+    assert not [m for m in infos if m.startswith("_")]
+    for m in infos:
+        assert "Tabsdata " in m and "(tdd smoke run --script " in m, m
+    done = [e for e in events if e["event"] == "ok"][0]
+    assert (
+        done["scripts"] == ["aks", "eks", "gke", "km"]
+        and done["engine"] == "_common.sh"
+    )

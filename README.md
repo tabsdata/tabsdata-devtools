@@ -32,12 +32,13 @@ echo '' >> ~/.zshrc
 tdd --help
 ```
 
-Smoke test scripts using `tdd`, exported somewhere you can read and edit them:
+Smoke test scripts using `tdd`: run one, or export them somewhere you can read and edit them:
 
 ```bash
-tdd smoke export-scripts --dir ~/smoke   # smoke-{km,eks,gke,aks}.sh and the engine they share
-~/smoke/smoke-km.sh --help    # fresh venv + tabsdata + tdkserver + xp suites, end to end
-~/smoke/smoke-eks.sh --help   # the same run against an EKS cluster (rds/s3 domains, port-forward)
+tdd smoke list                            # smoke-{km,eks,gke,aks}.sh: what each is, how to run it
+tdd smoke run --script km --help          # fresh venv + tabsdata + tdkserver + xp suites, end to end
+tdd smoke run --script eks --help         # the same run against an EKS cluster (rds/s3 domains, port-forward)
+tdd smoke export-scripts --dir ~/smoke    # your own copies, to edit
 cargo make help         # every build task; `cargo make uninstall` removes ~/.tdd
 ```
 

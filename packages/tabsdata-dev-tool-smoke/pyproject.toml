@@ -5,7 +5,7 @@
 [project]
 name = "tabsdata-dev-tool-smoke"
 dynamic = ["version"]
-description = "the end-to-end smoke test scripts: export them somewhere to run them"
+description = "the end-to-end smoke test scripts: run one, or export them to read and edit"
 requires-python = ">=3.11"
 dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
 

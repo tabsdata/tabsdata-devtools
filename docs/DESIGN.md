@@ -148,5 +148,5 @@ the tree and the generator blind to it.
 | [`system`](../packages/tabsdata-dev-tool-system/DESIGN.md), [`domain`](../packages/tabsdata-dev-tool-domain/DESIGN.md), [`domain-sf`](../packages/tabsdata-dev-tool-domain-sf/DESIGN.md) | external systems and the domains inside them |
 | [`xp`](../packages/tabsdata-dev-tool-xp/DESIGN.md) | the example suites, end to end |
 | [`tdk`](../packages/tabsdata-dev-tool-tdk/DESIGN.md), [`tdkserver`](../packages/tabsdata-dev-tool-tdkserver/DESIGN.md), [`km`](../packages/tabsdata-dev-tool-km/DESIGN.md) | launchers into the `tdd venv` |
-| [`smoke`](../packages/tabsdata-dev-tool-smoke/DESIGN.md) | the end-to-end smoke scripts, carried as data and exported to run |
+| [`smoke`](../packages/tabsdata-dev-tool-smoke/DESIGN.md) | the end-to-end smoke scripts, carried as data: run one, or export them to edit |
 | [`venv`](../packages/tabsdata-dev-shell/scripts/unix/venv.design.md), [`env`](../packages/tabsdata-dev-shell/scripts/unix/env.design.md), [`pycache`](../packages/tabsdata-dev-shell/scripts/unix/pycache.design.md), [`tdd-env`](../packages/tabsdata-dev-shell/scripts/unix/tdd-env.design.md) | the shell commands |

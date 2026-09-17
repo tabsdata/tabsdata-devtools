@@ -69,9 +69,15 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
         pinned = bool(bin_dir and (bin_dir / binary).exists())
         if not pinned and binary not in _declared():
             tool = os.environ["_TDD_TOOL"]
+            dir_ = os.environ.get("TDD_DIR", "")
+            # The catalog is what is read, and it is written at install: a
+            # requirement added to bin-reqs.txt since then is not in it, and
+            # "not declared" would send the reader to a file that declares it.
             raise UndeclaredRequirement(
-                f"{binary!r} is neither pinned by this toolset nor "
-                f"declared in tabsdata-dev-tool-{tool}/bin-reqs.txt"
+                f"{binary!r} is neither pinned by this toolset nor declared for "
+                f"{tool} in {pathlib.Path(dir_) / 'catalog.json'} -- declare it in "
+                f"tabsdata-dev-tool-{tool}/bin-reqs.txt, or if it is there already, "
+                f"the install predates it: run `tdd-install --dir {dir_}`"
             )
     return subprocess.run(argv, **kwargs)
 
