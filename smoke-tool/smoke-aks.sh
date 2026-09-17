@@ -637,6 +637,9 @@ for suite in "${SUITE_LIST[@]}"; do
     project="${BASE}__xp_$(date -u +%Y%m%dT%H%M%S)_$(printf '%s' "$suite" | tr -c 'A-Za-z0-9\n' '_')"
     XP_PROJECTS="$XP_PROJECTS $project"
     common_stage --continue "xp-$(printf '%s' "$suite" | tr '/' '_')" "xp one-shot $suite as $project (continue on error)"
+    # the forward is one stream through the cluster's tunnel and can drop between
+    # suites; a suite started over a dead one fails lane by lane as "not logged in"
+    common_kubeportforward_ensure || continue
     # shellcheck disable=SC2086
     common_run tdd xp one-shot --suite "$suite" --project "$project" ${KEEP:+--keep}
 done

@@ -59,6 +59,18 @@ end and `FORWARD_PORT` for the local one, and a local port already taken is refu
 kubectl is launched -- kubectl would fail to bind while the readiness probe answered, and the run
 would log in to whatever was there.
 
+The forward is **supervised, and checked before every suite**. It is one long-lived stream through
+the cluster's tunnel, and the tunnel drops on its own: on AKS the node autoprovisioner replacing
+the node that carries the konnectivity agents ended a run's forward mid-suite (`error: lost
+connection to pod`) on two consecutive days, and every stage after it failed in a second as "not
+logged in" -- which is what a dead forward looks like from `tdk`. kubectl does not reconnect, so
+`common_kubeportforward_launch` runs it under a subshell that relaunches it whenever it exits, and
+each xp stage opens with `common_kubeportforward_ensure`: the port answers, or the supervisor is
+given up to 20s to bring it back, or the forward is started afresh from the arguments the last
+start was given -- and if that fails, the stage fails in its own words and the suite is skipped.
+A drop now costs the requests in flight and nothing after them; the lanes those requests belonged
+to still fail, since xp does not retry a reset.
+
 `--td-fn-memory` and `--td-fn-disk` size the function pods: `pods.function.resources.memory` and
 `.disk` in `tabsdata.yaml`, rewritten at `configure` beside the `UV_INDEX` line. The template asks
 for 16Gi and 64Gi per function pod; the defaults are 8Gi and 32Gi, and each is an option so a run

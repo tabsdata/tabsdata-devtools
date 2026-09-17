@@ -26,8 +26,11 @@
 #                                         every SERVICE has a Running, Ready pod in `tdkserver status`
 #   common_kubeportforward_start KUBECONFIG NAMESPACE SERVICE LOCAL [REMOTE]
 #                                         `kubectl port-forward LOCAL:REMOTE` (REMOTE defaults to
-#                                         LOCAL) in the background, waited for on LOCAL; a stage
-#                                         command on its own, no common_run in front
+#                                         LOCAL) in the background under a supervisor that relaunches
+#                                         it whenever it exits, waited for on LOCAL; a stage command
+#                                         on its own, no common_run in front
+#   common_kubeportforward_ensure         before a stage that needs the server: LOCAL answers, or
+#                                         the forward is started afresh; a stage command, bare
 #   common_kubeportforward_stop           end it (also on exit: the script traps EXIT to it)
 #   common_k8s_namespace_exists KUBECONFIG CONTEXT NAMESPACE
 #                                         is it there? (asked at most once per report)
@@ -106,6 +109,7 @@ common_init() {
     WINDOW_PID=""
     WINDOW_FROM=0
     PORTFORWARD_PID=""
+    PORTFORWARD_ARGS=()   # what common_kubeportforward_start was given, for _ensure
     RUN_T0="$(date +%s)"
 }
 
@@ -523,20 +527,30 @@ common_tdkserver_pods_running() {
 # common_kubeportforward_start KUBECONFIG NAMESPACE SERVICE LOCAL [REMOTE] --
 # `kubectl port-forward service/SERVICE LOCAL:REMOTE` in the background, its
 # output in the log, kept in PORTFORWARD_PID; returns once LOCAL answers (or
-# fails after ~60s, or when kubectl exits early). REMOTE defaults to LOCAL. The
-# two are separate because only the local side can be taken -- by another run,
-# another forward, a local tdkserver -- while the service's port in its own
-# namespace clashes with nothing; a script moves LOCAL (--kube-port-forward) and
-# leaves REMOTE the apiserver's. One at a time: a running forward is stopped
-# first. A stage command by itself, shown as its kubectl line -- call it bare,
-# like the stop. The forward dies with the pods it points at, so it is
-# re-established after every tdkserver start/restart, and ended before a stop,
-# restart or config/env change, and on exit (`trap common_kubeportforward_stop EXIT`).
+# fails after ~60s). REMOTE defaults to LOCAL. The two are separate because only
+# the local side can be taken -- by another run, another forward, a local
+# tdkserver -- while the service's port in its own namespace clashes with
+# nothing; a script moves LOCAL (--kube-port-forward) and leaves REMOTE the
+# apiserver's. One at a time: a running forward is stopped first. A stage
+# command by itself, shown as its kubectl line -- call it bare, like the stop.
+#
+# SUPERVISED. The forward is one long-lived stream through the cluster's tunnel,
+# and the tunnel drops on its own: on AKS the node autoprovisioner replacing the
+# node that carries the konnectivity agents ended a run's forward mid-suite
+# (`error: lost connection to pod`), twice in two days, and every stage after it
+# failed in a second as "not logged in". kubectl does not reconnect, so a
+# supervisor subshell relaunches it whenever it exits: a drop costs the requests
+# in flight and nothing after them. What the start was given is kept in
+# PORTFORWARD_ARGS so common_kubeportforward_ensure can start afresh without it.
+# The forward still dies with the pods it points at, so it is re-established
+# after every tdkserver start/restart, and ended before a stop, restart or
+# config/env change, and on exit (`trap common_kubeportforward_stop EXIT`).
 common_kubeportforward_start() {
     local kubeconfig="$1" namespace="$2" service="$3" local_port="$4" remote_port="${5:-$4}"
+    PORTFORWARD_ARGS=("$kubeconfig" "$namespace" "$service" "$local_port" "$remote_port")
     common_run_shown \
-        "kubectl port-forward --kubeconfig $kubeconfig --namespace $namespace service/$service $local_port:$remote_port   (background)" \
-        common_kubeportforward_launch "$kubeconfig" "$namespace" "$service" "$local_port" "$remote_port"
+        "kubectl port-forward --kubeconfig $kubeconfig --namespace $namespace service/$service $local_port:$remote_port   (background, relaunched when it exits)" \
+        common_kubeportforward_launch "${PORTFORWARD_ARGS[@]}"
 }
 
 # The body of the start: what common_run_shown runs and judges.
@@ -550,32 +564,95 @@ common_kubeportforward_launch() {
         echo "127.0.0.1:$local_port is already taken; pick another with --kube-port-forward"
         return 1
     fi
-    kubectl port-forward --kubeconfig "$kubeconfig" --namespace "$namespace" "service/$service" "$local_port:$remote_port" >>"$LOG" 2>&1 &
+    # The supervisor. kubectl runs in the background of the subshell and is
+    # waited for, so a TERM from common_kubeportforward_stop interrupts the wait
+    # and the trap ends kubectl and leaves the loop; the pause between relaunches
+    # is backgrounded and waited for the same way, so a stop never waits it out.
+    # A subshell starts with the script's traps cleared, so the EXIT trap that
+    # stops the forward does not run again inside it.
+    (
+        child=""
+        trap '[ -n "$child" ] && kill "$child" 2>/dev/null; exit 0' TERM INT
+        while :; do
+            kubectl port-forward --kubeconfig "$kubeconfig" --namespace "$namespace" "service/$service" "$local_port:$remote_port" &
+            child=$!
+            wait "$child"
+            echo "port-forward: kubectl exited $? (the tunnel dropped?); relaunching in 2s"
+            sleep 2 &
+            child=$!
+            wait "$child"
+        done
+    ) >>"$LOG" 2>&1 &
     PORTFORWARD_PID=$!
     while ! (exec 3<>"/dev/tcp/127.0.0.1/$local_port") 2>/dev/null; do
         if ! kill -0 "$PORTFORWARD_PID" 2>/dev/null; then
-            echo "port-forward exited early (see the log above)"
+            echo "port-forward supervisor exited (see the log above)"
             PORTFORWARD_PID=""
             return 1
         fi
         if [ "$waited" -ge 60 ]; then
-            echo "port $local_port not answering after ${waited}s"
+            echo "port $local_port not answering after ${waited}s (kubectl's exits are in the log above)"
+            common_kubeportforward_stop
             return 1
         fi
         sleep 2
         waited=$((waited + 2))
     done
-    echo "port-forward up: 127.0.0.1:$local_port -> service/$service:$remote_port in $namespace (pid $PORTFORWARD_PID)"
+    echo "port-forward up: 127.0.0.1:$local_port -> service/$service:$remote_port in $namespace (supervisor pid $PORTFORWARD_PID)"
     return 0
 }
 
+# common_kubeportforward_ensure -- before a stage that needs the server: the
+# forward's port answers, or the forward is started afresh from what the last
+# start was given. A tunnel drop is recovered by the supervisor within seconds,
+# so this first gives it up to 20s; a supervisor that is gone, or a port still
+# dead after that, gets a fresh start; and a fresh start that fails fails the
+# stage -- in its own words, rather than the suite failing lane by lane with
+# "not logged in", which is what a dead forward looks like from tdk. A stage
+# command, called bare; in a --continue stage, `|| continue` skips the suite.
+common_kubeportforward_ensure() {
+    if [ "${#PORTFORWARD_ARGS[@]}" -lt 5 ]; then
+        echo "common_kubeportforward_ensure: no forward was started" >&2
+        return 1
+    fi
+    common_run_shown \
+        "port-forward 127.0.0.1:${PORTFORWARD_ARGS[3]} -> service/${PORTFORWARD_ARGS[2]}:${PORTFORWARD_ARGS[4]} answering   (started afresh if not)" \
+        common_kubeportforward_ensure_body
+}
+
+common_kubeportforward_ensure_body() {
+    local local_port="${PORTFORWARD_ARGS[3]}" waited=0
+    while [ -n "${PORTFORWARD_PID:-}" ] && kill -0 "$PORTFORWARD_PID" 2>/dev/null; do
+        if (exec 3<>"/dev/tcp/127.0.0.1/$local_port") 2>/dev/null; then
+            [ "$waited" -gt 0 ] && echo "port-forward back after ${waited}s (the supervisor relaunched kubectl)"
+            echo "port-forward up: 127.0.0.1:$local_port (supervisor pid $PORTFORWARD_PID)"
+            return 0
+        fi
+        if [ "$waited" -ge 20 ]; then
+            echo "port $local_port not answering after ${waited}s with the supervisor alive; starting the forward afresh"
+            break
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+    if [ -z "${PORTFORWARD_PID:-}" ] || ! kill -0 "$PORTFORWARD_PID" 2>/dev/null; then
+        echo "port-forward supervisor is gone; starting the forward afresh"
+    fi
+    common_kubeportforward_launch "${PORTFORWARD_ARGS[@]}"
+}
+
 # common_kubeportforward_stop -- end the forward, if one is up. Bare, in a stage or
-# from the EXIT trap; a no-op otherwise, so it is safe anywhere.
+# from the EXIT trap; a no-op otherwise, so it is safe anywhere. The supervisor
+# ends its kubectl on TERM; a kubectl it did not get to end (the supervisor
+# killed outright) is swept by its command line, which is this run's alone.
 common_kubeportforward_stop() {
     [ -n "${PORTFORWARD_PID:-}" ] || return 0
     kill "$PORTFORWARD_PID" 2>/dev/null
     wait "$PORTFORWARD_PID" 2>/dev/null
-    echo "port-forward stopped (pid $PORTFORWARD_PID)"
+    if [ "${#PORTFORWARD_ARGS[@]}" -ge 5 ]; then
+        pkill -f "port-forward --kubeconfig ${PORTFORWARD_ARGS[0]} --namespace ${PORTFORWARD_ARGS[1]} service/${PORTFORWARD_ARGS[2]} ${PORTFORWARD_ARGS[3]}:${PORTFORWARD_ARGS[4]}" 2>/dev/null
+    fi
+    echo "port-forward stopped (supervisor pid $PORTFORWARD_PID)"
     PORTFORWARD_PID=""
 }
 

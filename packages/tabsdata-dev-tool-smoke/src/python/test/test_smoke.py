@@ -625,3 +625,112 @@ def test_every_cluster_smoke_sizes_its_function_pods_before_the_shape_check():
         assert text.index(call) < text.index("tdkserver config check --instance"), (
             path.name
         )
+
+
+def test_the_forward_is_relaunched_when_kubectl_exits_and_checked_before_a_suite(
+    tmp_path,
+):
+    """A port-forward is one stream through the cluster's tunnel, and the tunnel
+    drops on its own (AKS replacing the node that carries its konnectivity agents
+    did it on two consecutive days). kubectl does not reconnect, so the start runs
+    it under a supervisor that relaunches it whenever it exits, and every xp stage
+    opens with an ensure: the port answers, or the supervisor gets a moment, or
+    the forward is started afresh. The fake kubectl records each launch and its
+    own pid, so the test can kill it the way the tunnel would."""
+    import os
+    import socket
+    import subprocess
+    import textwrap
+
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    record = tmp_path / "record"
+    pidfile = tmp_path / "kubectl.pid"
+    kubectl = fakebin / "kubectl"
+    kubectl.write_text(
+        textwrap.dedent(
+            """\
+            #!/usr/bin/env bash
+            printf '%s\\n' "$*" >> "$RECORD"
+            echo $$ > "$PIDFILE"
+            exec python3 -c 'import socket, sys, time
+            s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", int(sys.argv[1].split(":")[0]))); s.listen(); time.sleep(300)' "${@: -1}"
+            """
+        )
+    )
+    kubectl.chmod(0o755)
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        local = probe.getsockname()[1]
+    common = smoke.scripts_dir() / "_common.sh"
+    log = tmp_path / "log"
+    script = textwrap.dedent(
+        f"""\
+        . "{common}"
+        common_init "{log}" 0
+        common_stage forward-2 "the forward"
+        common_kubeportforward_start /tmp/cfg sm-x net-apiserver {local} 2457 || exit 10
+        answers() {{ (exec 3<>"/dev/tcp/127.0.0.1/{local}") 2>/dev/null; }}
+
+        # the tunnel drops: kubectl dies; the supervisor must bring it back
+        kill "$(cat "$PIDFILE")"
+        for i in 1 2 3 4 5 6 7 8 9 10; do answers || break; sleep 0.5; done
+        answers && exit 11                       # it must have gone down first
+        common_stage xp-1 "a suite"
+        common_kubeportforward_ensure || exit 12
+        [ "$(cat "$PIDFILE")" != "" ] || exit 13
+
+        # the supervisor itself is gone, and so is its kubectl: ensure starts afresh
+        kill -9 "$PORTFORWARD_PID"; kill "$(cat "$PIDFILE")" 2>/dev/null
+        for i in 1 2 3 4 5 6 7 8 9 10; do answers || break; sleep 0.5; done
+        common_stage xp-2 "another suite"
+        common_kubeportforward_ensure || exit 14
+        answers || exit 15
+
+        common_kubeportforward_stop
+        answers && exit 16                       # nothing left listening
+        kill -0 "$(cat "$PIDFILE")" 2>/dev/null && exit 17   # nor a kubectl
+        exit 0
+        """
+    )
+    done = subprocess.run(
+        ["bash", "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={
+            **os.environ,
+            "PATH": f"{fakebin}:{os.environ['PATH']}",
+            "RECORD": str(record),
+            "PIDFILE": str(pidfile),
+            "NO_COLOR": "1",
+        },
+    )
+    text = log.read_text()
+    assert done.returncode == 0, (done.returncode, done.stdout, done.stderr, text)
+    # three kubectl launches: the start, the supervisor's relaunch, the fresh start
+    launches = record.read_text().splitlines()
+    assert len(launches) == 3, launches
+    assert all(ln.endswith(f"service/net-apiserver {local}:2457") for ln in launches)
+    # and the log says which was which
+    assert "kubectl exited" in text and "relaunching in 2s" in text
+    assert "the supervisor relaunched kubectl" in text
+    assert "port-forward supervisor is gone; starting the forward afresh" in text
+    assert text.count("port-forward up:") == 3, text
+
+
+def test_every_cluster_smoke_checks_the_forward_before_each_suite_and_skips_it_otherwise():
+    """Every xp stage opens with the ensure, and a forward that cannot be started
+    afresh skips the suite instead of letting it fail lane by lane as "not logged
+    in" -- the stage is --continue, so `|| continue` is what carries the skip."""
+    root = smoke.scripts_dir()
+    for path in sorted(root.glob("smoke-*.sh")):
+        text = path.read_text()
+        if "KUBECTL=(" not in text:
+            continue
+        loop = text.split('common_stage --continue "xp-', 1)[1].split("\ndone\n", 1)[0]
+        assert "common_kubeportforward_ensure || continue" in loop, path.name
+        assert loop.index("common_kubeportforward_ensure") < loop.index(
+            "common_run tdd xp one-shot"
+        ), path.name
