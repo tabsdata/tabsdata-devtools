@@ -24,9 +24,10 @@
 #   common_instance_gone NAME             no km process and no folder left after a delete
 #   common_tdkserver_pods_running NAME SERVICE...
 #                                         every SERVICE has a Running, Ready pod in `tdkserver status`
-#   common_kubeportforward_start KUBECONFIG NAMESPACE SERVICE PORT
-#                                         `kubectl port-forward` in the background, waited for;
-#                                         a stage command on its own, no common_run in front
+#   common_kubeportforward_start KUBECONFIG NAMESPACE SERVICE LOCAL [REMOTE]
+#                                         `kubectl port-forward LOCAL:REMOTE` (REMOTE defaults to
+#                                         LOCAL) in the background, waited for on LOCAL; a stage
+#                                         command on its own, no common_run in front
 #   common_kubeportforward_stop           end it (also on exit: the script traps EXIT to it)
 #   common_k8s_namespace_exists KUBECONFIG CONTEXT NAMESPACE
 #                                         is it there? (asked at most once per report)
@@ -35,6 +36,8 @@
 #   common_help REQUIRED                  paint a help page from stdin; REQUIRED options in red
 #   common_fill_placeholder FILE... -- PLACEHOLDER VALUE
 #                                         replace a `${{kind:name}}` placeholder in config files
+#   common_set_fn_resources FILE MEMORY DISK
+#                                         size the function pods in a tabsdata.yaml, and only them
 #   common_fill_pem FILE... -- PLACEHOLDER VALUE
 #                                         the same for a multi-line PEM: a YAML block scalar
 #   common_placeholders_left DIR          fail while a required placeholder remains in DIR/*.yaml
@@ -517,41 +520,52 @@ common_tdkserver_pods_running() {
 }
 
 # ---------------------------------------------------------------- kubectl / configs
-# common_kubeportforward_start KUBECONFIG NAMESPACE SERVICE PORT -- `kubectl
-# port-forward service/SERVICE PORT:PORT` in the background, its output in the
-# log, kept in PORTFORWARD_PID; returns once the local port answers (or fails
-# after ~60s, or when kubectl exits early). One at a time: a running forward is
-# stopped first. A stage command by itself, shown as its kubectl line -- call it
-# bare, like the stop. The forward dies with the pods it points at, so it is
+# common_kubeportforward_start KUBECONFIG NAMESPACE SERVICE LOCAL [REMOTE] --
+# `kubectl port-forward service/SERVICE LOCAL:REMOTE` in the background, its
+# output in the log, kept in PORTFORWARD_PID; returns once LOCAL answers (or
+# fails after ~60s, or when kubectl exits early). REMOTE defaults to LOCAL. The
+# two are separate because only the local side can be taken -- by another run,
+# another forward, a local tdkserver -- while the service's port in its own
+# namespace clashes with nothing; a script moves LOCAL (--kube-port-forward) and
+# leaves REMOTE the apiserver's. One at a time: a running forward is stopped
+# first. A stage command by itself, shown as its kubectl line -- call it bare,
+# like the stop. The forward dies with the pods it points at, so it is
 # re-established after every tdkserver start/restart, and ended before a stop,
 # restart or config/env change, and on exit (`trap common_kubeportforward_stop EXIT`).
 common_kubeportforward_start() {
-    local kubeconfig="$1" namespace="$2" service="$3" port="$4"
+    local kubeconfig="$1" namespace="$2" service="$3" local_port="$4" remote_port="${5:-$4}"
     common_run_shown \
-        "kubectl port-forward --kubeconfig $kubeconfig --namespace $namespace service/$service $port:$port   (background)" \
-        common_kubeportforward_launch "$kubeconfig" "$namespace" "$service" "$port"
+        "kubectl port-forward --kubeconfig $kubeconfig --namespace $namespace service/$service $local_port:$remote_port   (background)" \
+        common_kubeportforward_launch "$kubeconfig" "$namespace" "$service" "$local_port" "$remote_port"
 }
 
 # The body of the start: what common_run_shown runs and judges.
 common_kubeportforward_launch() {
-    local kubeconfig="$1" namespace="$2" service="$3" port="$4" waited=0
+    local kubeconfig="$1" namespace="$2" service="$3" local_port="$4" remote_port="${5:-$4}" waited=0
     common_kubeportforward_stop
-    kubectl port-forward --kubeconfig "$kubeconfig" --namespace "$namespace" "service/$service" "$port:$port" >>"$LOG" 2>&1 &
+    # taken already -- another run, a forward a --keep run left, a local tdkserver:
+    # kubectl would fail to bind while the probe below answered, and the run
+    # would log in to whatever is there
+    if (exec 3<>"/dev/tcp/127.0.0.1/$local_port") 2>/dev/null; then
+        echo "127.0.0.1:$local_port is already taken; pick another with --kube-port-forward"
+        return 1
+    fi
+    kubectl port-forward --kubeconfig "$kubeconfig" --namespace "$namespace" "service/$service" "$local_port:$remote_port" >>"$LOG" 2>&1 &
     PORTFORWARD_PID=$!
-    while ! (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; do
+    while ! (exec 3<>"/dev/tcp/127.0.0.1/$local_port") 2>/dev/null; do
         if ! kill -0 "$PORTFORWARD_PID" 2>/dev/null; then
             echo "port-forward exited early (see the log above)"
             PORTFORWARD_PID=""
             return 1
         fi
         if [ "$waited" -ge 60 ]; then
-            echo "port $port not answering after ${waited}s"
+            echo "port $local_port not answering after ${waited}s"
             return 1
         fi
         sleep 2
         waited=$((waited + 2))
     done
-    echo "port-forward up: 127.0.0.1:$port -> service/$service in $namespace (pid $PORTFORWARD_PID)"
+    echo "port-forward up: 127.0.0.1:$local_port -> service/$service:$remote_port in $namespace (pid $PORTFORWARD_PID)"
     return 0
 }
 
@@ -701,6 +715,68 @@ with open(path, encoding="utf-8") as fh:
     text = fh.read()
 with open(path, "w", encoding="utf-8") as fh:
     fh.write(re.sub(r"(?m)^(\s*UV_INDEX:).*$", lambda m: f"{m.group(1)} {uri}", text))
+PYEOF
+}
+
+# common_set_fn_resources FILE MEMORY DISK -- size the FUNCTION pods in a
+# tabsdata.yaml: the memory: and disk: under pods.function.resources, and only
+# those. The file carries a resources block per service as well, so the block is
+# found by structure -- the `function:` key, its `resources:` one level in, the
+# two lines one level further -- and each value is rewritten on its own line
+# with the indentation kept, so tdkserver's shape check against the template
+# (StructureMismatch) sees the template's shape. Fails unless exactly one memory
+# and one disk line were rewritten: a config that only looks sized is the
+# failure to catch here, at configure, not at the first function pod that will
+# not schedule. A stage command: call it through common_run.
+common_set_fn_resources() {
+    TDD_FN_MEMORY="$2" TDD_FN_DISK="$3" python3 - "$1" <<'PYEOF'
+import os, re, sys
+
+path = sys.argv[1]
+want = {"memory": os.environ["TDD_FN_MEMORY"], "disk": os.environ["TDD_FN_DISK"]}
+with open(path, encoding="utf-8") as fh:
+    lines = fh.read().splitlines(keepends=True)
+
+
+def indent(line):
+    return len(line) - len(line.lstrip(" "))
+
+
+def inside(i, depth):
+    # still within the block opened at `depth`: deeper, or blank
+    return i < len(lines) and (not lines[i].strip() or indent(lines[i]) > depth)
+
+
+done = {}
+i = 0
+while i < len(lines):
+    fn = re.match(r"^(\s*)function:\s*$", lines[i])
+    if not fn:
+        i += 1
+        continue
+    fn_depth = len(fn.group(1))
+    i += 1
+    while inside(i, fn_depth):
+        res = re.match(r"^(\s*)resources:\s*$", lines[i])
+        if not res:
+            i += 1
+            continue
+        res_depth = len(res.group(1))
+        i += 1
+        while inside(i, res_depth):
+            key = re.match(r"^(\s*)(memory|disk):.*$", lines[i])
+            if key:
+                lines[i] = f"{key.group(1)}{key.group(2)}: {want[key.group(2)]}\n"
+                done[key.group(2)] = done.get(key.group(2), 0) + 1
+            i += 1
+if done != {"memory": 1, "disk": 1}:
+    sys.stderr.write(
+        f"{path}: expected one memory and one disk line under function.resources, rewrote {done or 'none'}\n"
+    )
+    sys.exit(1)
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write("".join(lines))
+print(f"function pods: memory {want['memory']}, disk {want['disk']}")
 PYEOF
 }
 

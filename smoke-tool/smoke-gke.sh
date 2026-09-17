@@ -31,11 +31,12 @@ REQUIRED_OPTIONS="--name --kube-config --kube-context --td-version"
 usage() {
     cat <<'HELP' | common_help "$REQUIRED_OPTIONS"
 usage: smoke-gke.sh --name NAME --kube-config FILE --kube-context NAME --td-version VERSION
-                   [--kube-namespace NAME] [--uv-index URI] [--db-domain SYSTEM]
-                   [--storage-domain SYSTEM] [--llm-domain SYSTEM] [--provider NAME]
-                   [--td-extras EXTRAS] [--venv-type pyenv|uv|conda] [--py-version VERSION]
-                   [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep]
-                   [--log FILE] [--tdd-dir DIR] [--verbose]
+                   [--kube-namespace NAME] [--kube-port-forward PORT] [--uv-index URI]
+                   [--db-domain SYSTEM] [--storage-domain SYSTEM] [--llm-domain SYSTEM]
+                   [--provider NAME] [--td-extras EXTRAS] [--td-fn-memory SIZE]
+                   [--td-fn-disk SIZE] [--venv-type pyenv|uv|conda] [--py-version VERSION]
+                   [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep] [--log FILE]
+                   [--tdd-dir DIR] [--verbose]
 
 Tabsdata GKE smoke test: a tdkserver instance on a Google Kubernetes Engine
 cluster, its storage a prefix of the `gcs` system's bucket and its database a
@@ -58,10 +59,21 @@ options:
   --kube-namespace NAME
                       the namespace to create and run in, RFC 1123 (lowercase,
                       digits, hyphens). Default: sm-<name>, lowercased
+  --kube-port-forward PORT
+                      the local port `kubectl port-forward` listens on for the
+                      apiserver -- where tdk logs in. Only this side moves: the
+                      apiserver's own port in the cluster stays 2457 (default:
+                      2457, so the URL reads the same as in the cluster)
   --td-version VERSION
                       REQUIRED: the tabsdata release to install, tabsdata[EXTRAS]==VERSION
   --td-extras EXTRAS
                       the extras to install (default: all)
+  --td-fn-memory SIZE
+                      memory of each function pod, written into tabsdata.yaml as
+                      pods.function.resources.memory (default: 8Gi; the template
+                      asks for 16Gi)
+  --td-fn-disk SIZE   disk of each function pod, the same way (default: 32Gi;
+                      the template asks for 64Gi)
   --venv-type TYPE    pyenv, uv or conda (default: pyenv)
   --py-version VERSION
                       interpreter for the venv (default: 3.12.13 -- the exact
@@ -123,12 +135,15 @@ VENV_TYPE="pyenv"
 PYTHON="3.12.13"
 TD_VERSION=""            # required
 TD_EXTRAS="all"
+FN_MEMORY="8Gi"          # --td-fn-memory: each function pod's memory; the template says 16Gi
+FN_DISK="32Gi"           # --td-fn-disk: each function pod's disk; the template says 64Gi
 KUBECONFIG_OPT=""        # required
 CONTEXT=""               # required
 NAMESPACE=""             # required
 PROVIDER="gke"           # tdkserver's name for this kind of cluster
 DB_SYSTEM="gcppostgres"  # Cloud SQL, beside the cluster; --db-domain crosses clouds
-PORT="2457"              # tdkserver's apiserver port; the port-forward mirrors it locally
+PORT="2457"              # the apiserver's port in the cluster: tdkserver create --port, the forward's far side
+FORWARD_PORT="2457"      # --kube-port-forward: the local port the forward listens on; where tdk logs in
 UV_INDEX_URI=""
 # grok only through its s3 sub-suites: the fs-backed ones stage files on a local
 # path the GKE function pods cannot see. S3 itself they reach over the internet.
@@ -152,9 +167,12 @@ while [ $# -gt 0 ]; do
         --py-version) PYTHON="$2"; shift 2 ;;
         --td-version) TD_VERSION="$2"; shift 2 ;;
         --td-extras) TD_EXTRAS="$2"; shift 2 ;;
+        --td-fn-memory) FN_MEMORY="$2"; shift 2 ;;
+        --td-fn-disk) FN_DISK="$2"; shift 2 ;;
         --kube-config) KUBECONFIG_OPT="$2"; shift 2 ;;
         --kube-context) CONTEXT="$2"; shift 2 ;;
         --kube-namespace) NAMESPACE="$2"; shift 2 ;;
+        --kube-port-forward) FORWARD_PORT="$2"; shift 2 ;;
         --provider) PROVIDER="$2"; shift 2 ;;
         --db-domain) DB_SYSTEM="$2"; shift 2 ;;
         --uv-index) UV_INDEX_URI="$2"; shift 2 ;;
@@ -184,6 +202,11 @@ if [ -n "$missing" ]; then
 fi
 case "$NAME" in *[!A-Za-z0-9]*) echo "smoke-gke: --name must be alphanumeric (it becomes part of domain and xp names)" >&2; exit 1 ;; esac
 case "$NAMESPACE" in *[!a-z0-9-]* | -* | *-) echo "smoke-gke: --kube-namespace must be RFC 1123: lowercase letters, digits and inner hyphens" >&2; exit 1 ;; esac
+case "$FORWARD_PORT" in '' | *[!0-9]*) echo "smoke-gke: --kube-port-forward must be a port number, 1-65535" >&2; exit 1 ;; esac
+if [ "$FORWARD_PORT" -lt 1 ] || [ "$FORWARD_PORT" -gt 65535 ]; then echo "smoke-gke: --kube-port-forward must be a port number, 1-65535" >&2; exit 1; fi
+QUANTITY='^[0-9]+(\.[0-9]+)?([EPTGMK]i?|m)?$'   # a Kubernetes quantity: 8Gi, 512Mi, 1.5G
+[[ "$FN_MEMORY" =~ $QUANTITY ]] || { echo "smoke-gke: --td-fn-memory must be a Kubernetes quantity such as 8Gi or 512Mi" >&2; exit 1; }
+[[ "$FN_DISK" =~ $QUANTITY ]] || { echo "smoke-gke: --td-fn-disk must be a Kubernetes quantity such as 32Gi" >&2; exit 1; }
 if [ ! -r "$KUBECONFIG_OPT" ]; then
     echo "smoke-gke: no kubeconfig at $KUBECONFIG_OPT (pass --kube-config)" >&2
     echo "smoke-gke: get one with: gcloud container clusters get-credentials CLUSTER --region REGION --project PROJECT" >&2
@@ -214,7 +237,7 @@ SMOKE_DOMAINS=""         # domains this run creates, appended as each one is (co
 EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
 LOG="${LOG:-/tmp/smoke-$INSTANCE-$STAMP.log}"
 WORK="$(mktemp -d "/tmp/smoke-$INSTANCE-$STAMP.XXXX")"
-SERVER="http://127.0.0.1:$PORT"
+SERVER="http://127.0.0.1:$FORWARD_PORT"
 TABSDATA_SPEC="tabsdata[$TD_EXTRAS]==$TD_VERSION"
 TDK_OPTS=(-y --accept-terms y)
 CONFIGS="$HOME/.tabsdata/instances/$INSTANCE/init/input/configs"
@@ -273,7 +296,7 @@ common_on_stage_failed() {
     # a delete and a port-forward for something that does not exist
     if common_k8s_namespace_exists "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"; then
         common_indented "namespace  $NAMESPACE on $CONTEXT -- kubectl --context $CONTEXT delete namespace $NAMESPACE"
-        common_indented "reach it   kubectl --context $CONTEXT --namespace $NAMESPACE port-forward service/net-apiserver $PORT:$PORT &   then: _TDD_VENV=$VENV tdd tdk login --server $SERVER"
+        common_indented "reach it   kubectl --context $CONTEXT --namespace $NAMESPACE port-forward service/net-apiserver $FORWARD_PORT:$PORT &   then: _TDD_VENV=$VENV tdd tdk login --server $SERVER"
         # the cluster's own account of the failure, collected while the namespace is
         # still there: `Init job 'ins-dbmanager' failed` names the job, and the
         # reason is in the pod it left behind
@@ -371,9 +394,12 @@ common_screen "  --venv-type         $VENV_TYPE"
 common_screen "  --py-version    $PYTHON"
 common_screen "  --td-version        $TD_VERSION"
 common_screen "  --td-extras   $TD_EXTRAS   -> installs $TABSDATA_SPEC"
+common_screen "  --td-fn-memory      $FN_MEMORY   -> tabsdata.yaml pods.function.resources.memory"
+common_screen "  --td-fn-disk        $FN_DISK   -> tabsdata.yaml pods.function.resources.disk"
 common_screen "  --kube-config       $KUBECONFIG_OPT   (read only; the run works on a copy)"
 common_screen "  --kube-context      $CONTEXT"
 common_screen "  --kube-namespace    $NAMESPACE"
+common_screen "  --kube-port-forward $FORWARD_PORT   -> server $SERVER; the apiserver itself listens on $PORT"
 common_screen "  --provider          $PROVIDER   -> tdkserver init --provider $PROVIDER"
 common_screen "  --db-domain         $DB_SYSTEM   -> domain $DB_DOMAIN"
 common_screen "  storage             gcs   -> domain $STORAGE_DOMAIN (a prefix of the gcs system's bucket)"
@@ -387,7 +413,7 @@ common_screen "  --keep              $([ -n "$KEEP" ] && echo "yes (also: xp one
 common_screen "  --log               $LOG"
 common_screen "  --tdd-dir           $TDD_DIR_OPT"
 common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "no (rolling window of $WINDOW log lines)")"
-common_screen "  server              $SERVER through kubectl port-forward service/net-apiserver"
+common_screen "  server              $SERVER through kubectl port-forward service/net-apiserver $FORWARD_PORT:$PORT"
 common_screen "  drivers for fn/ag   $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
 if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
     common_screen "${RED}smoke-gke: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
@@ -515,7 +541,7 @@ common_stage init "tdkserver init --provider $PROVIDER --instance $INSTANCE (the
 common_run tdd tdkserver init --provider "$PROVIDER" --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}"
 common_run test -d "$CONFIGS"
 
-common_stage configure "fill the config files from the domains: database, storage, LLM key, uv index"
+common_stage configure "fill the config files from the domains: database, storage, LLM key, uv index, function pod sizing"
 # Named placeholders are shared across files; the storage file's ${{secret}}
 # are positional. Values travel in the environment, never on a command line.
 common_note "database: \${{literal:tdk_database_*}} and \${{secret:postgres_system_*}} from $DB_DOMAIN"
@@ -542,6 +568,8 @@ if [ -n "$UV_INDEX_URI" ]; then
     common_note "tabsdata.yaml: UV_INDEX -> $(common_display "$UV_INDEX_URI")"
     common_set_uv_index "$CONFIGS/tabsdata.yaml" "$UV_INDEX_URI"
 fi
+common_note "tabsdata.yaml: function pods memory $FN_MEMORY, disk $FN_DISK (pods.function.resources)"
+common_run common_set_fn_resources "$CONFIGS/tabsdata.yaml" "$FN_MEMORY" "$FN_DISK"
 common_run common_placeholders_left "$CONFIGS"
 common_run tdd tdkserver config check --instance "$INSTANCE" --init --accept-terms y
 
@@ -559,8 +587,8 @@ common_stage pods-1 "every expected service pod is Running: $EXPECT_PODS"
 # shellcheck disable=SC2086
 common_run_retry 30 10 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIST
 
-common_stage forward-1 "kubectl port-forward service/net-apiserver $PORT:$PORT (background)"
-common_kubeportforward_start "$RUN_KUBECONFIG" "$NAMESPACE" net-apiserver "$PORT"
+common_stage forward-1 "kubectl port-forward service/net-apiserver $FORWARD_PORT:$PORT (background)"
+common_kubeportforward_start "$RUN_KUBECONFIG" "$NAMESPACE" net-apiserver "$FORWARD_PORT" "$PORT"
 
 common_stage login-1 "tdk login as admin on $SERVER"
 common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password tabsdata
@@ -587,8 +615,8 @@ common_stage pods-2 "every expected service pod is Running: $EXPECT_PODS"
 # shellcheck disable=SC2086
 common_run_retry 30 10 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIST
 
-common_stage forward-2 "kubectl port-forward service/net-apiserver $PORT:$PORT (re-established after start)"
-common_kubeportforward_start "$RUN_KUBECONFIG" "$NAMESPACE" net-apiserver "$PORT"
+common_stage forward-2 "kubectl port-forward service/net-apiserver $FORWARD_PORT:$PORT (re-established after start)"
+common_kubeportforward_start "$RUN_KUBECONFIG" "$NAMESPACE" net-apiserver "$FORWARD_PORT" "$PORT"
 
 common_stage login-2 "tdk login as admin on $SERVER"
 common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password tabsdata
@@ -604,7 +632,7 @@ done
 if [ -n "$KEEP" ]; then
     common_stage cleanup "keeping the whole setup as it is (--keep; the port-forward is stopped)"
     common_kubeportforward_stop
-    common_note "re-establish: kubectl --context $CONTEXT --namespace $NAMESPACE port-forward service/net-apiserver $PORT:$PORT &"
+    common_note "re-establish: kubectl --context $CONTEXT --namespace $NAMESPACE port-forward service/net-apiserver $FORWARD_PORT:$PORT &"
     common_note "then: export _TDD_VENV=$VENV; tdd tdk login --server $SERVER --user admin --password ***"
     common_note "your kubeconfig was not touched; the run's copy is $RUN_KUBECONFIG ($CONTEXT, namespace $NAMESPACE)"
     common_tabsdata_setup_info common_note

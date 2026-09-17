@@ -388,3 +388,240 @@ def test_the_failure_report_names_only_what_the_run_actually_built(tmp_path):
             ln for ln in text.splitlines() if 'SMOKE_DOMAINS="$SMOKE_DOMAINS' in ln
         ]
         assert len(appends) == len(creates), (path.name, creates, appends)
+
+
+def test_the_port_forward_listens_locally_where_it_is_told_and_points_at_the_apiserver(
+    tmp_path,
+):
+    """`--kube-port-forward` moves the LOCAL end of the forward only. That end is
+    the one another run, a forward a --keep run left, or a local tdkserver can
+    already hold; the apiserver's port in its own namespace clashes with nothing,
+    and moving it along would smoke a port nobody deploys with. So the helper
+    takes LOCAL and REMOTE, kubectl is told `LOCAL:REMOTE`, readiness is probed
+    on LOCAL, and a LOCAL something else already answers on is refused by name
+    before kubectl runs -- otherwise the probe would have called it up and the
+    run logged in to whatever was there. A fake kubectl stands in for the
+    cluster: it records its arguments and listens where the real one would."""
+    import os
+    import socket
+    import subprocess
+    import textwrap
+
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    record = tmp_path / "record"
+    kubectl = fakebin / "kubectl"
+    kubectl.write_text(
+        textwrap.dedent(
+            """\
+            #!/usr/bin/env bash
+            printf '%s\\n' "$*" > "$RECORD"
+            # the last argument is LOCAL:REMOTE; listen on LOCAL, as the real forward would
+            exec python3 -c 'import socket, sys, time
+            s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", int(sys.argv[1].split(":")[0]))); s.listen(); time.sleep(120)' "${@: -1}"
+            """
+        )
+    )
+    kubectl.chmod(0o755)
+    common = smoke.scripts_dir() / "_common.sh"
+    env = {
+        **os.environ,
+        "PATH": f"{fakebin}:{os.environ['PATH']}",
+        "RECORD": str(record),
+        "NO_COLOR": "1",
+    }
+
+    def start(local: int, log) -> subprocess.CompletedProcess:
+        script = (
+            '. "%s"\n'
+            'common_init "%s" 0\n'
+            'common_stage forward-1 "the forward"\n'
+            "common_kubeportforward_start /tmp/cfg sm-x net-apiserver %d 2457; rc=$?\n"
+            "common_kubeportforward_stop\n"
+            "exit $rc\n"
+        ) % (common, log, local)
+        return subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, timeout=90, env=env
+        )
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        local = probe.getsockname()[1]
+    log = tmp_path / "log"
+    done = start(local, log)
+    assert done.returncode == 0, (done.stdout, done.stderr, log.read_text())
+    # kubectl was told LOCAL:REMOTE, the two apart -- not the mirror
+    assert record.read_text().split() == [
+        "port-forward",
+        "--kubeconfig",
+        "/tmp/cfg",
+        "--namespace",
+        "sm-x",
+        "service/net-apiserver",
+        f"{local}:2457",
+    ]
+    text = log.read_text()
+    # readiness was judged on LOCAL, and the line says which end is which
+    assert (
+        f"port-forward up: 127.0.0.1:{local} -> service/net-apiserver:2457 in sm-x"
+        in text
+    )
+    assert "port-forward stopped" in text
+
+    # something else on LOCAL: refused by name, and kubectl never ran
+    record.unlink()
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        busy = taken.getsockname()[1]
+        log2 = tmp_path / "log2"
+        done = start(busy, log2)
+    assert done.returncode != 0
+    assert (
+        f"127.0.0.1:{busy} is already taken; pick another with --kube-port-forward"
+        in log2.read_text()
+    )
+    assert not record.exists(), record.read_text()
+
+
+def test_every_cluster_smoke_keeps_the_forward_s_two_ends_apart():
+    """The option is `--kube-port-forward`, not `--port`: it is the forward's local
+    end, and the scripts keep the two ends apart. `tdkserver create --port` and the
+    far side of every forward get PORT, the apiserver's; the near side, and so the
+    server URL tdk logs in to, get FORWARD_PORT. A script feeding one to both
+    would either smoke a port nobody deploys with or log in to a port nothing
+    listens on. km is not held to this: its --port is the instance's, one thing."""
+    root = smoke.scripts_dir()
+    for path in sorted(root.glob("smoke-*.sh")):
+        text = path.read_text()
+        if "KUBECTL=(" not in text:
+            continue
+        assert '--kube-port-forward) FORWARD_PORT="$2"; shift 2 ;;' in text, path.name
+        assert 'FORWARD_PORT="2457"' in text, path.name
+        assert 'SERVER="http://127.0.0.1:$FORWARD_PORT"' in text, path.name
+        assert 'tdkserver create --instance "$INSTANCE" --port "$PORT"' in text, (
+            path.name
+        )
+        starts = [
+            ln.strip()
+            for ln in text.splitlines()
+            if ln.lstrip().startswith("common_kubeportforward_start ")
+        ]
+        assert starts and all(
+            ln.endswith('net-apiserver "$FORWARD_PORT" "$PORT"') for ln in starts
+        ), (path.name, starts)
+        # what the reader is handed to re-establish it by hand says the same
+        assert "$PORT:$PORT" not in text, path.name
+        assert "service/net-apiserver $FORWARD_PORT:$PORT" in text, path.name
+        # and a value that is not a port is refused before anything is built
+        assert "--kube-port-forward must be a port number" in text, path.name
+
+
+def test_common_set_fn_resources_sizes_the_function_pods_and_only_them(tmp_path):
+    """`--td-fn-memory`/`--td-fn-disk` rewrite pods.function.resources in a
+    tabsdata.yaml that carries a `resources:` block under every service as well.
+    The helper walks the indentation to the function block's own, rewrites the two
+    lines in place -- tdkserver compares the filled file's shape to the template's
+    -- and fails unless exactly one memory and one disk line changed, because a
+    sizing that silently missed would pass that shape check and surface as a pod
+    that never schedules."""
+    import os
+    import subprocess
+
+    common = smoke.scripts_dir() / "_common.sh"
+    template = (
+        "pods:\n"
+        "  global:\n"
+        "    env:\n"
+        "      UV_INDEX: https://pypi.org/simple/\n"
+        "  service:\n"
+        "    priority: tabsdata-service\n"
+        "    resources:\n"
+        '      cpu: "2"\n'
+        "      memory: 1Gi\n"
+        "      disk: 16Gi\n"
+        "    overrides:\n"
+        "      srv-apiserver:\n"
+        "        resources:\n"
+        '          cpu: "2"\n'
+        "          memory: 8Gi\n"
+        "          disk: 64Gi\n"
+        "\n"
+        "  function:\n"
+        "    priority: tabsdata-function\n"
+        "    resources:\n"
+        '      cpu: "1"\n'
+        "      memory: 16Gi\n"
+        "      disk: 64Gi\n"
+        "    placement:\n"
+        "      selectors: {}\n"
+        "      tolerations:\n"
+        "        - key: workload\n"
+        "          value: batch\n"
+        "          effect: NoSchedule\n"
+    )
+
+    def run(body: str, memory: str, disk: str):
+        cfg = tmp_path / "tabsdata.yaml"
+        cfg.write_text(body)
+        done = subprocess.run(
+            [
+                "bash",
+                "-c",
+                '. "%s"; common_set_fn_resources "%s" "$M" "$D"' % (common, cfg),
+            ],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "M": memory, "D": disk},
+        )
+        return done, cfg.read_text()
+
+    done, written = run(template, "8Gi", "32Gi")
+    assert done.returncode == 0, done.stderr
+    assert "function pods: memory 8Gi, disk 32Gi" in done.stdout
+    # the function block moved, and nothing else did: the service blocks keep
+    # their 1Gi/16Gi and 8Gi/64Gi, the cpu and the placement are untouched
+    assert written == template.replace(
+        "      memory: 16Gi\n      disk: 64Gi\n",
+        "      memory: 8Gi\n      disk: 32Gi\n",
+    )
+    assert written.count("memory: 8Gi") == 2  # ours plus the apiserver override
+
+    # no function block: refused, and the file is left as it was
+    headless = template.split("  function:\n", 1)[0]
+    done, written = run(headless, "8Gi", "32Gi")
+    assert done.returncode != 0
+    assert "expected one memory and one disk line" in done.stderr
+    assert written == headless
+
+    # two function blocks would be two rewrites: refused too
+    function_block = "  function:\n" + template.split("  function:\n", 1)[1]
+    done, _ = run(template + function_block, "8Gi", "32Gi")
+    assert done.returncode != 0, "a second function block must not pass as one"
+
+
+def test_every_cluster_smoke_sizes_its_function_pods_before_the_shape_check():
+    """The two options, their halved defaults, and the rewrite as a stage command
+    ahead of the placeholder and config checks -- so a sizing that missed fails
+    at `configure`, in the stage that owns the config, with the other fills."""
+    root = smoke.scripts_dir()
+    for path in sorted(root.glob("smoke-*.sh")):
+        text = path.read_text()
+        if "KUBECTL=(" not in text:
+            continue
+        assert 'FN_MEMORY="8Gi"' in text and 'FN_DISK="32Gi"' in text, path.name
+        assert '--td-fn-memory) FN_MEMORY="$2"; shift 2 ;;' in text, path.name
+        assert '--td-fn-disk) FN_DISK="$2"; shift 2 ;;' in text, path.name
+        # a typo fails at the option, not at the first pod that never schedules
+        assert "--td-fn-memory must be a Kubernetes quantity" in text, path.name
+        assert "--td-fn-disk must be a Kubernetes quantity" in text, path.name
+        call = 'common_run common_set_fn_resources "$CONFIGS/tabsdata.yaml" "$FN_MEMORY" "$FN_DISK"'
+        assert call in text, path.name
+        assert text.index("common_stage configure") < text.index(call), path.name
+        assert text.index(call) < text.index(
+            'common_run common_placeholders_left "$CONFIGS"'
+        ), path.name
+        assert text.index(call) < text.index("tdkserver config check --instance"), (
+            path.name
+        )

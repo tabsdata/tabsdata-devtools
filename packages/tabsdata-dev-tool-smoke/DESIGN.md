@@ -49,6 +49,25 @@ a required option red on the page. `--kube-namespace` and `--uv-index` are not a
 run's own `--name` makes a namespace (`sm-<name>`, lowercased for RFC 1123), and no index means
 whatever uv is already configured with.
 
+`--kube-port-forward` is the local port `kubectl port-forward` listens on -- the one `tdk` logs in
+to -- and defaults to 2457, the apiserver's own, so the URL reads the same as in the cluster. It
+moves that end only. The local port is the one thing another run, a forward a `--keep` run left or
+a local tdkserver can already hold; the apiserver's port in its own namespace clashes with
+nothing, and moving it along (`tdkserver create --port`) would smoke a port nobody deploys with.
+So `common_kubeportforward_start` takes LOCAL and REMOTE, the scripts keep `PORT` for the cluster
+end and `FORWARD_PORT` for the local one, and a local port already taken is refused by name before
+kubectl is launched -- kubectl would fail to bind while the readiness probe answered, and the run
+would log in to whatever was there.
+
+`--td-fn-memory` and `--td-fn-disk` size the function pods: `pods.function.resources.memory` and
+`.disk` in `tabsdata.yaml`, rewritten at `configure` beside the `UV_INDEX` line. The template asks
+for 16Gi and 64Gi per function pod; the defaults are 8Gi and 32Gi, and each is an option so a run
+can try the template's figures, or less, without editing the script. `common_set_fn_resources`
+finds the block by structure rather than by a regex over the file, because the file holds a
+`resources:` block per service too, and it fails the stage unless it rewrote exactly one memory
+and one disk line -- the shape check tdkserver runs at `create` would not notice a sizing that
+silently missed. CPU is left as the template has it; nothing asked for it to move.
+
 `--db-domain`, `--storage-domain` and `--llm-domain` each name a **system**; the domain is always
 created, named `sm_<NAME>__<system>`, and `--force` recreates it. The per-cloud defaults are the
 storage and database beside the cluster (`awspostgres`/`s3`, `gcppostgres`/`gcs`,
