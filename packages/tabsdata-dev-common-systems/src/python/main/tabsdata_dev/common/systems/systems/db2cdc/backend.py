@@ -15,6 +15,11 @@ apparatus set up at TWO points:
   ``DATA CAPTURE CHANGES``, ``asnclp create registration`` to materialise its CD
   staging table, add the ``IBMSNAP_LOGMARKER`` column + trigger the ingester
   needs, then signal CAPSTART and wait for the registration to go Active.
+  First, for all tables at once, the CD table names are claimed: one is
+  ``ASN.TD_T__<TABLE>`` with nothing of the domain in it, so a registration
+  another domain left behind owns the name -- reclaimed when its source table
+  is gone, refused by the owner's name when it is a live domain
+  (:meth:`Db2Cdc._claim_cd_tables`).
 
 Everything runs as ``db2inst1`` inside the container via the CLP (``db2`` /
 ``asnclp`` / ``asncap``); the command sequence mirrors the tabsdata-conn-db2 CDC
@@ -26,6 +31,7 @@ from __future__ import annotations
 import random
 import time
 
+from tabsdata_dev.common.systems import descriptor, store
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec
 from tabsdata_dev.common.systems.systems.db2.backend import _XP_DB, Db2
@@ -298,6 +304,20 @@ class Db2Cdc(Db2):
         """
         container, schema = self._container_and_schema(meta)
         table = table.upper()
+        self._remove_registration(container, schema, table)
+        self._clp(
+            container,
+            f"alter table {schema}.{table} data capture none",
+            ignore_failure=True,
+        )
+        if drop:
+            self._clp(container, f"drop table {schema}.{table}", ignore_failure=True)
+
+    def _remove_registration(self, container: str, schema: str, table: str) -> None:
+        """CAPSTOP, then the registration's rows, its trigger and its CD table:
+        what a deregistration and a reclaim both take away. The source table's
+        own ``DATA CAPTURE`` flag is the deregistration's to clear -- a reclaim
+        has no source table left to alter."""
         staging = f"{_STAGING_PREFIX}{table}"
         self._send_capstop(container, schema, table)
         self._clp(
@@ -314,13 +334,6 @@ class Db2Cdc(Db2):
         )
         self._clp(container, f"drop trigger {_ASN}.LM_{staging}", ignore_failure=True)
         self._clp(container, f"drop table {_ASN}.{staging}", ignore_failure=True)
-        self._clp(
-            container,
-            f"alter table {schema}.{table} data capture none",
-            ignore_failure=True,
-        )
-        if drop:
-            self._clp(container, f"drop table {schema}.{table}", ignore_failure=True)
 
     def _send_capstop(self, container: str, schema: str, table: str) -> None:
         """Tell asncap to stop capturing ``schema.table`` and wait for it to
@@ -438,10 +451,113 @@ class Db2Cdc(Db2):
         if not tables:
             print(">>> CDC: no tables to register")
             return
+        self._claim_cd_tables(container, schema, tables)
         print(f">>> CDC: registering {len(tables)} table(s) for ASN capture …")
         for table in tables:
             self._register_table(container, schema, table)
         print(">>> CDC: all tables registered and active")
+
+    # ---- CD table names are shared across domains -------------------------
+
+    def _claim_cd_tables(self, container: str, schema: str, tables: list[str]) -> None:
+        """Before the first registration: every CD table this model needs is
+        free, or is freed here, or the create is refused with the owner named.
+
+        A CD table is ``ASN.TD_T__<TABLE>`` -- the table's name and nothing of
+        the domain's -- so two db2cdc domains carrying the same model cannot
+        share a system. Left to asnclp, that surfaces one table in, after the
+        schema is installed, as ``ASN1705E The change data "table" ... already
+        exists``: a table named and no cause. Every table is checked first, so
+        a refusal leaves nothing half-registered.
+
+        A registration whose source table is gone -- a schema dropped without
+        deregistering, by hand or from a descriptor that predates the
+        back-reference -- captures nothing and is reclaimed. One whose source
+        table still exists is a live domain, kept on purpose or not, and is
+        not touched: the refusal names its schema and, when this store has a
+        descriptor with that schema, the domain and the command that frees it.
+        """
+        blockers: dict[str, list[str]] = {}
+        for table in tables:
+            owner = self._cd_table_owner(container, table)
+            if not owner or owner == schema:
+                continue
+            if self._source_table_exists(container, owner, table):
+                blockers.setdefault(owner, []).append(table)
+                continue
+            print(
+                f"    reclaiming {self.cd_table(table)} from {owner}.{table}, "
+                f"whose source table is gone …"
+            )
+            self._remove_registration(container, owner, table)
+        if not blockers:
+            return
+        held = ", ".join(
+            self.cd_table(t) for tables_ in blockers.values() for t in tables_
+        )
+        owners = []
+        fixes = []
+        for owner in sorted(blockers):
+            named = self._domain_with_schema(owner, container)
+            if named:
+                owners.append(f"schema {owner} -- domain '{named}'")
+                fixes.append(f"tdd domain destroy --domain {named}")
+            else:
+                owners.append(
+                    f"schema {owner} -- no domain in this store has that schema "
+                    f"(its descriptor is gone, or unreadable here)"
+                )
+        fix = (
+            f"destroy that domain first ({'; '.join(fixes)})"
+            if fixes
+            else "deregister those tables in the container by hand, or recreate the system"
+        )
+        raise TdxError(
+            f"CDC: {held} held by the live registrations of {'; '.join(owners)} in "
+            f"{container}. A CD table is named after its table alone, so one db2cdc "
+            f"domain per model per system: {fix}, or create this one on another "
+            f"db2cdc system."
+        )
+
+    def _cd_table_owner(self, container: str, table: str) -> str:
+        """The schema whose registration holds ``TD_T__<table>``, or ''."""
+        # coalesce over min(): one row always comes back, so an empty result is
+        # a blank and not whatever the CLP prints for no rows
+        return self._clp_scalar(
+            container,
+            f"select coalesce(min(source_owner), '') from {_ASN}.ibmsnap_register "
+            f"where cd_owner = '{_ASN}' and cd_table = '{_STAGING_PREFIX}{table}'",
+        ).strip()
+
+    def _source_table_exists(self, container: str, schema: str, table: str) -> bool:
+        return self._clp_scalar(
+            container,
+            f"select count(*) from syscat.tables where tabschema = '{schema}' "
+            f"and tabname = '{table}'",
+        ).strip() not in ("", "0")
+
+    def _domain_with_schema(self, schema: str, container: str) -> str:
+        """This store's name for the db2cdc domain whose schema is `schema` in
+        `container`, or ''. Best effort: a descriptor that cannot be read here
+        (no key in this shell, a legacy format, a stray file) is no reason to
+        fail a message that is already explaining a failure."""
+        try:
+            paths = sorted(store.domain_dir().iterdir())
+        except OSError:
+            return ""
+        for path in paths:
+            try:
+                info = descriptor.load(path)
+            except Exception:  # noqa: BLE001 -- best effort, see above
+                continue
+            meta = getattr(info, "meta", {}) or {}
+            if (
+                getattr(info, "system", "") == self.slug
+                and self._schema(meta.get("DB", "")) == schema
+                and meta.get("SYS_DOCKER_CONTAINER_NAME", container) == container
+            ):
+                return info.name
+        return ""
 
     def _list_schema_tables(self, container: str, schema: str) -> list[str]:
         out = self._run(

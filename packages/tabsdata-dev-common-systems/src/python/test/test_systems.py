@@ -1079,3 +1079,119 @@ def test_destroying_a_domain_leaves_the_shared_marker_alone():
         assert "starts_with(g.rolname, 'd1')" in drops[0], slug
         assert ACROSS_PROJECTS_ROLE not in " ".join(sql), slug
         assert not [s for s in sql if "%" in s], slug
+
+
+def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
+    tmp_path, monkeypatch
+):
+    """A CD table is ASN.TD_T__<TABLE>, nothing of the domain in it, so a
+    registration another domain holds owns the name. asnclp's own refusal comes
+    one table in, after the schema is installed, and names a table and no cause.
+    The claim runs first, for all tables: an owner whose source table is gone is
+    an orphan and is reclaimed; a live owner is refused by its schema and by the
+    store's name for it, with the command that frees it."""
+    import pytest
+
+    from tabsdata_dev.common.systems import descriptor, store
+    from tabsdata_dev.common.systems.errors import TdxError
+    from tabsdata_dev.common.systems.systems.db2cdc.backend import Db2Cdc
+
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-test-secret-long-enough")
+    dom = tmp_path / "domain"
+    dom.mkdir()
+    monkeypatch.setattr(store, "domain_dir", lambda dir_opt=None: dom)
+    descriptor.write_domain(
+        dom / "old_kept",
+        "db2cdc",
+        "old_kept",
+        sys_name="cdc",
+        external_name="XP_OLD",
+        meta={"DB": "XP_OLD", "SYS_DOCKER_CONTAINER_NAME": "tdd_db2cdc"},
+    )
+    (dom / "stray").write_text("not a descriptor\n")
+
+    b = Db2Cdc()
+    calls: list[tuple] = []
+    owners: dict[str, str] = {}  # CD table -> schema holding it (IBMSNAP_REGISTER)
+    existing: set[str] = set()  # SCHEMA.TABLE source tables still in syscat
+
+    def scalar(container, sql):
+        s = " ".join(sql.split())
+        if "ibmsnap_register where cd_owner" in s:
+            cd = s.split("cd_table = '")[1].split("'")[0]
+            return owners.get(cd, "")
+        if "syscat.tables where tabschema" in s:
+            sch = s.split("tabschema = '")[1].split("'")[0]
+            tab = s.split("tabname = '")[1].split("'")[0]
+            return "1" if f"{sch}.{tab}" in existing else "0"
+        raise AssertionError(s)
+
+    monkeypatch.setattr(b, "_clp_scalar", scalar)
+    monkeypatch.setattr(
+        b, "_container_and_schema", lambda meta: ("tdd_db2cdc", "XP_NEW")
+    )
+    monkeypatch.setattr(
+        b, "_list_schema_tables", lambda c, s: ["DEPARTMENTS", "EMPLOYEES"]
+    )
+    monkeypatch.setattr(
+        b, "_register_table", lambda c, s, t: calls.append(("register", s, t))
+    )
+    monkeypatch.setattr(
+        b, "_send_capstop", lambda c, s, t: calls.append(("capstop", s, t))
+    )
+    monkeypatch.setattr(
+        b,
+        "_clp",
+        lambda c, sql, ignore_failure=False: calls.append(
+            ("sql", " ".join(sql.split()))
+        ),
+    )
+
+    # nothing holds the names: both tables register
+    b.after_install_schema({}, "employees")
+    assert calls == [
+        ("register", "XP_NEW", "DEPARTMENTS"),
+        ("register", "XP_NEW", "EMPLOYEES"),
+    ]
+
+    # a live domain holds them: refused by name before anything is registered
+    calls.clear()
+    owners.update({"TD_T__DEPARTMENTS": "XP_OLD", "TD_T__EMPLOYEES": "XP_OLD"})
+    existing.update({"XP_OLD.DEPARTMENTS", "XP_OLD.EMPLOYEES"})
+    with pytest.raises(TdxError) as caught:
+        b.after_install_schema({}, "employees")
+    msg = str(caught.value)
+    assert "ASN.TD_T__DEPARTMENTS" in msg and "ASN.TD_T__EMPLOYEES" in msg
+    assert "schema XP_OLD -- domain 'old_kept'" in msg and "tdd_db2cdc" in msg
+    assert "tdd domain destroy --domain old_kept" in msg
+    assert calls == []
+
+    # the owner's source tables are gone: orphans, reclaimed, then registration goes on
+    existing.clear()
+    b.after_install_schema({}, "employees")
+    kinds = [c[0] for c in calls]
+    assert kinds.count("capstop") == 2 and kinds.count("register") == 2
+    assert kinds.index("register") > max(
+        i for i, k in enumerate(kinds) if k == "capstop"
+    )
+    sqls = [c[1] for c in calls if c[0] == "sql"]
+    assert any(
+        "delete from ASN.ibmsnap_register where source_owner = 'XP_OLD' and source_table = 'DEPARTMENTS'"
+        in s
+        for s in sqls
+    )
+    assert any("drop trigger ASN.LM_TD_T__EMPLOYEES" in s for s in sqls)
+    assert any("drop table ASN.TD_T__DEPARTMENTS" in s for s in sqls)
+    assert not any("data capture none" in s for s in sqls), "no source table to alter"
+
+    # a live owner this store has no descriptor for: refused, and says so
+    calls.clear()
+    owners.pop("TD_T__EMPLOYEES")
+    owners["TD_T__DEPARTMENTS"] = "XP_GHOST"
+    existing.add("XP_GHOST.DEPARTMENTS")
+    with pytest.raises(TdxError) as caught:
+        b.after_install_schema({}, "employees")
+    assert "schema XP_GHOST -- no domain in this store has that schema" in str(
+        caught.value
+    )
+    assert "by hand" in str(caught.value) and calls == []
