@@ -34,8 +34,8 @@ tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
 
 `--dir` defaults to `$TDD_DIR`, then `~/.tdd`; everything after the word reaches the command
 verbatim; `--format`/`--verbose` before the word also travel on to it. Commands: `venv`,
-`tdd-env`, `env`, `pycache` (shell, marked `*` in `tdd help`), `system`, `domain`,
-`xp`, `gsx`, `tdk`, `tdkserver`, `km` (Python).
+`tdd-env`, `env` (shell, marked `*` in `tdd help`), `system`, `domain`,
+`xp`, `gsx`, `pycache`, `tdk`, `tdkserver`, `km` (Python).
 `tdd help` merges both halves from `tdd-exe --porcelain` and the shell registry.
 
 **Command config**: `<tdd_dir>/<command>.toml`, one file per command, holding both what the
@@ -149,4 +149,5 @@ the tree and the generator blind to it.
 | [`xp`](../packages/tabsdata-dev-tool-xp/DESIGN.md) | the example suites, end to end |
 | [`tdk`](../packages/tabsdata-dev-tool-tdk/DESIGN.md), [`tdkserver`](../packages/tabsdata-dev-tool-tdkserver/DESIGN.md), [`km`](../packages/tabsdata-dev-tool-km/DESIGN.md) | launchers into the `tdd venv` |
 | [`smoke`](../packages/tabsdata-dev-tool-smoke/DESIGN.md) | the end-to-end smoke scripts, carried as data: run one, or export them to edit |
-| [`venv`](../packages/tabsdata-dev-shell/scripts/unix/venv.design.md), [`env`](../packages/tabsdata-dev-shell/scripts/unix/env.design.md), [`pycache`](../packages/tabsdata-dev-shell/scripts/unix/pycache.design.md), [`tdd-env`](../packages/tabsdata-dev-shell/scripts/unix/tdd-env.design.md) | the shell commands |
+| [`pycache`](../packages/tabsdata-dev-tool-pycache/DESIGN.md) | purge the uv and pip caches by package prefix |
+| [`venv`](../packages/tabsdata-dev-shell/scripts/unix/venv.design.md), [`env`](../packages/tabsdata-dev-shell/scripts/unix/env.design.md), [`tdd-env`](../packages/tabsdata-dev-shell/scripts/unix/tdd-env.design.md) | the shell commands |

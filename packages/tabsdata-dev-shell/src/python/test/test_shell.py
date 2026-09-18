@@ -346,18 +346,20 @@ def test_venv_create_has_force_and_deactivate_handles_every_kind():
         assert means in text, f"deactivate lacks {means}"
 
 
-def test_pycache_clean_sweeps_what_uv_cache_clean_skips():
-    # `uv cache clean <name>` leaves editable builds and their archives (keyed
-    # by source path); the count must come from versioned distribution entries
-    # only, and leftovers must be reported rather than claimed purged.
-    text = (shell.scripts_dir() / "pycache.sh").read_text()
-    assert '-iname "$_tdd_p*-[0-9]*"' in text
-    assert (
-        "sdists-v*" in text
-        and "archive-v*" in text
-        and 'rm -rf "$_tdd_cache/$_tdd_shard"' in text
-    )
-    assert "still match" in text
+def test_the_shell_half_is_only_what_must_change_the_shell():
+    """A shell command exists for what an executable cannot do: enter or leave
+    a venv, export a variable, put a bin/ on PATH. `pycache` was one and
+    changed nothing in the shell -- it only sat beside `venv` in the same
+    toolbox -- and has been a Python tool since 2026-09-18. These three are the
+    whole shell half; a fourth belongs here only with the same question
+    answered, which is why this list is written down rather than globbed."""
+    assert sorted(p.name for p in shell.scripts_dir().glob("*.sh")) == [
+        COMMON,
+        "env.sh",
+        "tdd-env.sh",
+        "venv.sh",
+    ]
+    assert not (shell.scripts_dir() / "pycache.sh").exists()
 
 
 def test_env_routes_set_unset_show_and_owns_every_managed_variable():
@@ -489,7 +491,7 @@ def test_every_shell_command_with_defaults_has_the_config_action():
     # --force rewrites the template but keeps what the file set and what it keeps
     assert '_tdd_config_template "$_tdd_cfg_cmd" $_tdd_cfg_keepcur' in common
     assert "keep = ($0 !~ /^\\[options[].]/)" in common
-    for name in ("venv", "env", "pycache", "tdd-env"):
+    for name in ("venv", "env", "tdd-env"):
         text = (shell.scripts_dir() / f"{name}.sh").read_text()
         assert f"_tdd_config_action {name}" in text, name
         assert f"tdd_defaults_{name}()" in text, name
@@ -653,7 +655,6 @@ def test_every_shell_command_helps_the_way_argparse_does(tmp_path):
     helps = {
         "venv": "_tdd_venv_help",
         "env": "_tdd_vars_help",
-        "pycache": "_tdd_pycache_help",
         "tdd-env": "_tdd_env_help",
     }
     for name, stem in helps.items():
@@ -776,7 +777,7 @@ def test_the_defaults_command_is_gone_in_favour_of_config():
     # defaults live in its own <command>.toml, reached through its own `config`
     text = shell.source_template()
     assert "default-opts" not in text and "defaults.sh" not in text
-    for name in ("venv", "env", "pycache", "tdd-env"):
+    for name in ("venv", "env", "tdd-env"):
         assert "_tdd_config_action" in (shell.scripts_dir() / f"{name}.sh").read_text()
 
 

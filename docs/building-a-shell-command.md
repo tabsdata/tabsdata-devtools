@@ -7,7 +7,7 @@ Copyright 2026 Tabsdata Inc.
 A shell command is a function sourced into the caller's shell. Write one only for what an
 executable cannot do: change the current shell -- enter or leave a venv, export a variable, `cd`.
 Anything else is a Python command. Each command is one file under
-`packages/tabsdata-dev-shell/scripts/unix/`; copy `pycache.sh`, the smallest one. Options, exit codes and output
+`packages/tabsdata-dev-shell/scripts/unix/`; copy `tdd-env.sh`, the smallest one. Options, exit codes and output
 follow [command-cli-guidelines.md](command-cli-guidelines.md).
 
 ## 1. Register and define
@@ -100,7 +100,7 @@ itself never checks anything.
 
 Beside the script, with the house header, short: why it has to be a shell command, what it
 changes in the shell and how (variables, prompt, files), and the decisions a reader cannot see
-from the code. Do not repeat `--help`. `pycache.design.md` is the smallest real example; a test
+from the code. Do not repeat `--help`. `tdd-env.design.md` is the smallest real example; a test
 fails when a script has none.
 
 ## 4. Write for both shells

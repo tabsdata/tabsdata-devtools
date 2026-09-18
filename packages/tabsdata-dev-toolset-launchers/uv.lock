@@ -132,6 +132,20 @@ requires-dist = [
 ]
 
 [[package]]
+name = "tabsdata-dev-tool-pycache"
+source = { editable = "../tabsdata-dev-tool-pycache" }
+dependencies = [
+    { name = "tabsdata-dev-common-core" },
+    { name = "tabsdata-dev-deps-launchers" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "tabsdata-dev-common-core", editable = "../tabsdata-dev-common-core" },
+    { name = "tabsdata-dev-deps-launchers", editable = "../tabsdata-dev-deps-launchers" },
+]
+
+[[package]]
 name = "tabsdata-dev-tool-smoke"
 source = { editable = "../tabsdata-dev-tool-smoke" }
 dependencies = [
@@ -180,6 +194,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "tabsdata-dev-deps-launchers" },
     { name = "tabsdata-dev-tool-km" },
+    { name = "tabsdata-dev-tool-pycache" },
     { name = "tabsdata-dev-tool-smoke" },
     { name = "tabsdata-dev-tool-tdk" },
     { name = "tabsdata-dev-tool-tdkserver" },
@@ -189,6 +204,7 @@ dependencies = [
 requires-dist = [
     { name = "tabsdata-dev-deps-launchers", editable = "../tabsdata-dev-deps-launchers" },
     { name = "tabsdata-dev-tool-km", editable = "../tabsdata-dev-tool-km" },
+    { name = "tabsdata-dev-tool-pycache", editable = "../tabsdata-dev-tool-pycache" },
     { name = "tabsdata-dev-tool-smoke", editable = "../tabsdata-dev-tool-smoke" },
     { name = "tabsdata-dev-tool-tdk", editable = "../tabsdata-dev-tool-tdk" },
     { name = "tabsdata-dev-tool-tdkserver", editable = "../tabsdata-dev-tool-tdkserver" },

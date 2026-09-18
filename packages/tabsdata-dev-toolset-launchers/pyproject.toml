@@ -12,6 +12,7 @@ requires-python = ">=3.11"
 dependencies = [
     "tabsdata-dev-deps-launchers",
     "tabsdata-dev-tool-km",
+    "tabsdata-dev-tool-pycache",
     "tabsdata-dev-tool-smoke",
     "tabsdata-dev-tool-tdk",
     "tabsdata-dev-tool-tdkserver",
@@ -20,6 +21,7 @@ dependencies = [
 [tool.uv.sources]
 tabsdata-dev-deps-launchers = { path = "../tabsdata-dev-deps-launchers", editable = true }
 tabsdata-dev-tool-km = { path = "../tabsdata-dev-tool-km", editable = true }
+tabsdata-dev-tool-pycache = { path = "../tabsdata-dev-tool-pycache", editable = true }
 tabsdata-dev-tool-smoke = { path = "../tabsdata-dev-tool-smoke", editable = true }
 tabsdata-dev-tool-tdk = { path = "../tabsdata-dev-tool-tdk", editable = true }
 tabsdata-dev-tool-tdkserver = { path = "../tabsdata-dev-tool-tdkserver", editable = true }

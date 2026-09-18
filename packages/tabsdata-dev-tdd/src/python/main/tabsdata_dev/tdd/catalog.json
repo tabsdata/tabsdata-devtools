@@ -1,10 +1,11 @@
 {
-  "fingerprint": "a4ec0a0ff4b8e5ee",
+  "fingerprint": "dbe4d31379619ebb",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
       "tabsdata-dev-deps-launchers",
       "tabsdata-dev-tool-km",
+      "tabsdata-dev-tool-pycache",
       "tabsdata-dev-tool-smoke",
       "tabsdata-dev-tool-tdk",
       "tabsdata-dev-tool-tdkserver"
@@ -42,15 +43,6 @@
         "awk"
       ],
       "summary": "set, unset or show this shell's crypto key, 1Password secrets, TD_ and Python index variables"
-    },
-    "pycache": {
-      "file": "pycache.sh",
-      "reqs": [
-        "jq",
-        "awk",
-        "uv"
-      ],
-      "summary": "clean the uv and pip caches, by package prefix (default tabsdata) or all of it"
     },
     "tdd-env": {
       "file": "tdd-env.sh",
@@ -114,6 +106,19 @@
         "pyenv"
       ],
       "summary": "run tabsdata's km CLI inside the managed venv named by $_TDD_VENV",
+      "toolset": "launchers"
+    },
+    "pycache": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "hidden": false,
+      "launcher": false,
+      "package": "tabsdata-dev-tool-pycache",
+      "reqs": [
+        "uv"
+      ],
+      "summary": "clean the uv and pip caches, by package prefix (default tabsdata) or all of it",
       "toolset": "launchers"
     },
     "pypi": {
