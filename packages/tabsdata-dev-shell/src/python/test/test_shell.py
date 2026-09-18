@@ -958,3 +958,85 @@ def test_the_powershell_files_parse():
     )
     assert done.returncode == 0, done.stdout or done.stderr
     assert len(files) == 5 and all(f.is_file() for f in files)
+
+
+def _masked(shell_bin: str, name: str, value: str) -> str:
+    """The `show` row one half produces for a set, secret-named variable."""
+    import os
+    import subprocess
+
+    if shell_bin == "pwsh":
+        script = (
+            f". '{_ps_dir() / PS_COMMON}'\n"
+            "function tdd_fn_register { param($Name, $Summary) }\n"
+            f". '{_ps_dir() / 'env.ps1'}'\n"
+            "_tdd_cmd_reset\n"
+            "$rows = [System.Collections.Generic.List[string]]::new()\n"
+            "$vars = [System.Collections.Generic.List[object]]::new()\n"
+            f"_tdd_vars_show_row '{name}' 'td' $false $rows $vars\n"
+            "[Console]::Out.WriteLine($rows[0])\n"
+        )
+        argv = [shell_bin, "-NoProfile", "-Command", script]
+    else:
+        script = (
+            f'. "{shell.scripts_dir() / COMMON}"\n'
+            f'. "{shell.scripts_dir() / "env.sh"}" 2>/dev/null\n'
+            "_tdd_cmd_reset\n"
+            "_tdd_reveal=0; _tdd_rows=''; _tdd_json=''\n"
+            f"_tdd_vars_show_row {name} td\n"
+            'printf "%s" "$_tdd_rows"\n'
+        )
+        argv = [shell_bin, "-c", script]
+    # Each half refuses to load without the path to its own shared layer: that
+    # is how a command file says what it depends on.
+    done = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            name: value,
+            "NO_COLOR": "1",
+            "_TDD_COMMON_SH": str(shell.scripts_dir() / COMMON),
+            "_TDD_COMMON_PS1": str(_ps_dir() / PS_COMMON),
+        },
+    )
+    assert done.returncode == 0, done.stderr or done.stdout
+    return done.stdout.strip()
+
+
+def test_a_multi_line_secret_is_masked_once_not_once_per_line():
+    """`show` masked with `cut -c1-2`, which is line-oriented: a certificate
+    came back as the first two characters of EVERY line, so four readable lines
+    of it printed in a listing whose only job is to mask -- and the same string
+    went into the json `value`. Two characters of the whole value now, whatever
+    it contains, and the same in both halves.
+
+    The test beside this one greps the source for the name patterns, which is
+    exactly why this survived: nothing ran the masking."""
+    import shutil
+
+    import pytest
+
+    pem = (
+        "-----BEGIN CERTIFICATE-----\nMIIBsecretmaterial\n"
+        "AAAAmoreofit\n-----END CERTIFICATE-----"
+    )
+    cases = {
+        "TD_MASKTEST_PEM": (pem, "--****"),
+        "TD_MASKTEST_PASSWORD": ("hunter2", "hu****"),
+        "TD_MASKTEST_KEY": ("x", "x****"),  # shorter than the prefix: shown whole
+        "TD_MASKTEST_TOKEN": ("", "****"),
+    }
+    halves = ["bash", "zsh"]
+    if shutil.which("pwsh"):
+        halves.append("pwsh")
+    for shell_bin in halves:
+        if shutil.which(shell_bin) is None:
+            continue
+        for name, (value, want) in cases.items():
+            row = _masked(shell_bin, name, value)
+            assert row == f"{name}={want}", (shell_bin, name, row)
+            assert "\n" not in row, (shell_bin, name, row)
+    if "pwsh" not in halves:
+        pytest.skip("pwsh not installed; the POSIX half was still checked")

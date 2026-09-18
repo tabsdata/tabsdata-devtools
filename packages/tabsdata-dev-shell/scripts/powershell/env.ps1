@@ -668,10 +668,12 @@ function _tdd_vars_show_row {
         $secretish = @('*PASSWORD*', '*SECRET*', '*TOKEN*', '*KEY*', '*PASS*', '*_PAT', '*_PAT_*', '*_PEM*', '*PEM_*')
         $hit = ($Name -ceq $global:_TDD_VARS_CRYPTO)
         foreach ($pattern in $secretish) { if ($Name -clike $pattern) { $hit = $true } }
-        # Two characters of the whole value, not of every line of it: the POSIX
-        # half masks with `cut -c1-2`, which is line-oriented and hands back the
-        # first two characters of each line of a multi-line secret -- four
-        # readable lines of a certificate in what is meant to be a mask.
+        # Two characters of the whole value, not of every line of it. The POSIX
+        # half masked with `cut -c1-2`, which is line-oriented and handed back
+        # the first two characters of each line of a multi-line secret -- four
+        # readable lines of a certificate in what is meant to be a mask. Writing
+        # this half is what found it; both do the same thing now, and a test
+        # runs the masking in both rather than grepping for it.
         if ($hit) { $shown = $val.Substring(0, [Math]::Min(2, $val.Length)) + '****' }
     }
     $Rows.Add("    $Name=$shown")

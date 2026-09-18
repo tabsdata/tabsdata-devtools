@@ -86,7 +86,7 @@ tddfn_env() {
             _tdd_rc=1
             ;;
     esac
-    unset _tdd_sub _tdd_crypto _tdd_secrets _tdd_td _tdd_prefixes _tdd_py_extra _tdd_py_default _tdd_vault _tdd_item _tdd_field _tdd_value _tdd_reveal \
+    unset _tdd_sub _tdd_crypto _tdd_secrets _tdd_td _tdd_prefixes _tdd_py_extra _tdd_py_default _tdd_vault _tdd_item _tdd_field _tdd_value _tdd_reveal _tdd_rest \
         _tdd_force _tdd_kept _tdd_args _tdd_lines _tdd_err _tdd_names _tdd_n _tdd_json _tdd_v _tdd_p _tdd_rows _tdd_set_names _tdd_unset_names _tdd_row _tdd_val _tdd_shown
     return "$_tdd_rc"
 }
@@ -465,7 +465,22 @@ _tdd_vars_show_row() {
         # masked non-secret costs nothing -- --reveal prints the value.
         case "$1" in
             "$_TDD_VARS_CRYPTO" | *PASSWORD* | *SECRET* | *TOKEN* | *KEY* | *PASS* | *_PAT | *_PAT_* | *_PEM* | *PEM_*)
-                _tdd_shown="$(printf '%s' "$_tdd_val" | cut -c1-2)****" ;;
+                # Two characters of the WHOLE value, not of every line of it.
+                # This was `cut -c1-2`, which is line-oriented: a multi-line
+                # secret came back as the first two characters of each of its
+                # lines, so a masked certificate printed four readable lines --
+                # in a listing whose only job is to mask, and into the json
+                # `value` field with them. Parameter expansion instead, so
+                # there is no subprocess and no tool whose idea of a line
+                # matters. A value shorter than two characters has no second
+                # character to strip, and is shown whole before the stars, the
+                # same as the PowerShell half's Substring(0, min(2, length)).
+                _tdd_rest="${_tdd_val#??}"
+                if [ "$_tdd_rest" = "$_tdd_val" ]; then
+                    _tdd_shown="$_tdd_val****"
+                else
+                    _tdd_shown="${_tdd_val%"$_tdd_rest"}****"
+                fi ;;
         esac
     fi
     _tdd_rows="$_tdd_rows    $1=$_tdd_shown
