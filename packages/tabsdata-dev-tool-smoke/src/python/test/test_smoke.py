@@ -313,16 +313,21 @@ def test_the_failure_report_names_only_what_the_run_actually_built(tmp_path):
     import subprocess
 
     common = smoke.scripts_dir() / "_common.sh"
+    # A name no real run would take: the report asks the machine's own
+    # process table whether the instance is running (pgrep -f
+    # "instances/<name>/"), so a fixture sharing a name with a live smoke
+    # run is told its instance is up, and the test fails on whatever the
+    # developer happens to have open.
     home = tmp_path / "home"
     tdd = tmp_path / "tdd"
-    venv = tdd / "managed-venvs" / "pyenv" / "sm_foo"
-    instance = home / ".tabsdata" / "instances" / "sm_foo"
+    venv = tdd / "managed-venvs" / "pyenv" / "sm_fixture_notarealrun"
+    instance = home / ".tabsdata" / "instances" / "sm_fixture_notarealrun"
 
     def report(domains: str = "") -> list[str]:
         script = (
             '. "%s"\n'
-            'TDD_DIR_OPT="%s"; INSTANCE=sm_foo; VENV=sm_foo; VENV_TYPE=pyenv\n'
-            'SERVER=127.0.0.1:2457; NAMES_PREFIX=sm_foo; SMOKE_DOMAINS="%s"\n'
+            'TDD_DIR_OPT="%s"; INSTANCE=sm_fixture_notarealrun; VENV=sm_fixture_notarealrun; VENV_TYPE=pyenv\n'
+            'SERVER=127.0.0.1:2457; NAMES_PREFIX=sm_fixture_notarealrun; SMOKE_DOMAINS="%s"\n'
             'common_init "%s" 0\n'
             "common_tabsdata_setup_info common_indented\n"
         ) % (common, tdd, domains, tmp_path / "log")
@@ -345,21 +350,27 @@ def test_the_failure_report_names_only_what_the_run_actually_built(tmp_path):
     # the venv alone: its own delete, and nothing about an instance
     venv.mkdir(parents=True)
     lines = report()
-    assert "remove     tdd venv delete --name sm_foo" in lines
+    assert "remove     tdd venv delete --name sm_fixture_notarealrun" in lines
     assert not [
         ln for ln in lines if ln.startswith("instance") or ln.startswith("nothing")
     ], lines
 
     # both, plus a domain the script says it created
     instance.mkdir(parents=True)
-    lines = report(domains="sm_foo__gcppostgres")
-    assert [ln for ln in lines if ln.startswith("instance   sm_foo -- not running")], (
-        lines
-    )
-    assert [ln for ln in lines if ln.startswith("venv       sm_foo (pyenv)")], lines
-    assert [ln for ln in lines if ln.startswith("domain     sm_foo__gcppostgres --")], (
-        lines
-    )
+    lines = report(domains="sm_fixture_notarealrun__gcppostgres")
+    assert [
+        ln
+        for ln in lines
+        if ln.startswith("instance   sm_fixture_notarealrun -- not running")
+    ], lines
+    assert [
+        ln for ln in lines if ln.startswith("venv       sm_fixture_notarealrun (pyenv)")
+    ], lines
+    assert [
+        ln
+        for ln in lines
+        if ln.startswith("domain     sm_fixture_notarealrun__gcppostgres --")
+    ], lines
     assert [
         ln for ln in lines if "tdkserver delete" in ln and "tdd venv delete" in ln
     ], lines
@@ -1031,10 +1042,13 @@ def test_km_puts_the_index_back_for_the_pods_to_inherit():
     lines = text.splitlines()
 
     unset = next(i for i, ln in enumerate(lines) if "tdd env unset --py-idx" in ln)
+    crypto = next(i for i, ln in enumerate(lines) if "tdd env set --crypto" in ln)
     put_back = next(
         i for i, ln in enumerate(lines) if 'tdd env set --py-idx "$UV_INDEX_URI"' in ln
     )
-    assert unset < put_back, (unset, put_back)
+    # after the unset that cleared them, and after set-crypto, so the stage
+    # sits where the run's own environment has settled
+    assert unset < crypto < put_back, (unset, crypto, put_back)
 
     # only when there is an index to put back, in the stage list and in the body
     assert (
@@ -1053,6 +1067,10 @@ def test_km_puts_the_index_back_for_the_pods_to_inherit():
     if env_sh.is_file():  # same wheel only in a checkout
         assert "UV_INDEX_STRATEGY" in env_sh.read_text()
 
+    # and it says so on screen, the way the psycopg2 workaround does: the stage
+    # passes and a yellow remark says what was done and why
+    remark = next(ln for ln in lines if "common_remark" in ln and "tdkserver" in ln)
+    assert "workaround:" in remark and "does not reach the pods" in remark
     # and the reason is written down where the next reader will be
     assert "UV_INDEX = <unset>" in text and "ins-pymanager" in text
     for version in ("2.0.0", "2.0.1", "2.1.0"):
