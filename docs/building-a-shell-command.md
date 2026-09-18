@@ -4,11 +4,24 @@ Copyright 2026 Tabsdata Inc.
 
 # Building a shell command
 
-A shell command is a function sourced into the caller's shell. Write one only for what an
+A shell command is a function loaded into the caller's shell. Write one only for what an
 executable cannot do: change the current shell -- enter or leave a venv, export a variable, `cd`.
-Anything else is a Python command. Each command is one file under
-`packages/tabsdata-dev-shell/scripts/unix/`; copy `tdd-env.sh`, the smallest one. Options, exit codes and output
-follow [command-cli-guidelines.md](command-cli-guidelines.md).
+Anything else is a Python command (`pycache` was a shell command for years on no better ground
+than sitting beside `venv`, and is a tool now).
+
+**Each command is written twice**, once per shell family, with the same name, the same summary,
+the same options, the same events and the same JSON fields:
+
+```
+packages/tabsdata-dev-shell/scripts/unix/<name>.sh          POSIX sh: bash 3.2 and zsh
+packages/tabsdata-dev-shell/scripts/powershell/<name>.ps1   PowerShell 7
+```
+
+A family is the shell the reader is in, not the machine they are on: pwsh runs on macOS, Linux and
+Windows, and `tdd-install` writes both loaders into every tdd dir. The generator refuses to build
+when the two drift, and a test compares them. Copy `tdd-env.sh` and `tdd-env.ps1`, the smallest
+pair. Options, exit codes and output follow
+[command-cli-guidelines.md](command-cli-guidelines.md).
 
 ## 1. Register and define
 
@@ -98,22 +111,50 @@ itself never checks anything.
 
 ## 3. Write `<name>.design.md`
 
-Beside the script, with the house header, short: why it has to be a shell command, what it
-changes in the shell and how (variables, prompt, files), and the decisions a reader cannot see
-from the code. Do not repeat `--help`. `tdd-env.design.md` is the smallest real example; a test
-fails when a script has none.
+One per command, not one per family: it describes the command, and lives beside the POSIX file
+(`scripts/unix/<name>.design.md`), which the generator treats as canonical. House header, short:
+why it has to be a shell command at all, what it changes in the shell and how (variables, prompt,
+files), the decisions a reader cannot see from the code, and anything that had to differ between
+the two families. Do not repeat `--help`. `tdd-env.design.md` is the smallest real example; a
+test fails when a command has none.
 
-## 4. Write for both shells
+## 4. Write for every shell
 
-Everything runs unmodified in **bash 3.2** and **zsh**: no arrays, no `[[ ]]`-only features, no
-process substitution; prefix temporaries with `_tdd_` and `unset` them before returning (a
-sourced function leaks into the user's shell); quote every expansion (zsh does not word-split, so
-build single tokens like `--dir=$x`); `return` a code, never `exit`; use `$TDD_DIR` for the tdd dir.
+**POSIX (`scripts/unix/<name>.sh`).** Everything runs unmodified in **bash 3.2** and **zsh**: no
+arrays, no `[[ ]]`-only features, no process substitution; prefix temporaries with `_tdd_` and
+`unset` them before returning (a sourced function leaks into the user's shell); quote every
+expansion (zsh does not word-split, so build single tokens like `--dir=$x`); `return` a code,
+never `exit`; use `$TDD_DIR` for the tdd dir.
+
+**PowerShell (`scripts/powershell/<name>.ps1`).** The same command over `common.ps1`, which
+carries the same helpers under the same names. Three things differ, and only these:
+
+| | POSIX | PowerShell |
+|---|---|---|
+| status | `return 0` / `return 1` | `$_TDD_RC`, never a return value |
+| the file | `. "${_TDD_COMMON_SH...}"` | `if (-not $global:_TDD_COMMON_LOADED) { . $env:_TDD_COMMON_PS1 }` |
+| the entry point | `tddfn_<name>() { ... "$@" }` | `function tddfn_<name> { param([string[]]$Argv) }` |
+
+Status is the one that bites. In PowerShell everything a function writes to the success stream
+*is* its return value, so a `return 1` beside an ok message puts a stray `1` in the caller's
+output -- and `$x = tdd venv list` would swallow the message along with it. So the ok message is
+the only thing on the success stream, and status goes in `$_TDD_RC`: write
+`_tdd_cmd_check; if (_tdd_failed) { return }`, and let `_tdd_ok`/`_tdd_error` set it. A test
+fails on a `return 0` or `return 1` in a command file.
+
+Write for every platform pwsh runs on: `Join-Path` rather than `/`, `[IO.Path]::PathSeparator`
+rather than `:`, and the loader's `_tdd_venv_bin`/`_tdd_venv_exe` for a venv's executables --
+`bin/` and `python` on Unix, `Scripts\` and `python.exe` on Windows. `common.ps1` needs no
+external binary at all (it has `ConvertTo-Json`, and the help layout is written out), which is
+why there is no `common.bin-reqs.txt` in that directory and why the two families' requirements
+differ: a command's own `bin-reqs.txt` must be identical in both, because what it shells out to
+is the command's business, not the shell's.
 
 ## 5. Test and run
 
-`packages/tabsdata-dev-shell/src/python/test/test_shell.py` checks the conventions statically;
-add a case when your command has structure worth pinning. In an editable install a saved edit is
+`packages/tabsdata-dev-shell/src/python/test/test_shell.py` checks the conventions statically for
+both families -- including that they register the same commands with the same summaries, and that
+every `.ps1` parses under pwsh -- ; add a case when your command has structure worth pinning. In an editable install a saved edit is
 live for the next shell that sources `tdd-source.sh` (re-`source` the current one); adding or
 renaming a file needs `cargo make gen` (or any install) so the catalog knows it. `tddsrc.sh` is
 the exception -- `<tdd_dir>/tdd-source.sh` is a copy written at install, so an edit to the loader

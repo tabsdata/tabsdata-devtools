@@ -11,6 +11,7 @@ prerequisites is exactly when no environment exists yet.
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 import shutil
@@ -18,6 +19,26 @@ import subprocess
 
 from . import catalog as catalog_mod
 from . import render
+
+#: Which shell family's requirements a shell command is checked against. Each
+#: loader exports it, so `tdd --reqs` under PowerShell does not ask for the
+#: POSIX half's `jq` and `awk`. Unset -- nothing sourced, a bare `tdd-exe` --
+#: means the POSIX half, which is what a machine without pwsh has.
+FAMILY_ENV = "_TDD_SHELL_FAMILY"
+DEFAULT_FAMILY = "unix"
+
+
+def shell_family() -> str:
+    return os.environ.get(FAMILY_ENV, "").strip() or DEFAULT_FAMILY
+
+
+def entry_reqs(entry: dict, family: str) -> list[str]:
+    """A catalog entry's binaries. A tool's are one list; a shell command's are
+    per family, since the two halves' shared helpers differ."""
+    reqs = entry.get("reqs", [])
+    if isinstance(reqs, dict):
+        return reqs.get(family, reqs.get(DEFAULT_FAMILY, []))
+    return reqs
 
 
 # Version managers whose shims stand in for every program any of their
@@ -117,10 +138,12 @@ def check(tool: str | None, out: render.Renderer) -> int:
     else:
         selected = entries
 
+    family = shell_family()
+    out.debug(f"shell family: {family}")
     missing: list[str] = []
     checked = 0
     for name, (entry, label) in sorted(selected.items()):
-        reqs = entry.get("reqs", [])
+        reqs = entry_reqs(entry, family)
         if not reqs:
             out.info(f"{name}{label}: no external requirements", command_name=name)
             continue

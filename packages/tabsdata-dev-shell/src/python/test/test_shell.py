@@ -792,3 +792,169 @@ def test_the_shell_paints_help_the_way_the_python_half_does():
     # and `tdd -h` is one of its callers rather than a second painter: it prints
     # the engine's output straight out, the way a command's help does
     assert "_tdd_help_text <<HELP" in shell.source_template()
+
+
+# ------------------------------------------------------------ the powershell half
+# The same commands, written twice. A family is the shell the user is in, not
+# the operating system they are on: PowerShell 7 runs on macOS, Linux and
+# Windows, so these files are as much a mac developer's as a Windows one's.
+
+PS_COMMON = "common.ps1"
+
+
+def _ps_dir():
+    return shell.scripts_dir(shell.POWERSHELL)
+
+
+def _ps_command_files():
+    return [p for p in _ps_dir().glob("*.ps1") if p.name != PS_COMMON]
+
+
+def _registered_summaries(paths) -> dict[str, str]:
+    import re
+
+    found = {}
+    for path in paths:
+        for line in path.read_text().splitlines():
+            match = re.match(r'^tdd_fn_register\s+(\S+)\s+"([^"]*)"', line)
+            if match:
+                found[match.group(1)] = match.group(2)
+    return found
+
+
+def test_both_families_register_the_same_commands_with_the_same_summaries():
+    """One command, written twice. The generator refuses to build when these
+    drift, because `tdd help` has to read the same whichever shell you are in;
+    this says so at the level a reader can fix."""
+    unix = _registered_summaries(_command_files())
+    powershell = _registered_summaries(_ps_command_files())
+    assert powershell == unix, {
+        "only in unix": sorted(set(unix) - set(powershell)),
+        "only in powershell": sorted(set(powershell) - set(unix)),
+    }
+
+
+def test_every_powershell_command_loads_the_shared_layer_and_defines_its_pair():
+    for path in _ps_command_files():
+        text = path.read_text()
+        name = next(iter(_registered_summaries([path])))
+        assert "$env:_TDD_COMMON_PS1" in text, f"{path.name} does not load common.ps1"
+        assert f"function tddfn_{name}" in text, f"{path.name} defines no tddfn_{name}"
+        assert f"function tdd_defaults_{name}" in text, f"{path.name} has no defaults"
+        assert "_tdd_help_text" in text, f"{path.name} has no help text"
+
+
+def test_powershell_commands_speak_events_and_never_the_host():
+    """The guidelines' rule in this family's terms: a command emits events and
+    nothing else. Write-Host cannot be captured or redirected, and a bare
+    Write-Output at statement level is a message that bypassed the renderer --
+    and, worse here, becomes part of the function's return value."""
+    for path in _ps_command_files() + [_ps_dir() / PS_COMMON]:
+        text = path.read_text()
+        assert "Write-Host" not in text, f"{path.name} writes to the host"
+        for helper in ("_tdd_ok", "_tdd_error"):
+            assert helper in text, f"{path.name} does not call {helper}"
+
+
+def test_powershell_status_never_travels_as_a_return_value():
+    """In PowerShell a function's success-stream output IS its return value, so
+    `return 1` next to an ok message puts a stray 1 in the caller's output and
+    an assigning caller swallows the message. Status goes in $_TDD_RC."""
+    import re
+
+    for path in _ps_command_files():
+        text = path.read_text()
+        stray = [
+            line.strip()
+            for line in text.splitlines()
+            if re.search(r"\breturn\s+[01]\b", line)
+        ]
+        assert not stray, f"{path.name} returns a status: {stray}"
+        assert "_TDD_RC" in text or "_tdd_failed" in text, (
+            f"{path.name} never consults the status"
+        )
+
+
+def test_the_powershell_family_needs_no_external_binary_of_its_own():
+    """The one difference between the families' requirements: the POSIX half
+    builds its JSON with jq and lays out its help with awk, and declares both
+    beside common.sh. PowerShell has ConvertTo-Json and the layout is written
+    out, so there is no common.bin-reqs.txt here -- and a command's own
+    declarations are then exactly what it needs."""
+    assert not (_ps_dir() / "common.bin-reqs.txt").exists()
+    text = (_ps_dir() / PS_COMMON).read_text()
+    assert "ConvertTo-Json" in text and "_tdd_help_text" in text
+
+
+def test_every_powershell_bin_reqs_file_sits_beside_its_script():
+    for reqs in _ps_dir().glob("*.bin-reqs.txt"):
+        stem = reqs.name[: -len(".bin-reqs.txt")]
+        assert (reqs.parent / f"{stem}.ps1").is_file(), f"{reqs.name} has no {stem}.ps1"
+
+
+def test_a_command_declares_the_same_binaries_in_both_families():
+    """What a command shells out to is the command's, not the shell's: `venv`
+    drives pyenv, uv and conda whichever half is running it."""
+    for path in _ps_command_files():
+        stem = path.stem
+        ps_file = _ps_dir() / f"{stem}.bin-reqs.txt"
+        unix_file = shell.scripts_dir() / f"{stem}.bin-reqs.txt"
+        ps_reqs = _bin_reqs(ps_file) if ps_file.exists() else []
+        unix_reqs = _bin_reqs(unix_file) if unix_file.exists() else []
+        assert ps_reqs == unix_reqs, stem
+
+
+def test_both_loader_templates_ship_and_carry_the_placeholder():
+    for family in shell.FAMILIES:
+        assert "__TDD_DIR__" in shell.source_template(family), family
+    assert sorted(shell.INSTALLED.values()) == ["tdd-source.ps1", "tdd-source.sh"]
+
+
+def test_the_powershell_loader_loads_at_its_own_top_level():
+    """PowerShell dot-sources into the *current* scope, so a `. $file` inside a
+    function defines that file's functions in the function and loses them on
+    return -- which left every helper unreachable until it was caught by
+    running it. The load is this file's own top-level business."""
+    text = shell.source_template(shell.POWERSHELL)
+    body = text.split("function tdd {", 1)[0]
+    for inside in ("_tdd_locate_common", "_tdd_load_commands"):
+        assert f"function {inside}" not in text, f"{inside} would load into itself"
+    assert ". $env:_TDD_COMMON_PS1" in body
+    assert ". $_tdd_file.FullName" in text
+
+
+def test_the_powershell_files_parse():
+    """A syntax error in a dot-sourced file breaks the session that loads it,
+    and nothing else here would catch one. Skipped where pwsh is not installed;
+    the family still ships, it is just not parsed on this machine."""
+    import shutil
+    import subprocess
+
+    import pytest
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("pwsh not installed")
+    files = [
+        _ps_dir() / PS_COMMON,
+        *_ps_command_files(),
+        shell._root() / shell.TEMPLATES[shell.POWERSHELL],
+    ]
+    # The paths go inside the script rather than after it: `--` following
+    # `-Command` is read as PowerShell's unary operator, not as an end-of-flags
+    # marker, so an argument list there never arrives -- this test passed on an
+    # empty file list until that was noticed.
+    listing = ",".join("'" + str(f).replace("'", "''") + "'" for f in files)
+    script = (
+        f"foreach ($f in @({listing})) {{"
+        "  $errors = $null;"
+        "  [System.Management.Automation.Language.Parser]::ParseFile("
+        "    $f, [ref]$null, [ref]$errors) | Out-Null;"
+        '  if ($errors) { Write-Output "$f : $($errors[0])"; exit 1 }'
+        "}"
+    )
+    done = subprocess.run(
+        [pwsh, "-NoProfile", "-Command", script], capture_output=True, text=True
+    )
+    assert done.returncode == 0, done.stdout or done.stderr
+    assert len(files) == 5 and all(f.is_file() for f in files)

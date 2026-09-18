@@ -23,9 +23,12 @@ sources = ["src/python/main"]
 
 # The repo keeps these where a shell author expects them; the wheel carries
 # them as package data so they can be located through importlib.resources.
+# `scripts` brings every family's directory across in one line; each loader is
+# named, because they sit at the package root beside this file.
 [tool.hatch.build.targets.wheel.force-include]
 "scripts" = "tabsdata_dev/shell/scripts"
 "tddsrc.sh" = "tabsdata_dev/shell/tddsrc.sh"
+"tddsrc.ps1" = "tabsdata_dev/shell/tddsrc.ps1"
 
 [tool.pytest.ini_options]
 testpaths = ["src/python/test"]

@@ -73,3 +73,23 @@ shell command.
   line in `venv.toml` (`relocatable = true` under `[options.create]`) rather than a flag on
   every create.
 - `bin-reqs`: `pyenv`, `uv`, `conda`.
+
+## The PowerShell twin
+
+`scripts/powershell/venv.ps1` is the same command, option for option and event for event. Three
+things could not be spelled the same way:
+
+- **The prompt is a function, not a string.** `_TDD_VENV_PROMPT` holds the *scriptblock* that was
+  in effect before activation where the POSIX half holds the text of `PS1`, and deactivation
+  restores it with `Set-Item function:global:prompt` rather than by cutting its own marker out of
+  a string. Adoption has no string to cut either, so it takes the prompt the tool itself saved
+  (`_old_virtual_prompt`, or conda's `CondaPromptBackup`) and, like the POSIX half, installs no
+  marker of its own.
+- **`env -u` has no equivalent**, so `UV_VENV_RELOCATABLE` is saved, cleared and restored in a
+  `finally` instead of being unset for one call.
+- **A helper that emits an event cannot also return one.** Every event goes to the success
+  stream in `--format json`, so `_tdd_venv_resolve` is inlined into its callers and
+  `_tdd_venv_enter` hands back the venv it left through a variable.
+
+`activate.ps1` and `Activate.ps1` are both looked for: uv writes the first, `python -m venv` the
+second, and on a case-sensitive filesystem those are two names.

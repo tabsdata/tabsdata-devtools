@@ -11,6 +11,7 @@ stream of events and a failure is one error with uv's output in the log.
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import subprocess
@@ -306,32 +307,45 @@ def _finish(dir_: pathlib.Path, catalog: dict, out: render.Renderer) -> int:
 
 
 def _write_source(dir_: pathlib.Path, out: render.Renderer) -> pathlib.Path | None:
-    """Install tdd-source.sh, with this tdd dir baked in.
+    """Install one loader per shell family, with this tdd dir baked in.
 
-    The template ships inside the shell package, so it is versioned with the
-    commands it loads. Baking the dir is what lets several tdd dirs each have a
-    tdd-source.sh that points at itself.
+    The templates ship inside the shell package, so they are versioned with the
+    commands they load. Baking the dir is what lets several tdd dirs each have
+    a loader that points at itself.
+
+    Both families are written, always: which shell someone will open is not the
+    installer's to guess, a loader is a few kilobytes, and the alternative --
+    write one, tell the other to reinstall -- fails exactly when a teammate
+    opens the other shell. What this returns is the POSIX one, because
+    `source tdd-source.sh` is what the install message tells the reader to run.
     """
     python = paths.venvs_dir(dir_) / SHELL_ENV / "bin" / "python"
     if not python.is_file():
-        out.warn("shell env missing; tdd-source.sh not written")
+        out.warn("shell env missing; no tdd-source loader written")
         return None
 
     found = subprocess.run(
         [
             str(python),
             "-c",
-            "from tabsdata_dev.shell import source_template;"
-            "print(source_template(), end='')",
+            "import json;"
+            "from tabsdata_dev import shell;"
+            "print(json.dumps({f: [shell.INSTALLED[f], shell.source_template(f)]"
+            " for f in shell.FAMILIES}))",
         ],
         capture_output=True,
         text=True,
     )
     if found.returncode != 0:
-        out.warn(f"tdd-source.sh not written: {found.stderr.strip()}")
+        out.warn(f"no tdd-source loader written: {found.stderr.strip()}")
         return None
 
-    target = dir_ / SOURCE_NAME
-    target.write_text(found.stdout.replace("__TDD_DIR__", str(dir_)))
-    target.chmod(0o644)
-    return target
+    posix: pathlib.Path | None = None
+    for family, (name, template) in sorted(json.loads(found.stdout).items()):
+        target = dir_ / name
+        target.write_text(template.replace("__TDD_DIR__", str(dir_)))
+        target.chmod(0o644)
+        out.debug(f"wrote {target}", family=family)
+        if name == SOURCE_NAME:
+            posix = target
+    return posix

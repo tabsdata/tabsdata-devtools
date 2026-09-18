@@ -39,7 +39,8 @@ def test_discover_real_repo():
 
 def test_a_disabled_tool_is_skipped_whole(tmp_path):
     pkgs = tmp_path / "packages"
-    (pkgs / "tabsdata-dev-shell" / "scripts" / "unix").mkdir(parents=True)
+    for family in discover.SHELL_FAMILIES:
+        (pkgs / "tabsdata-dev-shell" / "scripts" / family).mkdir(parents=True)
     (pkgs / "tabsdata-dev-deps-d").mkdir()
     for name, marker in (("a", ""), ("b", "[tool.tdd]\ndisabled = true\n")):
         pkg = pkgs / f"tabsdata-dev-tool-{name}"
@@ -55,19 +56,56 @@ def test_a_disabled_tool_is_skipped_whole(tmp_path):
 
 
 def test_shell_commands_and_their_reqs_reach_the_catalog():
+    """Requirements are per family, because the shared layers differ: common.sh
+    builds its JSON with jq and lays out its help with awk, and common.ps1 needs
+    neither. What a command itself shells out to is the same in both."""
     found = discover.discover(paths.repo_root())
     shell = found["shell"]
-    # common.sh needs jq and awk, so every shell command does; own reqs follow.
-    assert shell["tdd-env"]["reqs"] == [
-        "jq",
-        "awk",
-    ]
+    assert shell["tdd-env"]["reqs"]["unix"] == ["jq", "awk"]
+    assert shell["tdd-env"]["reqs"]["powershell"] == []
+    assert shell["venv"]["reqs"]["unix"] == ["jq", "awk", "pyenv", "uv", "conda"]
+    assert shell["venv"]["reqs"]["powershell"] == ["pyenv", "uv", "conda"]
+    assert shell["venv"]["files"] == {"unix": "venv.sh", "powershell": "venv.ps1"}
+
+
+def test_the_families_must_register_the_same_commands(tmp_path):
+    """One command, written twice: `tdd help` reads the same in either shell, so
+    a command that exists in only one half is a build failure, not a surprise at
+    run time."""
+    scripts = _shell_fixture(tmp_path, "z")
+    (scripts.parent / "powershell" / "x.ps1").unlink()
+    try:
+        discover.discover(tmp_path)
+    except discover.LayoutError as exc:
+        assert "do not match" in str(exc) and "missing x" in str(exc)
+        return
+    raise AssertionError("expected LayoutError")
+
+
+def test_the_families_must_agree_on_a_summary(tmp_path):
+    scripts = _shell_fixture(tmp_path, "w")
+    (scripts.parent / "powershell" / "x.ps1").write_text(
+        'tdd_fn_register x "a different x"\nfunction tddfn_x { }\n'
+    )
+    try:
+        discover.discover(tmp_path)
+    except discover.LayoutError as exc:
+        assert "summary differs" in str(exc)
+        return
+    raise AssertionError("expected LayoutError")
 
 
 def _shell_fixture(tmp_path, tool_name):
-    scripts = tmp_path / "packages" / "tabsdata-dev-shell" / "scripts" / "unix"
+    root = tmp_path / "packages" / "tabsdata-dev-shell" / "scripts"
+    scripts = root / "unix"
     scripts.mkdir(parents=True)
     (scripts / "x.sh").write_text('tdd_fn_register x "an x"\ntddfn_x() { :; }\n')
+    # the same command in the other family: the registration line is spelled
+    # identically in both, which is what one regex can hold them to
+    (root / "powershell").mkdir()
+    (root / "powershell" / "x.ps1").write_text(
+        'tdd_fn_register x "an x"\nfunction tddfn_x { }\n'
+    )
     pkg = tmp_path / "packages" / f"tabsdata-dev-tool-{tool_name}"
     pkg.mkdir()
     (pkg / "pyproject.toml").write_text(
@@ -112,6 +150,8 @@ def test_every_tool_and_shell_command_has_a_design_doc():
         root / "packages/tabsdata-dev-tdd/DESIGN.md",
         root / "packages/tabsdata-dev-shell/DESIGN.md",
     ]
+    # One design doc per command, not per family: it describes the command, and
+    # it lives beside the POSIX file, which the generator treats as canonical.
     scripts = root / "packages/tabsdata-dev-shell/scripts/unix"
     docs += [
         # `<name>.design.md`, exactly: this passes on a case-insensitive

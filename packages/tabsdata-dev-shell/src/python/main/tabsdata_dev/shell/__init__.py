@@ -4,9 +4,15 @@
 
 """Locating the shell assets this package carries.
 
-This package holds no logic. It exists so that `scripts/unix/*.sh` and
-`tddsrc.sh` can be installed into a venv and found again by path, without
+This package holds no logic. It exists so that `scripts/<family>/*` and the
+loader templates can be installed into a venv and found again by path, without
 anyone having to hardcode a site-packages layout.
+
+Two families carry the same commands: `unix` is POSIX sh (bash 3.2 and zsh),
+`powershell` is PowerShell 7, which runs on macOS, Linux and Windows alike --
+so a family is the shell the user is in, not the operating system they are on.
+Each has its own loader template beside this module, and `tdd-install` writes
+both into a tdd dir, so one dir serves either shell.
 """
 
 from __future__ import annotations
@@ -14,8 +20,20 @@ from __future__ import annotations
 import pathlib
 from importlib.resources import files
 
-UNIX = "scripts/unix"
-TEMPLATE = "tddsrc.sh"
+UNIX = "unix"
+POWERSHELL = "powershell"
+FAMILIES = (UNIX, POWERSHELL)
+
+#: The loader template of each family, the name it is installed under in a tdd
+#: dir, the suffix its command files carry, and its shared helper file (which
+#: is not a command).
+TEMPLATES = {UNIX: "tddsrc.sh", POWERSHELL: "tddsrc.ps1"}
+INSTALLED = {UNIX: "tdd-source.sh", POWERSHELL: "tdd-source.ps1"}
+SUFFIXES = {UNIX: ".sh", POWERSHELL: ".ps1"}
+COMMON = {UNIX: "common.sh", POWERSHELL: "common.ps1"}
+
+#: What `_root()` probes for to tell a wheel layout from a checkout.
+TEMPLATE = TEMPLATES[UNIX]
 
 
 def _root() -> pathlib.Path:
@@ -35,11 +53,11 @@ def _root() -> pathlib.Path:
     raise FileNotFoundError(f"shell assets not found beside {beside} nor at {checkout}")
 
 
-def scripts_dir(family: str = "unix") -> pathlib.Path:
+def scripts_dir(family: str = UNIX) -> pathlib.Path:
     """Directory holding the sourceable command files for a shell family."""
     return _root() / "scripts" / family
 
 
-def source_template() -> str:
-    """The tddsrc.sh template, with __TDD_DIR__ still unsubstituted."""
-    return (_root() / TEMPLATE).read_text()
+def source_template(family: str = UNIX) -> str:
+    """The family's loader template, with __TDD_DIR__ still unsubstituted."""
+    return (_root() / TEMPLATES[family]).read_text()

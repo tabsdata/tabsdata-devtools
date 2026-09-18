@@ -1,5 +1,5 @@
 {
-  "fingerprint": "dbe4d31379619ebb",
+  "fingerprint": "e0530937de26ab44",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
@@ -37,30 +37,52 @@
   "schema": 1,
   "shell": {
     "env": {
-      "file": "env.sh",
-      "reqs": [
-        "jq",
-        "awk"
-      ],
+      "files": {
+        "powershell": "env.ps1",
+        "unix": "env.sh"
+      },
+      "reqs": {
+        "powershell": [],
+        "unix": [
+          "jq",
+          "awk"
+        ]
+      },
       "summary": "set, unset or show this shell's crypto key, 1Password secrets, TD_ and Python index variables"
     },
     "tdd-env": {
-      "file": "tdd-env.sh",
-      "reqs": [
-        "jq",
-        "awk"
-      ],
+      "files": {
+        "powershell": "tdd-env.ps1",
+        "unix": "tdd-env.sh"
+      },
+      "reqs": {
+        "powershell": [],
+        "unix": [
+          "jq",
+          "awk"
+        ]
+      },
       "summary": "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
     },
     "venv": {
-      "file": "venv.sh",
-      "reqs": [
-        "jq",
-        "awk",
-        "pyenv",
-        "uv",
-        "conda"
-      ],
+      "files": {
+        "powershell": "venv.ps1",
+        "unix": "venv.sh"
+      },
+      "reqs": {
+        "powershell": [
+          "pyenv",
+          "uv",
+          "conda"
+        ],
+        "unix": [
+          "jq",
+          "awk",
+          "pyenv",
+          "uv",
+          "conda"
+        ]
+      },
       "summary": "create, activate, deactivate, delete or list managed venvs (pyenv, uv or conda)"
     }
   },

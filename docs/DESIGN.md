@@ -15,7 +15,7 @@ tool's own design is beside its code (index at the end). How-tos:
 
 | | | |
 |---|---|---|
-| `tdd` | shell function, sourced from `<tdd_dir>/tdd-source.sh` | the front door; routes a word to whichever half owns it |
+| `tdd` | shell function, loaded from `<tdd_dir>/tdd-source.sh` or `tdd-source.ps1` | the front door; routes a word to whichever half owns it |
 | `tdd-exe` | executable in `<tdd_dir>/tdd-venvs/tdd` | dispatches Python tools; `help`, `doctor`, `info`, `--reqs` |
 | `tdd-fn` | shell function | commands that must change the calling shell (venvs, variables) |
 
@@ -142,7 +142,7 @@ the tree and the generator blind to it.
 | | |
 |---|---|
 | [`tdd`](../packages/tabsdata-dev-tdd/DESIGN.md) | dispatcher, installer, generator |
-| [`shell`](../packages/tabsdata-dev-shell/DESIGN.md) | `tdd-source.sh`, the loader, the prompt, `common.sh` |
+| [`shell`](../packages/tabsdata-dev-shell/DESIGN.md) | both loaders, the prompt, `common.sh` and `common.ps1` |
 | [`common-core`](../packages/tabsdata-dev-common-core/DESIGN.md) | cli/render, proc, batch, launcher, secrets |
 | [`common-systems`](../packages/tabsdata-dev-common-systems/DESIGN.md) | the system/domain family |
 | [`system`](../packages/tabsdata-dev-tool-system/DESIGN.md), [`domain`](../packages/tabsdata-dev-tool-domain/DESIGN.md), [`domain-sf`](../packages/tabsdata-dev-tool-domain-sf/DESIGN.md) | external systems and the domains inside them |
@@ -150,4 +150,4 @@ the tree and the generator blind to it.
 | [`tdk`](../packages/tabsdata-dev-tool-tdk/DESIGN.md), [`tdkserver`](../packages/tabsdata-dev-tool-tdkserver/DESIGN.md), [`km`](../packages/tabsdata-dev-tool-km/DESIGN.md) | launchers into the `tdd venv` |
 | [`smoke`](../packages/tabsdata-dev-tool-smoke/DESIGN.md) | the end-to-end smoke scripts, carried as data: run one, or export them to edit |
 | [`pycache`](../packages/tabsdata-dev-tool-pycache/DESIGN.md) | purge the uv and pip caches by package prefix |
-| [`venv`](../packages/tabsdata-dev-shell/scripts/unix/venv.design.md), [`env`](../packages/tabsdata-dev-shell/scripts/unix/env.design.md), [`tdd-env`](../packages/tabsdata-dev-shell/scripts/unix/tdd-env.design.md) | the shell commands |
+| [`venv`](../packages/tabsdata-dev-shell/scripts/unix/venv.design.md), [`env`](../packages/tabsdata-dev-shell/scripts/unix/env.design.md), [`tdd-env`](../packages/tabsdata-dev-shell/scripts/unix/tdd-env.design.md) | the shell commands, each written in both families |

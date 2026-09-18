@@ -25,11 +25,16 @@ reach a project's dependencies. This file is the working contract; the design li
 ## Shape
 
 ```
-tdd            shell function (sourced from <tdd_dir>/tdd-source.sh) -> front door over both halves
+tdd            shell function (loaded from <tdd_dir>/tdd-source.sh or .ps1) -> front door over both halves
 tdd-exe        executable in <tdd_dir>/tdd-venvs/tdd -> dispatches Python tools; help, doctor, info, --reqs
 tdd-fn         shell function -> commands that change the current shell (venv, env, tdd-env)
 tdd-install    executable -> the only way to build a tdd dir (`cargo make install [-- --editable]`)
 ```
+
+The shell half exists **twice**, once per family: `scripts/unix/*.sh` (POSIX sh, bash 3.2 and
+zsh) and `scripts/powershell/*.ps1` (PowerShell 7). A family is the shell the user is in, not the
+OS they are on -- pwsh runs on macOS, Linux and Windows -- and `tdd-install` writes both loaders
+into every tdd dir. The same commands with the same summaries, enforced by the generator.
 
 Packages, all `tabsdata-dev-*` under the `tabsdata_dev` namespace: `-tdd` (stdlib only),
 `-shell` (shell files as data), `-common-*` (shared code, third-party ranges), `-deps-*`
@@ -76,11 +81,16 @@ holds the user's system and domain descriptors.
 14. **Variables**: `TDD_*` public (`TDD_DIR`, `TDD_PARALLELISM`), `_TDD_*` private
     to the tool chain (`_TDD_TOOL`, `_TDD_VENV`, `_TDD_COMMON_SH`, `_TDD_CRYPTO_KEY`, `_TDD_SYSTEMS`,
     `_TDD_XP_*`), `TD_*` tabsdata's, `<SYSTEM>__<KEY>` a system's config.
-15. **Every command speaks events** through the shared layer of its side (`common.sh`;
+15. **A shell command is written in both families**, with the same name, summary, options,
+    events and JSON fields: `scripts/unix/<name>.sh` and `scripts/powershell/<name>.ps1`, each
+    over its family's shared layer (`common.sh` / `common.ps1`). The generator refuses to build
+    when the two drift. In PowerShell, status travels in `$_TDD_RC`, never as a return value --
+    a function's success-stream output *is* its return value there.
+16. **Every command speaks events** through the shared layer of its side (`common.sh`;
     `common.core.cli.run()`/`render`; `tabsdata_dev.tdd.render`, the byte-identical twin —
     edit both). Commands never print; the tests check it.
-16. **`tdd-install` never touches user state in the tdd dir.** It rebuilds only
-    `tdd-venvs/` and rewrites `catalog.json`/`VERSION`/`tdd-source.sh`;
+17. **`tdd-install` never touches user state in the tdd dir.** It rebuilds only
+    `tdd-venvs/` and rewrites `catalog.json`/`VERSION`/ both `tdd-source` loaders;
     `data/` (system/domain descriptors), `managed-venvs/` (`tdd venv` environments) and
     every `<command>.toml` are the user's and survive every re-init (a test pins this).
 

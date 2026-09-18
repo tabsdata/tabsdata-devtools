@@ -46,3 +46,20 @@ crypto key, the 1Password secrets, tabsdata's `TD_*` settings and the Python ind
   PASSWORD/SECRET/TOKEN/KEY/PASS/_PAT/_PEM/PEM_ are masked unless `--reveal`, in every group (the
   TD one holds `TD_BACKENDS_CRYPTO_KEY`). A PEM earns its place there twice over: a private key
   or a pinned certificate is a credential, and either way it is unreadable in a listing.
+
+## The PowerShell twin
+
+`scripts/powershell/env.ps1` is the same command; two things differ in kind.
+
+- **`export NAME=VALUE` lines are parsed, not evaluated.** `tdd-exe system ... --format export`
+  prints shell syntax, which PowerShell cannot `eval` -- and would not want to: handing vault
+  text to a parser is how a value becomes code. The lines are matched against
+  `^export ([A-Za-z_][A-Za-z0-9_]*)=(.*)$` and the value is unquoted by a POSIX quote scanner, so
+  a multi-line certificate survives the way `eval` handles it for free here.
+- **Listings sort with the ordinal comparer**, not the culture's, which ignores `_` and filed
+  `_TDD_SYSTEMS` among the `TD_` names. Ordinal is `LC_ALL=C sort`, which is what this half
+  gets from `sort` and what makes the two agree on any machine.
+
+`Remove-Item Env:\NAME` is the only real removal: `[Environment]::SetEnvironmentVariable($name,
+$null)` converts the `$null` to an empty string on the way to a `[string]` parameter and leaves
+the variable set.
