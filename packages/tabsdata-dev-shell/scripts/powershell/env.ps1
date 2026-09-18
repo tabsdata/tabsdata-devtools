@@ -124,8 +124,8 @@ defaults are literals: no variable of the environment decides which vault a key 
 options:
   --crypto  _TDD_CRYPTO_KEY, the key that encrypts the system and domain descriptors; read only when the variable is not already set, unless --force (or --value, which reads nothing)
   --secrets  every <PREFIX>__<KEY> secret of a shared vault, plus _TDD_SYSTEMS, the prefix list that `unset --secrets` reads back
-  --py-idx URL  the extra Python package index: UV_INDEX and PIP_EXTRA_INDEX_URL, plus UV_INDEX_STRATEGY=unsafe-best-match so uv considers it
-  --py-default-idx URL  the default Python package index: UV_DEFAULT_INDEX and PIP_INDEX_URL
+  --py-idx URL  the extra Python package index: UV_INDEX and PIP_EXTRA_INDEX_URL, plus UV_INDEX_STRATEGY=unsafe-best-match so uv considers it. URL is a URL, or @dev for the development index (https://d3mm0r95u5i3hf.cloudfront.net/simple/) or @prod for the published one (https://pypi.tabsdata.com/simple/) -- quote a marker, since a bare @dev is PowerShell's splatting syntax
+  --py-default-idx URL  the default Python package index: UV_DEFAULT_INDEX and PIP_INDEX_URL. Takes '@dev' and '@prod' too
   --vault 1p:VAULT  the vault to read from, as a provider ref (1p is the only provider today). Defaults: --crypto 1p:Employee, --secrets 1p:dev_xp
   --item ITEM  --crypto: the item in the vault (default: DevSecrets)
   --field FIELD  --crypto: the field of that item (default: TD_BACKENDS_CRYPTO_KEY)
@@ -395,11 +395,35 @@ function _tdd_vars_set {
             }
             '^--py-idx(=.*)?$' {
                 if (-not (_tdd_optval $Argv $i)) { _tdd_error '--py-idx needs a URL'; return }
-                $pyExtra = $global:_TDD_OPTVAL; $i += $global:_TDD_CONSUMED; continue
+                if (-not (_tdd_resolve_index $global:_TDD_OPTVAL)) {
+                    _tdd_error "unknown --py-idx marker: $($global:_TDD_OPTVAL) (@dev, @prod, or a URL)"
+                    return
+                }
+                # An empty value almost always means an unquoted marker: `@dev`
+                # written bare is PowerShell's splatting syntax, so it expands
+                # an undefined variable and arrives as nothing at all. Saying
+                # so beats "nothing selected", which names the wrong problem.
+                if (-not $global:_TDD_INDEX_RESOLVED) {
+                    _tdd_error "--py-idx needs a URL (a bare @dev is PowerShell splatting and arrives empty -- quote it: --py-idx '@dev')"
+                    return
+                }
+                $pyExtra = $global:_TDD_INDEX_RESOLVED; $i += $global:_TDD_CONSUMED; continue
             }
             '^--py-default-idx(=.*)?$' {
                 if (-not (_tdd_optval $Argv $i)) { _tdd_error '--py-default-idx needs a URL'; return }
-                $pyDefault = $global:_TDD_OPTVAL; $i += $global:_TDD_CONSUMED; continue
+                if (-not (_tdd_resolve_index $global:_TDD_OPTVAL)) {
+                    _tdd_error "unknown --py-default-idx marker: $($global:_TDD_OPTVAL) (@dev, @prod, or a URL)"
+                    return
+                }
+                # An empty value almost always means an unquoted marker: `@dev`
+                # written bare is PowerShell's splatting syntax, so it expands
+                # an undefined variable and arrives as nothing at all. Saying
+                # so beats "nothing selected", which names the wrong problem.
+                if (-not $global:_TDD_INDEX_RESOLVED) {
+                    _tdd_error "--py-default-idx needs a URL (a bare @dev is PowerShell splatting and arrives empty -- quote it: --py-default-idx '@dev')"
+                    return
+                }
+                $pyDefault = $global:_TDD_INDEX_RESOLVED; $i += $global:_TDD_CONSUMED; continue
             }
             default {
                 if (-not (_tdd_common_opt $Argv $i)) {

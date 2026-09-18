@@ -113,6 +113,31 @@ function _tdd_failed {
     return ($global:_TDD_RC -ne 0)
 }
 
+# ---------------------------------------------------------------- indexes
+
+# Tabsdata's two Python package indexes, named so a command line can say which
+# one it means rather than carry a hostname nobody proofreads. Every option
+# taking an index URL takes these too. The smoke scripts keep their own copy in
+# smoke-tool/_common.sh, because they are standalone bash that sources nothing
+# of tdd's; a test holds the files in step.
+$global:_TDD_INDEX_DEV = 'https://d3mm0r95u5i3hf.cloudfront.net/simple/'
+$global:_TDD_INDEX_PROD = 'https://pypi.tabsdata.com/simple/'
+
+# Resolve an index marker into $_TDD_INDEX_RESOLVED: `@dev` and `@prod` become
+# URLs, anything else passes through. Returns $false for an unknown `@marker`,
+# and the caller reports it -- the value goes in a variable rather than out of
+# the function, because a function that emits an event cannot also return one.
+function _tdd_resolve_index {
+    param([string]$Value)
+    switch -Regex ($Value) {
+        '^@dev$' { $global:_TDD_INDEX_RESOLVED = $global:_TDD_INDEX_DEV; return $true }
+        '^@prod$' { $global:_TDD_INDEX_RESOLVED = $global:_TDD_INDEX_PROD; return $true }
+        '^@' { $global:_TDD_INDEX_RESOLVED = ''; return $false }
+    }
+    $global:_TDD_INDEX_RESOLVED = $Value
+    return $true
+}
+
 # ---------------------------------------------------------------- prompt
 
 # TEXT coloured for the prompt. PowerShell's prompt is a function returning a

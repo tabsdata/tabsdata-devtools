@@ -47,6 +47,24 @@ crypto key, the 1Password secrets, tabsdata's `TD_*` settings and the Python ind
   TD one holds `TD_BACKENDS_CRYPTO_KEY`). A PEM earns its place there twice over: a private key
   or a pinned certificate is a credential, and either way it is unreadable in a listing.
 
+## Index markers
+
+`--py-idx` and `--py-default-idx` take `@dev` (`https://d3mm0r95u5i3hf.cloudfront.net/simple/`)
+and `@prod` (`https://pypi.tabsdata.com/simple/`) as well as a URL, resolved by
+`_tdd_resolve_index` in the shared layer so every option that takes an index URL takes them --
+the smoke scripts' `--uv-index` does the same from their own engine, and a test holds the two
+definitions in step. An unknown `@marker` is refused rather than exported: passed on, it would
+reach uv or pip as a URL and fail in a message about a package, not about the option that set it.
+
+The resolver sets `_TDD_INDEX_RESOLVED` rather than printing the value, because in
+`--format json` an error event goes to stdout and a `$(...)` around a printing helper would
+capture the event instead of the value.
+
+**In PowerShell a marker must be quoted.** `--py-idx @dev` typed bare is splatting syntax: it
+expands an undefined `$dev` and arrives as no argument at all, so the value is empty and nothing
+warns. An empty value is therefore refused in both halves, and the PowerShell one says why and
+shows `--py-idx '@dev'`.
+
 ## The PowerShell twin
 
 `scripts/powershell/env.ps1` is the same command; two things differ in kind.

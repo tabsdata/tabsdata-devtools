@@ -1040,3 +1040,115 @@ def test_a_multi_line_secret_is_masked_once_not_once_per_line():
             assert "\n" not in row, (shell_bin, name, row)
     if "pwsh" not in halves:
         pytest.skip("pwsh not installed; the POSIX half was still checked")
+
+
+INDEX_DEV = "https://d3mm0r95u5i3hf.cloudfront.net/simple/"
+INDEX_PROD = "https://pypi.tabsdata.com/simple/"
+
+
+def test_every_definition_of_the_index_markers_agrees():
+    """@dev and @prod are one fact about the org, written in three files: each
+    family's shared layer, and the smoke scripts' own engine -- those are
+    standalone bash that sources nothing of tdd's. Three copies only work if
+    something holds them in step."""
+    import re
+
+    from tabsdata_dev import shell as shell_pkg
+
+    root = shell_pkg._root().parents[3]  # the checkout, for smoke-tool/
+    files = {
+        "common.sh": (shell.scripts_dir() / COMMON).read_text(),
+        "common.ps1": (_ps_dir() / PS_COMMON).read_text(),
+    }
+    smoke_engine = root / "smoke-tool" / "_common.sh"
+    if smoke_engine.is_file():  # absent in a wheel install of the shell package
+        files["_common.sh"] = smoke_engine.read_text()
+    assert len(files) >= 2
+    for name, text in files.items():
+        found = set(re.findall(r'"(https://[^"]+)"', text)) | set(
+            re.findall(r"'(https://[^']+)'", text)
+        )
+        assert INDEX_DEV in found, f"{name} does not define the dev index"
+        assert INDEX_PROD in found, f"{name} does not define the prod index"
+
+
+def _resolved(shell_bin: str, option: str, value: str) -> tuple[int, str]:
+    """What one half exports for `env set <option> <value>`: the exit status and
+    the variable it set."""
+    import os
+    import subprocess
+
+    var = "UV_INDEX" if option == "--py-idx" else "UV_DEFAULT_INDEX"
+    if shell_bin == "pwsh":
+        script = (
+            f". '{_ps_dir() / PS_COMMON}'\n"
+            "function tdd_fn_register { param($Name, $Summary) }\n"
+            f". '{_ps_dir() / 'env.ps1'}'\n"
+            "_tdd_cmd_reset\n"
+            f"tddfn_env @('set', '{option}', '{value}') | Out-Null\n"
+            f'[Console]::Out.WriteLine("$($global:_TDD_RC) $($env:{var})")\n'
+        )
+        argv = [shell_bin, "-NoProfile", "-Command", script]
+    else:
+        script = (
+            f'. "{shell.scripts_dir() / COMMON}"\n'
+            f'. "{shell.scripts_dir() / "env.sh"}" 2>/dev/null\n'
+            "_tdd_cmd_reset\n"
+            f'tddfn_env set {option} "{value}" >/dev/null 2>&1\n'
+            f'printf "%s %s" "$?" "${var}"\n'
+        )
+        argv = [shell_bin, "-c", script]
+    done = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "NO_COLOR": "1",
+            "_TDD_COMMON_SH": str(shell.scripts_dir() / COMMON),
+            "_TDD_COMMON_PS1": str(_ps_dir() / PS_COMMON),
+            "UV_INDEX": "",
+            "UV_DEFAULT_INDEX": "",
+        },
+    )
+    rc, _, rest = done.stdout.strip().partition(" ")
+    return int(rc), rest
+
+
+def test_the_index_options_take_the_markers_in_both_halves():
+    """`--py-idx @dev` used to export the literal `@dev`, which uv then read as
+    a URL. Both index options resolve, in both halves, and an unknown marker is
+    refused rather than exported."""
+    import shutil
+
+    halves = [s for s in ("bash", "zsh", "pwsh") if shutil.which(s)]
+    for shell_bin in halves:
+        for option in ("--py-idx", "--py-default-idx"):
+            assert _resolved(shell_bin, option, "@dev") == (0, INDEX_DEV), (
+                shell_bin,
+                option,
+            )
+            assert _resolved(shell_bin, option, "@prod") == (0, INDEX_PROD), (
+                shell_bin,
+                option,
+            )
+            plain = "https://mine.example/simple/"
+            assert _resolved(shell_bin, option, plain) == (0, plain), (
+                shell_bin,
+                option,
+            )
+            rc, value = _resolved(shell_bin, option, "@staging")
+            assert rc == 1 and value == "", (shell_bin, option, rc, value)
+
+
+def test_powershell_says_why_a_bare_marker_arrives_empty():
+    """`--py-idx @dev` typed bare in PowerShell is splatting syntax: it expands
+    an undefined variable and arrives as no argument at all. Without this the
+    command answers "nothing selected", which names the wrong problem."""
+    text = (_ps_dir() / "env.ps1").read_text()
+    assert "PowerShell splatting and arrives empty" in text
+    assert "quote it" in text
+    # and the POSIX half refuses an empty value too, just without the reason
+    assert (
+        '[ -n "$_TDD_INDEX_RESOLVED" ]' in (shell.scripts_dir() / "env.sh").read_text()
+    )

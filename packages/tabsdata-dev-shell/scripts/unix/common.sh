@@ -90,6 +90,31 @@ _tdd_cmd_check() {
     return 0
 }
 
+# ---------------------------------------------------------------- indexes
+
+# Tabsdata's two Python package indexes, named so a command line can say which
+# one it means rather than carry a hostname nobody proofreads. Every option
+# taking an index URL takes these too. The smoke scripts keep their own copy in
+# smoke-tool/_common.sh, because they are standalone bash that sources nothing
+# of tdd's; a test holds the two files in step.
+_TDD_INDEX_DEV="https://d3mm0r95u5i3hf.cloudfront.net/simple/"
+_TDD_INDEX_PROD="https://pypi.tabsdata.com/simple/"
+
+# Resolve an index marker into _TDD_INDEX_RESOLVED: `@dev` and `@prod` become
+# URLs, anything else passes through. Returns 1 for an unknown `@marker`, and
+# the caller reports it -- this sets a variable rather than printing, because
+# in `--format json` an error event goes to stdout and a $(...) around it would
+# capture the event instead of the value.
+_tdd_resolve_index() {
+    case "$1" in
+        @dev) _TDD_INDEX_RESOLVED="$_TDD_INDEX_DEV" ;;
+        @prod) _TDD_INDEX_RESOLVED="$_TDD_INDEX_PROD" ;;
+        @*) _TDD_INDEX_RESOLVED=""; return 1 ;;
+        *) _TDD_INDEX_RESOLVED="$1" ;;
+    esac
+    return 0
+}
+
 # ---------------------------------------------------------------- prompt
 
 # TEXT coloured for a PROMPT (PS1), in the zero-width form each shell wants --

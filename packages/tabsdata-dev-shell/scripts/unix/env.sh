@@ -86,7 +86,7 @@ tddfn_env() {
             _tdd_rc=1
             ;;
     esac
-    unset _tdd_sub _tdd_crypto _tdd_secrets _tdd_td _tdd_prefixes _tdd_py_extra _tdd_py_default _tdd_vault _tdd_item _tdd_field _tdd_value _tdd_reveal _tdd_rest \
+    unset _tdd_sub _tdd_crypto _tdd_secrets _tdd_td _tdd_prefixes _tdd_py_extra _tdd_py_default _tdd_vault _tdd_item _tdd_field _tdd_value _tdd_reveal _tdd_rest _TDD_INDEX_RESOLVED \
         _tdd_force _tdd_kept _tdd_args _tdd_lines _tdd_err _tdd_names _tdd_n _tdd_json _tdd_v _tdd_p _tdd_rows _tdd_set_names _tdd_unset_names _tdd_row _tdd_val _tdd_shown
     return "$_tdd_rc"
 }
@@ -123,8 +123,8 @@ defaults are literals: no variable of the environment decides which vault a key 
 options:
   --crypto  _TDD_CRYPTO_KEY, the key that encrypts the system and domain descriptors; read only when the variable is not already set, unless --force (or --value, which reads nothing)
   --secrets  every <PREFIX>__<KEY> secret of a shared vault, plus _TDD_SYSTEMS, the prefix list that `unset --secrets` reads back
-  --py-idx URL  the extra Python package index: UV_INDEX and PIP_EXTRA_INDEX_URL, plus UV_INDEX_STRATEGY=unsafe-best-match so uv considers it
-  --py-default-idx URL  the default Python package index: UV_DEFAULT_INDEX and PIP_INDEX_URL
+  --py-idx URL  the extra Python package index: UV_INDEX and PIP_EXTRA_INDEX_URL, plus UV_INDEX_STRATEGY=unsafe-best-match so uv considers it. URL is a URL, or @dev for the development index (https://d3mm0r95u5i3hf.cloudfront.net/simple/) or @prod for the published one (https://pypi.tabsdata.com/simple/)
+  --py-default-idx URL  the default Python package index: UV_DEFAULT_INDEX and PIP_INDEX_URL. Takes @dev and @prod too
   --vault 1p:VAULT  the vault to read from, as a provider ref (1p is the only provider today). Defaults: --crypto 1p:Employee, --secrets 1p:dev_xp
   --item ITEM  --crypto: the item in the vault (default: DevSecrets)
   --field FIELD  --crypto: the field of that item (default: TD_BACKENDS_CRYPTO_KEY)
@@ -233,10 +233,20 @@ _tdd_vars_set() {
                 _tdd_value="$_TDD_OPTVAL"; shift "$_TDD_CONSUMED" ;;
             --py-idx | --py-idx=*)
                 _tdd_optval "$@" || { _tdd_error "--py-idx needs a URL"; return 1; }
-                _tdd_py_extra="$_TDD_OPTVAL"; shift "$_TDD_CONSUMED" ;;
+                _tdd_resolve_index "$_TDD_OPTVAL" \
+                    || { _tdd_error "unknown --py-idx marker: $_TDD_OPTVAL (@dev, @prod, or a URL)"; return 1; }
+                # An empty value is refused here rather than falling through to
+                # "nothing selected", which names the wrong problem.
+                [ -n "$_TDD_INDEX_RESOLVED" ] || { _tdd_error "--py-idx needs a URL"; return 1; }
+                _tdd_py_extra="$_TDD_INDEX_RESOLVED"; shift "$_TDD_CONSUMED" ;;
             --py-default-idx | --py-default-idx=*)
                 _tdd_optval "$@" || { _tdd_error "--py-default-idx needs a URL"; return 1; }
-                _tdd_py_default="$_TDD_OPTVAL"; shift "$_TDD_CONSUMED" ;;
+                _tdd_resolve_index "$_TDD_OPTVAL" \
+                    || { _tdd_error "unknown --py-default-idx marker: $_TDD_OPTVAL (@dev, @prod, or a URL)"; return 1; }
+                # An empty value is refused here rather than falling through to
+                # "nothing selected", which names the wrong problem.
+                [ -n "$_TDD_INDEX_RESOLVED" ] || { _tdd_error "--py-default-idx needs a URL"; return 1; }
+                _tdd_py_default="$_TDD_INDEX_RESOLVED"; shift "$_TDD_CONSUMED" ;;
             *)
                 _tdd_common_opt "$@" || { _tdd_error "unknown option: $1 (see --help)"; return 1; }
                 shift "$_TDD_CONSUMED" ;;
