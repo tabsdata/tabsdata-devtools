@@ -69,6 +69,14 @@ stages; declaring them here would refuse an export on a machine that only wants 
 (`srv-database`); the other three run against a cluster that already exists. All four take
 `--name` and `--td-version`; the cluster three also require `--kube-config` and `--kube-context`.
 There is no sane default for which cluster to reach, so those are required and `common_help` paints
+`--uv-index` takes `@dev` (`https://d3mm0r95u5i3hf.cloudfront.net/simple/`) and `@prod`
+(`https://pypi.tabsdata.com`) as well as a URL, resolved once by
+`common_resolve_uv_index` right after parsing so the banner, the `uv pip install`, the
+`tabsdata.yaml` and tdkserver all see the URL and never the marker. The two URLs live in
+`_common.sh`, because the four scripts have to mean the same thing by `@dev`. An unknown
+`@marker` is refused there and then: passed on, uv would read it as a URL and fail several
+stages later, in a message about a failed install that says nothing about the option behind it.
+
 a required option red on the page. `--kube-namespace` and `--uv-index` are not among them: the
 run's own `--name` makes a namespace (`sm-<name>`, lowercased for RFC 1123), and no index means
 whatever uv is already configured with.

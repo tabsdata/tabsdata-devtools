@@ -907,3 +907,74 @@ def test_list_names_the_scripts_with_how_to_run_each_and_not_the_engine():
         done["scripts"] == ["aks", "eks", "gke", "km"]
         and done["engine"] == "_common.sh"
     )
+
+
+def test_uv_index_markers_resolve_and_an_unknown_one_is_refused():
+    """`--uv-index` takes @dev and @prod as well as a URL, so a run can say
+    which index it means instead of carrying a CloudFront hostname nobody can
+    check by eye. An unknown marker is refused at parse time: passed on, uv
+    would take it for a URL and fail several stages later, in a message about a
+    failed install that says nothing about the option that caused it."""
+    import subprocess
+
+    engine = smoke.scripts_dir() / "_common.sh"
+    cases = {
+        "@dev": "https://d3mm0r95u5i3hf.cloudfront.net/simple/",
+        "@prod": "https://pypi.tabsdata.com",
+        "https://mine.example/simple/": "https://mine.example/simple/",
+        "": "",
+    }
+    for given, want in cases.items():
+        done = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'. "{engine}"\ncommon_resolve_uv_index "$1"',
+                "bash",
+                given,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        assert done.returncode == 0, (given, done.stderr)
+        assert done.stdout == want, (given, done.stdout)
+
+    done = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'. "{engine}"\ncommon_resolve_uv_index "$1"',
+            "bash",
+            "@staging",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 1
+    assert "unknown --uv-index marker: @staging" in done.stderr
+    assert "@dev, @prod, or a URL" in done.stderr
+
+
+def test_every_script_resolves_the_uv_index_before_it_uses_it():
+    """The marker must never reach uv, the tabsdata.yaml or tdkserver: each
+    script resolves once, right after parsing, so everything downstream -- the
+    banner included -- sees the URL. Each also says in its help what the two
+    markers stand for."""
+    for script in smoke.scripts_dir().glob("smoke-*.sh"):
+        text = script.read_text()
+        if "--uv-index" not in text:
+            continue
+        lines = text.splitlines()
+        resolved = next(
+            i for i, line in enumerate(lines) if "common_resolve_uv_index" in line
+        )
+        uses = [
+            i
+            for i, line in enumerate(lines)
+            if "$UV_INDEX_URI" in line and "common_resolve_uv_index" not in line
+        ]
+        assert uses, script.name
+        assert resolved < min(uses), (script.name, resolved, min(uses))
+        assert "@dev for the development index" in text, script.name
+        assert "https://d3mm0r95u5i3hf.cloudfront.net/simple/" in text, script.name
+        assert "@prod" in text and "https://pypi.tabsdata.com" in text, script.name

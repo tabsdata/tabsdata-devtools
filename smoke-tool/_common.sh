@@ -780,6 +780,32 @@ common_k8s_report() {
     echo "================ end kubernetes"
 }
 
+# The named indexes `--uv-index` takes in place of a URL. Here rather than in
+# each script, because the four have to mean the same thing by @dev -- and
+# because a CloudFront hostname is not something a reader can check by eye on a
+# command line, which is the whole point of having a name for it.
+COMMON_UV_INDEX_DEV="https://d3mm0r95u5i3hf.cloudfront.net/simple/"
+COMMON_UV_INDEX_PROD="https://pypi.tabsdata.com"
+
+# common_resolve_uv_index VALUE -- print the URL VALUE stands for: `@dev` and
+# `@prod` resolve, anything else passes through, and empty stays empty (no
+# index asked for). An unknown `@marker` is refused here rather than passed on:
+# uv would take it for a URL and fail several stages later, in a message about a
+# failed install that says nothing about the option that caused it.
+common_resolve_uv_index() {
+    case "$1" in
+        @dev) printf '%s' "$COMMON_UV_INDEX_DEV" ;;
+        @prod) printf '%s' "$COMMON_UV_INDEX_PROD" ;;
+        @*)
+            # `.sh` stripped: this stands beside the scripts' own option
+            # errors, which name themselves without it.
+            echo "$(basename "$0" .sh): unknown --uv-index marker: $1 (@dev, @prod, or a URL)" >&2
+            return 1
+            ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
 # common_set_uv_index FILE URI -- point a tabsdata.yaml's UV_INDEX at URI. The
 # replacement is a function rather than a template, so nothing in the URI is
 # ever read as a backreference, and the line keeps its own indentation.

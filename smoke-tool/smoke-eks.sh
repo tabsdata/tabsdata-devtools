@@ -55,6 +55,9 @@ options:
                       REQUIRED: the tabsdata release to install, tabsdata[EXTRAS]==VERSION
   --uv-index URI      the Python package index, used by the tabsdata install and
                       written into tabsdata.yaml (UV_INDEX) for the pods
+                      URI is a URL, or @dev for the development index
+                      (https://d3mm0r95u5i3hf.cloudfront.net/simple/) or @prod
+                      for the published one (https://pypi.tabsdata.com)
                       (default: none -- whatever uv is already configured with)
   --td-extras EXTRAS
                       the extras to install (default: all)
@@ -164,6 +167,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "smoke-eks: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
+UV_INDEX_URI="$(common_resolve_uv_index "$UV_INDEX_URI")" || exit 1
 missing=""
 for _need in $REQUIRED_OPTIONS; do
     case "$_need" in
