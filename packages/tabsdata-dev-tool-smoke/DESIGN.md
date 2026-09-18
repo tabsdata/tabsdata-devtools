@@ -81,6 +81,19 @@ a required option red on the page. `--kube-namespace` and `--uv-index` are not a
 run's own `--name` makes a namespace (`sm-<name>`, lowercased for RFC 1123), and no index means
 whatever uv is already configured with.
 
+`smoke-km` puts the index back into its own shell after unsetting it (`set-pypi`, only when
+`--uv-index` was given). `tdkserver quickstart --uv-index URL` takes the URL and writes it into
+the instance's `tabsdata.yaml` under `pods.global.envs`, and then the pods get nothing: the
+pymanager pod reports `UV_INDEX = <unset>` and resolves against PyPI alone, so a version that
+exists only on that index fails to install and quickstart dies in `ins-pymanager` with "no
+version of tabsdata[all]==X". Seen on 2.0.0, 2.0.1 and 2.1.0; `UV_INDEX_STRATEGY` beside it does
+arrive, so it is that one placeholder rather than the mechanism. kminus runs its pods as local
+processes, so they inherit the script's environment and `tdd env set --py-idx` reaches them --
+the same pair tdkserver meant to set. The cluster scripts do not do this and must not: their pods
+run in a real cluster and inherit nothing from the machine the script was launched on, which is
+why they write the value into `tabsdata.yaml` instead. Drop the stage when tdkserver hands its
+own `--uv-index` to the pods.
+
 `--kube-port-forward` is the local port `kubectl port-forward` listens on -- the one `tdk` logs in
 to -- and it moves that end only. Each script has its own default, so two runs on one machine
 never fight over it: km's instance starts at 10000 (`--port`), eks forwards from 11000, aks from

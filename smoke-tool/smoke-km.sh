@@ -163,7 +163,10 @@ if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
     echo "smoke-km: --xp-suites needs at least one selector" >&2
     exit 1
 fi
-STAGE_NAMES=(unset-td unset-pypi set-crypto systems pycache clean-previous create-venv install)
+STAGE_NAMES=(unset-td unset-pypi)
+# See the set-pypi stage below: only when there is an index to put back.
+[ -n "$UV_INDEX_URI" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="set-pypi"
+for stage in set-crypto systems pycache clean-previous create-venv install; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
 [ "$TD_VERSION" = "2.0.2" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="cdc-driver"
 [ -n "$LLM_SYSTEM" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="llm-domain"
 for stage in quickstart pods-1 login-1 stop-1 venv-update start pods-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
@@ -221,6 +224,26 @@ common_run tdd env unset --td
 
 common_stage unset-pypi "unset the Python package index variables"
 common_run tdd env unset --py-idx --py-default-idx
+
+# Put the index back, in THIS shell, for the pods to inherit.
+#
+# `tdkserver quickstart --uv-index URL` takes the URL, says "Set UV_INDEX to
+# URL ... in tabsdata.yaml", and writes it there under pods.global.envs -- and
+# then the pods get nothing: the pymanager pod prints `UV_INDEX = <unset>` and
+# resolves against PyPI alone, so a version that exists only on that index
+# cannot be installed and quickstart dies in `ins-pymanager` with "no version
+# of tabsdata[all]==X". Seen on 2.0.0, 2.0.1 and 2.1.0; the strategy variable
+# beside it does arrive, so it is that one placeholder, not the mechanism.
+#
+# kminus runs its pods as local processes, so they inherit this environment:
+# setting the variables here is what actually reaches them. It has to come
+# after the unset above, which has just cleared them, and `--py-idx` is the
+# same pair tdkserver meant to set -- UV_INDEX plus UV_INDEX_STRATEGY. Drop
+# this stage when tdkserver hands its own --uv-index to the pods.
+if [ -n "$UV_INDEX_URI" ]; then
+    common_stage set-pypi "put UV_INDEX back for the pods to inherit: tdkserver --uv-index does not reach them"
+    common_run tdd env set --py-idx "$UV_INDEX_URI"
+fi
 
 common_stage set-crypto "set _TDD_CRYPTO_KEY"
 # 1Password is asked only when the key is unset; `unset --td` spared it

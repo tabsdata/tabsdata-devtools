@@ -1013,3 +1013,47 @@ def test_each_script_holds_its_own_local_ports():
         assert "never fight over it" in text, path.name
     assert seen == want
     assert len(set(seen.values())) == len(seen), seen
+
+
+def test_km_puts_the_index_back_for_the_pods_to_inherit():
+    """`tdkserver quickstart --uv-index URL` takes the URL, writes it into the
+    instance's tabsdata.yaml and then hands the pods nothing: the pymanager pod
+    reports `UV_INDEX = <unset>` and resolves against PyPI alone, so a version
+    only on that index cannot be installed and quickstart dies in
+    `ins-pymanager` (2.0.0, 2.0.1, 2.1.0). kminus runs its pods as local
+    processes, so they inherit the script's environment -- setting the pair
+    there is what reaches them, and it has to come after the unset that just
+    cleared them.
+
+    Only km: the cluster scripts' pods run in a real cluster and inherit
+    nothing from the machine the script was launched on."""
+    text = (smoke.scripts_dir() / "smoke-km.sh").read_text()
+    lines = text.splitlines()
+
+    unset = next(i for i, ln in enumerate(lines) if "tdd env unset --py-idx" in ln)
+    put_back = next(
+        i for i, ln in enumerate(lines) if 'tdd env set --py-idx "$UV_INDEX_URI"' in ln
+    )
+    assert unset < put_back, (unset, put_back)
+
+    # only when there is an index to put back, in the stage list and in the body
+    assert (
+        '[ -n "$UV_INDEX_URI" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="set-pypi"' in text
+    )
+    guard = next(
+        i
+        for i, ln in enumerate(lines)
+        if ln.strip() == 'if [ -n "$UV_INDEX_URI" ]; then'
+    )
+    assert guard < put_back
+    assert "common_stage set-pypi" in text
+
+    # --py-idx is the pair tdkserver meant to set: UV_INDEX and the strategy
+    env_sh = smoke.scripts_dir().parent / "unix" / "env.sh"
+    if env_sh.is_file():  # same wheel only in a checkout
+        assert "UV_INDEX_STRATEGY" in env_sh.read_text()
+
+    # and the reason is written down where the next reader will be
+    assert "UV_INDEX = <unset>" in text and "ins-pymanager" in text
+    for version in ("2.0.0", "2.0.1", "2.1.0"):
+        assert version in text, version
