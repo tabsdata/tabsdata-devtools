@@ -977,4 +977,6 @@ def test_every_script_resolves_the_uv_index_before_it_uses_it():
         assert resolved < min(uses), (script.name, resolved, min(uses))
         assert "@dev for the development index" in text, script.name
         assert "https://d3mm0r95u5i3hf.cloudfront.net/simple/" in text, script.name
-        assert "@prod" in text and "https://pypi.tabsdata.com/simple/" in text, script.name
+        assert "@prod" in text and "https://pypi.tabsdata.com/simple/" in text, (
+            script.name
+        )

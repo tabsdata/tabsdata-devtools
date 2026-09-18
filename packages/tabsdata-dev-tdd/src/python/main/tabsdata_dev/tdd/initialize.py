@@ -28,6 +28,15 @@ SHELL_ENV = "shells"
 TDD_DIST = "tabsdata-dev-tdd"
 _TDD_VENV = "tdd"
 SOURCE_NAME = "tdd-source.sh"
+SOURCE_NAME_PS = "tdd-source.ps1"
+
+#: How each loader is loaded, in the shell it is for. PowerShell has no
+#: `source`, and dot-sourcing there is `.` followed by a space -- which is
+#: exactly the mistake the message exists to prevent.
+SOURCE_HOW = {
+    SOURCE_NAME: ("bash, zsh", "source"),
+    SOURCE_NAME_PS: ("PowerShell", "."),
+}
 SOURCE_TEMPLATE = "tddsrc.sh"
 
 # Every env tdd creates is relocatable: uv rewrites the console-script shebangs
@@ -293,20 +302,34 @@ def _finish(dir_: pathlib.Path, catalog: dict, out: render.Renderer) -> int:
     written = _write_source(dir_, out)
     summary = f"initialized {dir_} ({len(catalog['tools'])} tools, {len(catalog['toolsets'])} toolsets)"
     if written:
-        summary += (
-            f"\n\n  source it to get the `tdd` function:\n\n    source {written}\n"
+        # Both shells, named: a reader in PowerShell who copies the `source`
+        # line gets a silent no-op -- PowerShell treats a .sh as a document and
+        # hands it to the OS to open, so nothing loads and nothing is said.
+        lines = "\n".join(
+            f"    {shell:<11} {how} {path}"
+            for path, (shell, how) in (
+                (written[name], SOURCE_HOW[name])
+                for name in (SOURCE_NAME, SOURCE_NAME_PS)
+                if name in written
+            )
         )
+        summary += (
+            "\n\n  load it to get the `tdd` function, and every tool with it:"
+            f"\n\n{lines}\n"
+        )
+    posix = written.get(SOURCE_NAME) if written else None
     return out.ok(
         summary,
         tdd_dir=str(dir_),
         tools=len(catalog["tools"]),
         toolsets=catalog["toolsets"],
-        source=str(written) if written else None,
+        source=str(posix) if posix else None,
+        sources={name: str(path) for name, path in (written or {}).items()},
         version=version_mod.shipped(),
     )
 
 
-def _write_source(dir_: pathlib.Path, out: render.Renderer) -> pathlib.Path | None:
+def _write_source(dir_: pathlib.Path, out: render.Renderer) -> dict[str, pathlib.Path]:
     """Install one loader per shell family, with this tdd dir baked in.
 
     The templates ship inside the shell package, so they are versioned with the
@@ -316,13 +339,13 @@ def _write_source(dir_: pathlib.Path, out: render.Renderer) -> pathlib.Path | No
     Both families are written, always: which shell someone will open is not the
     installer's to guess, a loader is a few kilobytes, and the alternative --
     write one, tell the other to reinstall -- fails exactly when a teammate
-    opens the other shell. What this returns is the POSIX one, because
-    `source tdd-source.sh` is what the install message tells the reader to run.
+    opens the other shell. Both come back, keyed by file name, because the
+    install message names both.
     """
     python = paths.venvs_dir(dir_) / SHELL_ENV / "bin" / "python"
     if not python.is_file():
         out.warn("shell env missing; no tdd-source loader written")
-        return None
+        return {}
 
     found = subprocess.run(
         [
@@ -338,14 +361,13 @@ def _write_source(dir_: pathlib.Path, out: render.Renderer) -> pathlib.Path | No
     )
     if found.returncode != 0:
         out.warn(f"no tdd-source loader written: {found.stderr.strip()}")
-        return None
+        return {}
 
-    posix: pathlib.Path | None = None
+    written: dict[str, pathlib.Path] = {}
     for family, (name, template) in sorted(json.loads(found.stdout).items()):
         target = dir_ / name
         target.write_text(template.replace("__TDD_DIR__", str(dir_)))
         target.chmod(0o644)
         out.debug(f"wrote {target}", family=family)
-        if name == SOURCE_NAME:
-            posix = target
-    return posix
+        written[name] = target
+    return written

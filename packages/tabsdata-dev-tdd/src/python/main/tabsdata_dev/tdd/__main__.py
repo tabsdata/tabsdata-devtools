@@ -260,6 +260,7 @@ def _info(dir_: pathlib.Path, out: render.Renderer) -> int:
         "version": version_mod.current(dir_),
         "catalog": str(dir_ / catalog_mod.CATALOG_NAME),
         "source": str(dir_ / initialize_mod.SOURCE_NAME),
+        "source_powershell": str(dir_ / initialize_mod.SOURCE_NAME_PS),
         "venvs": str(paths.venvs_dir(dir_)),
         "toolsets": catalog["toolsets"],
         "tools": len(catalog["tools"]),

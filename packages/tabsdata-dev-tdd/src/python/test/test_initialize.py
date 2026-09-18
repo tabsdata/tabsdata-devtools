@@ -77,3 +77,41 @@ class _Out:
 
     def ok(self, *a, **k):
         return 0
+
+
+def test_the_install_message_names_both_shells_and_how_each_loads():
+    """A reader in PowerShell who copies the `source` line gets a silent
+    no-op -- PowerShell treats a .sh as a document and hands it to the OS to
+    open, so nothing loads and nothing is said. So the message names both
+    loaders and the word each shell uses, `source` against `.`."""
+    from tabsdata_dev.tdd import initialize
+
+    assert initialize.SOURCE_NAME == "tdd-source.sh"
+    assert initialize.SOURCE_NAME_PS == "tdd-source.ps1"
+    assert initialize.SOURCE_HOW[initialize.SOURCE_NAME] == ("bash, zsh", "source")
+    assert initialize.SOURCE_HOW[initialize.SOURCE_NAME_PS] == ("PowerShell", ".")
+
+
+def test_initialize_writes_a_loader_per_family_and_reports_both(tmp_path, monkeypatch):
+    """Both are written, always: which shell someone will open is not the
+    installer's to guess."""
+    dir_ = tmp_path / "tdd"
+    (dir_ / "tdd-venvs" / "shells" / "bin").mkdir(parents=True)
+    (dir_ / "tdd-venvs" / "shells" / "bin" / "python").write_text("")
+
+    import json as json_mod
+    import subprocess
+
+    def fake_run(argv, **kwargs):
+        payload = {
+            "unix": ["tdd-source.sh", "SH __TDD_DIR__"],
+            "powershell": ["tdd-source.ps1", "PS __TDD_DIR__"],
+        }
+        return subprocess.CompletedProcess(argv, 0, json_mod.dumps(payload), "")
+
+    monkeypatch.setattr(initialize.subprocess, "run", fake_run)
+    written = initialize._write_source(dir_, _Out())
+    assert sorted(written) == ["tdd-source.ps1", "tdd-source.sh"]
+    # each one has this dir baked in, so several tdd dirs each point at themselves
+    assert (dir_ / "tdd-source.sh").read_text() == f"SH {dir_}"
+    assert (dir_ / "tdd-source.ps1").read_text() == f"PS {dir_}"

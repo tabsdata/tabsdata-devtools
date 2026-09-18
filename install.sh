@@ -132,5 +132,6 @@ done
 say ""
 say "${GREEN}installed${RESET} $DIR_OPT"
 say "  configs   $CREATED created, $KEPT kept, $SKIPPED skipped$([ "$FAILED" -gt 0 ] && printf ', %s failed' "$FAILED")"
-say "  source it  source $DIR_OPT/tdd-source.sh"
+say "  load it     bash, zsh    source $DIR_OPT/tdd-source.sh"
+say "              PowerShell   . $DIR_OPT/tdd-source.ps1"
 [ "$FAILED" -eq 0 ] || exit 1
