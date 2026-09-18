@@ -26,7 +26,7 @@ def test_initialize_from_source_preserves_user_state(tmp_path, monkeypatch):
     keep = {
         "data/system/dev": "sys",
         "data/domain/dev": "dom",
-        "managed-venvs/scratch.env": "uv",
+        "managed-venvs/scratch.json": '{"manager": "uv"}',
         "managed-venvs/uv/scratch/marker": "venv",
         # a command's own config file: its options and whatever it keeps
         "venv.toml": '[options.create]\ntype = "uv"\n',

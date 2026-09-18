@@ -17,7 +17,7 @@ def test_every_argument_reaches_the_program(tmp_path, monkeypatch, capfd):
     root = tmp_path / "managed-venvs"
     exe = root / "pyenv" / "v1" / "bin" / "tdk"
     exe.parent.mkdir(parents=True)
-    (root / "v1.env").write_text("pyenv\n")
+    (root / "v1.json").write_text('{"manager": "pyenv"}\n')
     exe.write_text('#!/bin/sh\necho "tdk got: $*"\n[ "$1" != fail ]\n')
     exe.chmod(0o755)
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
@@ -40,7 +40,7 @@ def test_refuses_when_the_program_is_missing_from_the_venv(
 ):
     root = tmp_path / "managed-venvs"
     (root / "uv" / "v2").mkdir(parents=True)
-    (root / "v2.env").write_text("uv\n")
+    (root / "v2.json").write_text('{"manager": "uv"}\n')
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
     monkeypatch.setenv("_TDD_VENV", "v2")
     monkeypatch.setattr("sys.argv", ["tdk"])

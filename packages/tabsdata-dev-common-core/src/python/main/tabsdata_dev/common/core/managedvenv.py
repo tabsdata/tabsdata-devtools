@@ -5,28 +5,54 @@
 """The managed venvs of `tdd venv`, seen from a Python tool.
 
 `tdd venv` keeps them under ``<tdd_dir>/managed-venvs/<manager>/<name>`` with a
-``<name>.env`` marker beside the manager directories holding the manager
-(pyenv, uv or conda), and exports ``_TDD_VENV=<name>`` while one is active. A
-tool that must run *inside* the user's venv rather than its own toolset --
-the tdk launchers -- resolves that here and gets the argv that runs a program
-in it through the venv's manager, keeping the caller's cwd.
+``<name>.json`` marker beside the manager directories: the manager (pyenv, uv
+or conda) under ``manager``, and what the venv is -- ``python`` (the version
+it runs), ``python_path`` (the base interpreter it was built from),
+``relocatable``, ``created`` -- and exports ``_TDD_VENV=<name>`` while one is
+active. A tool that must run *inside* the user's venv rather than its own
+toolset -- the tdk launchers -- resolves that here and gets the argv that runs
+a program in it through the venv's manager, keeping the caller's cwd.
+
+The marker used to be ``<name>.env`` holding the manager alone; `tdd venv`
+migrates one on sight, so this side reads JSON only and names the fix when it
+meets the old file.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
+from typing import Any
 
 from . import datadir
 from .errors import ToolError
 
 ENV_ACTIVE = "_TDD_VENV"
-MARKER_SUFFIX = ".env"
+MARKER_SUFFIX = ".json"
+LEGACY_MARKER_SUFFIX = ".env"
 MANAGERS = ("pyenv", "uv", "conda")
 
 
 def root() -> pathlib.Path:
     return datadir.tdd_dir() / "managed-venvs"
+
+
+def marker_path(name: str) -> pathlib.Path:
+    return root() / f"{name}{MARKER_SUFFIX}"
+
+
+def marker(name: str) -> dict[str, Any] | None:
+    """What the marker of `name` records, or None when there is none or it is
+    not a JSON object naming a manager."""
+    path = marker_path(name)
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("manager"), str):
+        return None
+    return data
 
 
 def active() -> str:
@@ -62,25 +88,37 @@ def adopted() -> str | None:
     if len(rel.parts) != 2:
         return None
     manager, name = rel.parts
-    marker = root() / f"{name}{MARKER_SUFFIX}"
-    if manager not in MANAGERS or not marker.is_file():
+    if manager not in MANAGERS:
         return None
-    if marker.read_text().strip() != manager:
+    data = marker(name)
+    if data is None or data["manager"] != manager:
         return None
     return name
 
 
 def resolve(name: str) -> tuple[str, pathlib.Path]:
     """(manager, directory) of the managed venv `name`, from its marker."""
-    marker = root() / f"{name}{MARKER_SUFFIX}"
-    if not marker.is_file():
+    path = marker_path(name)
+    data = marker(name)
+    if data is None:
+        if (root() / f"{name}{LEGACY_MARKER_SUFFIX}").is_file():
+            # From before the JSON marker: `tdd venv` rewrites it on sight.
+            raise ToolError(
+                f"{ENV_ACTIVE}={name} has a marker from an older tdd "
+                f"({name}{LEGACY_MARKER_SUFFIX}); run `tdd venv list` once to "
+                "migrate it"
+            )
+        if path.is_file():
+            raise ToolError(
+                f"{path} is not a managed venv marker (JSON naming a manager)"
+            )
         raise ToolError(
-            f"{ENV_ACTIVE}={name} but {marker} does not exist; `tdd venv list` shows "
+            f"{ENV_ACTIVE}={name} but {path} does not exist; `tdd venv list` shows "
             "the managed venvs"
         )
-    manager = marker.read_text().strip()
+    manager = data["manager"]
     if manager not in MANAGERS:
-        raise ToolError(f"{marker} names an unknown venv manager {manager!r}")
+        raise ToolError(f"{path} names an unknown venv manager {manager!r}")
     path = root() / manager / name
     if not path.is_dir():
         raise ToolError(

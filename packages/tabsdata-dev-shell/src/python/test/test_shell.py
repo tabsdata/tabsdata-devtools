@@ -261,12 +261,73 @@ def test_venv_adopts_a_managed_venv_active_without_the_record():
     assert "_tdd_venv_adopt() {" in text
     assert '[ "$_tdd_current" = "$_tdd_adir" ] || return 0' in text
     assert (
-        '[ "$(cat "$(_tdd_venv_root)/$_tdd_aname.env" 2>/dev/null)" = "$_tdd_atype" ]'
+        '[ "$(_tdd_venv_manager_of "$_tdd_aname")" = "$_tdd_atype" ] || return 0'
         in text
     )
     for sub in ("create", "activate", "deactivate", "delete", "list"):
         body = text.split(f"_tdd_venv_{sub}() {{", 1)[1].split("\n}\n", 1)[0]
         assert "_tdd_venv_adopt" in body, sub
+
+
+def test_venv_marker_is_json_and_a_pre_json_marker_is_migrated_first():
+    """The marker is <name>.json -- the manager, the python the venv runs and
+    was built from, whether it is relocatable, when it was made -- read by one
+    jq run (the twin of common.core.managedvenv.marker). A <name>.env from
+    before, holding the type alone, is migrated by every subcommand before it
+    adopts, so nothing downstream ever meets the old file."""
+    text = (shell.scripts_dir() / "venv.sh").read_text()
+    assert "_tdd_venv_marker() {" in text
+    assert "printf '%s' \"$(_tdd_venv_root)/$1.json\"" in text
+    assert "_tdd_venv_read_marker() {" in text and "_tdd_venv_manager_of() {" in text
+    writer = text.split("_tdd_venv_write_marker() {", 1)[1].split("\n}\n", 1)[0]
+    for field in (
+        "manager:",
+        "python:",
+        "python_path:",
+        "relocatable:",
+        "created:",
+        "manager_version:",
+        "python_requested:",
+        "tdd_version:",
+    ):
+        assert field in writer, field
+    # written through a temporary file and one rename, like every config write
+    assert 'mv "$_tdd_tmpf" "$_tdd_envf"' in writer
+    migrate = text.split("_tdd_venv_migrate() {", 1)[1].split("\n}\n", 1)[0]
+    assert "-name '*.env'" in migrate and "--migrated" in migrate
+    assert "^relocatable = true" in migrate  # what uv leaves in pyvenv.cfg
+    for sub in ("create", "activate", "deactivate", "delete", "list"):
+        body = text.split(f"_tdd_venv_{sub}() {{", 1)[1].split("\n}\n", 1)[0]
+        assert body.index("_tdd_venv_migrate") < body.index("_tdd_venv_adopt"), sub
+    # and the old way of reading a marker is gone
+    assert '.env" 2>/dev/null' not in text
+    assert "_tdd_venv_remove" in text and 'rm -f "$(_tdd_venv_marker "$1")"' in text
+
+
+def test_venv_create_relocatable_is_opt_in_and_uv_builds_on_managed_python_only():
+    text = (shell.scripts_dir() / "venv.sh").read_text()
+    assert '"create|--relocatable|false"' in text
+    body = text.split("_tdd_venv_create() {", 1)[1].split("\n}\n", 1)[0]
+    assert "_tdd_reloc=false" in body and "--relocatable)" in body
+    # uv: its managed interpreters only; relocatable when asked and only then
+    # -- UV_VENV_RELOCATABLE in the environment cannot decide it behind the
+    # flag's back, since the marker records what the venv is
+    assert "set -- --managed-python" in body
+    assert '[ "$_tdd_reloc" = true ] && set -- "$@" --relocatable' in body
+    assert 'env -u UV_VENV_RELOCATABLE uv venv "$@"' in body
+    # a pyenv or conda venv is bound to its path: refused, not shrugged off
+    assert '_tdd_error "--relocatable needs --type uv' in body
+    # the prompt says what the venv can stand: (<type>/<python>/<name>/reloc)
+    mark = text.split("_tdd_venv_mark_text() {", 1)[1].split("\n}\n", 1)[0]
+    assert "printf '/reloc'" in mark
+    # list shows the python, reloc or -, the path and the base python
+    listing = text.split("_tdd_venv_list() {", 1)[1].split("\n}\n", 1)[0]
+    assert "_tdd_venv_read_marker" in listing
+    assert "'%-24s %-6s %-9s %-6s %s  %s%s'" in listing
+    assert "printf 'reloc' || printf -- '-'" in listing
+    # the JSON fields, as the shell spells them inside a double-quoted string
+    for field in ("python", "python_path", "relocatable", "created"):
+        assert f'\\"{field}\\":' in listing, field
 
 
 def test_venv_create_has_force_and_deactivate_handles_every_kind():
@@ -346,8 +407,13 @@ def test_prompt_marks_tdd_in_red_and_the_venv_in_green():
     assert 'PS1="${PS1/"$_TDD_PROMPT_MARK"/}"' in template
     assert '_TDD_PROMPT_MARK="$_tdd_star"' in template
     venv = (shell.scripts_dir() / "venv.sh").read_text()
-    # (<type>/<python>/<name>) in green, written AFTER the star so it stays first
-    assert '_tdd_ps1_wrap green "($_tdd_type/${_tdd_py:-?}/$_tdd_name)"' in venv
+    # (<type>/<python>/<name>[/reloc]) in green, written AFTER the star so it
+    # stays first
+    assert (
+        '_tdd_ps1_wrap green "$(_tdd_venv_mark_text "$_tdd_type" "$_tdd_py" '
+        '"$_tdd_name" "$_tdd_reloc")"' in venv
+    )
+    assert "printf '(%s/%s/%s%s)'" in venv
     assert '"$_tdd_star"*) PS1="$_tdd_star$_tdd_mark${_tdd_ps1#"$_tdd_star"}"' in venv
 
 

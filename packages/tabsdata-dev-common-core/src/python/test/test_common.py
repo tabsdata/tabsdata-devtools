@@ -211,9 +211,9 @@ def test_managedvenv_adopts_a_managed_venv_active_without_the_record(
         monkeypatch.delenv(var, raising=False)
     root = tmp_path / "managed-venvs"
     (root / "uv" / "w").mkdir(parents=True)
-    (root / "w.env").write_text("uv\n")
+    (root / "w.json").write_text('{"manager": "uv", "python": "3.12.13"}\n')
     (root / "conda" / "c").mkdir(parents=True)
-    (root / "c.env").write_text("conda\n")
+    (root / "c.json").write_text('{"manager": "conda"}\n')
     # a uv/pyenv venv: VIRTUAL_ENV is the path
     monkeypatch.setenv("VIRTUAL_ENV", str(root / "uv" / "w"))
     assert managedvenv.active() == "w"
@@ -248,13 +248,33 @@ def test_managedvenv_resolves_the_marker_and_composes_each_manager(
     root = tmp_path / "managed-venvs"
     for manager in ("pyenv", "uv", "conda"):
         (root / manager / f"v-{manager}").mkdir(parents=True)
-        (root / f"v-{manager}.env").write_text(f"{manager}\n")
+        (root / f"v-{manager}.json").write_text(
+            '{"schema": 1, "manager": "%s", "python": "3.12.13", '
+            '"relocatable": false}\n' % manager
+        )
     assert managedvenv.resolve("v-uv") == ("uv", root / "uv" / "v-uv")
+    assert managedvenv.marker("v-uv") == {
+        "schema": 1,
+        "manager": "uv",
+        "python": "3.12.13",
+        "relocatable": False,
+    }
     with pytest.raises(ToolError, match="does not exist"):
         managedvenv.resolve("nope")
-    (root / "odd.env").write_text("virtualenvwrapper\n")
+    (root / "odd.json").write_text('{"manager": "virtualenvwrapper"}\n')
     with pytest.raises(ToolError, match="unknown venv manager"):
         managedvenv.resolve("odd")
+    # not a marker at all: not JSON, or JSON that names no manager
+    (root / "junk.json").write_text("uv\n")
+    with pytest.raises(ToolError, match="not a managed venv marker"):
+        managedvenv.resolve("junk")
+    (root / "bare.json").write_text('{"python": "3.12.13"}\n')
+    with pytest.raises(ToolError, match="not a managed venv marker"):
+        managedvenv.resolve("bare")
+    # the marker from before the JSON: `tdd venv` migrates it, this side says so
+    (root / "old.env").write_text("uv\n")
+    with pytest.raises(ToolError, match="older tdd.*tdd venv list"):
+        managedvenv.resolve("old")
 
     argv, env = managedvenv.launch("uv", root / "uv" / "v-uv", "tdk", ["fn", "--x"])
     assert argv == ["uv", "run", "--active", "--no-project", "tdk", "fn", "--x"]

@@ -6,11 +6,15 @@
 . "${_TDD_COMMON_SH:?tdd: common.sh not loaded; source tdd-source.sh}"
 
 # Managed virtualenvs: created by pyenv, uv or conda, but all of them living
-# under $TDD_DIR/managed-venvs/<type>/<name>, each with a <name>.env marker
-# whose content is the type. Every subcommand reads the marker to know which
-# tool to drive, so the user never has to remember how a venv was made.
+# under $TDD_DIR/managed-venvs/<type>/<name>, each with a <name>.json marker
+# beside the type directories: the manager (type), the interpreter it runs
+# (version and the base python it was built from), whether it is relocatable,
+# when it was made. Every subcommand reads the marker to know which tool to
+# drive, so the user never has to remember how a venv was made; `list` shows
+# the rest. A marker from before the JSON (<name>.env, holding the type alone)
+# is migrated on sight, the missing facts probed from the venv itself.
 #
-#     tdd venv create --name NAME [--type pyenv|uv|conda] [--python VERSION]
+#     tdd venv create --name NAME [--type pyenv|uv|conda] [--python VERSION] [--relocatable]
 #     tdd venv activate --name NAME
 #     tdd venv deactivate [--force]
 #     tdd venv delete (--name NAME | --all)
@@ -20,16 +24,21 @@
 # is a shell command. No bin-reqs.txt: which of pyenv, uv or conda is needed
 # depends on --type, so each is checked at the point of use.
 #
-# Activation rules: the prompt shows (<type>/<python>/<name>); create ends in
-# activation; activating while another managed venv is active switches to the
-# new one; a venv that tdd did not activate (VIRTUAL_ENV, or a conda env other
-# than base) blocks both -- unless it lives under managed-venvs/<type>/<name>
-# with its marker, in which case it is ours however it was entered and is
-# adopted as the active one. deactivate leaves the managed venv; a venv tdd did
-# not activate, or a stale record, is refused with a pointer to --force, which
-# leaves it best effort from what the tool left in the environment (venv/uv,
-# pyenv-virtualenv, conda) or drops the record. State lives in _TDD_VENV
-# (the name) and _TDD_VENV_PS1 (the prompt to restore).
+# A uv venv is built on a uv-managed interpreter only (--managed-python), never
+# on whatever python happens to be on PATH, and is relocatable only when asked
+# (--relocatable, uv's own flag; a pyenv or conda venv cannot be).
+#
+# Activation rules: the prompt shows (<type>/<python>/<name>), with /reloc
+# appended for a relocatable venv; create ends in activation; activating while
+# another managed venv is active switches to the new one; a venv that tdd did
+# not activate (VIRTUAL_ENV, or a conda env other than base) blocks both --
+# unless it lives under managed-venvs/<type>/<name> with its marker, in which
+# case it is ours however it was entered and is adopted as the active one.
+# deactivate leaves the managed venv; a venv tdd did not activate, or a stale
+# record, is refused with a pointer to --force, which leaves it best effort
+# from what the tool left in the environment (venv/uv, pyenv-virtualenv,
+# conda) or drops the record. State lives in _TDD_VENV (the name) and
+# _TDD_VENV_PS1 (the prompt to restore).
 
 tdd_fn_register venv "create, activate, deactivate, delete or list managed venvs (pyenv, uv or conda)"
 
@@ -37,7 +46,8 @@ tdd_fn_register venv "create, activate, deactivate, delete or list managed venvs
 # and what `--show` compares against.
 tdd_defaults_venv() {
     printf '%s\n' "create|--type|pyenv" "create|--python|3.12.13" "create|--name|" \
-        "create|--force|false" "deactivate|--force|false" "activate|--name|" "delete|--name|" "delete|--all|false"
+        "create|--force|false" "create|--relocatable|false" "deactivate|--force|false" \
+        "activate|--name|" "delete|--name|" "delete|--all|false"
 }
 
 tddfn_venv() {
@@ -69,12 +79,133 @@ tddfn_venv() {
             _tdd_rc=1
             ;;
     esac
-    unset _tdd_sub _tdd_name _tdd_type _tdd_python _tdd_dir _tdd_envf _tdd_out _tdd_prefix _tdd_py _tdd_f _tdd_rows _tdd_json _tdd_mark _tdd_current _tdd_prev _tdd_ps1 _tdd_prev_type _tdd_force _tdd_recreated _tdd_kind _tdd_p _tdd_star _tdd_aname _tdd_atype _tdd_adir _tdd_all
+    unset _tdd_sub _tdd_name _tdd_type _tdd_python _tdd_dir _tdd_envf _tdd_out _tdd_prefix _tdd_py _tdd_f _tdd_rows _tdd_json _tdd_mark _tdd_current _tdd_prev _tdd_ps1 _tdd_prev_type _tdd_force _tdd_recreated _tdd_kind _tdd_p _tdd_star _tdd_aname _tdd_atype _tdd_adir _tdd_all _tdd_reloc _tdd_pypath _tdd_created _tdd_mver _tdd_probe _tdd_e _tdd_tmpf _tdd_migrated _tdd_relocs
     return "$_tdd_rc"
 }
 
 _tdd_venv_root() {
     printf '%s' "$TDD_DIR/managed-venvs"
+}
+
+# The marker of the managed venv NAME.
+_tdd_venv_marker() {
+    printf '%s' "$(_tdd_venv_root)/$1.json"
+}
+
+# The manager (type) of NAME from its marker, or nothing. Usable inside $(...),
+# which _tdd_venv_read_marker -- setting variables -- is not.
+_tdd_venv_manager_of() {
+    jq -r '.manager // empty' "$(_tdd_venv_marker "$1")" 2>/dev/null
+}
+
+# Everything the marker of NAME records, into _tdd_type, _tdd_py, _tdd_pypath,
+# _tdd_reloc (true|false) and _tdd_created; a fact the marker lacks is empty
+# (a view shows it as ?). Returns 1 when there is no marker, or it is not
+# JSON or names no manager, with nothing set.
+_tdd_venv_read_marker() {
+    _tdd_envf="$(_tdd_venv_marker "$1")"
+    [ -f "$_tdd_envf" ] || return 1
+    # One jq run per marker; @sh quotes every value for eval.
+    _tdd_e="$(jq -r 'select(.manager != null) | @sh "_tdd_type=\(.manager) _tdd_py=\(.python // "") _tdd_pypath=\(.python_path // "") _tdd_reloc=\(if .relocatable == true then "true" else "false" end) _tdd_created=\(.created // "")"' "$_tdd_envf" 2>/dev/null)" || return 1
+    [ -n "$_tdd_e" ] || return 1
+    eval "$_tdd_e"
+    return 0
+}
+
+# What a venv says about itself: its interpreter's version and the base python
+# it was built from (sys._base_executable, which pyvenv.cfg's `home` points at;
+# a conda env carries its own, so that is the env's python), into _tdd_py and
+# _tdd_pypath; both empty when the venv's python does not run. $1 the venv dir.
+_tdd_venv_probe() {
+    _tdd_py=""
+    _tdd_pypath=""
+    [ -x "$1/bin/python" ] || return 0
+    _tdd_probe="$("$1/bin/python" -c 'import sys; print(sys.version.split()[0]); print(sys._base_executable or sys.executable)' 2>/dev/null)" || return 0
+    _tdd_py="${_tdd_probe%%
+*}"
+    _tdd_pypath="${_tdd_probe#*
+}"
+    [ "$_tdd_pypath" != "$_tdd_probe" ] || _tdd_pypath=""
+    return 0
+}
+
+# Write the marker of a venv. Positional, so create and the migration can each
+# hand over their own variables:
+#
+#     _tdd_venv_write_marker NAME TYPE PYTHON PYTHON_PATH RELOCATABLE CREATED REQUESTED [MANAGER_VERSION] [--migrated]
+#
+# PYTHON is the version the venv runs, REQUESTED what --python asked for,
+# RELOCATABLE true or false; an empty fact is null. `--migrated` stamps the
+# time this marker replaced a pre-JSON one. Through a temporary file and one
+# rename, so an interrupted write never leaves half a marker.
+_tdd_venv_write_marker() {
+    _tdd_envf="$(_tdd_venv_marker "$1")"
+    _tdd_tmpf="$(_tdd_venv_root)/.$1.json.$$.tmp"
+    _tdd_migrated=""
+    [ "${9:-}" = --migrated ] && _tdd_migrated="$(_tdd_venv_now)"
+    jq -n --arg name "$1" --arg manager "$2" --arg python "${3:-}" --arg pypath "${4:-}" \
+        --argjson reloc "$([ "${5:-}" = true ] && echo true || echo false)" \
+        --arg created "${6:-}" --arg requested "${7:-}" --arg mver "${8:-}" \
+        --arg migrated "$_tdd_migrated" --arg tdd "$(cat "$TDD_DIR/VERSION" 2>/dev/null)" '
+        def opt: if . == "" then null else . end;
+        {schema: 1, name: $name, manager: $manager, manager_version: ($mver | opt),
+         python: ($python | opt), python_requested: ($requested | opt),
+         python_path: ($pypath | opt), relocatable: $reloc,
+         created: ($created | opt), tdd_version: ($tdd | opt)}
+        + (if $migrated == "" then {} else {migrated: $migrated} end)' \
+        > "$_tdd_tmpf" 2>/dev/null || { rm -f "$_tdd_tmpf"; _tdd_error "cannot write $_tdd_envf"; return 1; }
+    mv "$_tdd_tmpf" "$_tdd_envf" || { rm -f "$_tdd_tmpf"; _tdd_error "cannot write $_tdd_envf"; return 1; }
+    return 0
+}
+
+# Now, as the markers stamp it: UTC, to the second.
+_tdd_venv_now() {
+    date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+# The version of manager $1 (pyenv, uv or conda) as `--version` says it: the
+# second word of `uv 0.12.3 (...)`, `pyenv 2.8.4`, `conda 26.3.1`.
+_tdd_venv_manager_version() {
+    "$1" --version 2>/dev/null | awk 'NR == 1 { print $2 }'
+}
+
+# The prompt marker of the active venv: (<type>/<python>/<name>), and /reloc
+# inside the parenthesis when it is relocatable, so the prompt says what the
+# venv can stand. $1 type, $2 python version, $3 name, $4 relocatable.
+_tdd_venv_mark_text() {
+    printf '(%s/%s/%s%s)' "$1" "${2:-?}" "$3" "$([ "${4:-}" = true ] && printf '/reloc')"
+}
+
+# Markers from before the JSON: <name>.env holding the type alone. Each is
+# replaced by a <name>.json on sight -- the type from the file, the interpreter
+# probed from the venv, relocatable from what uv wrote in pyvenv.cfg, created
+# from the old marker's mtime -- so the two formats never coexist and no reader
+# has to know the old one. Every subcommand calls this before adopting, once
+# past --help and with its options parsed (so an event here speaks the format
+# asked for); `list` therefore writes to disk once, this once. Its variables
+# are its own: the caller's --name and --type are already parsed. stat and
+# date differ between BSD and GNU: both spellings are tried.
+_tdd_venv_migrate() {
+    for _tdd_mg_f in $(find "$(_tdd_venv_root)" -maxdepth 1 -name '*.env' 2>/dev/null | sort); do
+        _tdd_mg_name="$(basename "$_tdd_mg_f" .env)"
+        _tdd_mg_type="$(cat "$_tdd_mg_f" 2>/dev/null)"
+        case "$_tdd_mg_type" in
+            pyenv | uv | conda) ;;
+            *) _tdd_warn "$_tdd_mg_f names an unknown venv manager '$_tdd_mg_type'; left as it is"; continue ;;
+        esac
+        _tdd_mg_dir="$(_tdd_venv_root)/$_tdd_mg_type/$_tdd_mg_name"
+        _tdd_venv_probe "$_tdd_mg_dir"
+        _tdd_mg_reloc=false
+        grep -q '^relocatable = true' "$_tdd_mg_dir/pyvenv.cfg" 2>/dev/null && _tdd_mg_reloc=true
+        _tdd_mg_e="$(stat -f %m "$_tdd_mg_f" 2>/dev/null || stat -c %Y "$_tdd_mg_f" 2>/dev/null)"
+        _tdd_mg_created=""
+        [ -n "$_tdd_mg_e" ] && _tdd_mg_created="$(date -u -r "$_tdd_mg_e" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$_tdd_mg_e" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+        _tdd_venv_write_marker "$_tdd_mg_name" "$_tdd_mg_type" "$_tdd_py" "$_tdd_pypath" "$_tdd_mg_reloc" "$_tdd_mg_created" "" "" --migrated || return 1
+        rm -f "$_tdd_mg_f"
+        _tdd_debug "migrated the marker of $_tdd_mg_name ($_tdd_mg_type) to $(_tdd_venv_marker "$_tdd_mg_name")"
+    done
+    unset _tdd_mg_f _tdd_mg_name _tdd_mg_type _tdd_mg_dir _tdd_mg_reloc _tdd_mg_e _tdd_mg_created _tdd_py _tdd_pypath _tdd_probe
+    return 0
 }
 
 _tdd_venv_help() {
@@ -90,29 +221,31 @@ positional arguments:
     activate  enter one, in this shell
     deactivate  leave the active managed venv
     delete  remove a venv, or every one of them
-    list  every managed venv with its type and path
+    list  every managed venv with its type, python, whether relocatable, path and base python
     config  this command's config file: --show, --default, --create [--force]
 
-A <name>.env file beside them records the type, so every subcommand -- and the tdk launchers
+A <name>.json file beside them records the type, the python it runs and was built from,
+whether it is relocatable and when it was made, so every subcommand -- and the tdk launchers
 -- know which tool to use. The active one is named by _TDD_VENV; a managed venv found active
 without that record (a shell from before a reinstall, bin/activate sourced by hand) is adopted
 as the active one.
 
-example: tdd venv create --name scratch --type uv --python 3.12.13
+example: tdd venv create --name scratch --type uv --python 3.12.13 --relocatable
 HELP
 }
 
 _tdd_venv_help_create() {
     _tdd_help_text <<'HELP'
-usage: tdd venv create --name NAME [--type {pyenv,uv,conda}] [--python VERSION] [--force]
+usage: tdd venv create --name NAME [--type {pyenv,uv,conda}] [--python VERSION] [--relocatable] [--force]
 
 Make a venv and enter it. Refuses while a venv tdd did not activate is active; switches from a
 managed one. With --force an existing NAME is deleted first, even the active one.
 
 options:
   --name NAME  the venv
-  --type {pyenv,uv,conda}  the tool that creates it (default: pyenv). A pyenv venv is a plain `python -m venv` on a pyenv interpreter; conda gets its shell hook installed on the fly when the rc did not
+  --type {pyenv,uv,conda}  the tool that creates it (default: pyenv). A pyenv venv is a plain `python -m venv` on a pyenv interpreter; a uv venv is built on a uv-managed interpreter only, never one found on PATH; conda gets its shell hook installed on the fly when the rc did not
   --python VERSION  the interpreter (default: 3.12.13, what a tdkserver instance builds its own environments with). pyenv needs it installed already (pyenv install VERSION); uv and conda fetch it
+  --relocatable  make the venv relocatable: it keeps working after being moved or copied (uv venvs only; the prompt ends in /reloc). Without it the venv is bound to its path, whatever UV_VENV_RELOCATABLE says
   --force, -f  delete NAME first if it exists, leaving it if it is the active one
 HELP
 }
@@ -121,9 +254,10 @@ _tdd_venv_help_activate() {
     _tdd_help_text <<'HELP'
 usage: tdd venv activate --name NAME
 
-Enter it, in this shell: the prompt shows (<type>/PYTHON/NAME) in green and _TDD_VENV=NAME is
-exported, which `tdd tdk`, `tdd tdkserver` and `tdd km` read. Switches if another managed venv
-is active; refuses if a venv tdd did not activate is -- deactivate that one first.
+Enter it, in this shell: the prompt shows (<type>/PYTHON/NAME) in green -- (<type>/PYTHON/NAME/reloc)
+for a relocatable venv -- and _TDD_VENV=NAME is exported, which `tdd tdk`, `tdd tdkserver` and
+`tdd km` read. Switches if another managed venv is active; refuses if a venv tdd did not
+activate is -- deactivate that one first.
 
 options:
   --name NAME  the venv
@@ -159,8 +293,9 @@ _tdd_venv_help_list() {
     _tdd_help_text <<'HELP'
 usage: tdd venv list
 
-Every managed venv with its type and path. The only subcommand that touches neither the shell
-nor the disk.
+Every managed venv, one line each: name, type, the python version it runs, `reloc` when it is
+relocatable (`-` when not), its path, and the base python it was built from -- all from its
+<name>.json marker. The only subcommand that changes neither the shell nor a venv.
 HELP
 }
 
@@ -192,19 +327,18 @@ _tdd_venv_remove() {
         conda env remove -y -q --prefix "$(_tdd_venv_root)/conda/$1" >/dev/null 2>&1
     fi
     rm -rf "$(_tdd_venv_root)/$2/$1" || { _tdd_error "could not remove $(_tdd_venv_root)/$2/$1"; return 1; }
-    rm -f "$(_tdd_venv_root)/$1.env"
+    rm -f "$(_tdd_venv_marker "$1")"
     _tdd_debug "removed $1 ($2)"
     return 0
 }
 
-# Resolve _tdd_name to its marker, type and directory; fail if unknown.
+# Resolve _tdd_name to its marker (_tdd_type, _tdd_py, _tdd_pypath, _tdd_reloc,
+# _tdd_created) and directory; fail if unknown.
 _tdd_venv_resolve() {
-    _tdd_envf="$(_tdd_venv_root)/$_tdd_name.env"
-    if [ ! -f "$_tdd_envf" ]; then
+    if ! _tdd_venv_read_marker "$_tdd_name"; then
         _tdd_error "no managed venv named $_tdd_name (see tdd venv list)"
         return 1
     fi
-    _tdd_type="$(cat "$_tdd_envf")"
     _tdd_dir="$(_tdd_venv_root)/$_tdd_type/$_tdd_name"
     return 0
 }
@@ -218,6 +352,9 @@ _tdd_venv_create() {
     # environments with, so a venv made here matches what the product runs.
     _tdd_python="3.12.13"
     _tdd_force=0
+    # Bound to its path unless asked otherwise: a venv that keeps working
+    # after a move is uv's --relocatable, and the default is to not want it.
+    _tdd_reloc=false
     while [ $# -gt 0 ]; do
         case "$1" in
             --name | --name=*)
@@ -227,6 +364,10 @@ _tdd_venv_create() {
                 ;;
             --force | -f)
                 _tdd_force=1
+                shift
+                ;;
+            --relocatable)
+                _tdd_reloc=true
                 shift
                 ;;
             --type | --type=*)
@@ -250,6 +391,7 @@ _tdd_venv_create() {
         return 0
     fi
     _tdd_cmd_check || return 1
+    _tdd_venv_migrate || return 1
     _tdd_venv_adopt
     if [ -z "$_tdd_name" ]; then
         _tdd_error "--name is required"
@@ -268,16 +410,25 @@ _tdd_venv_create() {
             return 1
             ;;
     esac
-    _tdd_envf="$(_tdd_venv_root)/$_tdd_name.env"
+    # Only uv builds a venv that survives a move; `python -m venv` and conda
+    # both bake the path in, so asking is a mistake worth stopping on rather
+    # than a flag to shrug off.
+    if [ "$_tdd_reloc" = true ] && [ "$_tdd_type" != uv ]; then
+        _tdd_error "--relocatable needs --type uv: a $_tdd_type venv is bound to its path"
+        return 1
+    fi
+    _tdd_relocs=""
+    [ "$_tdd_reloc" = true ] && _tdd_relocs=1  # for the messages: `, relocatable` or nothing
+    _tdd_envf="$(_tdd_venv_marker "$_tdd_name")"
     _tdd_recreated=""
     if [ -e "$_tdd_envf" ]; then
+        _tdd_prev_type="$(_tdd_venv_manager_of "$_tdd_name")"
         if [ "$_tdd_force" != 1 ]; then
-            _tdd_error "a managed venv named $_tdd_name already exists (type $(cat "$_tdd_envf")); --force recreates it"
+            _tdd_error "a managed venv named $_tdd_name already exists (type $_tdd_prev_type); --force recreates it"
             return 1
         fi
         # --force: leave it if it is the active one, then remove it under its
         # OLD type -- the new one may differ -- so nothing stale survives.
-        _tdd_prev_type="$(cat "$_tdd_envf")"
         _tdd_info "recreate $_tdd_name (was $_tdd_prev_type)"
         if [ "${_TDD_VENV:-}" = "$_tdd_name" ]; then
             _tdd_venv_leave
@@ -297,15 +448,23 @@ _tdd_venv_create() {
     _tdd_venv_foreign_check || return 1
     mkdir -p "$(_tdd_venv_root)/$_tdd_type" || { _tdd_error "cannot create $(_tdd_venv_root)"; return 1; }
 
-    _tdd_info "create $_tdd_name ($_tdd_type)"
+    _tdd_info "create $_tdd_name ($_tdd_type${_tdd_relocs:+, relocatable})"
     _tdd_debug "python: ${_tdd_python:-default}"
     case "$_tdd_type" in
         uv)
-            if [ -n "$_tdd_python" ]; then
-                _tdd_out="$(uv venv --python "$_tdd_python" "$_tdd_dir" 2>&1)"
-            else
-                _tdd_out="$(uv venv "$_tdd_dir" 2>&1)"
-            fi
+            # --managed-python: uv's own interpreters only, fetched when
+            # missing -- never the homebrew, pyenv or system python that
+            # happens to be on PATH under the same version. The relocatable
+            # flag is passed only when asked, and UV_VENV_RELOCATABLE is kept
+            # out of it: the marker records what this venv is, so the
+            # environment must not decide it behind the flag's back.
+            # The options are built as positional parameters (the command's
+            # own are all consumed by now): the one way both shells pass an
+            # optional argument through intact.
+            set -- --managed-python
+            [ "$_tdd_reloc" = true ] && set -- "$@" --relocatable
+            [ -n "$_tdd_python" ] && set -- "$@" --python "$_tdd_python"
+            _tdd_out="$(env -u UV_VENV_RELOCATABLE uv venv "$@" "$_tdd_dir" 2>&1)"
             _tdd_rc=$?
             ;;
         pyenv)
@@ -339,10 +498,19 @@ _tdd_venv_create() {
         _tdd_error "$_tdd_type failed to create $_tdd_name" "$_tdd_out"
         return 1
     fi
-    printf '%s\n' "$_tdd_type" > "$_tdd_envf"
-    _tdd_debug "create $_tdd_name ($_tdd_type): done"
+    # The marker: what the venv turned out to be, asked of its own python --
+    # the version it runs and the base interpreter it was built from -- beside
+    # what was asked for and who made it.
+    _tdd_venv_probe "$_tdd_dir"
+    _tdd_created="$(_tdd_venv_now)"
+    _tdd_mver="$(_tdd_venv_manager_version "$_tdd_type")"
+    if ! _tdd_venv_write_marker "$_tdd_name" "$_tdd_type" "$_tdd_py" "$_tdd_pypath" "$_tdd_reloc" "$_tdd_created" "$_tdd_python" "$_tdd_mver"; then
+        rm -rf "$_tdd_dir"
+        return 1
+    fi
+    _tdd_debug "create $_tdd_name ($_tdd_type): done; python ${_tdd_py:-?} from ${_tdd_pypath:-?}"
     _tdd_venv_enter || return 1
-    _tdd_ok "${_tdd_recreated}created and activated $_tdd_name ($_tdd_type) at $_tdd_dir${_tdd_prev:+ (left $_tdd_prev)}" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"path\":\"$(_tdd_json_str "$_tdd_dir")\",\"python\":\"$(_tdd_json_str "$_tdd_python")\",\"activated\":true,\"recreated\":$([ -n "$_tdd_recreated" ] && echo true || echo false)${_tdd_prev:+,\"deactivated\":\"$(_tdd_json_str "$_tdd_prev")\"}"
+    _tdd_ok "${_tdd_recreated}created and activated $_tdd_name ($_tdd_type, python ${_tdd_py:-?}${_tdd_relocs:+, relocatable}) at $_tdd_dir${_tdd_prev:+ (left $_tdd_prev)}" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"path\":\"$(_tdd_json_str "$_tdd_dir")\",\"python\":\"$(_tdd_json_str "${_tdd_py:-}")\",\"python_requested\":\"$(_tdd_json_str "$_tdd_python")\",\"python_path\":\"$(_tdd_json_str "${_tdd_pypath:-}")\",\"relocatable\":$_tdd_reloc,\"created\":\"$(_tdd_json_str "$_tdd_created")\",\"activated\":true,\"recreated\":$([ -n "$_tdd_recreated" ] && echo true || echo false)${_tdd_prev:+,\"deactivated\":\"$(_tdd_json_str "$_tdd_prev")\"}"
 }
 
 # The venv active in this shell right now, managed or not, as a path; empty if
@@ -368,18 +536,17 @@ _tdd_venv_has_deactivate_fn() {
 
 # Directory of the managed venv recorded in _TDD_VENV.
 _tdd_venv_active_dir() {
-    _tdd_prev_type="$(cat "$(_tdd_venv_root)/$_TDD_VENV.env" 2>/dev/null)"
-    printf '%s' "$(_tdd_venv_root)/$_tdd_prev_type/$_TDD_VENV"
-    unset _tdd_prev_type
+    printf '%s' "$(_tdd_venv_root)/$(_tdd_venv_manager_of "$_TDD_VENV")/$_TDD_VENV"
 }
 
 # A managed venv active without its record -- a shell that entered it before a
 # reinstall renamed the record, `source bin/activate` by hand, a script -- is
-# still ours: its path is <root>/<type>/<name> and <name>.env says <type>. Adopt
-# it as the recorded one, so create/activate switch from it and deactivate
-# leaves it as managed instead of refusing it as foreign. The prompt to restore
-# is the current one minus any marker of ours or the tool's, best effort. Every
-# subcommand calls this first, once past --help.
+# still ours: its path is <root>/<type>/<name> and <name>.json says <type>.
+# Adopt it as the recorded one, so create/activate switch from it and
+# deactivate leaves it as managed instead of refusing it as foreign. The prompt
+# to restore is the current one minus any marker of ours or the tool's, best
+# effort. Every subcommand calls this first, once past --help and after
+# _tdd_venv_migrate, so the marker it reads is JSON.
 _tdd_venv_adopt() {
     [ -z "${_TDD_VENV:-}" ] || return 0
     _tdd_current="$(_tdd_venv_current)"
@@ -389,10 +556,10 @@ _tdd_venv_adopt() {
     _tdd_atype="${_tdd_atype##*/}"
     _tdd_adir="$(_tdd_venv_root)/$_tdd_atype/$_tdd_aname"
     [ "$_tdd_current" = "$_tdd_adir" ] || return 0
-    [ "$(cat "$(_tdd_venv_root)/$_tdd_aname.env" 2>/dev/null)" = "$_tdd_atype" ] || return 0
+    [ "$(_tdd_venv_manager_of "$_tdd_aname")" = "$_tdd_atype" ] || return 0
     _tdd_py="$("$_tdd_adir/bin/python" --version 2>&1)"
     _tdd_py="${_tdd_py#Python }"
-    _tdd_mark="$(_tdd_ps1_wrap green "($_tdd_atype/${_tdd_py:-?}/$_tdd_aname)") "
+    _tdd_mark="$(_tdd_ps1_wrap green "$(_tdd_venv_mark_text "$_tdd_atype" "$_tdd_py" "$_tdd_aname" "$(jq -r '.relocatable' "$(_tdd_venv_marker "$_tdd_aname")" 2>/dev/null)")") "
     _TDD_VENV_PS1="${PS1-}"
     _TDD_VENV_PS1="${_TDD_VENV_PS1/"$_tdd_mark"/}"
     # venv's own marker: "(name) " up to Python 3.12, the bare name from 3.13
@@ -411,7 +578,7 @@ _tdd_venv_adopt() {
 # Leave the recorded managed venv: the tool's own deactivate, then the prompt
 # and the record. Shared by deactivate and by activate when switching.
 _tdd_venv_leave() {
-    case "$(cat "$(_tdd_venv_root)/$_TDD_VENV.env" 2>/dev/null)" in
+    case "$(_tdd_venv_manager_of "$_TDD_VENV")" in
         conda)
             CONDA_CHANGEPS1=false
             export CONDA_CHANGEPS1
@@ -445,9 +612,10 @@ _tdd_venv_foreign_check() {
     return 0
 }
 
-# Enter _tdd_name/_tdd_type/_tdd_dir: leave the recorded managed venv if any
-# (into _tdd_prev), source the tool's activation with its prompt marker
-# silenced, write ours, record the state. Foreign check already done.
+# Enter _tdd_name/_tdd_type/_tdd_dir (_tdd_reloc says whether it is
+# relocatable): leave the recorded managed venv if any (into _tdd_prev), source
+# the tool's activation with its prompt marker silenced, write ours, record the
+# state. Foreign check already done.
 _tdd_venv_enter() {
     _tdd_prev=""
     if [ -n "${_TDD_VENV:-}" ]; then
@@ -480,12 +648,13 @@ _tdd_venv_enter() {
     esac
     _TDD_VENV_PS1="$_tdd_ps1"
     # The active managed venv, in green, with the interpreter it runs (asked of
-    # the venv's own python: pyenv venvs have no record of it) -- placed after
-    # the red `* ` tdd-source.sh put first, so that stays first; ahead of
-    # everything when the prompt does not start with it.
+    # the venv's own python rather than read from the marker: it is what runs
+    # now) and /reloc when it is relocatable -- placed after the red `* `
+    # tdd-source.sh put first, so that stays first; ahead of everything when
+    # the prompt does not start with it.
     _tdd_py="$("$_tdd_dir/bin/python" --version 2>&1)"
     _tdd_py="${_tdd_py#Python }"
-    _tdd_mark="$(_tdd_ps1_wrap green "($_tdd_type/${_tdd_py:-?}/$_tdd_name)") "
+    _tdd_mark="$(_tdd_ps1_wrap green "$(_tdd_venv_mark_text "$_tdd_type" "$_tdd_py" "$_tdd_name" "$_tdd_reloc")") "
     _tdd_star="$(_tdd_ps1_wrap red '*') "
     case "$_tdd_ps1" in
         "$_tdd_star"*) PS1="$_tdd_star$_tdd_mark${_tdd_ps1#"$_tdd_star"}" ;;
@@ -503,6 +672,7 @@ _tdd_venv_activate() {
         return 0
     fi
     _tdd_cmd_check || return 1
+    _tdd_venv_migrate || return 1
     _tdd_venv_adopt
     if [ -z "$_tdd_name" ]; then
         _tdd_error "--name is required"
@@ -515,11 +685,11 @@ _tdd_venv_activate() {
     fi
     _tdd_venv_foreign_check || return 1
     if [ "${_TDD_VENV:-}" = "$_tdd_name" ]; then
-        _tdd_ok "$_tdd_name ($_tdd_type) is already active" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"path\":\"$(_tdd_json_str "$_tdd_dir")\",\"already_active\":true"
+        _tdd_ok "$_tdd_name ($_tdd_type) is already active" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"path\":\"$(_tdd_json_str "$_tdd_dir")\",\"relocatable\":$_tdd_reloc,\"already_active\":true"
         return 0
     fi
     _tdd_venv_enter || return 1
-    _tdd_ok "activated $_tdd_name ($_tdd_type) at $_tdd_dir${_tdd_prev:+ (left $_tdd_prev)}" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"path\":\"$(_tdd_json_str "$_tdd_dir")\"${_tdd_prev:+,\"deactivated\":\"$(_tdd_json_str "$_tdd_prev")\"}"
+    _tdd_ok "activated $_tdd_name ($_tdd_type$([ "$_tdd_reloc" = true ] && printf ', relocatable')) at $_tdd_dir${_tdd_prev:+ (left $_tdd_prev)}" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"path\":\"$(_tdd_json_str "$_tdd_dir")\",\"relocatable\":$_tdd_reloc${_tdd_prev:+,\"deactivated\":\"$(_tdd_json_str "$_tdd_prev")\"}"
 }
 
 # What is active and how it got there, for deactivate. Sets _tdd_kind to
@@ -596,12 +766,13 @@ _tdd_venv_deactivate() {
         return 0
     fi
     _tdd_cmd_check || return 1
+    _tdd_venv_migrate || return 1
     _tdd_venv_adopt
     _tdd_venv_detect
     if [ -n "${_TDD_VENV:-}" ] && [ -n "$_tdd_current" ] && [ "$_tdd_current" = "$(_tdd_venv_active_dir)" ]; then
         # The recorded (or just adopted) managed venv, active: the ordinary case.
         _tdd_name="$_TDD_VENV"
-        _tdd_type="$(cat "$(_tdd_venv_root)/$_tdd_name.env" 2>/dev/null)"
+        _tdd_type="$(_tdd_venv_manager_of "$_tdd_name")"
         _tdd_venv_leave
         _tdd_ok "deactivated $_tdd_name" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"managed\":true"
         return 0
@@ -615,7 +786,7 @@ _tdd_venv_deactivate() {
             return 1
         fi
         _tdd_name="$_TDD_VENV"
-        _tdd_type="$(cat "$(_tdd_venv_root)/$_tdd_name.env" 2>/dev/null)"
+        _tdd_type="$(_tdd_venv_manager_of "$_tdd_name")"
         _tdd_venv_leave
         _tdd_ok "dropped the stale record of $_tdd_name (no venv was active)" "\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"managed\":true,\"stale\":true"
         return 0
@@ -683,6 +854,7 @@ _tdd_venv_delete() {
         return 0
     fi
     _tdd_cmd_check || return 1
+    _tdd_venv_migrate || return 1
     _tdd_venv_adopt
     if [ -n "$_tdd_all" ]; then
         if [ -n "$_tdd_name" ]; then
@@ -697,9 +869,9 @@ _tdd_venv_delete() {
         fi
         _tdd_rows=""
         _tdd_json=""
-        for _tdd_f in $(find "$(_tdd_venv_root)" -maxdepth 1 -name '*.env' 2>/dev/null | sort); do
-            _tdd_name="$(basename "$_tdd_f" .env)"
-            _tdd_type="$(cat "$_tdd_f")"
+        for _tdd_f in $(find "$(_tdd_venv_root)" -maxdepth 1 -name '*.json' 2>/dev/null | sort); do
+            _tdd_name="$(basename "$_tdd_f" .json)"
+            _tdd_type="$(_tdd_venv_manager_of "$_tdd_name")"
             _tdd_info "delete $_tdd_name ($_tdd_type)"
             _tdd_venv_remove "$_tdd_name" "$_tdd_type" || return 1
             _tdd_rows="$_tdd_rows${_tdd_rows:+, }$_tdd_name ($_tdd_type)"
@@ -736,20 +908,23 @@ _tdd_venv_list() {
         return 0
     fi
     _tdd_cmd_check || return 1
+    _tdd_venv_migrate || return 1
     _tdd_venv_adopt
     _tdd_rows=""
     _tdd_json=""
     # find, not a glob: an unmatched glob is an error in zsh.
-    for _tdd_f in $(find "$(_tdd_venv_root)" -maxdepth 1 -name '*.env' 2>/dev/null | sort); do
-        _tdd_name="$(basename "$_tdd_f" .env)"
-        _tdd_type="$(cat "$_tdd_f")"
+    for _tdd_f in $(find "$(_tdd_venv_root)" -maxdepth 1 -name '*.json' 2>/dev/null | sort); do
+        _tdd_name="$(basename "$_tdd_f" .json)"
+        _tdd_venv_read_marker "$_tdd_name" || continue
         _tdd_dir="$(_tdd_venv_root)/$_tdd_type/$_tdd_name"
         _tdd_mark=""
         [ "${_TDD_VENV:-}" = "$_tdd_name" ] && _tdd_mark="  (active)"
         [ -d "$_tdd_dir" ] || _tdd_mark="$_tdd_mark  (missing directory)"
-        _tdd_rows="$_tdd_rows$(printf '%-24s %-6s %s%s' "$_tdd_name" "$_tdd_type" "$_tdd_dir" "$_tdd_mark")
+        # name, type, the python it runs, reloc or -, its path, the base
+        # python it was built from: everything the marker knows, one line.
+        _tdd_rows="$_tdd_rows$(printf '%-24s %-6s %-9s %-6s %s  %s%s' "$_tdd_name" "$_tdd_type" "${_tdd_py:-?}" "$([ "$_tdd_reloc" = true ] && printf 'reloc' || printf -- '-')" "$_tdd_dir" "${_tdd_pypath:-?}" "$_tdd_mark")
 "
-        _tdd_json="$_tdd_json${_tdd_json:+,}{\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"path\":\"$(_tdd_json_str "$_tdd_dir")\",\"active\":$([ "${_TDD_VENV:-}" = "$_tdd_name" ] && echo true || echo false),\"exists\":$([ -d "$_tdd_dir" ] && echo true || echo false)}"
+        _tdd_json="$_tdd_json${_tdd_json:+,}{\"name\":\"$(_tdd_json_str "$_tdd_name")\",\"type\":\"$_tdd_type\",\"python\":\"$(_tdd_json_str "$_tdd_py")\",\"python_path\":\"$(_tdd_json_str "$_tdd_pypath")\",\"relocatable\":$_tdd_reloc,\"created\":\"$(_tdd_json_str "$_tdd_created")\",\"path\":\"$(_tdd_json_str "$_tdd_dir")\",\"active\":$([ "${_TDD_VENV:-}" = "$_tdd_name" ] && echo true || echo false),\"exists\":$([ -d "$_tdd_dir" ] && echo true || echo false)}"
     done
     if [ -z "$_tdd_rows" ]; then
         _tdd_ok "no managed venvs (create one: tdd venv create --name NAME)" '"venvs":[]'
