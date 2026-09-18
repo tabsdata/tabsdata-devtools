@@ -785,7 +785,7 @@ common_k8s_report() {
 # because a CloudFront hostname is not something a reader can check by eye on a
 # command line, which is the whole point of having a name for it.
 COMMON_UV_INDEX_DEV="https://d3mm0r95u5i3hf.cloudfront.net/simple/"
-COMMON_UV_INDEX_PROD="https://pypi.tabsdata.com"
+COMMON_UV_INDEX_PROD="https://pypi.tabsdata.com/simple/"
 
 # common_resolve_uv_index VALUE -- print the URL VALUE stands for: `@dev` and
 # `@prod` resolve, anything else passes through, and empty stays empty (no

@@ -57,7 +57,7 @@ options:
                       written into tabsdata.yaml (UV_INDEX) for the pods
                       URI is a URL, or @dev for the development index
                       (https://d3mm0r95u5i3hf.cloudfront.net/simple/) or @prod
-                      for the published one (https://pypi.tabsdata.com)
+                      for the published one (https://pypi.tabsdata.com/simple/)
                       (default: none -- whatever uv is already configured with)
   --td-extras EXTRAS
                       the extras to install (default: all)

@@ -70,7 +70,7 @@ stages; declaring them here would refuse an export on a machine that only wants 
 `--name` and `--td-version`; the cluster three also require `--kube-config` and `--kube-context`.
 There is no sane default for which cluster to reach, so those are required and `common_help` paints
 `--uv-index` takes `@dev` (`https://d3mm0r95u5i3hf.cloudfront.net/simple/`) and `@prod`
-(`https://pypi.tabsdata.com`) as well as a URL, resolved once by
+(`https://pypi.tabsdata.com/simple/`) as well as a URL, resolved once by
 `common_resolve_uv_index` right after parsing so the banner, the `uv pip install`, the
 `tabsdata.yaml` and tdkserver all see the URL and never the marker. The two URLs live in
 `_common.sh`, because the four scripts have to mean the same thing by `@dev`. An unknown
