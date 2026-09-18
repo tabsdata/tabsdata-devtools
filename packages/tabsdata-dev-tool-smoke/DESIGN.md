@@ -82,8 +82,9 @@ run's own `--name` makes a namespace (`sm-<name>`, lowercased for RFC 1123), and
 whatever uv is already configured with.
 
 `--kube-port-forward` is the local port `kubectl port-forward` listens on -- the one `tdk` logs in
-to -- and defaults to 2457, the apiserver's own, so the URL reads the same as in the cluster. It
-moves that end only. The local port is the one thing another run, a forward a `--keep` run left or
+to -- and it moves that end only. Each script has its own default, so two runs on one machine
+never fight over it: km's instance starts at 10000 (`--port`), eks forwards from 11000, aks from
+12000, gke from 13000. The apiserver's own port in the cluster stays 2457 in all of them. The local port is the one thing another run, a forward a `--keep` run left or
 a local tdkserver can already hold; the apiserver's port in its own namespace clashes with
 nothing, and moving it along (`tdkserver create --port`) would smoke a port nobody deploys with.
 So `common_kubeportforward_start` takes LOCAL and REMOTE, the scripts keep `PORT` for the cluster

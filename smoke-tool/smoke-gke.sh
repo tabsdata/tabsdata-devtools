@@ -62,8 +62,10 @@ options:
   --kube-port-forward PORT
                       the local port `kubectl port-forward` listens on for the
                       apiserver -- where tdk logs in. Only this side moves: the
-                      apiserver's own port in the cluster stays 2457 (default:
-                      2457, so the URL reads the same as in the cluster)
+                      apiserver's own port in the cluster stays 2457
+                      (default: 13000; one per script -- km 10000, eks 11000,
+                      aks 12000, gke 13000 -- so two runs on one machine
+                      never fight over it)
   --td-version VERSION
                       REQUIRED: the tabsdata release to install, tabsdata[EXTRAS]==VERSION
   --td-extras EXTRAS
@@ -146,7 +148,9 @@ NAMESPACE=""             # required
 PROVIDER="gke"           # tdkserver's name for this kind of cluster
 DB_SYSTEM="gcppostgres"  # Cloud SQL, beside the cluster; --db-domain crosses clouds
 PORT="2457"              # the apiserver's port in the cluster: tdkserver create --port, the forward's far side
-FORWARD_PORT="2457"      # --kube-port-forward: the local port the forward listens on; where tdk logs in
+FORWARD_PORT="13000"     # --kube-port-forward: the local port the forward listens on; where tdk logs in.
+                         # One per script (km 10000, eks 11000, aks 12000, gke 13000): the local end is the
+                         # one thing two runs on a laptop can collide on, and they do run side by side.
 UV_INDEX_URI=""
 # grok only through its s3 sub-suites: the fs-backed ones stage files on a local
 # path the GKE function pods cannot see. S3 itself they reach over the internet.

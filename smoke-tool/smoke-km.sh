@@ -42,7 +42,9 @@ options:
   --venv-type TYPE    pyenv, uv or conda (default: pyenv)
   --py-version VERSION
                       interpreter for the venv (default: 3.12.13)
-  --port PORT         base port for the instance (default: 10000)
+  --port PORT         base port for the instance (default: 10000; one per
+                      script -- km 10000, eks 11000, aks 12000, gke 13000 --
+                      so two runs on one machine never fight over it)
   --uv-index URI      the Python package index, used by the tabsdata install
                       (uv --index, unsafe-best-match) and passed to tdkserver
                       quickstart --uv-index for the instance's pods
@@ -92,7 +94,9 @@ VENV_TYPE="pyenv"
 PYTHON="3.12.13"
 TD_VERSION=""     # required
 TD_EXTRAS="all"
-PORT="10000"
+PORT="10000"             # --port: the instance's base port. One per script
+                         # (km 10000, eks 11000, aks 12000, gke 13000): the ports a run holds on
+                         # this machine are the one thing two runs can collide on.
 UV_INDEX_URI=""
 SUITES="test,tableframe_api,dataquality,grok,container-connectors,cloud-connectors"
 FORCE=""                 # 1 with --force; empty otherwise

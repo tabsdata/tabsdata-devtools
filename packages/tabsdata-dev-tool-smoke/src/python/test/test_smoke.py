@@ -498,7 +498,12 @@ def test_every_cluster_smoke_keeps_the_forward_s_two_ends_apart():
         if "KUBECTL=(" not in text:
             continue
         assert '--kube-port-forward) FORWARD_PORT="$2"; shift 2 ;;' in text, path.name
-        assert 'FORWARD_PORT="2457"' in text, path.name
+        # One local port per script, so two runs on a laptop do not fight over
+        # it: km 10000, eks 11000, aks 12000, gke 13000. The apiserver's own
+        # port in the cluster stays 2457 in all of them.
+        want = {"eks": "11000", "aks": "12000", "gke": "13000"}[path.stem.split("-")[1]]
+        assert f'FORWARD_PORT="{want}"' in text, path.name
+        assert 'PORT="2457"' in text, path.name
         assert 'SERVER="http://127.0.0.1:$FORWARD_PORT"' in text, path.name
         assert 'tdkserver create --instance "$INSTANCE" --port "$PORT"' in text, (
             path.name
@@ -980,3 +985,31 @@ def test_every_script_resolves_the_uv_index_before_it_uses_it():
         assert "@prod" in text and "https://pypi.tabsdata.com/simple/" in text, (
             script.name
         )
+
+
+def test_each_script_holds_its_own_local_ports():
+    """The ports a run holds on the machine it is launched from are the one
+    thing two runs can collide on, and they do run side by side. One block per
+    script: km 10000, eks 11000, aks 12000, gke 13000. The apiserver's port
+    inside the cluster is not per script -- it clashes with nothing there, and
+    moving it would smoke a port nobody deploys with."""
+    import re
+
+    want = {"km": "10000", "eks": "11000", "aks": "12000", "gke": "13000"}
+    seen = {}
+    for path in sorted(smoke.scripts_dir().glob("smoke-*.sh")):
+        which = path.stem.split("-", 1)[1]
+        text = path.read_text()
+        # km names its base port `PORT`; the cluster scripts keep `PORT` for the
+        # apiserver's in-cluster port and forward from `FORWARD_PORT`.
+        var = "PORT" if which == "km" else "FORWARD_PORT"
+        found = re.search(rf'^{var}="(\d+)"', text, re.M)
+        assert found, (path.name, var)
+        seen[which] = found.group(1)
+        # the page names its own default and the whole scheme, so the
+        # answer to "which port will this take" is on the page in front
+        # of whoever is reading it
+        assert "km 10000, eks 11000, aks 12000, gke 13000" in text, path.name
+        assert "never fight over it" in text, path.name
+    assert seen == want
+    assert len(set(seen.values())) == len(seen), seen
