@@ -85,10 +85,18 @@ CATALOG="$DIR_OPT/catalog.json"
 SKIP=" $(jq -r '.tools | to_entries[] | select(.value.launcher == true) | .key' "$CATALOG" | tr '\n' ' ')"
 # `tdd help` lists tdd-exe's own builtins (doctor, info) beside the commands;
 # only a catalog tool or a shell command has options of its own to configure.
+# The catalog names the tools, so only the shell commands have to be asked for.
 KNOWN=" $(jq -r '.tools | keys[]' "$CATALOG" | tr '\n' ' ')"
-COMMANDS="$(tdd help --format json 2>/dev/null |
-    jq -r '.commands[] | select(.shell == true) | .name'; printf '%s' "${KNOWN# }")"
-COMMANDS="$(printf '%s\n' $COMMANDS | sort -u)"
+# `--format json` goes BEFORE the word: everything after `help` is its own, and
+# the only thing it takes is a topic, so `tdd help --format json` is a bad topic
+# rather than a JSON feed -- which used to leave every shell command silently
+# unconfigured while the tools still came through from the catalog.
+SHELL_COMMANDS="$(tdd --format json help 2>/dev/null |
+    jq -r '.commands[] | select(.shell == true) | .name' 2>/dev/null)"
+# Checked on its own, for that reason: an empty feed must fail here, not vanish
+# into a list the tools alone keep non-empty.
+[ -n "$SHELL_COMMANDS" ] || fail "could not list the shell commands of $DIR_OPT (tdd --format json help)"
+COMMANDS="$(printf '%s\n' $SHELL_COMMANDS ${KNOWN# } | sort -u)"
 [ -n "$COMMANDS" ] || fail "could not list the commands of $DIR_OPT"
 
 step "config files in $DIR_OPT"
