@@ -1,7 +1,7 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""DataQuality: Filter(InBins(...), ...) keeps in-bin rows, redirects the rest.
+"""DataQuality: Filter(InBins(...), ...) removes in-bin rows, keeps the rest.
 
 A pass-through transformer carries ``on_tables=[DataQuality(...)]`` over its
 output table ``checked``. The action categorizes each row of ``value`` with a
@@ -17,10 +17,11 @@ of bin indices (ints 0..100) and/or the sentinel strings ``"none"`` / ``"nan"`` 
 sentinels (255 / 254 / 252 / 253). Here ``bins={0, 1, 2, "underflow"}`` mixes
 three plain bin indices with the underflow sentinel to exercise both shapes.
 
-FILTER DIRECTION (from engine.filter): criteria-TRUE rows STAY in ``checked``
-(rewritten in place); criteria-FALSE rows are redirected to ``to_table``
-(``out_of_bins``). ``include_quality_columns`` defaults to ``"none"``, so neither
-output carries the ``value_category`` column — both keep only the user columns.
+FILTER DIRECTION (from engine.filter): criteria-TRUE rows are REMOVED from
+``checked`` and redirected to ``to_table`` (``in_bins``); criteria-FALSE rows STAY
+in ``checked`` (rewritten in place). ``include_quality_columns`` defaults to
+``"none"``, so neither output carries the ``value_category`` column — both keep
+only the user columns.
 
 BIN-EDGE CONVENTION (see dq_scale_categorizer): cuts are ``[2, 4, 6, 8, 10]``;
 with ``use_bin_zero=True`` ``value == min_val`` is its own bin 0, ``(0, 2]`` is
@@ -85,17 +86,18 @@ _INPUT = pl.DataFrame(
     }
 )
 
-# criteria bins = {0, 1, 2, underflow-sentinel}. Rows whose bin is IN that set
-# stay in ``checked``: bins 0 (id 0), 1 (ids 1, 2), 2 (id 3), underflow (id 7).
-_CHECKED = pl.DataFrame(
+# criteria bins = {0, 1, 2, underflow-sentinel}. Rows whose bin is IN that set are
+# removed from ``checked`` and redirected to ``in_bins``: bins 0 (id 0), 1 (ids 1,
+# 2), 2 (id 3), underflow (id 7).
+_IN_BINS = pl.DataFrame(
     {
         "id": [0, 1, 2, 3, 7],
         "value": [0.0, 1.0, 2.0, 3.0, -1.0],
     }
 )
 
-# The remaining rows (bins 3/4/5, overflow, null, nan) are redirected.
-_OUT_OF_BINS = pl.DataFrame(
+# The remaining rows (bins 3/4/5, overflow, null, nan) stay in ``checked``.
+_CHECKED = pl.DataFrame(
     {
         "id": [4, 5, 6, 8, 9, 10],
         "value": [5.0, 7.0, 10.0, 11.0, None, float("nan")],
@@ -120,14 +122,14 @@ CASE = DQCase(
                     column_name=verdict("value_category"),
                     bins={0, 1, 2, "underflow"},
                 ),
-                to_table="out_of_bins",
+                to_table="in_bins",
             )
         ],
     ),
     main_tables=["checked"],
     expects=[
         Expect("checked", _CHECKED, unordered_equal),
-        Expect("out_of_bins", _OUT_OF_BINS, unordered_equal),
+        Expect("in_bins", _IN_BINS, unordered_equal),
     ],
 )
 

@@ -1,38 +1,40 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""DataQuality: Filter(..., include_quality_columns="all") keeps verdict columns.
+"""DataQuality: Filter(..., include_quality_columns="all") explains rejected rows.
 
 A pass-through transformer carries ``on_tables=[DataQuality(...)]`` over its
 output table ``checked``. The action classifies ``value`` with ``IsPositive`` and
 then:
-  * ``Filter(AllOk(), to_table="rejected", include_quality_columns="all")`` —
+  * ``Filter(AnyFailed(), to_table="rejected", include_quality_columns="all")`` —
     splits rows as ``dq_filter`` does (passing rows stay in ``checked``, failing
     rows go to ``rejected``), but ``include_quality_columns="all"`` CARRIES the
-    classifier VERDICT columns into BOTH output tables. So each output frame is
-    user columns (``id``, ``value``) followed by the verdict column
-    ``value_is_positive`` (UInt8), in that order.
+    classifier VERDICT columns into ``rejected``. So ``rejected`` is the user
+    columns (``id``, ``value``) followed by the verdict column ``value_is_positive``
+    (UInt8), in that order, while the target ``checked`` stays user columns only:
+    ``include_quality_columns`` shapes ``to_table`` alone (the engine rejects any
+    value but ``"none"`` when ``to_table`` is not given).
 
-CONTRAST with ``dq_filter`` (default ``"none"``) which drops the verdict column,
-so both its outputs are ``id``/``value`` only.
+CONTRAST with ``dq_filter`` (default ``"none"``) whose ``rejected`` is
+``id``/``value`` only.
 
 WHICH COLUMNS "all" vs "criteria" ADD
     ``"all"`` appends every produced verdict column (here just ``value_is_positive``).
     ``"criteria"`` appends only the verdict columns the criteria consults — for an
-    untagged ``AllOk`` that is ALL of them, so with a single untagged classifier
+    untagged ``AnyFailed`` that is ALL of them, so with a single untagged classifier
     ``"all"`` and ``"criteria"`` are identical; they diverge only when tags scope
     the criteria to a subset of classifiers. This test uses ``"all"``.
 
 The 7-row input has a KNOWN composition — 2 positive (kept), 5 not-positive
-(rejected) — so both output frames, verdict column included, are exact and
-independent of the engine (the oracle; see functions/_harness.py).
+(rejected) — so both output frames, ``rejected``'s verdict column included, are
+exact and independent of the engine (the oracle; see functions/_harness.py).
 """
 from __future__ import annotations
 
 import polars as pl
 from tabsdatak.api import TableFrameSpec, publisher, subscriber, transformer
 from tabsdatak.conn.dev import DataGenSrc, TrashDest
-from tabsdatak.dataquality import AllOk, DataQuality, Filter, IsPositive
+from tabsdatak.dataquality import AnyFailed, DataQuality, Filter, IsPositive
 from tabsdatak.tableframe import TableFrame
 
 try:
@@ -66,14 +68,14 @@ _INPUT = pl.DataFrame(
     }
 )
 
-# ``checked`` — passing rows (value > 0). With include_quality_columns="all" the
-# verdict column is appended after the user columns; both kept rows are TRUE.
+# ``checked`` — passing rows (value > 0), user columns only: the verdict column
+# travels with the rejected rows, never into the target.
 _KEPT = pl.DataFrame(
     {
         "id": [0, 4],
         "value": [10.0, 3.0],
     }
-).with_columns(pl.Series(verdict("value_is_positive"), [_T, _T], dtype=pl.UInt8))
+)
 
 # ``rejected`` — the not-passing rows, verdict column carried through: false for
 # <=0, and the reserved NULL / NAN sentinels for the null / nan rows.
@@ -93,7 +95,7 @@ CASE = DQCase(
         classifiers=[IsPositive(["value"])],
         operators=[
             Filter(
-                AllOk(),
+                AnyFailed(),
                 to_table="rejected",
                 include_quality_columns="all",
             )
@@ -101,7 +103,7 @@ CASE = DQCase(
     ),
     main_tables=["checked"],
     expects=[
-        # ``checked`` = passing rows, WITH the verdict column (contrast dq_filter).
+        # ``checked`` = passing rows, user columns only (same as dq_filter).
         Expect("checked", _KEPT, unordered_equal),
         # ``rejected`` = failing rows, WITH the verdict column.
         Expect("rejected", _REJECTED, unordered_equal),

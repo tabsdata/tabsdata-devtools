@@ -9,21 +9,20 @@ output table ``checked``. The action classifies each row of ``value`` with
 ``AnyFailed`` — the complement of ``AllOk``.
 
 FILTER DIRECTION (from engine.filter): the criteria expression is evaluated per
-row; the rows for which it is TRUE STAY in the target table (``checked``,
-rewritten in place), and the rows for which it is FALSE are redirected to
-``to_table``. So with ``AnyFailed`` the target ``checked`` keeps the rows that
-FAILED at least one classifier, and the rows that passed every classifier are
-sent out — hence the redirect table is named ``clean`` (naming it "failed" would
-be backwards: that table receives the rows with NO failure).
+row; the rows for which it is TRUE are REMOVED from the target table (``checked``,
+rewritten in place to the rows for which it is FALSE) and, since ``to_table`` is
+given, redirected there instead of being discarded. So with ``AnyFailed`` the
+target ``checked`` keeps the rows that passed every classifier, and the rows that
+FAILED at least one are sent out — hence the redirect table is named ``failed``.
 
 ANYFAILED SEMANTICS (from PolarsCriteriaProvider.any_failed): a row matches when
 any classifier verdict is in a sentinel set built as ``[FALSE]`` plus ``NULL``
 unless ``none_is_ok`` and plus ``NAN`` unless ``nan_is_ok``. Here we set
 ``none_is_ok=True`` and leave ``nan_is_ok=False``, so the set is ``{FALSE, NAN}``:
-a FALSE verdict is a failure (stays in ``checked``), a NAN verdict is a failure
-(``nan_is_ok`` off, stays in ``checked``), a NULL verdict is treated as OK
-(``none_is_ok`` on, so NOT a failure -> redirected to ``clean``), and a TRUE
-verdict passes (redirected to ``clean``). This exercises both flags: the null row
+a FALSE verdict is a failure (redirected to ``failed``), a NAN verdict is a
+failure (``nan_is_ok`` off, redirected to ``failed``), a NULL verdict is treated
+as OK (``none_is_ok`` on, so NOT a failure -> stays in ``checked``), and a TRUE
+verdict passes (stays in ``checked``). This exercises both flags: the null row
 and the nan row take OPPOSITE branches purely because of them.
 
 ``include_quality_columns`` defaults to ``"none"``, so neither output carries the
@@ -66,21 +65,22 @@ _INPUT = pl.DataFrame(
     }
 )
 
-# Rows that MATCH AnyFailed (verdict in {FALSE, NAN}) stay in ``checked``:
-#   -5.0 / 0.0 / -1.0 -> FALSE ; nan -> NAN (nan_is_ok=False keeps it a failure).
-_CHECKED = pl.DataFrame(
-    {
-        "id": [1, 2, 5, 6],
-        "value": [-5.0, 0.0, -1.0, float("nan")],
-    }
-)
-
-# Rows that do NOT match AnyFailed are redirected to ``clean``:
+# Rows that do NOT match AnyFailed stay in ``checked``:
 #   10.0 / 3.0 -> TRUE (passed) ; null -> treated OK (none_is_ok=True).
-_CLEAN = pl.DataFrame(
+_CHECKED = pl.DataFrame(
     {
         "id": [0, 3, 4],
         "value": [10.0, None, 3.0],
+    }
+)
+
+# Rows that MATCH AnyFailed (verdict in {FALSE, NAN}) are removed from ``checked``
+# and redirected to ``failed``:
+#   -5.0 / 0.0 / -1.0 -> FALSE ; nan -> NAN (nan_is_ok=False keeps it a failure).
+_FAILED = pl.DataFrame(
+    {
+        "id": [1, 2, 5, 6],
+        "value": [-5.0, 0.0, -1.0, float("nan")],
     }
 )
 
@@ -92,16 +92,16 @@ CASE = DQCase(
         operators=[
             Filter(
                 AnyFailed(none_is_ok=True, nan_is_ok=False),
-                to_table="clean",
+                to_table="failed",
             )
         ],
     ),
     main_tables=["checked"],
     expects=[
-        # ``checked`` keeps the rows that failed at least one classifier.
+        # ``checked`` keeps the rows with no failure.
         Expect("checked", _CHECKED, unordered_equal),
-        # the rows with no failure landed in the redirect table.
-        Expect("clean", _CLEAN, unordered_equal),
+        # the rows that failed at least one classifier landed in the redirect table.
+        Expect("failed", _FAILED, unordered_equal),
     ],
 )
 
