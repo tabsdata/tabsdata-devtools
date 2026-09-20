@@ -98,8 +98,9 @@ CATEGORIES: dict[str, tuple[str, list[str]]] = {
     ),
     "operators": (
         "Operators beyond plain Enrich + Summary: Enrich(to_table) and "
-        "Summary(custom table) derived tables, Filter and Select (criteria keep "
-        "passing rows / redirect failing rows), a non-triggering Fail, a "
+        "Summary(custom table) derived tables, Filter and Select (Filter removes "
+        "the rows its criteria selects, redirecting them to to_table; Select "
+        "copies them), a non-triggering Fail, a "
         "multi-classifier and a multi-column action, a multi-operator chain, and "
         "include_quality_columns carrying verdict columns into the output.",
         [

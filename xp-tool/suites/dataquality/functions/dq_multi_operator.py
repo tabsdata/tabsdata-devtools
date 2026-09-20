@@ -11,9 +11,10 @@ table to the same run:
     column ``value_is_positive`` to a NEW derived table ``checked_enriched``
     (all 7 rows preserved);
   * ``Summary()`` — emits ``checked_dq_summary`` (the boolean tallies row);
-  * ``Filter(AllOk(), to_table="rejected")`` — REWRITES the target ``checked`` in
-    place to only the passing rows (``value_is_positive`` is TRUE) and redirects
-    the failing rows to the derived table ``rejected``. ``include_quality_columns``
+  * ``Filter(AnyFailed(), to_table="rejected")`` — REMOVES the failing rows
+    (``value_is_positive`` is not TRUE) from the target ``checked``, rewritten in
+    place to only the passing rows, and redirects them to the derived table
+    ``rejected``. ``include_quality_columns``
     defaults to ``"none"`` so ``checked`` and ``rejected`` carry only the user
     columns.
 
@@ -37,7 +38,7 @@ import polars as pl
 from tabsdatak.api import TableFrameSpec, publisher, subscriber, transformer
 from tabsdatak.conn.dev import DataGenSrc, TrashDest
 from tabsdatak.dataquality import (
-    AllOk,
+    AnyFailed,
     DataQuality,
     Enrich,
     Filter,
@@ -126,7 +127,7 @@ CASE = DQCase(
         operators=[
             Enrich(to_table="checked_enriched"),
             Summary(),
-            Filter(AllOk(), to_table="rejected"),
+            Filter(AnyFailed(), to_table="rejected"),
         ],
     ),
     main_tables=["checked"],
