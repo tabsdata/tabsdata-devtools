@@ -23,7 +23,8 @@ venv type and without the venv being active in the calling shell.
   `managed-venvs/<manager>/<name>` with its marker), and refuses
   when the program is not installed in that venv (a manager falling back to `PATH` would find
   this launcher itself). Launch: uv `VIRTUAL_ENV=DIR uv run --active --no-project`, conda
-  `conda run --prefix DIR --no-capture-output`, pyenv `DIR/bin/tdk` with `bin/` first on `PATH`.
+  `conda run --prefix DIR --no-capture-output DIR/bin/tdk` with `bin/` first on `PATH` (by
+  path: in a shell where that env is active a bare name found this launcher and recursed), pyenv `DIR/bin/tdk` with `bin/` first on `PATH`.
 - `[tool.tdd] launcher = true`: with no options of its own there is nothing to configure, so it
   owns no `<command>.toml` and has no `config` action (invariant 11). The program runs in the
   cwd the user is in.

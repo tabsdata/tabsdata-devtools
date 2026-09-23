@@ -281,7 +281,10 @@ def test_managedvenv_resolves_the_marker_and_composes_each_manager(
     assert env == {"VIRTUAL_ENV": str(root / "uv" / "v-uv")}
     argv, env = managedvenv.launch("conda", root / "conda" / "v-conda", "tdk", [])
     assert argv[:3] == ["conda", "run", "--prefix"] and "--no-capture-output" in argv
-    assert argv[-1] == "tdk" and env == {}
+    # by path, never by name: in a shell with that env already active a bare
+    # name resolved to the launcher itself, which recursed forever
+    assert argv[-1] == str(root / "conda" / "v-conda" / "bin" / "tdk")
+    assert env["PATH"].startswith(str(root / "conda" / "v-conda" / "bin") + os.pathsep)
     argv, env = managedvenv.launch(
         "pyenv", root / "pyenv" / "v-pyenv", "tdkserver", ["a"]
     )

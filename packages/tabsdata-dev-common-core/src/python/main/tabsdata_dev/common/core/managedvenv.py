@@ -149,15 +149,20 @@ def launch(
             "VIRTUAL_ENV": str(path)
         }
     if manager == "conda":
+        # The program by path, and the venv's bin/ first: `conda run` prepends
+        # it only when the env is not already active -- in a shell where it is,
+        # the existing entry is updated in place, behind the toolset bin/ the
+        # dispatcher put first, and a bare `tdk` resolved to this launcher again,
+        # which ran `conda run` again, without end.
         return [
             "conda",
             "run",
             "--prefix",
             str(path),
             "--no-capture-output",
-            cmd,
+            str(path / "bin" / cmd),
             *args,
-        ], {}
+        ], {"PATH": str(path / "bin") + os.pathsep + os.environ.get("PATH", "")}
     # What activation would do, so a program spawning `python` by name gets the
     # venv's rather than the launcher toolset's, which the dispatcher put first.
     return [str(path / "bin" / cmd), *args], {
