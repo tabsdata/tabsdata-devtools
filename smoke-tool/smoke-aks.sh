@@ -36,8 +36,8 @@ usage: smoke-aks.sh --name NAME --kube-config FILE --kube-context NAME --td-vers
                    [--db-domain SYSTEM] [--storage-domain SYSTEM] [--llm-domain SYSTEM]
                    [--provider NAME] [--td-extras EXTRAS] [--td-fn-memory SIZE]
                    [--td-fn-disk SIZE] [--venv-type pyenv|uv|conda] [--py-version VERSION]
-                   [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep] [--log FILE]
-                   [--tdd-dir DIR] [--verbose]
+                   [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep]
+                   [--profile NAME] [--log FILE] [--tdd-dir DIR] [--verbose]
 
 Tabsdata AKS smoke test: a tdkserver instance on an Azure Kubernetes Service
 cluster, its storage a prefix of the `azureblob` system's container and its
@@ -125,6 +125,10 @@ options:
                       (default: no -- domains destroyed, instance deleted,
                       namespace deleted, venv deleted; a failed run always
                       leaves everything standing)
+  --profile NAME      the tdk connection profile every `tdk` call and every xp
+                      suite uses (tdk COMMAND --profile NAME), so this run's
+                      login never replaces another shell's on the same account
+                      (default: sm_NAME)
   --log FILE          log file (default: /tmp/smoke-sm_NAME-<start time>.log)
   --tdd-dir DIR       the tdd dir to source (default: $TDD_DIR, else ~/.tdd)
   --verbose           show every command's output as it happens (default: a
@@ -169,6 +173,7 @@ SUITES="test,tableframe_api,dataquality,grok/s3_examples,grok/s3_world_csv,cloud
 FORCE=""                 # 1 with --force; empty otherwise
 KEEP=""                  # 1 with --keep; empty otherwise (so ${KEEP:+--keep} works)
 LOG=""
+PROFILE=""               # --profile: defaults to $BASE once --name is known
 VERBOSE=0
 TDD_DIR_OPT="${TDD_DIR:-$HOME/.tdd}"
 REQUIREMENTS="mysql-connector-python==9.6.0
@@ -198,6 +203,7 @@ while [ $# -gt 0 ]; do
         --force | -f) FORCE=1; shift ;;
         --keep) KEEP=1; shift ;;
         --log) LOG="$2"; shift 2 ;;
+        --profile) PROFILE="$2"; shift 2 ;;
         --tdd-dir) TDD_DIR_OPT="$2"; shift 2 ;;
         --verbose) VERBOSE=1; shift ;;
         -h | --help) usage; exit 0 ;;
@@ -248,6 +254,7 @@ fi
 # needs it lowercased
 NAMESPACE="${NAMESPACE:-sm-$(printf '%s' "$NAME" | tr 'A-Z' 'a-z')}"
 BASE="sm_$NAME"
+PROFILE="${PROFILE:-$BASE}"   # the tdk connection is this run's own, like every name it makes
 NAMES_PREFIX="$BASE"     # what the failure summary tells the reader to look for
 INSTANCE="$BASE"
 VENV="$BASE"
@@ -319,7 +326,7 @@ common_on_stage_failed() {
     # a delete and a port-forward for something that does not exist
     if common_k8s_namespace_exists "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"; then
         common_indented "namespace  $NAMESPACE on $CONTEXT -- kubectl --context $CONTEXT delete namespace $NAMESPACE"
-        common_indented "reach it   kubectl --context $CONTEXT --namespace $NAMESPACE port-forward service/net-apiserver $FORWARD_PORT:$PORT &   then: _TDD_VENV=$VENV tdd tdk login --server $SERVER"
+        common_indented "reach it   kubectl --context $CONTEXT --namespace $NAMESPACE port-forward service/net-apiserver $FORWARD_PORT:$PORT &   then: _TDD_VENV=$VENV tdd tdk login --profile $PROFILE --server $SERVER"
         # the cluster's own account of the failure, collected while the namespace is
         # still there: `Init job 'ins-dbmanager' failed` names the job, and the
         # reason is in the pod it left behind
@@ -424,6 +431,7 @@ common_screen "  --llm-domain        ${LLM_SYSTEM:-(none)}${LLM_SYSTEM:+   -> do
 common_screen "  --expect-pods       $EXPECT_PODS"
 common_screen "  --force             $([ -n "$FORCE" ] && echo "yes (replace an existing venv/instance/namespace)" || echo "no (an existing one is an error)")"
 common_screen "  --keep              $([ -n "$KEEP" ] && echo "yes (also: xp one-shot --keep)" || echo "no (domains, instance, namespace and venv deleted at the end)")"
+common_screen "  --profile           $PROFILE   -> tdk COMMAND --profile $PROFILE, xp --profile $PROFILE"
 common_screen "  --log               $LOG"
 common_screen "  --tdd-dir           $TDD_DIR_OPT"
 common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "no (rolling window of $WINDOW log lines)")"
@@ -610,8 +618,8 @@ common_run_retry 30 10 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIS
 common_stage forward-1 "kubectl port-forward service/net-apiserver $FORWARD_PORT:$PORT (background)"
 common_kubeportforward_start "$RUN_KUBECONFIG" "$NAMESPACE" net-apiserver "$FORWARD_PORT" "$PORT"
 
-common_stage login-1 "tdk login as admin on $SERVER"
-common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password tabsdata
+common_stage login-1 "tdk login as admin on $SERVER (profile $PROFILE)"
+common_run_retry 30 5 tdd tdk login --profile "$PROFILE" --server "$SERVER" --user admin --password tabsdata
 
 common_stage stop-1 "tdkserver stop (the port-forward dies with the pods)"
 # rule: end the port-forward before tabsdata stops, restarts, or takes a tdkserver
@@ -638,8 +646,8 @@ common_run_retry 30 10 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIS
 common_stage forward-2 "kubectl port-forward service/net-apiserver $FORWARD_PORT:$PORT (re-established after start)"
 common_kubeportforward_start "$RUN_KUBECONFIG" "$NAMESPACE" net-apiserver "$FORWARD_PORT" "$PORT"
 
-common_stage login-2 "tdk login as admin on $SERVER"
-common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password tabsdata
+common_stage login-2 "tdk login as admin on $SERVER (profile $PROFILE)"
+common_run_retry 30 5 tdd tdk login --profile "$PROFILE" --server "$SERVER" --user admin --password tabsdata
 
 for suite in "${SUITE_LIST[@]}"; do
     project="${BASE}__xp_$(date -u +%Y%m%dT%H%M%S)_$(printf '%s' "$suite" | tr -c 'A-Za-z0-9\n' '_')"
@@ -649,14 +657,14 @@ for suite in "${SUITE_LIST[@]}"; do
     # suites; a suite started over a dead one fails lane by lane as "not logged in"
     common_kubeportforward_ensure || continue
     # shellcheck disable=SC2086
-    common_run tdd xp one-shot --suite "$suite" --project "$project" ${KEEP:+--keep}
+    common_run tdd xp one-shot --suite "$suite" --project "$project" --profile "$PROFILE" ${KEEP:+--keep}
 done
 
 if [ -n "$KEEP" ]; then
     common_stage cleanup "keeping the whole setup as it is (--keep; the port-forward is stopped)"
     common_kubeportforward_stop
     common_note "re-establish: kubectl --context $CONTEXT --namespace $NAMESPACE port-forward service/net-apiserver $FORWARD_PORT:$PORT &"
-    common_note "then: export _TDD_VENV=$VENV; tdd tdk login --server $SERVER --user admin --password ***"
+    common_note "then: export _TDD_VENV=$VENV; tdd tdk login --profile $PROFILE --server $SERVER --user admin --password ***"
     common_note "your kubeconfig was not touched; the run's copy is $RUN_KUBECONFIG ($CONTEXT, namespace $NAMESPACE)"
     common_tabsdata_setup_info common_note
 else

@@ -25,7 +25,7 @@ usage: smoke-km.sh --name NAME --td-version VERSION
                    [--uv-index URI] [--llm-domain SYSTEM] [--td-extras EXTRAS]
                    [--venv-type pyenv|uv|conda] [--py-version VERSION] [--port PORT]
                    [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep]
-                   [--log FILE] [--tdd-dir DIR] [--verbose]
+                   [--profile NAME] [--log FILE] [--tdd-dir DIR] [--verbose]
 
 Tabsdata Kminus smoke test.
 
@@ -75,6 +75,10 @@ options:
                       (default: no -- the running instance is deleted, tdkserver
                       delete tearing it down and trashing its folder, and the venv
                       deleted; a failed run always leaves everything standing)
+  --profile NAME      the tdk connection profile every `tdk` call and every xp
+                      suite uses (tdk COMMAND --profile NAME), so this run's
+                      login never replaces another shell's on the same account
+                      (default: sm_NAME)
   --log FILE          log file (default: /tmp/smoke-<instance>-<start time>.log)
   --tdd-dir DIR       the tdd dir to source (default: $TDD_DIR, else ~/.tdd)
   --verbose           show every command's output on the screen as it happens
@@ -102,6 +106,7 @@ SUITES="test,tableframe_api,dataquality,grok,container-connectors,cloud-connecto
 FORCE=""                 # 1 with --force; empty otherwise
 KEEP=""                  # 1 with --keep; empty otherwise (so ${KEEP:+--keep} works)
 LOG=""
+PROFILE=""               # --profile: defaults to $BASE once --name is known
 VERBOSE=0
 TDD_DIR_OPT="${TDD_DIR:-$HOME/.tdd}"
 REQUIREMENTS="mysql-connector-python==9.6.0
@@ -123,6 +128,7 @@ while [ $# -gt 0 ]; do
         --force | -f) FORCE=1; shift ;;
         --keep) KEEP=1; shift ;;
         --log) LOG="$2"; shift 2 ;;
+        --profile) PROFILE="$2"; shift 2 ;;
         --tdd-dir) TDD_DIR_OPT="$2"; shift 2 ;;
         --verbose) VERBOSE=1; shift ;;
         -h | --help) usage; exit 0 ;;
@@ -144,6 +150,7 @@ if [ -n "$missing" ]; then
 fi
 case "$NAME" in *[!A-Za-z0-9]*) echo "smoke-km: --name must be alphanumeric (it becomes part of domain names)" >&2; exit 1 ;; esac
 BASE="sm_$NAME"
+PROFILE="${PROFILE:-$BASE}"   # the tdk connection is this run's own, like every name it makes
 NAMES_PREFIX="$BASE"     # what the failure summary tells the reader to look for
 INSTANCE="$BASE"
 VENV="$BASE"
@@ -207,6 +214,7 @@ common_screen "  --llm-domain        ${LLM_SYSTEM:-(none)}${LLM_SYSTEM:+   -> do
 common_screen "  --expect-pods       $EXPECT_PODS"
 common_screen "  --force             $([ -n "$FORCE" ] && echo "yes (replace an existing venv/instance)" || echo "no (an existing venv/instance is an error)")"
 common_screen "  --keep              $([ -n "$KEEP" ] && echo "yes (also: xp one-shot --keep)" || echo "no (domains, instance and venv deleted at the end)")"
+common_screen "  --profile           $PROFILE   -> tdk COMMAND --profile $PROFILE, xp --profile $PROFILE"
 common_screen "  --log               $LOG"
 common_screen "  --tdd-dir           $TDD_DIR_OPT"
 common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "no (rolling window of $WINDOW log lines)")"
@@ -324,8 +332,8 @@ common_stage pods-1 "every expected service pod is Running: $EXPECT_PODS"
 common_run_retry 12 5 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIST
 
 # retried: the login IS the readiness probe -- start returns before the API answers
-common_stage login-1 "tdk login as admin on $SERVER"
-common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password tabsdata
+common_stage login-1 "tdk login as admin on $SERVER (profile $PROFILE)"
+common_run_retry 30 5 tdd tdk login --profile "$PROFILE" --server "$SERVER" --user admin --password tabsdata
 
 common_stage stop-1 "tdkserver stop"
 common_run tdd tdkserver stop --instance "$INSTANCE" "${TDK_OPTS[@]}"
@@ -347,8 +355,8 @@ common_stage pods-2 "every expected service pod is Running: $EXPECT_PODS"
 # shellcheck disable=SC2086
 common_run_retry 12 5 common_tdkserver_pods_running "$INSTANCE" $EXPECT_POD_LIST
 
-common_stage login-2 "tdk login as admin on $SERVER"
-common_run_retry 30 5 tdd tdk login --server "$SERVER" --user admin --password tabsdata
+common_stage login-2 "tdk login as admin on $SERVER (profile $PROFILE)"
+common_run_retry 30 5 tdd tdk login --profile "$PROFILE" --server "$SERVER" --user admin --password tabsdata
 
 # One --continue stage per suite: a suite failure is reported, not fatal.
 # The project name is given so it carries sm_<NAME>__; --keep goes through.
@@ -357,12 +365,12 @@ for suite in "${SUITE_LIST[@]}"; do
     XP_PROJECTS="$XP_PROJECTS $project"
     common_stage --continue "xp-$(printf '%s' "$suite" | tr '/' '_')" "xp one-shot $suite as $project (continue on error)"
     # shellcheck disable=SC2086
-    common_run tdd xp one-shot --suite "$suite" --project "$project" ${KEEP:+--keep}
+    common_run tdd xp one-shot --suite "$suite" --project "$project" --profile "$PROFILE" ${KEEP:+--keep}
 done
 
 if [ -n "$KEEP" ]; then
     common_stage cleanup "keeping the whole setup as it is (--keep)"
-    common_note "logged in as admin on $SERVER; tdd xp one-shot --suite test/test works as is"
+    common_note "logged in as admin on $SERVER; tdd xp one-shot --suite test/test --profile $PROFILE works as is"
     common_tabsdata_setup_info common_note
 else
     common_stage cleanup "destroy the domains, stop and trash the instance $INSTANCE, delete the venv $VENV"

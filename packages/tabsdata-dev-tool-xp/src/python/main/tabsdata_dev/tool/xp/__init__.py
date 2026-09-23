@@ -17,7 +17,9 @@ PROJECT is created on the server from an instance. Pointers live under
 scratch dir under ``/tmp/tdd-xp/``, announced at startup.
 
 tdk runs inside the managed venv `tdd venv` activated (``tdd tdk``, so
-``_TDD_VENV`` must be set); domains are provisioned by ``tdd domain`` off a
+``_TDD_VENV`` must be set), on the connection ``--profile`` names when given
+(tdk's own default otherwise), and every fan-out child is handed the same
+profile; domains are provisioned by ``tdd domain`` off a
 manifest this tool writes.
 
     tdd xp list-suites [--suites-dir DIR]
@@ -26,13 +28,13 @@ manifest this tool writes.
     tdd xp create-instance  --suite SEL --instance I [--suites-dir DIR]
     tdd xp create-domains   --instance I [--secret-env VAR] [--latch F] [--report F] [--dry-run]
     tdd xp destroy-domains  --instance I [--force] ...
-    tdd xp create-project   --instance I --project P ...
-    tdd xp destroy-project  --project P [--force] ...
+    tdd xp create-project   --instance I --project P [--profile NAME] ...
+    tdd xp destroy-project  --project P [--force] [--profile NAME] ...
     tdd xp destroy-instance --instance I
-    tdd xp run-project      --project P [--monitor] ...
-    tdd xp monitor-project  --project P ...
-    tdd xp one-shot         --suite SEL [--project P] [--keep] [--fail-fast] [--suites-dir DIR] ...
-    tdd xp bench            --suite TYPE [--name N] [--keep] [--fail-fast] [--suites-dir DIR] ...
+    tdd xp run-project      --project P [--monitor] [--profile NAME] ...
+    tdd xp monitor-project  --project P [--profile NAME] ...
+    tdd xp one-shot         --suite SEL [--project P] [--keep] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
+    tdd xp bench            --suite TYPE [--name N] [--keep] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
 """
 
 from __future__ import annotations
@@ -127,6 +129,15 @@ def _dry_run(c):
     )
 
 
+def _profile(c):
+    c.add_argument(
+        "--profile",
+        metavar="NAME",
+        default=None,
+        help="the tdk connection profile every tdk call uses (tdk COMMAND --profile NAME), so runs from shells on one account do not share a login (default: tdk's own)",
+    )
+
+
 def _suite(c, help_: str):
     c.add_argument("--suite", required=True, metavar="SELECTOR", help=help_)
     _suites_dir(c)
@@ -217,7 +228,7 @@ def configure(p: argparse.ArgumentParser) -> None:
     )
     c.add_argument("--instance", required=True)
     c.add_argument("--project", required=True)
-    for add in (_secret_env, _latch, _report, _dry_run, _common):
+    for add in (_secret_env, _profile, _latch, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=project.cmd_create_project)
 
@@ -226,7 +237,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         help="delete the project (instance resolved from the project pointer)",
     )
     c.add_argument("--project", required=True)
-    for add in (_force, _latch, _report, _dry_run, _common):
+    for add in (_force, _profile, _latch, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=project.cmd_destroy_project)
 
@@ -246,7 +257,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="after triggering, watch the transactions until they finish",
     )
-    for add in (_latch, _report, _dry_run, _common):
+    for add in (_profile, _latch, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=project.cmd_run_project)
 
@@ -254,7 +265,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         "monitor-project", help="watch a project's transactions until they finish"
     )
     c.add_argument("--project", required=True)
-    for add in (_report, _dry_run, _common):
+    for add in (_profile, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=project.cmd_monitor_project)
 
@@ -273,7 +284,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="leave the instance, project and domains set up afterwards",
     )
-    for add in (_fail_fast, _secret_env, _latch, _report, _dry_run, _common):
+    for add in (_fail_fast, _secret_env, _profile, _latch, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=cycle.cmd_one_shot)
 
@@ -295,7 +306,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="leave every lane's setup afterwards; a bench with a failed lane is kept regardless",
     )
-    for add in (_fail_fast, _secret_env, _latch, _report, _dry_run, _common):
+    for add in (_fail_fast, _secret_env, _profile, _latch, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=cycle.cmd_bench)
 

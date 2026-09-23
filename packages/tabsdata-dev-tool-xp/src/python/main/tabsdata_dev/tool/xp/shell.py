@@ -58,6 +58,19 @@ def dry_flag() -> list[str]:
     return ["--dry-run"] if state.run.dry_run else []
 
 
+def profile_flag() -> list[str]:
+    """--profile for a fan-out child, so every lane talks to the same connection."""
+    return ["--profile", state.run.profile] if state.run.profile else []
+
+
+def tdk_argv(*args: str) -> list[str]:
+    """`tdd tdk ARGS [--profile P]`: every tdk call goes through here, so none
+    of them can miss the profile. tdk gives `--profile` to each command, not to
+    the root group, so it goes after the command -- last, where it is always
+    past the verb."""
+    return proc.tool_argv("tdk", *args, *profile_flag())
+
+
 def run_cmd(
     argv: list[str], check: bool, stdin_text: str | None = None, env: dict | None = None
 ) -> subprocess.CompletedProcess:
@@ -123,7 +136,7 @@ def tdk(
     """The single tdk shell-out, through `tdd tdk`. Read commands run with
     --format json and return the parsed object; mutating commands pass
     want_json=False and return the CompletedProcess."""
-    argv = proc.tool_argv("tdk", *args, *(["--format", "json"] if want_json else []))
+    argv = tdk_argv(*args, *(["--format", "json"] if want_json else []))
     if state.run.dry_run:
         # A read is skipped silently -- callers get an empty result and plan a
         # fresh setup; a mutating call is printed but never run.
@@ -182,10 +195,10 @@ def require_login() -> None:
     logged in; stdin is closed so it cannot hang on its 'Server URL:' prompt)."""
     if state.run.dry_run:
         return
-    r = run_cmd(proc.tool_argv("tdk", "status"), check=False)
+    r = run_cmd(tdk_argv("status"), check=False)
     if r.returncode != 0:
         state.die(
-            f"not logged in to Tabsdata -- run `tdd tdk login` first ({last_err(r)})"
+            f"not logged in to Tabsdata -- run `{shell_line(tdk_argv('login'))}` first ({last_err(r)})"
         )
 
 

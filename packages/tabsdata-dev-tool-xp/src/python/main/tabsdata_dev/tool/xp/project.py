@@ -296,6 +296,7 @@ def cmd_create_project(args) -> None:
                             mp,
                             "--secret-env",
                             state.run.secret_env,
+                            *shell.profile_flag(),
                             *shell.dry_flag(),
                         ),
                     )
@@ -454,6 +455,7 @@ def cmd_destroy_project(args) -> None:
                             "--project",
                             m,
                             *(["--force"] if force else []),
+                            *shell.profile_flag(),
                             *shell.dry_flag(),
                         ),
                     )
@@ -524,9 +526,7 @@ def monitor_trx(project: str) -> None:
     """Wait for every transaction in ``project`` to finish, then FAIL if any
     ended in a failed state. In view the monitor streams to the terminal (its
     live table is the point); in json it is captured into run.log instead."""
-    from tabsdata_dev.common.core import proc
-
-    argv = proc.tool_argv("tdk", "trx", "list", "--proj", project, "--monitor")
+    argv = shell.tdk_argv("trx", "list", "--proj", project, "--monitor")
     if state.run.dry_run:
         shell.dry_echo(argv)
         return
@@ -617,6 +617,7 @@ def cmd_run_project(args) -> None:
                             "--project",
                             m,
                             *(["--monitor"] if monitor else []),
+                            *shell.profile_flag(),
                             *shell.dry_flag(),
                         ),
                     )

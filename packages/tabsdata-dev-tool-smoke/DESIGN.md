@@ -133,6 +133,13 @@ storage and database beside the cluster (`awspostgres`/`s3`, `gcppostgres`/`gcs`
 filling knows its own cloud's option keys, so naming another cloud's storage leaves placeholders
 that `common_placeholders_left` then refuses — visibly, at `configure`.
 
+`--profile` names the tdk connection every `tdd tdk` call and every `tdd xp one-shot` uses
+(`tdk COMMAND --profile NAME` -- tdk takes it per command, after the verb, never before it --
+passed on as `xp --profile`). A tdk login is otherwise one per account, so
+a smoke run would log out whatever another shell on the same account was doing, and a second run
+would log out the first. It defaults to the run's `sm_NAME`, the way every other name the run
+makes does; `tdd smoke run --script NAME --profile P` passes it through like any script option.
+
 A cluster run never writes to the kubeconfig it is given. It copies it into the run's work
 directory, makes the copy current on the chosen context and namespace, and points tdkserver at the
 copy: tdkserver resolves both from the *current* context, and its `venv update`, `config` and

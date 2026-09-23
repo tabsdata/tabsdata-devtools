@@ -1062,7 +1062,7 @@ common_tabsdata_setup_info() {
     fi
     [ ! -e "$venv_dir" ] || "$out" "venv       $VENV ($VENV_TYPE) at $venv_dir"
     if [ -e "$instance_dir" ]; then
-        "$out" "use them   export _TDD_VENV=$VENV; tdd tdk status; tdd tdkserver status --instance $INSTANCE --accept-terms y"
+        "$out" "use them   export _TDD_VENV=$VENV; tdd tdk status${PROFILE:+ --profile $PROFILE}; tdd tdkserver status --instance $INSTANCE --accept-terms y"
         "$out" "stop       _TDD_VENV=$VENV tdd tdkserver stop --instance $INSTANCE -y --accept-terms y"
         "$out" "remove     _TDD_VENV=$VENV tdd tdkserver delete --instance $INSTANCE --trash true -y --accept-terms y$venv_rm"
     elif [ -e "$venv_dir" ]; then

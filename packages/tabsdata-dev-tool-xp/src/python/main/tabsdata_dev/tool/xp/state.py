@@ -39,6 +39,8 @@ class Run:
     dry_run: bool = False
     fail_fast: bool = False
     secret_env: str = DEFAULT_SECRET_ENV
+    # --profile: tdk's connection profile, None = tdk's default connection.
+    profile: str | None = None
     # Multi-phase group run: lane token -> the phase it died in. None = no
     # multi-phase run is active (a lone fan-out is fatal on its own).
     lanes: dict[str, str] | None = None
@@ -57,6 +59,7 @@ def bind(out: render.Renderer, args) -> None:
         dry_run=bool(getattr(args, "dry_run", False)),
         fail_fast=bool(getattr(args, "fail_fast", False)),
         secret_env=getattr(args, "secret_env", None) or DEFAULT_SECRET_ENV,
+        profile=getattr(args, "profile", None) or None,
     )
 
 

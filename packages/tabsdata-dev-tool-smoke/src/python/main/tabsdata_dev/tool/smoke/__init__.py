@@ -227,7 +227,8 @@ def configure(p: argparse.ArgumentParser) -> None:
         description=(
             "Run the carried copy of smoke-NAME.sh. Everything on the line other "
             "than --script is the script's, in order: `tdd smoke run --script eks "
-            "--name NAME --kube-config FILE ...`. `--script NAME --help` shows "
+            "--name NAME --kube-config FILE ...`, --profile NAME (the tdk "
+            "connection, default sm_NAME) included. `--script NAME --help` shows "
             "that script's own page. The script runs in the current directory "
             "against the tdd dir this command runs from; its exit status is the "
             "verdict."

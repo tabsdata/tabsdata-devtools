@@ -1075,3 +1075,31 @@ def test_km_puts_the_index_back_for_the_pods_to_inherit():
     assert "UV_INDEX = <unset>" in text and "ins-pymanager" in text
     for version in ("2.0.0", "2.0.1", "2.1.0"):
         assert version in text, version
+
+
+def test_every_tdk_and_xp_call_runs_on_the_run_s_own_profile():
+    """A tdk login is per account unless a profile names it, so a smoke run in
+    one shell used to log another shell's work out. Every `tdd tdk` and every
+    `tdd xp` that reaches tdk carries --profile, which defaults to the run's
+    own sm_NAME -- like every other name the run makes -- and can be given."""
+    import re
+
+    for path in sorted(smoke.scripts_dir().glob("smoke-*.sh")):
+        text = path.read_text()
+        code = [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
+        assert '--profile) PROFILE="$2"; shift 2 ;;' in text, path.name
+        assert 'PROFILE="${PROFILE:-$BASE}"' in text, path.name
+        assert "--profile NAME" in text.split("\nHELP\n", 1)[0], path.name
+        tdk = [ln for ln in code if re.search(r"\btdd tdk\b(?!server)", ln)]
+        assert tdk, path.name
+        for ln in tdk:
+            # after the verb: tdk has no --profile on its root group, only on
+            # each command, and `tdk --profile P login` is refused
+            assert re.search(r'tdd tdk [a-z]+ --profile "?\$PROFILE"? ', ln), (
+                path.name,
+                ln,
+            )
+        xp = [ln for ln in code if "tdd xp one-shot" in ln and "common_run" in ln]
+        assert xp, path.name
+        for ln in xp:
+            assert '--profile "$PROFILE"' in ln, (path.name, ln)

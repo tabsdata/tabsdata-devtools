@@ -9,6 +9,7 @@ run --monitor, then tear down unless --keep or something failed) and ``bench``
 from __future__ import annotations
 
 import json
+import shlex
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -20,6 +21,11 @@ from . import domains, lanes, pointers, project, shell, state, suites
 from .models import build_instance
 from .project import ns
 from .reporter import rep, reporting, scratch
+
+
+def _profile_hint() -> str:
+    """The --profile a printed follow-up command needs to reach this run's server."""
+    return "".join(f" {shlex.quote(w)}" for w in shell.profile_flag())
 
 
 def cmd_one_shot(args) -> None:
@@ -52,14 +58,14 @@ def cmd_one_shot(args) -> None:
                 rep().note(f"{lane} failed in phase '{phase}'")
             rep().note(
                 f"one-shot: keeping '{name}' for debugging -- tear down with "
-                f"`tdd xp destroy-project --project {name} --force`, "
+                f"`tdd xp destroy-project --project {name} --force{_profile_hint()}`, "
                 f"`tdd xp destroy-domains --instance {name} --force`, "
                 f"`tdd xp destroy-instance --instance {name}`"
             )
             state.die(f"{len(dead)} lane(s) failed")
         if args.keep:
             rep().note(
-                f"one-shot: keeping instance/project '{name}' -- re-run with `tdd xp run-project --project {name} --monitor`"
+                f"one-shot: keeping instance/project '{name}' -- re-run with `tdd xp run-project --project {name} --monitor{_profile_hint()}`"
             )
             return
         rep().note(f"one-shot: tearing down '{name}' (use --keep to preserve)")
@@ -70,9 +76,7 @@ def cmd_one_shot(args) -> None:
 
 def _await_lane(proj: str) -> tuple[float, int, int]:
     """Block until every transaction in `proj` finishes; (seconds, trx, failed)."""
-    from tabsdata_dev.common.core import proc
-
-    argv = proc.tool_argv("tdk", "trx", "list", "--proj", proj, "--monitor")
+    argv = shell.tdk_argv("trx", "list", "--proj", proj, "--monitor")
     if state.run.dry_run:
         shell.dry_echo(argv)
         return 0.0, 0, 0
@@ -193,6 +197,7 @@ def cmd_bench(args) -> None:
                 ln["project"],
                 "--secret-env",
                 senv,
+                *shell.profile_flag(),
                 *shell.dry_flag(),
             ),
         )
@@ -201,7 +206,11 @@ def cmd_bench(args) -> None:
             "fire triggers (all lanes at once)",
             "triggers",
             lambda ln: lanes.child_argv(
-                "run-project", "--project", ln["project"], *shell.dry_flag()
+                "run-project",
+                "--project",
+                ln["project"],
+                *shell.profile_flag(),
+                *shell.dry_flag(),
             ),
         )
         _bench_await(lane_docs, phase_wall, stopped)
@@ -244,14 +253,14 @@ def cmd_bench(args) -> None:
         if bad:
             rep().note(
                 f"bench: keeping '{base}' -- {len(bad)} lane(s) failed; tear down with "
-                f"`tdd xp destroy-project --project {base} --force`, "
+                f"`tdd xp destroy-project --project {base} --force{_profile_hint()}`, "
                 f"`tdd xp destroy-domains --instance {base} --force`, "
                 f"`tdd xp destroy-instance --instance {base}`"
             )
             state.die(f"{len(bad)} of {len(lane_docs)} lane(s) failed")
         if args.keep:
             rep().note(
-                f"bench: keeping '{base}' -- re-run with `tdd xp run-project --project {base} --monitor`"
+                f"bench: keeping '{base}' -- re-run with `tdd xp run-project --project {base} --monitor{_profile_hint()}`"
             )
             return
         rep().note(f"bench: tearing down '{base}' (use --keep to preserve)")

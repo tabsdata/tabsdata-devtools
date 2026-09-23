@@ -40,6 +40,13 @@ provision domains, create the project, register functions and triggers, run, che
   tdk on its PATH nor tabsdata in its own toolset -- it needs `_TDD_VENV` to name a venv with
   tabsdata installed, which the launcher checks. It provisions through `tdd domain
   create|destroy --manifest --format json`, parsing the batch events.
+- `--profile NAME` is tdk's `--profile`: which connection the calls use, so two shells on one
+  account each keep their own login. Absent, no option is passed and tdk uses its default
+  connection. tdk attaches `--profile` to every command, not to the root group -- `tdk --profile
+  P login` is refused, `tdk login --profile P` works -- so `shell.tdk_argv`, which builds every
+  tdk argv, appends it last, past the verb; no call can miss it or misplace it; the verbs that reach tdk (`create-`/`destroy-`/`run-`/`monitor-project`,
+  `one-shot`, `bench`) take it and hand it to their fan-out children. The domain verbs never
+  reach tdk and do not take it.
 - **The domains phase is one call, not a loop**: xp writes a manifest into its scratch dir and
   hands it to `tdd domain create --manifest`, the toolkit's own batch entry point, which runs
   every entry in parallel, heaviest backend first, chaining create -> create-model ->

@@ -253,6 +253,70 @@ def test_dry_run_one_shot_prints_the_tdd_commands_and_touches_no_server(
     assert "create-domain" in err and "register-fn" in err
 
 
+def test_profile_reaches_every_tdk_call_and_only_when_given(xp_root, capsys):
+    def tdk_lines(*extra):
+        rc = _run(
+            [
+                "one-shot",
+                "--suite",
+                "demo/one",
+                *_suites_dir(xp_root),
+                "--project",
+                "p",
+                "--dry-run",
+                *extra,
+            ]
+        )
+        out, err = capsys.readouterr()
+        assert rc == 0, err
+        return [line for line in out.splitlines() if line.startswith("tdd tdk ")]
+
+    given = tdk_lines("--profile", "sm_a")
+    # after the command: tdk gives --profile to each command, not the root group
+    assert given and all(line.endswith(" --profile sm_a") for line in given)
+    assert "tdd tdk trx list --proj p --monitor --profile sm_a" in given
+    # absent, tdk keeps its own default connection: no option at all
+    assert all("--profile" not in line for line in tdk_lines())
+
+
+def test_a_fan_out_hands_the_profile_to_every_child_that_calls_tdk(
+    xp_root, monkeypatch, capsys
+):
+    from tabsdata_dev.tool.xp import lanes
+
+    children = []
+
+    def dispatch(label, argvs, **kw):
+        children.extend(argv for _, argv in argvs)
+        return []
+
+    monkeypatch.setattr(lanes, "dispatch", dispatch)
+    rc = _run(
+        [
+            "one-shot",
+            "--suite",
+            "demo",
+            *_suites_dir(xp_root),
+            "--project",
+            "g",
+            "--dry-run",
+            "--profile",
+            "sm_a",
+        ]
+    )
+    _, err = capsys.readouterr()
+    assert rc == 0, err
+    verbs = {}
+    for argv in children:
+        verbs.setdefault(argv[argv.index("xp") + 1], []).append(argv)
+    for verb in ("create-project", "run-project", "destroy-project"):
+        assert verbs[verb] and all(
+            argv[argv.index("--profile") + 1] == "sm_a" for argv in verbs[verb]
+        ), verb
+    # the domain verbs never reach tdk and take no --profile
+    assert all("--profile" not in argv for argv in verbs["create-domains"])
+
+
 def test_json_stream_carries_steps_and_ends_in_one_ok(xp_root, capsys):
     rc = _run(
         [
