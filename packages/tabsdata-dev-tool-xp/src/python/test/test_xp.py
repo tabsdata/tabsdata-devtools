@@ -615,3 +615,134 @@ def test_a_plan_name_fits_tabsdatas_hundred_characters():
     assert len(a) <= PLAN_NAME_MAX and len(b) <= PLAN_NAME_MAX
     assert a.startswith(ts) and a.endswith("fn_one")
     assert a != b, "two truncated plans must not collide"
+
+
+def test_a_failed_transaction_leaves_its_worker_logs_in_the_scratch_dir(
+    xp_root, monkeypatch, capsys
+):
+    """The instance is torn down right after a failed run, so the monitor saves
+    every worker's log while the server still has them -- one fetch per worker,
+    never `trx logs`, which prompts when several ran. A fetch that fails is
+    named, and the failed transactions stay the error."""
+    import subprocess
+
+    from tabsdata_dev.tool.xp import shell
+
+    trx = [
+        {"id": "tx-1", "status": "L", "collection": "ch_s3"},
+        {"id": "tx-2", "status": "Published", "collection": "ok"},
+    ]
+    workers = {"tx-1": [{"id": "w-a", "status": "Failed"}, {"id": "w-b"}]}
+    calls = []
+
+    def fake(argv, check, stdin_text=None, env=None):
+        args = argv[argv.index("tdk") + 1 :]
+        calls.append(args)
+        out, rc = "", 0
+        if args[:2] == ["trx", "list"] and "--monitor" not in args:
+            out = json.dumps(trx)
+        elif args[:2] == ["worker", "list"]:
+            out = json.dumps(workers[args[args.index("--trx") + 1]])
+        elif args[:2] == ["worker", "logs"]:
+            wid = args[args.index("--worker") + 1]
+            if wid == "w-b":
+                return subprocess.CompletedProcess(argv, 1, "", "│ Failed: gone │")
+            pathlib.Path(args[args.index("--file") + 1]).write_text(f"log of {wid}")
+        return subprocess.CompletedProcess(argv, rc, out, "")
+
+    monkeypatch.setattr(shell, "run_cmd", fake)
+    rc = _run(["monitor-project", "--project", "p1", "--format", "json"])
+    events = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{")
+    ]
+    err = [e for e in events if e["event"] == "error"][0]
+    assert rc == 1 and "1 failed transaction(s)" in err["message"]
+    assert not any(a[:2] == ["trx", "logs"] for a in calls)
+    assert not any("tx-2" in a for a in calls)  # only the failed one is fetched
+
+    scratch = pathlib.Path(err["scratch"])
+    saved = scratch / "trx-logs" / "tx-1" / "w-a.log"
+    assert saved.read_text() == "log of w-a"
+    assert str(saved) in err["message"] and "w-b: Failed: gone" in err["message"]
+    assert str(saved) in (scratch / "errors.log").read_text()
+
+
+def _fake_monitor(monkeypatch, watches):
+    """Stand in for tdk and the clock: each `trx list --monitor` takes the next
+    (seconds it runs, exit code) from ``watches``; the project has no failed
+    transactions."""
+    import subprocess
+    import types
+
+    from tabsdata_dev.tool.xp import project, shell
+
+    now = [0.0]
+    queue = list(watches)
+    watched = []
+
+    def fake(argv, check, stdin_text=None, env=None):
+        args = argv[argv.index("tdk") + 1 :]
+        if args[:2] == ["trx", "list"] and "--monitor" in args:
+            seconds, rc = queue.pop(0)
+            now[0] += seconds
+            watched.append(rc)
+            return subprocess.CompletedProcess(argv, rc, "", "│ Connection reset │")
+        return subprocess.CompletedProcess(argv, 0, "[]", "")
+
+    def sleep(seconds):
+        now[0] += seconds
+
+    monkeypatch.setattr(shell, "run_cmd", fake)
+    monkeypatch.setattr(
+        project, "time", types.SimpleNamespace(monotonic=lambda: now[0], sleep=sleep)
+    )
+    return watched
+
+
+def _monitor_events(capsys):
+    rc = _run(["monitor-project", "--project", "p1", "--format", "json"])
+    return rc, [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{")
+    ]
+
+
+def test_the_monitor_watches_again_after_the_connection_drops(
+    xp_root, monkeypatch, capsys
+):
+    """A dropped port-forward ended every lane it was watching although their
+    transactions ran on; the monitor only reads, so it is started again."""
+    watched = _fake_monitor(monkeypatch, [(40, 1), (1, 1), (10, 0)])
+    rc, events = _monitor_events(capsys)
+    assert rc == 0 and watched == [1, 1, 0]
+    notes = [e["message"] for e in events if e.get("xp") == "note"]
+    assert sum("watching again" in n and "Connection reset" in n for n in notes) == 2
+
+
+def test_the_monitor_gives_up_once_the_grace_period_is_spent(
+    xp_root, monkeypatch, capsys
+):
+    from tabsdata_dev.tool.xp import project
+
+    watched = _fake_monitor(monkeypatch, [(1, 1)] * 100)
+    rc, events = _monitor_events(capsys)
+    err = [e for e in events if e["event"] == "error"][0]
+    assert rc == 1 and "kept failing for 120s" in err["message"]
+    # every attempt costs a pause plus its own second: the grace bounds them
+    grace = project.MONITOR_OUTAGE_GRACE
+    per_try = project.MONITOR_RETRY_PAUSE + 1
+    assert len(watched) == int(grace // per_try) + 1
+
+
+def test_a_watch_that_reached_the_server_restarts_the_outage_clock(
+    xp_root, monkeypatch, capsys
+):
+    """Two outages of 100s each, apart: neither alone spends the grace, so the
+    run survives both."""
+    outage = [(1, 1)] * 16  # 16 x (1s + 5s pause) = 96s down
+    watched = _fake_monitor(monkeypatch, [*outage, (60, 1), *outage, (5, 0)])
+    rc, _ = _monitor_events(capsys)
+    assert rc == 0 and watched[-1] == 0

@@ -165,9 +165,9 @@ UV_INDEX_URI=""
 # S3 itself the pods reach over the internet, same as any other cloud's run.
 #
 # cloud-connectors by SUB-SUITE, unlike the gke flavour: the family also holds
-# bigquery, clickhouse, databricks, snowflake and starrocks, whose systems are
-# not in the store, and `xp list-systems --suite cloud-connectors` exits 1 for
-# the five -- the systems stage would fail before anything is built. az is the
+# bigquery, databricks and snowflake, whose systems are not in the store, and
+# `xp list-systems --suite cloud-connectors` exits 1 for the three -- the
+# systems stage would fail before anything is built. az is the
 # object-store suite of this cloud, which is what an AKS run is here to prove.
 SUITES="test,tableframe_api,dataquality,grok/s3_examples,grok/s3_world_csv,cloud-connectors/az"
 FORCE=""                 # 1 with --force; empty otherwise

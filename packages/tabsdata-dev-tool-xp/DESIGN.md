@@ -21,8 +21,9 @@ provision domains, create the project, register functions and triggers, run, che
   the smoke scripts and the shell package's assets.
 - tabsdata-xp's `connectors` dir is split here into `container-connectors` (docker/local
   systems) and `cloud-connectors` (lanes needing a cloud store or warehouse: az, bigquery,
-  clickhouse, databricks, gcs, s3, snowflake, starrocks); `--suite <type>/<name>|<type>`
-  selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
+  databricks, gcs, s3, snowflake). clickhouse and starrocks are container-connectors although
+  they stage through s3/az/gcs: the aks/eks/gke smoke runs take `cloud-connectors`, and those
+  two are not to run there. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
 - No `bin-reqs`: xp reaches tdk and tdkserver only through `tdd tdk`/`tdd tdkserver`,
   and those launchers declare the binaries themselves -- the requirement belongs to the
   command that runs the program. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run
@@ -54,7 +55,12 @@ provision domains, create the project, register functions and triggers, run, che
 - **The project phase is fanned out except where order is meaning**: project -> groups ->
   collections in parallel -> functions **serial**, because registration order is what the
   dependency graph is built from -> triggers fired in batches gated by `detached` -> the
-  transaction monitor.
+  transaction monitor. A monitor that exits non-zero is started again every 5s: it only reads,
+  and on a cluster the usual cause is the port-forward dropping for seconds, which used to fail
+  every lane watching at that moment while their transactions ran on. The run fails once the
+  monitor has kept failing for 120s; a watch that lasted 30s reached the server and restarts
+  that clock. tdk's own monitor rides out a short outage too (tabsdata-os `live_monitor`); this
+  covers the tdk versions that do not.
 - `--secret-env` names the variable holding the domain crypto key (default `_TDD_CRYPTO_KEY`)
   and maps it into that name for the `tdd domain` children. In a connection template
   `$secret:D<n>__KEY` resolves from the backing domain's descriptor (the environment as a
@@ -93,7 +99,11 @@ whose message is the progress line and whose fields carry the structured step --
 what the lane dispatcher reads back. The detail (every command and its output) goes to
 `<scratch>/run.log` and never to the console; failures alone also go to `<scratch>/errors.log`,
 created on the first one, so its existence answers "did this run go wrong"; `report.json` is
-written at the end and becomes the fields of the run's final `ok`/`error`. Every run gets one
+written at the end and becomes the fields of the run's final `ok`/`error`. A monitor that finds
+failed transactions saves each one's worker logs to `<scratch>/trx-logs/<trx>/<worker>.log`
+before it fails, and names them in errors.log: a one-shot or smoke run destroys the instance
+next, and the workers with it. It fetches per worker (`worker list --trx`, `worker logs
+--worker`) because `trx logs` prompts for a pick when several ran. Every run gets one
 scratch directory under `/tmp/tdd-xp/`, announced at startup and **never deleted** -- the
 manifests it authored, the logs, the report, and one subdir per lane.
 

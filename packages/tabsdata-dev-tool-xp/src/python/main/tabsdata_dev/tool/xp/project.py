@@ -15,13 +15,14 @@ import json
 import os
 import pathlib
 import subprocess
+import time
 from datetime import datetime, timezone
 
 from tabsdata_dev.common.core import proc
 
 from . import conn, lanes, pointers, shell, state, suites
 from .models import build_instance
-from .reporter import rep, reporting, say
+from .reporter import fs_token, rep, reporting, say
 
 BUILTIN_GROUPS = {"sources", "destinations", "default"}
 # Transaction statuses that mean a run FAILED. tabsdata's SDK is not importable
@@ -522,26 +523,60 @@ def cmd_destroy_project(args) -> None:
 
 
 # -------------------------------------------------------------- monitor ----
+#: How long the monitor may keep failing before the run is given up on, how
+#: long to wait between attempts, and how long a watch must have lasted to
+#: prove the server was reachable (which restarts the outage clock).
+MONITOR_OUTAGE_GRACE = 120.0
+MONITOR_RETRY_PAUSE = 5.0
+MONITOR_HEALTHY_WATCH = 30.0
+
+
+def _watch(argv: list[str], project: str) -> subprocess.CompletedProcess:
+    if state.run.out.fmt == "json":
+        return shell.run_cmd(argv, check=False)
+    rep().note(f"monitor '{project}' (Ctrl-C to stop watching)")
+    shell.flush_stdout()
+    return subprocess.run(argv)
+
+
 def monitor_trx(project: str) -> None:
     """Wait for every transaction in ``project`` to finish, then FAIL if any
     ended in a failed state. In view the monitor streams to the terminal (its
-    live table is the point); in json it is captured into run.log instead."""
+    live table is the point); in json it is captured into run.log instead.
+
+    A monitor that exits non-zero is started again: it only reads, and the
+    usual cause is the connection -- a cluster run reaches the apiserver
+    through a port-forward that drops and is relaunched in seconds, and one
+    drop used to fail every lane watching at that moment while their
+    transactions ran on. Only a monitor that keeps failing for
+    ``MONITOR_OUTAGE_GRACE`` seconds fails the run; one that fails at once for
+    another reason (a lost login) never lasts long enough to restart the clock,
+    so it too ends within the grace period."""
     argv = shell.tdk_argv("trx", "list", "--proj", project, "--monitor")
     if state.run.dry_run:
         shell.dry_echo(argv)
         return
-    if state.run.out.fmt == "json":
-        r = shell.run_cmd(argv, check=False)
-    else:
-        rep().note(f"monitor '{project}' (Ctrl-C to stop watching)")
-        shell.flush_stdout()
-        import subprocess
-
-        r = subprocess.run(argv)
-    if r.returncode != 0:
-        state.die(
-            f"transaction monitor exited with {r.returncode} for project '{project}' -- refusing to report success over an unwatched run"
+    down_since = None
+    while True:
+        started = time.monotonic()
+        r = _watch(argv, project)
+        if r.returncode == 0:
+            break
+        now = time.monotonic()
+        if down_since is None or now - started >= MONITOR_HEALTHY_WATCH:
+            down_since = now
+        why = shell.last_err(r) if r.stderr else "see the output above"
+        if now - down_since >= MONITOR_OUTAGE_GRACE:
+            state.die(
+                f"transaction monitor exited with {r.returncode} for project '{project}' "
+                f"and kept failing for {MONITOR_OUTAGE_GRACE:g}s ({why}) -- refusing to "
+                "report success over an unwatched run"
+            )
+        rep().note(
+            f"monitor '{project}' exited with {r.returncode} ({why}); watching again in "
+            f"{MONITOR_RETRY_PAUSE:g}s"
         )
+        time.sleep(MONITOR_RETRY_PAUSE)
     trx = shell.tdk(["trx", "list", "--proj", project], check=False) or []
     failed = [t for t in trx if trx_status(str(t.get("status", ""))) in FAILED_TRX]
     if failed:
@@ -550,9 +585,54 @@ def monitor_trx(project: str) -> None:
             for t in failed
         )
         rep().log(f"failed transactions in {project}", detail)
+        evidence = collect_worker_logs(failed)
+        if evidence:
+            rep().error(
+                f"worker logs of the failed transactions in {project}", evidence
+            )
+            detail += "\n   worker logs:\n" + evidence
         state.die(
             f"project '{project}' has {len(failed)} failed transaction(s):\n{detail}"
         )
+
+
+def collect_worker_logs(failed: list) -> str:
+    """Save every worker log of each failed transaction under
+    ``<scratch>/trx-logs/<trx>/<worker>.log`` and return one line per file.
+
+    Done here, at the moment of failure, because it is the last moment the
+    logs exist: a one-shot or smoke run tears the instance down next, and with
+    it every worker. Through `worker list --trx` + `worker logs --worker`, not
+    `trx logs --trx`, which asks the user to pick when several workers ran.
+    Best effort: a fetch that fails is named in the result, never raised -- the
+    failed transactions are the error, not the evidence."""
+    lines: list[str] = []
+    for t in failed:
+        trx = str(t.get("id") or "")
+        if not trx:
+            continue
+        workers = shell.tdk(["worker", "list", "--trx", trx], check=False)
+        if not workers:
+            lines.append(f"   {trx}: no workers listed")
+            continue
+        dest = rep().scratch / "trx-logs" / fs_token(trx)
+        dest.mkdir(parents=True, exist_ok=True)
+        for w in workers:
+            wid = str(w.get("id") or "")
+            if not wid:
+                continue
+            path = dest / f"{fs_token(wid)}.log"
+            r = shell.tdk(
+                ["worker", "logs", "--worker", wid, "--file", str(path)],
+                want_json=False,
+                check=False,
+            )
+            status = str(w.get("status", "?"))
+            if r.returncode == 0 and path.exists():
+                lines.append(f"   {trx} {status:10} {path}")
+            else:
+                lines.append(f"   {trx} {status:10} {wid}: {shell.last_err(r)}")
+    return "\n".join(lines)
 
 
 # ------------------------------------------------------------------ run ----
