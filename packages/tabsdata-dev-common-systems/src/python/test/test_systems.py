@@ -1113,7 +1113,7 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
     b = Db2Cdc()
     calls: list[tuple] = []
     owners: dict[str, str] = {}  # CD table -> schema holding it (IBMSNAP_REGISTER)
-    existing: set[str] = set()  # SCHEMA.TABLE source tables still in syscat
+    existing: set[str] = set()  # SCHEMA.TABLE in syscat: source and CD tables
 
     def scalar(container, sql):
         s = " ".join(sql.split())
@@ -1139,13 +1139,17 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
     monkeypatch.setattr(
         b, "_send_capstop", lambda c, s, t: calls.append(("capstop", s, t))
     )
-    monkeypatch.setattr(
-        b,
-        "_clp",
-        lambda c, sql, ignore_failure=False: calls.append(
-            ("sql", " ".join(sql.split()))
-        ),
-    )
+    stuck: set[str] = set()  # CD tables whose drop fails
+
+    def clp(container, sql, ignore_failure=False):
+        s = " ".join(sql.split())
+        calls.append(("sql", s))
+        if s.startswith("drop table ASN."):
+            cd = s.split("drop table ASN.")[1]
+            if cd not in stuck:
+                existing.discard(f"ASN.{cd}")
+
+    monkeypatch.setattr(b, "_clp", clp)
 
     # nothing holds the names: both tables register
     b.after_install_schema({}, "employees")
@@ -1195,3 +1199,28 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
         caught.value
     )
     assert "by hand" in str(caught.value) and calls == []
+
+    # a CD table no registration holds -- a removal whose drop failed took the
+    # rows and left the table, which is what asnclp refuses on: reclaimed
+    calls.clear()
+    owners.clear()
+    existing.clear()
+    existing.add("ASN.TD_T__EMPLOYEES")
+    b.after_install_schema({}, "employees")
+    sqls = [c[1] for c in calls if c[0] == "sql"]
+    assert "drop trigger ASN.LM_TD_T__EMPLOYEES" in sqls
+    assert "drop table ASN.TD_T__EMPLOYEES" in sqls
+    assert "ASN.TD_T__EMPLOYEES" not in existing
+    assert [c for c in calls if c[0] == "register"] == [
+        ("register", "XP_NEW", "DEPARTMENTS"),
+        ("register", "XP_NEW", "EMPLOYEES"),
+    ]
+    assert not [c for c in calls if c[0] == "capstop"], "no registration to stop"
+
+    # and a drop that does not take is an error by name, never a silent orphan
+    calls.clear()
+    existing.add("ASN.TD_T__EMPLOYEES")
+    stuck.add("TD_T__EMPLOYEES")
+    with pytest.raises(TdxError, match="ASN.TD_T__EMPLOYEES could not be dropped"):
+        b.after_install_schema({}, "employees")
+    assert not [c for c in calls if c[0] == "register"]
