@@ -115,3 +115,56 @@ def test_initialize_writes_a_loader_per_family_and_reports_both(tmp_path, monkey
     # each one has this dir baked in, so several tdd dirs each point at themselves
     assert (dir_ / "tdd-source.sh").read_text() == f"SH {dir_}"
     assert (dir_ / "tdd-source.ps1").read_text() == f"PS {dir_}"
+
+
+def test_the_toolset_sync_is_locked_to_pypi_whatever_the_shell_says(
+    tmp_path, monkeypatch
+):
+    """A developer's shell pointing uv at a local mirror made every `uv sync`
+    find the committed locks stale and re-lock them onto the mirror. The sync
+    now drops the shell's index settings, names PyPI, and is --locked (a stale
+    lock fails instead of being rewritten) -- except under --relock, which
+    re-resolves, against PyPI too."""
+    monkeypatch.setattr(
+        initialize.generate_mod, "generate", lambda root, out: _fake_catalog()
+    )
+    monkeypatch.setattr(
+        initialize,
+        "_make_venv",
+        lambda target, out, python=None: target.mkdir(parents=True, exist_ok=True),
+    )
+    monkeypatch.setattr(initialize, "_venv_install", lambda *a, **k: None)
+    syncs: list = []
+    monkeypatch.setattr(
+        initialize,
+        "_uv",
+        lambda argv, out, failure, drop_env=(), **env: syncs.append((argv, drop_env)),
+    )
+    for relock, flag, not_flag in (
+        (False, "--locked", "--upgrade"),
+        (True, "--upgrade", "--locked"),
+    ):
+        syncs.clear()
+        assert initialize.initialize(tmp_path / "tdd", _Out(), relock=relock) == 0
+        [(argv, drop_env)] = [s for s in syncs if s[0][:2] == ["uv", "sync"]]
+        assert argv[argv.index("--default-index") + 1] == "https://pypi.org/simple"
+        assert flag in argv and not_flag not in argv
+        assert set(drop_env) >= {"UV_INDEX", "UV_DEFAULT_INDEX"}
+
+
+def test_uv_steps_run_without_the_dropped_variables(monkeypatch):
+    import subprocess
+
+    seen = {}
+
+    def fake_run(argv, env, **kwargs):
+        seen.update(env)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(initialize.subprocess, "run", fake_run)
+    monkeypatch.setenv("UV_DEFAULT_INDEX", "http://localhost:3141/mirror/")
+    monkeypatch.setenv("UV_INDEX", "https://private.example/simple/")
+    monkeypatch.setenv("KEEP_ME", "1")
+    initialize._uv(["uv", "sync"], _Out(), "failed", drop_env=initialize.INDEX_ENV)
+    assert "UV_DEFAULT_INDEX" not in seen and "UV_INDEX" not in seen
+    assert seen["KEEP_ME"] == "1" and seen["UV_LINK_MODE"] == "copy"

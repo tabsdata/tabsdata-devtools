@@ -45,6 +45,17 @@ SOURCE_TEMPLATE = "tddsrc.sh"
 # and does not buy you.
 RELOCATABLE_ENV = {"UV_VENV_RELOCATABLE": "1", "UV_LINK_MODE": "copy"}
 
+#: The one index every committed toolset uv.lock resolves against. A lock
+#: records its registry's URLs, so one resolved through a developer's local
+#: mirror is usable only where that mirror runs.
+LOCK_INDEX = "https://pypi.org/simple"
+
+#: uv's index settings a developer's shell may carry -- a devpi mirror, a
+#: private index. `uv sync` honours them, finds every lock "stale" against
+#: them and silently re-locks it onto that index; so the toolset sync runs
+#: without them. Makefile.toml's `lock` task unsets the same list.
+INDEX_ENV = ("UV_INDEX", "UV_DEFAULT_INDEX", "UV_INDEX_URL", "UV_EXTRA_INDEX_URL")
+
 
 class StepFailed(Exception):
     """A uv step failed; carries its captured output for the error log."""
@@ -112,13 +123,26 @@ def _from_source(dir_: pathlib.Path, out: render.Renderer, relock: bool) -> dict
         # first so sync populates a relocatable venv instead.
         if not target.exists():
             _make_venv(target, out, python)
-        argv = ["uv", "sync", "--quiet", "--project", str(project)]
-        if relock:
-            argv.append("--upgrade")
+        # Against the lock's own index, and --locked: an install never
+        # rewrites a committed lock -- a stale one is an error naming `cargo
+        # make lock`, not a quiet re-resolve. --relock is the one exception,
+        # and it re-resolves against the same index.
+        argv = [
+            "uv",
+            "sync",
+            "--quiet",
+            "--project",
+            str(project),
+            "--default-index",
+            LOCK_INDEX,
+        ]
+        argv.append("--upgrade" if relock else "--locked")
         _uv(
             argv,
             out,
-            f"failed to sync toolset {toolset}",
+            f"failed to sync toolset {toolset}"
+            + ("" if relock else " (a stale uv.lock? re-lock with `cargo make lock`)"),
+            drop_env=INDEX_ENV,
             UV_PROJECT_ENVIRONMENT=str(target),
         )
 
@@ -241,17 +265,25 @@ def _lock_is_empty(lock: pathlib.Path) -> bool:
 # --------------------------------------------------------------- uv steps
 
 
-def _uv(argv: list[str], out: render.Renderer, failure: str, **extra_env: str) -> None:
-    """Run one uv step with its output captured.
+def _uv(
+    argv: list[str],
+    out: render.Renderer,
+    failure: str,
+    drop_env: tuple[str, ...] = (),
+    **extra_env: str,
+) -> None:
+    """Run one uv step with its output captured, without the variables named
+    in `drop_env`.
 
     In json mode nothing but events may reach the terminal, and in view mode
     uv's chatter is noise on success -- so the output goes to debug when the
     step works and into the error log when it does not.
     """
     out.debug(" ".join(argv))
+    env = {k: v for k, v in os.environ.items() if k not in drop_env}
     result = subprocess.run(
         argv,
-        env=dict(os.environ, **RELOCATABLE_ENV, **extra_env),
+        env=dict(env, **RELOCATABLE_ENV, **extra_env),
         capture_output=True,
         text=True,
     )

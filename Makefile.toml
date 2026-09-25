@@ -198,11 +198,18 @@ set -euo pipefail
 # the same version everywhere. Drift between locks is a timing artifact -- one
 # toolset locked months after another -- and locking them together is the fix
 # `cargo make gen` points at when it warns.
+#
+# Against PyPI only. A lock records its registry's URLs, and a developer's shell
+# may point uv at a local mirror or a private index; locked through one, the
+# lock works only where it runs. So the shell's index settings are dropped and
+# the index named -- the same list and URL as INDEX_ENV / LOCK_INDEX in
+# tabsdata_dev/tdd/initialize.py, which syncs against it; test_discover checks both.
+unset UV_INDEX UV_DEFAULT_INDEX UV_INDEX_URL UV_EXTRA_INDEX_URL
 for pkg in "${PACKAGES}"/tabsdata-dev-toolset-*; do
     toolset="$(basename "$pkg")"
     toolset="${toolset#tabsdata-dev-toolset-}"
     echo "== locking $toolset"
-    uv lock --quiet --upgrade --project "$pkg"
+    uv lock --quiet --upgrade --project "$pkg" --default-index https://pypi.org/simple
 done
 
 echo

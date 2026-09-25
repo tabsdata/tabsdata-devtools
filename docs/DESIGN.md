@@ -72,6 +72,15 @@ workspace forces one resolution, and two toolsets with conflicting pins must bot
 two toolsets may pin the same package differently. `cargo make gen` warns when a shared
 range resolved differently across locks (`cargo make lock` fixes it).
 
+**Every lock resolves against PyPI alone** (`https://pypi.org/simple`). A lock records its
+registry's URLs, and a developer's shell may point uv at a local mirror or a private index
+(`UV_INDEX`, `UV_DEFAULT_INDEX`, ...); locked through one, a lock installs only where it runs,
+and `uv sync` finds a PyPI lock "stale" against it and re-locks it there. So `cargo make lock`
+and tdd-install's toolset sync both drop those settings and name PyPI, and the sync is
+`--locked` -- an install never rewrites a lock, it fails naming `cargo make lock` (`--relock`
+is the exception, and re-resolves against PyPI too). `test_discover` fails on a lock that names
+any other registry.
+
 ## The catalog
 
 `catalog.json` (generated, shipped inside `-tdd`, copied into the tdd dir as the "initialized"
