@@ -1224,3 +1224,48 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
     with pytest.raises(TdxError, match="ASN.TD_T__EMPLOYEES could not be dropped"):
         b.after_install_schema({}, "employees")
     assert not [c for c in calls if c[0] == "register"]
+
+    # the model installed again over this domain's own registrations (a
+    # recreate under the same name): asnclp refuses a table already registered
+    # (ASN1703E reason 4), so each is removed and registered afresh
+    calls.clear()
+    stuck.clear()
+    existing.clear()
+    owners.update({"TD_T__DEPARTMENTS": "XP_NEW", "TD_T__EMPLOYEES": "XP_NEW"})
+    b.after_install_schema({}, "employees")
+    kinds = [c[0] for c in calls]
+    assert kinds.count("capstop") == 2 and kinds.count("register") == 2
+    assert kinds.index("register") > max(
+        i for i, k in enumerate(kinds) if k == "capstop"
+    )
+    assert "drop table ASN.TD_T__EMPLOYEES" in [c[1] for c in calls if c[0] == "sql"]
+
+
+def test_db2cdc_deregisters_before_a_forced_recreate_drops_the_tables(monkeypatch):
+    """`create --force` drops the schema, `create-model --force` its tables;
+    the registrations are in ASN and outlive both, so each forced path
+    deregisters first -- while the tables still exist, since CAPSTOP names
+    them -- and only then hands over to the drop."""
+    from tabsdata_dev.common.systems.systems._common.sql import SqlContainerBackend
+    from tabsdata_dev.common.systems.systems.db2cdc.backend import Db2Cdc
+
+    b = Db2Cdc()
+    order: list[str] = []
+    monkeypatch.setattr(b, "_deregister_schema", lambda meta: order.append("dereg"))
+    monkeypatch.setattr(
+        SqlContainerBackend,
+        "provision_domain",
+        lambda self, s, e, d, force=False: order.append(f"provision force={force}"),
+    )
+    monkeypatch.setattr(
+        SqlContainerBackend,
+        "install_schema",
+        lambda self, m, model, force=False: order.append(f"install force={force}"),
+    )
+    b.provision_domain({}, "d", {}, force=True)
+    b.install_schema({}, "employees", force=True)
+    assert order == ["dereg", "provision force=True", "dereg", "install force=True"]
+    order.clear()
+    b.provision_domain({}, "d", {})
+    b.install_schema({}, "employees")
+    assert order == ["provision force=False", "install force=False"]

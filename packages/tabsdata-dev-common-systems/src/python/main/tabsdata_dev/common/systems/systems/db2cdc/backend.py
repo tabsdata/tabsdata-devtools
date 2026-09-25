@@ -426,6 +426,24 @@ class Db2Cdc(Db2):
         self._deregister_schema(domain_meta)
         super().destroy_domain(domain_meta)
 
+    def provision_domain(
+        self,
+        sys_meta: dict[str, str],
+        entity_name: str,
+        domain_meta: dict[str, str],
+        *,
+        force: bool = False,
+    ) -> None:
+        """``create --force`` over an existing domain drops its schema and makes
+        it again, under the same name. The registrations are in ``ASN``, not in
+        the schema, so without this they outlive their tables still held by
+        that name, and the next model install onto it is refused table by table
+        (ASN1703E, reason code 4: already registered). Deregistered first, for
+        the same reason as :meth:`install_schema`."""
+        if force:
+            self._deregister_schema(domain_meta)
+        super().provision_domain(sys_meta, entity_name, domain_meta, force=force)
+
     def install_schema(
         self, meta: dict[str, str], model: str, *, force: bool = False
     ) -> None:
