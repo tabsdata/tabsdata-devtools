@@ -39,6 +39,14 @@ tdd smoke list                            # smoke-{km,eks,gke,aks}.sh: what each
 tdd smoke run --script km --help          # fresh venv + tabsdata + tdkserver + xp suites, end to end
 tdd smoke run --script eks --help         # the same run against an EKS cluster (rds/s3 domains, port-forward)
 tdd smoke export-scripts --dir ~/smoke    # your own copies, to edit
+```
+
+The public API of tabsdata as structured JSON, read statically (the spec is explained in
+[packages/tabsdata-dev-tool-apidoc/README.md](packages/tabsdata-dev-tool-apidoc/README.md)):
+
+```bash
+tdd apidoc generate --out api.json      # read from the current venv, which must have tabsdata installed
+tdd apidoc export-spec --dir ~/apidoc   # the bundled spec, to edit
 cargo make help         # every build task; `cargo make uninstall` removes ~/.tdd
 ```
 

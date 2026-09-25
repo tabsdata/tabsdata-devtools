@@ -3,14 +3,20 @@
 #
 
 # The launchers toolset: `tdk` and `tdkserver` run the real programs inside the
-# user's managed venv, so this bundle pins nothing but the test runner. It
+# user's managed venv, so this bundle pins little beyond the test runner. It
 # exists because a tool needs a toolset to be dispatched into.
 [project]
 name = "tabsdata-dev-deps-launchers"
 dynamic = ["version"]
 description = "pins for the launchers toolset"
 requires-python = ">=3.11"
-dependencies = ["pytest==8.4.2"]
+dependencies = [
+    "pytest==8.4.2",
+    # apidoc: static API extraction. The pin tabsdata-os's tdx-apidocgen runs
+    # on; apidoc patches griffe._internal (the .pyi-wins stub policy), so a
+    # bump is a re-test, not a formality.
+    "griffe==2.1.0",
+]
 
 [tool.hatch.version]
 path = "../../VERSION"

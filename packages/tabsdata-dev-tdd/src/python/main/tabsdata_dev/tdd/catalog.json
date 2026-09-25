@@ -1,9 +1,10 @@
 {
-  "fingerprint": "e0530937de26ab44",
+  "fingerprint": "b5972eaf79d1a03c",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
       "tabsdata-dev-deps-launchers",
+      "tabsdata-dev-tool-apidoc",
       "tabsdata-dev-tool-km",
       "tabsdata-dev-tool-pycache",
       "tabsdata-dev-tool-smoke",
@@ -87,6 +88,17 @@
     }
   },
   "tools": {
+    "apidoc": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "hidden": false,
+      "launcher": false,
+      "package": "tabsdata-dev-tool-apidoc",
+      "reqs": [],
+      "summary": "a Python package's public API as structured JSON (or Markdown descriptions), read statically with griffe",
+      "toolset": "launchers"
+    },
     "domain": {
       "commons": [
         "tabsdata-dev-common-core",

@@ -11,6 +11,7 @@ description = "toolset launchers: materialized environment"
 requires-python = ">=3.11"
 dependencies = [
     "tabsdata-dev-deps-launchers",
+    "tabsdata-dev-tool-apidoc",
     "tabsdata-dev-tool-km",
     "tabsdata-dev-tool-pycache",
     "tabsdata-dev-tool-smoke",
@@ -20,6 +21,7 @@ dependencies = [
 
 [tool.uv.sources]
 tabsdata-dev-deps-launchers = { path = "../tabsdata-dev-deps-launchers", editable = true }
+tabsdata-dev-tool-apidoc = { path = "../tabsdata-dev-tool-apidoc", editable = true }
 tabsdata-dev-tool-km = { path = "../tabsdata-dev-tool-km", editable = true }
 tabsdata-dev-tool-pycache = { path = "../tabsdata-dev-tool-pycache", editable = true }
 tabsdata-dev-tool-smoke = { path = "../tabsdata-dev-tool-smoke", editable = true }

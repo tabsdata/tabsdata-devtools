@@ -41,7 +41,9 @@ Packages, all `tabsdata-dev-*` under the `tabsdata_dev` namespace: `-tdd` (stdli
 (pins; its name is the toolset), `-tool-*` (one tool; exactly one `-deps-*`), `-toolset-*`
 (**generated**, committed `uv.lock`). Tools: `system`, `domain`, `domain-sf` (hidden), `xp`,
 `gsx` (disabled), `tdk`, `tdkserver`, `km`, `pycache`, `smoke` (the end-to-end scripts: `tdd smoke
-run --script NAME ...`, or exported with `tdd smoke export-scripts --dir DIR`); shell: `venv`,
+run --script NAME ...`, or exported with `tdd smoke export-scripts --dir DIR`), `apidoc` (tdx-apidocgen's
+port: `tdd apidoc generate --out FILE`, its bundled spec exported with `tdd apidoc export-spec
+--dir DIR`); shell: `venv`,
 `env`, `tdd-env`; samples. Details: the design docs.
 
 Never run the real `tdk`/`tdkserver` from an agent session: `tdk` refuses under an AI agent
