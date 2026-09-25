@@ -7,6 +7,10 @@ from tabsdata_dev.tool import km
 
 def test_requires_a_venv_activated_with_tdd_venv(monkeypatch, capsys):
     monkeypatch.delenv("_TDD_VENV", raising=False)
+    # and nothing for `adopted` to find either: the developer running this may
+    # well have a managed venv of their own active
+    for var in ("VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV"):
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr("sys.argv", ["km", "--help"])
     assert km.main() == 1
     err = capsys.readouterr().err
