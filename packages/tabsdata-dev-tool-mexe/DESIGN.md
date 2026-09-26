@@ -30,10 +30,11 @@ every output line prefixed `[DIR]`.
   pwsh's command is prefixed with `[Console]::OutputEncoding = UTF8`: on Windows it writes a pipe
   in the console code page, and the runner reads UTF-8.
 - **The environment is the caller's, minus tdd's own venv**: the toolset `bin/` the dispatcher put
-  first comes back off PATH and `_TDD_TOOL` is dropped, so `python` is the user's. A managed venv
-  (`_TDD_VENV`, or adopted by path, `managedvenv`) goes first on PATH as activation puts it --
-  `bin/`, `Scripts\` on Windows, conda's three directories there -- with `VIRTUAL_ENV` or
-  `CONDA_PREFIX`. A named venv that cannot be resolved is an error, not a silent fallback.
+  first comes back off PATH and `_TDD_TOOL` is dropped, so `python` is the user's. The venv the
+  launchers would pick -- the last activated, managed or not (`managedvenv.select`), so `tdd mexe
+  -- tdd tdk` runs where `tdd tdk` would -- goes first on PATH as activation puts it -- `bin/`,
+  `Scripts\` for a venv built on Windows, conda's three directories there -- with `VIRTUAL_ENV`
+  or `CONDA_PREFIX`. A named venv that cannot be resolved is an error, not a silent fallback.
 - **Output lines go to stdout**: in view each `[DIR] line` is written there as it arrives, so
   `tdd mexe ... | grep` sees it; progress, per-dir failures and the summary stay events. In json
   they are `info` events (`dir`, `line` fields; the `ok`/`error` carries per-dir status, exit

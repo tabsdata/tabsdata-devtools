@@ -236,9 +236,17 @@ def test_common_sh_declares_awk_for_the_help_layout():
 def test_venv_exports_tdd_venv_for_the_launchers():
     # tdk/tdkserver (common.core.managedvenv) read the active venv from
     # _TDD_VENV; the shell side must publish exactly that name.
+    # _TDD_VENV_ACTIVATED goes with it, set and cleared together: a
+    # _TDD_VENV that differs from it was set by hand and beats the shell's venv.
     text = (shell.scripts_dir() / "venv.sh").read_text()
-    assert '_TDD_VENV="$_tdd_name"' in text and "export _TDD_VENV" in text
-    assert "unset _TDD_VENV _TDD_VENV_PS1" in text
+    assert '_TDD_VENV="$_tdd_name"' in text
+    assert '_TDD_VENV_ACTIVATED="$_tdd_name"' in text
+    assert '_TDD_VENV_ACTIVATED="$_tdd_aname"' in text
+    assert text.count("export _TDD_VENV _TDD_VENV_ACTIVATED") == 2
+    assert "unset _TDD_VENV _TDD_VENV_ACTIVATED _TDD_VENV_PS1" in text
+    ps1 = (shell.scripts_dir("powershell") / "venv.ps1").read_text()
+    sets = ps1.count("$env:_TDD_VENV = ")
+    assert sets == ps1.count("$env:_TDD_VENV_ACTIVATED = ") == 3
 
 
 def test_venv_delete_all_shares_the_removal_and_refuses_an_active_venv():

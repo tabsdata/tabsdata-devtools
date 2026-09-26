@@ -39,8 +39,11 @@ if (-not $global:_TDD_COMMON_LOADED) { . $env:_TDD_COMMON_PS1 }
 # record, is refused with a pointer to --force, which leaves it best effort
 # from what the tool left in the environment (venv/uv, pyenv-virtualenv,
 # conda) or drops the record. State lives in $env:_TDD_VENV (the name, and
-# exported because the tdk/km/tdkserver launchers read it) and
-# $global:_TDD_VENV_PROMPT (the prompt to restore).
+# exported because the tdk/km/tdkserver launchers read it),
+# $env:_TDD_VENV_ACTIVATED (the same name, set only by this file: a _TDD_VENV
+# that differs from it was set by hand, after, and the launchers obey it
+# rather than the shell's venv) and $global:_TDD_VENV_PROMPT (the prompt to
+# restore).
 #
 # Status never travels as a return value here: a function's success-stream
 # output IS its return value in PowerShell, and in --format json every event --
@@ -355,9 +358,10 @@ function _tdd_venv_help_activate {
 usage: tdd venv activate --name NAME
 
 Enter it, in this shell: the prompt shows (<type>/PYTHON/NAME) in green -- (<type>/PYTHON/NAME/reloc)
-for a relocatable venv -- and _TDD_VENV=NAME is exported, which `tdd tdk`, `tdd tdkserver` and
-`tdd km` read. Switches if another managed venv is active; refuses if a venv tdd did not
-activate is -- deactivate that one first.
+for a relocatable venv -- and _TDD_VENV=NAME is exported (with _TDD_VENV_ACTIVATED=NAME, which
+tells this record from a _TDD_VENV set by hand). `tdd tdk`, `tdd tdkserver` and `tdd km` run in
+the venv last activated: this one, until another is activated on top of it. Switches if another
+managed venv is active; refuses if a venv tdd did not activate is -- deactivate that one first.
 
 options:
   --name NAME  the venv
@@ -476,6 +480,7 @@ function _tdd_venv_adopt {
     # anything else is the tool's own saved prompt, or the prompt as it is.
     if (-not $global:_TDD_VENV_PROMPT) { $global:_TDD_VENV_PROMPT = _tdd_venv_prompt_beneath }
     $env:_TDD_VENV = $name
+    $env:_TDD_VENV_ACTIVATED = $name
     _tdd_debug "adopted $name ($type): active in this shell without a record"
 }
 
@@ -496,6 +501,7 @@ function _tdd_venv_leave {
     }
     Remove-Variable -Name _TDD_VENV_PROMPT, _TDD_VENV_MARK -Scope Global -ErrorAction SilentlyContinue
     $env:_TDD_VENV = $null
+    $env:_TDD_VENV_ACTIVATED = $null
 }
 
 # Refuse when a venv tdd did not activate is in the way: on its own, or on top
@@ -586,6 +592,7 @@ function _tdd_venv_enter {
         return $global:_TDD_VENV_MARK + $body
     }
     $env:_TDD_VENV = $Name
+    $env:_TDD_VENV_ACTIVATED = $Name
 }
 
 # What is active and how it got there, for deactivate: Kind (conda | pyenv | uv

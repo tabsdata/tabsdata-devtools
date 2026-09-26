@@ -16,8 +16,8 @@ PROJECT is created on the server from an instance. Pointers live under
 ``<tdd_dir>/data/xp``; each run's manifests, logs and report land in one
 scratch dir under ``/tmp/tdd-xp/``, announced at startup.
 
-tdk runs inside the managed venv `tdd venv` activated (``tdd tdk``, so
-``_TDD_VENV`` must be set), on the connection ``--profile`` names when given
+tdk runs inside the venv last activated, managed by `tdd venv` or not
+(``tdd tdk`` picks it and says which), on the connection ``--profile`` names when given
 (tdk's own default otherwise), and every fan-out child is handed the same
 profile; domains are provisioned by ``tdd domain`` off a
 manifest this tool writes.

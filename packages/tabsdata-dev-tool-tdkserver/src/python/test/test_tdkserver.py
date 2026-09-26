@@ -52,3 +52,38 @@ def test_refuses_when_the_program_is_missing_from_the_venv(
     monkeypatch.setattr("sys.argv", ["tdkserver"])
     assert tdkserver.main() == 1
     assert "not installed in managed venv v2" in capsys.readouterr().err
+
+
+def test_runs_in_the_shells_venv_and_says_which(tmp_path, monkeypatch, capfd):
+    """Any venv active in the shell will do, managed by tdd venv or not -- and
+    the launcher names the one it picked, and why, before the program runs."""
+    mine = tmp_path / "project" / ".venv"
+    exe = mine / "bin" / "tdkserver"
+    exe.parent.mkdir(parents=True)
+    exe.write_text('#!/bin/sh\necho "tdkserver in $VIRTUAL_ENV"\n')
+    exe.chmod(0o755)
+    monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
+    for var in ("_TDD_VENV", "_TDD_VENV_ACTIVATED", "CONDA_PREFIX", "_TDD_TOOL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("VIRTUAL_ENV", str(mine))
+    monkeypatch.setattr("sys.argv", ["tdkserver", "status"])
+    assert tdkserver.main() == 0
+    out, err = capfd.readouterr()
+    assert f"tdkserver in {mine}" in out
+    assert f"tdkserver: venv {mine} (venv, not managed by tdd)" in err
+    assert "the venv active in the shell" in err
+
+
+def test_refuses_one_of_tdds_own_toolset_venvs(tmp_path, monkeypatch, capsys):
+    """Activated by hand, a toolset venv's tdkserver is this launcher: it would
+    run itself forever."""
+    own = tmp_path / "tdd" / "tdd-venvs" / "launchers"
+    (own / "bin").mkdir(parents=True)
+    (own / "bin" / "tdkserver").write_text("")
+    monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
+    for var in ("_TDD_VENV", "_TDD_VENV_ACTIVATED", "CONDA_PREFIX"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("VIRTUAL_ENV", str(own))
+    monkeypatch.setattr("sys.argv", ["tdkserver"])
+    assert tdkserver.main() == 1
+    assert "one of tdd's own toolset venvs" in capsys.readouterr().err

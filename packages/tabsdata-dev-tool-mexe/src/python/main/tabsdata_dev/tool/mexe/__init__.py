@@ -157,38 +157,30 @@ def split_presets(
 
 
 # ------------------------------------------------------------------- the venv
-def venv_dirs(manager: str, where: pathlib.Path) -> list[pathlib.Path]:
-    """The directories activating the venv puts first on PATH."""
-    if os.name == "nt":
-        if manager == "conda":
-            return [where, where / "Scripts", where / "Library" / "bin"]
-        return [where / "Scripts"]
-    return [where / "bin"]
-
-
 def child_env() -> tuple[dict[str, str], str | None]:
-    """The commands' environment, and the managed venv it is in (or None).
+    """The commands' environment, and the venv it is in (or None).
 
-    A managed venv is the one `tdd venv` exported in `_TDD_VENV`, or the one
-    the environment is in by path (`managedvenv.adopted`). Its directories go
-    first on PATH, as activation puts them, rather than running each command
-    through the venv's manager as the launchers do: the program here is a
-    shell, and `conda run`/`uv run` would wrap a shell in a shell for nothing.
-    A venv named but broken is an error -- the user believes they are in it.
+    The venv is the one the launchers would pick -- the last activated,
+    managed or not (`managedvenv.select`) -- so `tdd mexe -- tdd tdk ...` runs
+    tdk where `tdd tdk ...` would. Its directories go first on PATH, as
+    activation puts them, rather than running each command through the venv's
+    manager as the launchers do: the program here is a shell, and `conda
+    run`/`uv run` would wrap a shell in a shell for nothing. A venv named but
+    broken is an error -- the user believes they are in it.
     """
     env = dict(os.environ)
     # tdd warns off a _TDD_TOOL found exported in a shell; a nested tdd-exe
     # would otherwise enforce this tool's bin-reqs against itself.
     env.pop("_TDD_TOOL", None)
     path = user_path()
-    name = os.environ.get(managedvenv.ENV_ACTIVE, "").strip() or managedvenv.adopted()
-    if name:
-        manager, where = managedvenv.resolve(name)
-        first = [str(d) for d in venv_dirs(manager, where)]
+    venv = managedvenv.select(required=False)
+    if venv is not None:
+        first = [str(d) for d in managedvenv.path_dirs(venv.path, venv.manager)]
         path = first + [p for p in path if p not in first]
-        env["CONDA_PREFIX" if manager == "conda" else "VIRTUAL_ENV"] = str(where)
+        key = "CONDA_PREFIX" if venv.manager == "conda" else "VIRTUAL_ENV"
+        env[key] = str(venv.path)
     env["PATH"] = os.pathsep.join(path)
-    return env, name or None
+    return env, (venv.name or str(venv.path)) if venv is not None else None
 
 
 # ------------------------------------------------------------------ the runs

@@ -134,7 +134,7 @@ from 30000-32767: [ports.md](ports.md).
 ## Variables
 
 `TDD_*` is what a user sets or reads (`TDD_DIR`, `TDD_PARALLELISM`); `_TDD_*` is
-private to the tool chain (`_TDD_TOOL`, `_TDD_VENV`, `_TDD_COMMON_SH`, `_TDD_XP_SCRATCH`/`_TDD_XP_PARENT`,
+private to the tool chain (`_TDD_TOOL`, `_TDD_VENV`/`_TDD_VENV_ACTIVATED`, `_TDD_COMMON_SH`, `_TDD_XP_SCRATCH`/`_TDD_XP_PARENT`,
 `_TDD_CRYPTO_KEY`, `_TDD_SYSTEMS`) -- `tdd` warns off `_TDD_TOOL` found exported in a shell
 (`_TDD_VENV` and `_TDD_COMMON_SH` live in the shell by design: `tdd venv` and `tdd-source.sh` put them there);
 `TD_*` is tabsdata's own; a system's config is `<SYSTEM>__<KEY>`. `tdd env` manages them.

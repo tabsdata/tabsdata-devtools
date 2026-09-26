@@ -50,10 +50,14 @@ dependencies are declared as ranges; each toolset's lock pins them.
   launches each step itself in `Task.cwd`, hands each line to a `Reporter` as it comes, and runs
   each child as a `Tree` (a POSIX session, a Windows job object) so `kill_on_fail` and Ctrl-C stop
   a whole pipeline; `heaviest_first=False` keeps the given order, `workers` overrides the bound.
-- `managedvenv` + `launcher` -- run a program inside the `tdd venv` named by `_TDD_VENV` (or, without
-  the record, the managed venv `VIRTUAL_ENV`/`CONDA_PREFIX` points at: `adopted()`): uv via
-  `VIRTUAL_ENV=DIR uv run --active --no-project`, conda via `conda run --prefix DIR DIR/bin/CMD`, pyenv via
-  `DIR/bin/CMD`, both with `bin/` first on `PATH`; refuses when the program is not in that venv.
+- `managedvenv` + `launcher` -- run a program inside the venv last activated (`select`: a
+  `_TDD_VENV` set by hand, else the venv the shell has active, managed or not, else `tdd venv`'s
+  record; `_TDD_VENV_ACTIVATED` tells the first from the last -- see the tdk design doc) and say
+  which, as the first event. A managed venv runs through its manager (uv via `VIRTUAL_ENV=DIR uv
+  run --active --no-project`, conda via `conda run --prefix DIR DIR/<bin>/CMD`, pyenv via
+  `DIR/<bin>/CMD`); any other by path. The venv's directories go first on `PATH`, `<bin>` asked
+  of the venv (`bin/`, or `Scripts\` and `.exe` for one built on Windows); refuses when the
+  program is not in that venv. mexe and apidoc pick their venv with the same `select`.
 - `secrets` / `secrets_1p` (1Password through the `op` CLI: every field of a vault as
   `<ITEM_TITLE>__<FIELD_ID>`, normalised to valid env-var names, which is the `<PREFIX>__<KEY>`
   a system's env-sourced options read; plus `_TDD_SYSTEMS`, the prefix list). An item titled

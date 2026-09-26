@@ -4,10 +4,10 @@
 """Shelling out: ``tdk`` and ``domain`` through the dispatcher (``tdd tdk`` /
 ``tdd domain``), with --dry-run echoing instead of running.
 
-tdk lives in the user's managed venv and is reached through the `tdk` launcher
+tdk lives in the user's venv and is reached through the `tdk` launcher
 (``proc.tool_argv("tdk", …)`` -> ``tdd-exe … tdk``), so xp needs neither tdk
-on its PATH nor tabsdata in its own toolset -- it needs ``_TDD_VENV`` to name a
-venv with tabsdata installed, which the launcher checks. `domain` is the
+on its PATH nor tabsdata in its own toolset -- it needs a venv with tabsdata
+installed, the last activated, which the launcher picks and checks. `domain` is the
 sibling tool in this toolset, reached the same way.
 """
 

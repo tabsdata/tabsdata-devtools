@@ -37,8 +37,10 @@
 # deactivate leaves the managed venv; a venv tdd did not activate, or a stale
 # record, is refused with a pointer to --force, which leaves it best effort
 # from what the tool left in the environment (venv/uv, pyenv-virtualenv,
-# conda) or drops the record. State lives in _TDD_VENV (the name) and
-# _TDD_VENV_PS1 (the prompt to restore).
+# conda) or drops the record. State lives in _TDD_VENV (the name),
+# _TDD_VENV_ACTIVATED (the same name, exported only by this file: a _TDD_VENV
+# that differs from it was set by hand, after, and the launchers obey it
+# rather than the shell's venv) and _TDD_VENV_PS1 (the prompt to restore).
 
 tdd_fn_register venv "create, activate, deactivate, delete or list managed venvs (pyenv, uv or conda)"
 
@@ -255,9 +257,10 @@ _tdd_venv_help_activate() {
 usage: tdd venv activate --name NAME
 
 Enter it, in this shell: the prompt shows (<type>/PYTHON/NAME) in green -- (<type>/PYTHON/NAME/reloc)
-for a relocatable venv -- and _TDD_VENV=NAME is exported, which `tdd tdk`, `tdd tdkserver` and
-`tdd km` read. Switches if another managed venv is active; refuses if a venv tdd did not
-activate is -- deactivate that one first.
+for a relocatable venv -- and _TDD_VENV=NAME is exported (with _TDD_VENV_ACTIVATED=NAME, which
+tells this record from a _TDD_VENV set by hand). `tdd tdk`, `tdd tdkserver` and `tdd km` run in
+the venv last activated: this one, until another is activated on top of it. Switches if another
+managed venv is active; refuses if a venv tdd did not activate is -- deactivate that one first.
 
 options:
   --name NAME  the venv
@@ -570,7 +573,8 @@ _tdd_venv_adopt() {
     esac
     [ -n "${CONDA_PROMPT_MODIFIER:-}" ] && _TDD_VENV_PS1="${_TDD_VENV_PS1/"$CONDA_PROMPT_MODIFIER"/}"
     _TDD_VENV="$_tdd_aname"
-    export _TDD_VENV
+    _TDD_VENV_ACTIVATED="$_tdd_aname"
+    export _TDD_VENV _TDD_VENV_ACTIVATED
     _tdd_debug "adopted $_tdd_aname ($_tdd_atype): active in this shell without a record"
     return 0
 }
@@ -592,7 +596,7 @@ _tdd_venv_leave() {
     if [ -n "${_TDD_VENV_PS1+x}" ]; then
         PS1="$_TDD_VENV_PS1"
     fi
-    unset _TDD_VENV _TDD_VENV_PS1
+    unset _TDD_VENV _TDD_VENV_ACTIVATED _TDD_VENV_PS1
 }
 
 # Refuse when a venv tdd did not activate is in the way: on its own, or on top
@@ -661,7 +665,8 @@ _tdd_venv_enter() {
         *) PS1="$_tdd_mark$_tdd_ps1" ;;
     esac
     _TDD_VENV="$_tdd_name"
-    export _TDD_VENV
+    _TDD_VENV_ACTIVATED="$_tdd_name"
+    export _TDD_VENV _TDD_VENV_ACTIVATED
     return 0
 }
 

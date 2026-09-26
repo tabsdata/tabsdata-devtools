@@ -244,7 +244,9 @@ def test_tdds_own_bin_leaves_path_and_the_managed_venv_goes_first(
     env, venv = mexe.child_env()
     assert venv == "dev"
     assert env["VIRTUAL_ENV"] == str(where)
-    assert env["PATH"].split(os.pathsep)[0] == str(mexe.venv_dirs("uv", where)[0])
+    assert env["PATH"].split(os.pathsep)[0] == str(
+        mexe.managedvenv.path_dirs(where, "uv")[0]
+    )
     assert own not in env["PATH"].split(os.pathsep)
 
 

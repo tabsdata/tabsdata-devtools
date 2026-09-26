@@ -258,7 +258,13 @@ def run_cli(monkeypatch, *argv):
 
 
 def no_venv(monkeypatch):
-    for var in ("_TDD_VENV", "VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV"):
+    for var in (
+        "_TDD_VENV",
+        "_TDD_VENV_ACTIVATED",
+        "VIRTUAL_ENV",
+        "CONDA_PREFIX",
+        "CONDA_DEFAULT_ENV",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 

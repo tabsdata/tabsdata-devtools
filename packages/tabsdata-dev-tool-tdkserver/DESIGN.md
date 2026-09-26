@@ -4,9 +4,9 @@ Copyright 2026 Tabsdata Inc.
 
 # tdkserver
 
-`tdd tdkserver ARGS...`: run tabsdata's `tdkserver` inside the managed venv named by `_TDD_VENV` (exported
-by `tdd venv create|activate`), through that venv's manager, so the tool works whatever the
-venv type and without the venv being active in the calling shell.
+`tdd tdkserver ARGS...`: run tabsdata's `tdkserver` inside the venv last activated -- a managed one
+(`tdd venv create|activate`), run through its manager, or any venv active in the calling shell --
+and say first which venv that is, and why.
 
 ## Shape
 
@@ -18,14 +18,32 @@ venv type and without the venv being active in the calling shell.
 
 - No options of its own: **every** argument, `--help`/`--format`/`--version` included, goes to
   the program -- the one sanctioned exception to the CLI guidelines.
-- Fails with "a venv activated with tdd venv is required" when `_TDD_VENV` is unset and no
-  managed venv is active by path (`managedvenv.adopted()`: `VIRTUAL_ENV`/`CONDA_PREFIX` exactly
-  `managed-venvs/<manager>/<name>` with its marker), and refuses
-  when the program is not installed in that venv (a manager falling back to `PATH` would find
-  this launcher itself). Launch: uv `VIRTUAL_ENV=DIR uv run --active --no-project`, conda
-  `conda run --prefix DIR --no-capture-output DIR/bin/tdkserver` with `bin/` first on `PATH` (by
-  path: in a shell where that env is active a bare name found this launcher and recursed), pyenv `DIR/bin/tdkserver` with `bin/` first on `PATH`.
-- `[tool.tdd] launcher = true`: with no options of its own there is nothing to configure, so it
+- Fails with "a venv act- **The venv last activated wins** (`managedvenv.select`), because two venvs with two tabsdata
+  versions is exactly when it matters which one ran. `tdd venv activate` really activates, so the
+  venv the shell has active -- `VIRTUAL_ENV`, else a conda env other than base -- is the latest:
+  the managed one tdd entered, a project venv entered on top of it by hand, or the venv a smoke
+  script's own `tdd venv create` activated in its shell, for every `tdd tdkserver` the script runs
+  however deep (the dispatcher passes both variables through untouched). The exception is a
+  `_TDD_VENV` set by hand, inline (`_TDD_VENV=X tdd tdkserver`) or exported: later still. `tdd venv`
+  exports the name it activated twice, `_TDD_VENV` and `_TDD_VENV_ACTIVATED`, so a `_TDD_VENV`
+  that differs from the second was set by hand; one that matches is only the record and yields to
+  the shell. Nothing active and no record: an error naming both ways to get one. Rejected:
+  recording the venv once at the outermost `tdd` -- that is `tdd smoke run`, and it would pin the
+  caller's venv over the one the script created.
+- The choice is the first line out, an `info` event (`venv`, `venv_path`, `venv_manager`,
+  `venv_reason`) on stderr in view, so it lands in a caller's log -- xp's `run.log` has it for
+  every call -- without touching the program's stdout. Refused: a venv without the program (a
+  manager falling back to `PATH` would find this launcher itself), and one of tdd's own toolset
+  venvs activated by hand (its `tdkserver` *is* this launcher).
+- Launch: a managed venv through its manager -- uv `VIRTUAL_ENV=DIR uv run --active --no-project`,
+  conda `conda run --prefix DIR --no-capture-output DIR/<bin>/tdkserver` (by path: in a shell where
+  that env is active a bare name found this launcher and recursed), pyenv `DIR/<bin>/tdkserver` --
+  each with the venv's directories first on `PATH`. A venv tdd does not manage is active in the
+  caller's shell by construction, so whatever activating it set up is inherited: the program by
+  path with its directories first is all it takes. `<bin>` is asked of the venv, not the platform
+  (`bin/`, or `Scripts\` with `tdkserver.exe` for one built on Windows; a Windows conda env adds its
+  root and `Library\bin`), as `tddsrc.ps1` does.
+ true`: with no options of its own there is nothing to configure, so it
   owns no `<command>.toml` and has no `config` action (invariant 11). The program runs in the
   cwd the user is in.
 - Only what happens *before* the program runs is the launcher's, and it is reported the

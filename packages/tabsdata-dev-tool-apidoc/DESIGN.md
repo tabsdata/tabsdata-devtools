@@ -37,9 +37,10 @@ did not move. A change to extraction belongs in both tools until tdx-apidocgen r
 search its own interpreter's `sys.path`, so it documented whatever was installed in the venv it
 ran in. This process's `sys.path` is the toolset venv's -- griffe and no tabsdata, or worse
 whatever tabsdata some other tool pulled in -- so the tool asks the venv active in the caller's
-shell for *its* `sys.path` and passes exactly that as griffe's search paths: the managed venv
-first, then `VIRTUAL_ENV`, then a non-base `CONDA_PREFIX` (the dispatcher leaves both variables
-as the shell set them). Asked of the interpreter rather than derived from the layout, because
+shell for *its* `sys.path` and passes exactly that as griffe's search paths: the venv the
+launchers would run tdk in, the last activated (`managedvenv.select`: `VIRTUAL_ENV`, else a
+non-base `CONDA_PREFIX`, unless a hand-set `_TDD_VENV` names a managed one; the dispatcher leaves
+the variables as the shell set them). Asked of the interpreter rather than derived from the layout, because
 that is the only way to get an editable install's `.pth` entries and the stdlib griffe needs for
 `typing`. A checkout is documented by installing it editable, which is how tabsdata-os works
 anyway. There were `--search-path` and `--source-tree` options (a depth-limited walk for every

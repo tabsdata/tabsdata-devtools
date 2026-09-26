@@ -81,7 +81,7 @@ holds the user's system and domain descriptors.
 12. **A `-deps-*` may pin its interpreter** with `[tool.tdd] python = "3.12"`.
 13. **Generic code goes in `common-core`, family code in a `common-<family>`.**
 14. **Variables**: `TDD_*` public (`TDD_DIR`, `TDD_PARALLELISM`), `_TDD_*` private
-    to the tool chain (`_TDD_TOOL`, `_TDD_VENV`, `_TDD_COMMON_SH`, `_TDD_CRYPTO_KEY`, `_TDD_SYSTEMS`,
+    to the tool chain (`_TDD_TOOL`, `_TDD_VENV`/`_TDD_VENV_ACTIVATED`, `_TDD_COMMON_SH`, `_TDD_CRYPTO_KEY`, `_TDD_SYSTEMS`,
     `_TDD_XP_*`), `TD_*` tabsdata's, `<SYSTEM>__<KEY>` a system's config.
 15. **A shell command is written in both families**, with the same name, summary, options,
     events and JSON fields: `scripts/unix/<name>.sh` and `scripts/powershell/<name>.ps1`, each

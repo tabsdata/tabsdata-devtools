@@ -5,7 +5,7 @@
 [project]
 name = "tabsdata-dev-tool-tdkserver"
 dynamic = ["version"]
-description = "run tabsdata's tdkserver inside the managed venv named by $_TDD_VENV"
+description = "run tabsdata's tdkserver inside the venv last activated (managed by tdd venv or not)"
 requires-python = ">=3.11"
 dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
 

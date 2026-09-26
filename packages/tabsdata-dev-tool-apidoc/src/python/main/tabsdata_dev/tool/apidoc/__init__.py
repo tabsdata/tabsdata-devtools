@@ -76,25 +76,19 @@ def root_package(spec: dict) -> str:
 def current_venv() -> tuple[str, pathlib.Path]:
     """(how it was found, directory) of the venv active in the caller's shell.
 
-    The `tdd venv` managed venv first -- `_TDD_VENV`, or one the environment
-    says is active (`managedvenv.active`) -- then any venv at all: `VIRTUAL_ENV`
-    (uv, pyenv, `python -m venv`), else a conda env other than base
-    (`CONDA_PREFIX`). tdx-apidocgen ran in whatever venv the shell had, so
-    this does not insist on a managed one. The dispatcher runs this tool from
-    its toolset venv but leaves both variables as the shell set them.
+    The one the launchers run tdk in -- the venv last activated, managed by
+    `tdd venv` or not (`managedvenv.select`): `VIRTUAL_ENV` (uv, pyenv, `python
+    -m venv`), else a conda env other than base (`CONDA_PREFIX`), unless a
+    `_TDD_VENV` set by hand names a managed one. tdx-apidocgen ran in whatever
+    venv the shell had, so this does not insist on a managed one. The
+    dispatcher runs this tool from its toolset venv but leaves both variables
+    as the shell set them.
     """
-    try:
-        name = managedvenv.active()
-    except errors.ToolError:
-        name = None
-    if name:
-        _manager, path = managedvenv.resolve(name)
-        return f"managed venv {name}", path
-    if os.environ.get("VIRTUAL_ENV", "").strip():
-        return "VIRTUAL_ENV", pathlib.Path(os.environ["VIRTUAL_ENV"].strip())
-    conda = os.environ.get("CONDA_PREFIX", "").strip()
-    if conda and os.environ.get("CONDA_DEFAULT_ENV", "base") != "base":
-        return "CONDA_PREFIX", pathlib.Path(conda)
+    venv = managedvenv.select(required=False)
+    if venv is not None:
+        if venv.name:
+            return f"managed venv {venv.name}", venv.path
+        return ("CONDA_PREFIX" if venv.manager == "conda" else "VIRTUAL_ENV"), venv.path
     raise errors.ToolError(
         "no venv is active: apidoc reads the package from the current venv, as "
         "tdx-apidocgen does -- activate one that has it installed "
@@ -112,9 +106,12 @@ def venv_search_paths(out: render.Renderer) -> list[str]:
     and the like.
     """
     how, path = current_venv()
-    python = path / "bin" / "python"
-    if not python.exists():
-        raise errors.ToolError(f"{how}: no interpreter at {python}")
+    # python.exe in a Windows conda env's root, else bin/ or Scripts\
+    python = managedvenv.program(path, "python")
+    if python is None and (path / "python.exe").is_file():
+        python = path / "python.exe"
+    if python is None:
+        raise errors.ToolError(f"{how}: no interpreter in {managedvenv.bin_dir(path)}")
     done = proc.run(
         [str(python), "-c", "import json, sys; print(json.dumps(sys.path))"],
         capture_output=True,

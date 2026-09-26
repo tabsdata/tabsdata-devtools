@@ -39,8 +39,8 @@ provision domains, create the project, register functions and triggers, run, che
 ## How it works
 
 - Talks to the server only through `tdd tdk` (`proc.tool_argv` -> `tdd-exe`), so xp needs neither
-  tdk on its PATH nor tabsdata in its own toolset -- it needs `_TDD_VENV` to name a venv with
-  tabsdata installed, which the launcher checks. It provisions through `tdd domain
+  tdk on its PATH nor tabsdata in its own toolset -- it needs a venv with tabsdata installed,
+  the one the launcher picks and names (the last activated, managed by `tdd venv` or not). It provisions through `tdd domain
   create|destroy --manifest --format json`, parsing the batch events.
 - `--profile NAME` is tdk's `--profile`: which connection the calls use, so two shells on one
   account each keep their own login. Absent, no option is passed and tdk uses its default

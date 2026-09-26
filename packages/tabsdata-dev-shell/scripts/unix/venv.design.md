@@ -46,7 +46,10 @@ shell command.
   front of what it does without swallowing a failure that means "already fine" -- and swallowing
   that one hides the failures that mean something, which is how every smoke script used to run a
   plain `deactivate || true` that could not leave a foreign venv anyway.
-- Activation exports `_TDD_VENV` (what `tdd tdk|tdkserver|km` read), saves the prompt in
+- Activation exports `_TDD_VENV` and `_TDD_VENV_ACTIVATED`, the same name twice, and every exit
+  clears both: `tdd tdk|tdkserver|km` run in the venv last activated, and a `_TDD_VENV` that
+  differs from the second was set by hand after this, so it wins over the shell's venv
+  (`managedvenv.select`); one that matches yields to a venv entered on top. It saves the prompt in
   `_TDD_VENV_PS1` and writes `(<type>/<python>/<name>)` in green after the red `* ` of
   `tdd-source.sh` -- `(<type>/<python>/<name>/reloc)` for a relocatable venv, so the prompt says
   what the venv can stand (`_tdd_venv_mark_text`); the python shown is asked of the venv's own

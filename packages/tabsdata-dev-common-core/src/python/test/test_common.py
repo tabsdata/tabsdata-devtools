@@ -184,31 +184,137 @@ def test_read_field_reports_op_failures(monkeypatch, tmp_path):
     raise AssertionError("expected ToolError")
 
 
-def test_managedvenv_needs_tdd_venv_and_points_at_tdd_venv(monkeypatch):
+def _no_venv(monkeypatch):
+    # the developer running this may well have a venv of their own active
+    for var in (
+        "_TDD_VENV",
+        "_TDD_VENV_ACTIVATED",
+        "VIRTUAL_ENV",
+        "CONDA_PREFIX",
+        "CONDA_DEFAULT_ENV",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_managedvenv_needs_a_venv_and_says_how_to_get_one(tmp_path, monkeypatch):
     from tabsdata_dev.common.core import managedvenv
     from tabsdata_dev.common.core.errors import ToolError
 
-    monkeypatch.delenv("_TDD_VENV", raising=False)
-    # and nothing for `adopted` to find either: the developer running this may
-    # well have a managed venv of their own active
-    for var in ("VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV"):
-        monkeypatch.delenv(var, raising=False)
-    with pytest.raises(ToolError, match="tdd venv"):
-        managedvenv.active()
+    _no_venv(monkeypatch)
+    with pytest.raises(ToolError, match="tdd venv.*_TDD_VENV=NAME"):
+        managedvenv.select()
+    assert managedvenv.select(required=False) is None
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    (tmp_path / "managed-venvs" / "uv" / "work").mkdir(parents=True)
+    (tmp_path / "managed-venvs" / "work.json").write_text('{"manager": "uv"}')
     monkeypatch.setenv("_TDD_VENV", "work")
-    assert managedvenv.active() == "work"
+    assert managedvenv.select().name == "work"
+
+
+def test_managedvenv_the_venv_last_activated_wins(tmp_path, monkeypatch):
+    """`tdd venv activate` really activates, so the shell's venv is the latest
+    -- unless _TDD_VENV was set by hand, which _TDD_VENV_ACTIVATED (what tdd
+    venv exported) tells apart from tdd's own record."""
+    from tabsdata_dev.common.core import managedvenv
+
+    _no_venv(monkeypatch)
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    root = tmp_path / "managed-venvs"
+    for name in ("w", "m"):
+        (root / "uv" / name).mkdir(parents=True)
+        (root / f"{name}.json").write_text('{"manager": "uv"}')
+    mine = tmp_path / "project" / ".venv"
+    (mine / "bin").mkdir(parents=True)
+
+    def pick():
+        v = managedvenv.select()
+        return v.name or v.path, v.why
+
+    # tdd venv activate w: the record and the shell agree
+    monkeypatch.setenv("_TDD_VENV", "w")
+    monkeypatch.setenv("_TDD_VENV_ACTIVATED", "w")
+    monkeypatch.setenv("VIRTUAL_ENV", str(root / "uv" / "w"))
+    assert pick() == ("w", "the venv active in the shell")
+    # then a project venv entered on top by hand: it is the last one
+    monkeypatch.setenv("VIRTUAL_ENV", str(mine))
+    v = managedvenv.select()
+    assert (v.path, v.name, v.manager) == (mine, None, "venv")
+    assert "not managed by tdd" in v.describe()
+    # then _TDD_VENV=m by hand (inline or exported): later still
+    monkeypatch.setenv("_TDD_VENV", "m")
+    assert pick() == ("m", "_TDD_VENV=m, set by hand")
+    # a shell from before _TDD_VENV_ACTIVATED: its _TDD_VENV wins, as it did
+    monkeypatch.setenv("_TDD_VENV", "w")
+    monkeypatch.delenv("_TDD_VENV_ACTIVATED")
+    assert pick()[0] == "w"
+    # the record alone, the shell's venv left by hand: the record is all there is
+    monkeypatch.setenv("_TDD_VENV_ACTIVATED", "w")
+    monkeypatch.delenv("VIRTUAL_ENV")
+    assert pick()[0] == "w" and "record" in pick()[1]
+    # a smoke run from a shell in a project venv: the script's own `tdd venv
+    # create` activates its venv in the script's shell, and that one is used
+    # by every tdd tdk the script runs, however deep
+    monkeypatch.setenv("VIRTUAL_ENV", str(mine))
+    monkeypatch.delenv("_TDD_VENV")
+    monkeypatch.delenv("_TDD_VENV_ACTIVATED")
+    assert managedvenv.select().path == mine
+    monkeypatch.setenv("_TDD_VENV", "m")
+    monkeypatch.setenv("_TDD_VENV_ACTIVATED", "m")
+    monkeypatch.setenv("VIRTUAL_ENV", str(root / "uv" / "m"))
+    assert pick() == ("m", "the venv active in the shell")
+    # a conda env tdd does not manage; conda's base is not a venv
+    monkeypatch.delenv("VIRTUAL_ENV")
+    monkeypatch.delenv("_TDD_VENV")
+    env = tmp_path / "miniforge" / "envs" / "td"
+    (env / "conda-meta").mkdir(parents=True)
+    monkeypatch.setenv("CONDA_PREFIX", str(env))
+    monkeypatch.setenv("CONDA_DEFAULT_ENV", "td")
+    assert managedvenv.select().manager == "conda"
+    monkeypatch.setenv("CONDA_DEFAULT_ENV", "base")
+    assert managedvenv.select(required=False) is None
+
+
+def test_managedvenv_reads_a_windows_layout_off_the_venv(tmp_path, monkeypatch):
+    """Scripts\\ and .exe are asked of the venv, not of the platform -- what a
+    venv built on Windows has, whichever OS the test runs on."""
+    from tabsdata_dev.common.core import managedvenv
+
+    win = tmp_path / "win"
+    (win / "Scripts").mkdir(parents=True)
+    (win / "Scripts" / "tdk.exe").write_text("")
+    assert managedvenv.bin_dir(win) == win / "Scripts"
+    assert managedvenv.program(win, "tdk") == win / "Scripts" / "tdk.exe"
+    assert managedvenv.program(win, "km") is None
+    assert managedvenv.path_dirs(win, "uv") == [win / "Scripts"]
+    assert managedvenv.path_dirs(win, "conda") == [
+        win,
+        win / "Scripts",
+        win / "Library" / "bin",
+    ]
+    argv, env = managedvenv.launch("pyenv", win, "tdk", ["x"])
+    assert argv == [str(win / "Scripts" / "tdk.exe"), "x"]
+    assert env["PATH"].split(os.pathsep)[0] == str(win / "Scripts")
+    argv, env = managedvenv.launch("conda", win, "tdk", [])
+    assert argv[-1] == str(win / "Scripts" / "tdk.exe")
+    assert env["PATH"].split(os.pathsep)[:3] == [
+        str(win),
+        str(win / "Scripts"),
+        str(win / "Library" / "bin"),
+    ]
+    mine = managedvenv.Venv(win, "venv", None, "the venv active in the shell")
+    argv, env = managedvenv.launch_in(mine, "tdk", ["a"])
+    assert argv == [str(win / "Scripts" / "tdk.exe"), "a"]
+    assert env["VIRTUAL_ENV"] == str(win)
+    assert env["PATH"].split(os.pathsep)[0] == str(win / "Scripts")
 
 
 def test_managedvenv_adopts_a_managed_venv_active_without_the_record(
     tmp_path, monkeypatch
 ):
     from tabsdata_dev.common.core import managedvenv
-    from tabsdata_dev.common.core.errors import ToolError
 
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
-    monkeypatch.delenv("_TDD_VENV", raising=False)
-    for var in ("VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV"):
-        monkeypatch.delenv(var, raising=False)
+    _no_venv(monkeypatch)
     root = tmp_path / "managed-venvs"
     (root / "uv" / "w").mkdir(parents=True)
     (root / "w.json").write_text('{"manager": "uv", "python": "3.12.13"}\n')
@@ -216,15 +322,10 @@ def test_managedvenv_adopts_a_managed_venv_active_without_the_record(
     (root / "c.json").write_text('{"manager": "conda"}\n')
     # a uv/pyenv venv: VIRTUAL_ENV is the path
     monkeypatch.setenv("VIRTUAL_ENV", str(root / "uv" / "w"))
-    assert managedvenv.active() == "w"
-    # the record wins over the environment
-    monkeypatch.setenv("_TDD_VENV", "other")
-    assert managedvenv.active() == "other"
-    monkeypatch.delenv("_TDD_VENV")
+    assert managedvenv.adopted() == "w"
     # not ours: outside the root, a deeper path, or a marker that disagrees
     monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / "elsewhere" / "w"))
-    with pytest.raises(ToolError, match="tdd venv"):
-        managedvenv.active()
+    assert managedvenv.adopted() is None
     monkeypatch.setenv("VIRTUAL_ENV", str(root / "uv" / "w" / "deeper"))
     assert managedvenv.adopted() is None
     monkeypatch.setenv("VIRTUAL_ENV", str(root / "pyenv" / "w"))
@@ -233,7 +334,7 @@ def test_managedvenv_adopts_a_managed_venv_active_without_the_record(
     # conda: the prefix, unless it is base
     monkeypatch.setenv("CONDA_PREFIX", str(root / "conda" / "c"))
     monkeypatch.setenv("CONDA_DEFAULT_ENV", str(root / "conda" / "c"))
-    assert managedvenv.active() == "c"
+    assert managedvenv.adopted() == "c"
     monkeypatch.setenv("CONDA_DEFAULT_ENV", "base")
     assert managedvenv.adopted() is None
 
