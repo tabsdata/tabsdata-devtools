@@ -35,7 +35,10 @@ def cmd_one_shot(args) -> None:
     runs it once the triggers have been watched, and is watched again after, for
     the transactions its changes started (unless --no-live). A FAILED run stops
     before teardown, leaving the setup in place for debugging."""
-    shell.require_login()  # fail fast before creating any pointer or domains
+    # Fail fast, before any pointer or domain: every lane's domains phase needs
+    # the key, and it is checked first because it costs nothing.
+    domains.require_crypto_key()
+    shell.require_login()
     suites_dir = getattr(args, "suites_dir", None)
     path, files = suites.resolve(args.suite, suites.suites_dir(suites_dir))
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
@@ -114,8 +117,8 @@ def cmd_bench(args) -> None:
         state.die(
             f"bench needs a suite DIR with one or more descriptors; {args.suite!r} is a single descriptor -- use `one-shot --suite {args.suite}`"
         )
-    shell.require_login()
     domains.require_crypto_key()
+    shell.require_login()
     started = datetime.now(timezone.utc)
     ts = started.strftime("%Y%m%dT%H%M%S")
     base = args.name or f"xp_{ts}_{suites.token(path)}"

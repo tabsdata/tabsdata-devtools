@@ -112,6 +112,9 @@ def dispatch(
     procs: dict[str, subprocess.Popen] = {}
     summaries: dict[str, dict] = {}
     tails: dict[str, list[str]] = {}
+    # A lane's own error event: why it failed, which is what the console must
+    # show -- its non-event output is usually empty (the child speaks json).
+    errors: dict[str, list[str]] = {}
     failed: list[str] = []
     done = 0
 
@@ -133,6 +136,9 @@ def dispatch(
         elif kind == "summary":
             with lock:
                 summaries[lane] = event
+        if event.get("event") == "error":
+            with lock:
+                errors[lane] = _reason(str(event.get("message", "")))
         elif kind in ("note", "start", "dry-run"):
             rep().log(f"lane {lane} {kind}", str(event.get("message", "")))
 
@@ -176,7 +182,7 @@ def dispatch(
             return
         with lock:
             failed.append(lane)
-            tail = tails.get(lane) or [f"exit {code}"]
+            tail = errors.get(lane, []) + tails.get(lane, []) or [f"exit {code}"]
             rep().note(
                 f"FAILED lane {lane} -- {len(tail)} line(s) of detail, full output in {log}",
                 lane=lane,
@@ -226,6 +232,16 @@ def dispatch(
     if fatal:
         state.die(f"{len(failed)} of {len(argvs)} lane(s) failed: {', '.join(failed)}")
     return failed
+
+
+def _reason(message: str) -> list[str]:
+    """The lines of a lane's error that say why: its summary block (the run's
+    totals, where its scratch dir is), which the lane log keeps, cut off."""
+    lines = [ln.strip() for ln in message.splitlines() if ln.strip()]
+    for i, line in enumerate(lines):
+        if " - summary - " in line:
+            return lines[:i]
+    return lines
 
 
 def _dispatch_dry(argvs: list[tuple[str, list[str]]]) -> None:

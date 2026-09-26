@@ -175,10 +175,19 @@ def _manifest_report(path: pathlib.Path) -> dict[str, dict]:
 
 
 def require_crypto_key() -> None:
-    if not state.run.dry_run and not os.environ.get(state.run.secret_env):
-        state.die(
-            f"{state.run.secret_env} must be set (needed by tdd domain; `tdd env set-crypto`, or name another var with --secret-env)"
-        )
+    """The domain descriptors are encrypted: without the key no `tdd domain`
+    call can read one, and a run would find out one lane at a time."""
+    if state.run.dry_run or os.environ.get(state.run.secret_env):
+        return
+    how = (
+        "set it with `tdd env set --crypto` (reads it from 1Password), or export it"
+        if state.run.secret_env == state.DEFAULT_SECRET_ENV
+        else f"export {state.run.secret_env}, or drop --secret-env to use {state.DEFAULT_SECRET_ENV}"
+    )
+    state.die(
+        f"the domain crypto key is not set: {state.run.secret_env} is empty, and every "
+        f"`tdd domain` call needs it to read the encrypted descriptors -- {how}"
+    )
 
 
 def cmd_create_domains(args) -> None:

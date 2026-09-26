@@ -889,3 +889,50 @@ def test_one_shot_runs_the_live_program_after_the_triggers_unless_told_not_to(
     # watched once for the triggers, then again for what the changes started
     assert monitors[0] < live_at < monitors[1]
     assert "tdd domain modify-data --domain p_world" not in lines("--no-live")
+
+
+def test_a_failed_lane_shows_its_own_error_not_just_its_exit_code(
+    xp_root, monkeypatch, capsys
+):
+    """A lane speaks json, so its only non-event output is usually nothing:
+    the reason it failed is its own error event, and the console shows that
+    -- without the lane's summary block, which its log keeps."""
+    import sys
+
+    from tabsdata_dev.tool.xp import lanes, state
+
+    child = (
+        "import json; print(json.dumps({'command': 'xp', 'event': 'error', "
+        "'xp': 'summary', 'message': 'KEY must be set (see --secret-env)\\n"
+        "demo/one - summary - 0 step(s), 0 ok, run failed in 0.0s - /tmp/x'}));"
+        " raise SystemExit(1)"
+    )
+    from tabsdata_dev.common.core import render
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    failed = lanes.dispatch("t", [("l1", [sys.executable, "-c", child])], fatal=False)
+    err = capsys.readouterr().err
+    assert failed == ["l1"]
+    assert "FAILED lane l1 -- 1 line(s) of detail" in err
+    assert "KEY must be set (see --secret-env)" in err
+    assert "exit 1" not in err and " - summary - 0 step(s)" not in err
+
+
+def argparse_ns(**kw):
+    import argparse
+
+    return argparse.Namespace(**kw)
+
+
+def test_one_shot_refuses_without_the_crypto_key_before_writing_anything(
+    xp_root, monkeypatch, capsys
+):
+    from tabsdata_dev.tool.xp import pointers, shell
+
+    monkeypatch.delenv("_TDD_CRYPTO_KEY", raising=False)
+    monkeypatch.setattr(shell, "require_login", lambda: None)
+    rc = _run(["one-shot", "--suite", "demo", *_suites_dir(xp_root), "--project", "g"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "the domain crypto key is not set: _TDD_CRYPTO_KEY" in err
+    assert "tdd env set --crypto" in err
+    assert not pointers.instance_file("g").exists()
