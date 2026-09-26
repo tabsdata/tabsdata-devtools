@@ -272,7 +272,7 @@ def configure(p: argparse.ArgumentParser) -> None:
 
     c = sub.add_parser(
         "live-domains",
-        help="run the suite's live program: tdd domain data verbs against its domains, repeated and paced",
+        help="run the suite's live script: named tdd domain data verbs, pauses, waits and repeats, blocking or side by side",
     )
     c.add_argument("--instance", required=True)
     for add in (_secret_env, _latch, _report, _dry_run, _common):
@@ -297,7 +297,7 @@ def configure(p: argparse.ArgumentParser) -> None:
     c.add_argument(
         "--no-live",
         action="store_true",
-        help="skip the suite's live program (run by default after the triggers, then monitored again)",
+        help="skip the suite's live script (run by default after the triggers, then monitored again)",
     )
     for add in (_fail_fast, _secret_env, _profile, _latch, _report, _dry_run, _common):
         add(c)

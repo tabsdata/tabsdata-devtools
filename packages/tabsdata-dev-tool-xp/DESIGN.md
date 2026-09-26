@@ -72,32 +72,56 @@ provision domains, create the project, register functions and triggers, run, che
 
 ## Live domains
 
-A suite may carry a `live` program: the `tdd domain` data verbs (`create-model`, `create-data`,
+A suite may carry a `live` script: the `tdd domain` data verbs (`create-model`, `create-data`,
 `modify-data`, `delete-data`, `delete-model` -- never `create`/`destroy`, the domain's lifecycle
 is xp's) run against its domains while the project is up, so a stream publisher or a
-re-triggered publisher sees its source change the way a real one does. A step is a command
-(`{"command", "domain": NAME|[NAMES], "options": {"sets": 5}}`), a pause (`{"sleep": S}`) or a
-group (`{"steps": [...]}`); a command or group may `repeat` N times with `sleep` S seconds
-between two passes, never after the last, which is how loops nest. `options` are the verb's own
-long options without the dashes (`true` a bare flag, `false` left out); `--domain`, `--format`
-and `--latch` are xp's and refused. `create-model`/`create-data` default `--model`/`--size` to
-what the suite's domain declares, so a program that deletes and reloads says only what it
-changes.
+re-triggered publisher sees its source change the way a real one does. Every entry has a `name`
+(a letter, then letters, digits, `_`, `-`; unique across the whole script) and is one of four
+kinds:
 
-- **Validated when the suite is read**, like the rest of it: an unknown verb, a domain the suite
-  does not define, a step that is both a command and a group -- `create-instance` refuses, not
-  pass 7 of a loop 20 minutes in.
-- **Every call is one step, in program order**, labelled with the pass it ran in (`2/3.7/10`); a
-  command naming several domains runs one call per domain in parallel. The first failure stops
-  the program: the next pass would only run against a domain in a state nobody chose. Under
-  `--dry-run` the program prints as it would run, the pauses as `sleep S` lines, so the output
-  is a paste-ready script.
+```
+{"name", "domain": {"name", "command", "options": ["--sets", "5"]}, "blocking": true|false}
+{"name", "sleep_secs": N}
+{"name", "wait": [NAMES]}
+{"name", "repeat": N, "live": [...], "blocking": true|false}
+```
+
+A domain entry is one call, `tdd domain <command> --domain <instance>_<name> <options...>`, the
+options the words as typed (`--domain`, `--format`, `--latch`, `--verbose` are xp's and refused);
+`create-model`/`create-data` get `--model`/`--size` from the suite's domain when the options do
+not say. A repeat entry runs its nested `live` N times (default 1). **Blocking** is the default:
+the script runs the entry to the end before going on. `"blocking": false` starts it on a thread
+of its own and the script goes straight on, side by side, until a `wait` names it. **A script --
+the whole one, or one pass of a repeat -- is complete when everything it started has finished**:
+its end waits for what still runs, so nothing outlives the loop that started it, and
+`live-domains` returns once the data has stopped changing.
+
+- **A wait reaches back, not in**: it names domain or repeat entries *before* it in its own list
+  or in an enclosing one. Those have been started, on this path, by the time the wait is reached.
+  A name inside another entry's nested `live` may not have started yet, or may start again; the
+  entry that contains the wait would be waiting for itself. Each pass of a repeat has its own
+  scope, so a name means that pass's run. Rejected: waits reaching anywhere, which needs a rule
+  for "which run of a block nested in a loop" and can deadlock.
+- **Validated when the suite is read**: a missing or reused name, not exactly one kind, an unknown
+  verb or domain, a reserved option, `repeat` without `live`, `blocking` on a sleep or wait, a
+  wait out of reach or naming a sleep or wait -- `create-instance` refuses, not pass 7 of a loop
+  20 minutes in. Unknown keys are refused too: a typo is not a silently ignored option.
+- **Every call is one step**, labelled with the entries and passes it is under
+  (`cycle 2/3 > churn 7/10 > change`). A background entry runs on a thread, not in a bounded pool:
+  entries wait for one another, and a pool full of waiters would never run what they wait for.
+  **The first failure anywhere stops the script**: every entry still running stops at its next
+  step or pause (the `tdd domain` call in flight finishes -- a change set is not killed half way),
+  nothing later starts, and that failure is the run's error.
+- **`--dry-run` prints the calls in script order**, the pauses as `sleep N`, and where an entry
+  goes to the background, ends or is waited for as `#` comments. A shell rendering with
+  subshells was the first version and was dropped with nested waits: a subshell cannot `wait` on
+  a pid its parent started.
 - **`one-shot` runs it by default** after the triggers have been watched, then watches again for
   the transactions the changes started (`--no-live` skips both). The second watch sees what has
-  started when it begins: a stream that buffers its changes needs the program to end with a
-  `sleep` long enough for the last flush. `live-domains --instance I` runs it on its own, over
-  a group's lanes too; `bench` does not run it -- its phases are timings, and a program's pauses
-  would be what they measured.
+  started when it begins: a stream that buffers its changes needs the script to end with a
+  `sleep_secs` long enough for the last flush. `live-domains --instance I` runs it on its own,
+  over a group's lanes too; `bench` does not run it -- its phases are timings, and a script's
+  pauses would be what they measured.
 
 ## Suites, lanes and pointers
 

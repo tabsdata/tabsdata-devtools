@@ -31,7 +31,7 @@ def _profile_hint() -> str:
 
 def cmd_one_shot(args) -> None:
     """Pick a name (--project, else xp_<ts>_<suite>) and run the whole cycle
-    under it for both the instance and the project. A suite with a live program
+    under it for both the instance and the project. A suite with a live script
     runs it once the triggers have been watched, and is watched again after, for
     the transactions its changes started (unless --no-live). A FAILED run stops
     before teardown, leaving the setup in place for debugging."""

@@ -54,6 +54,15 @@ def dry_echo(argv: list[str]) -> None:
         print(line, flush=True)
 
 
+def dry_text(line: str) -> None:
+    """A --dry-run line that is shell syntax rather than one command -- a
+    subshell's parentheses, a `wait` -- printed as written, never quoted."""
+    if state.run.out.fmt == "json":
+        state.run.out.info(line, xp="dry-run", argv=[line])
+    else:
+        print(line, flush=True)
+
+
 def dry_flag() -> list[str]:
     return ["--dry-run"] if state.run.dry_run else []
 

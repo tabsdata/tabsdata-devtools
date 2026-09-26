@@ -1,77 +1,85 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""Live domains: a suite's ``live`` program, run against its domains while the
+"""Live domains: a suite's ``live`` script, run against its domains while the
 project is up -- the data changing under the functions the way a real source's
 does, so a stream publisher or a re-triggered publisher has something to see.
 
-The program is a list of steps (``models.LiveStep``): `tdd domain` data verbs
-with their options, pauses, and groups, any of them repeated with a pause
-between repetitions, so loops nest::
+The script is a list of named entries (``models.LiveEntry``) of four kinds::
 
     "live": [
-      {"repeat": 3, "steps": [
-        {"command": "create-data", "domain": "pg"},
-        {"repeat": 10, "steps": [
-          {"sleep": 1},
-          {"command": "modify-data", "domain": "pg", "options": {"sets": 2}},
-          {"command": "modify-data", "domain": "pg", "options": {"ops": "Insert"}}
-        ]},
-        {"command": "delete-data", "domain": "pg"}
-      ]}
+      {"name": "seed", "domain": {"name": "pg", "command": "create-data"}},
+      {"name": "churn", "blocking": false, "repeat": 20, "live": [
+        {"name": "churn-pause", "sleep_secs": 1},
+        {"name": "churn-change", "domain": {"name": "pg", "command": "modify-data",
+                                            "options": ["--sets", "2"]}}
+      ]},
+      {"name": "files", "blocking": false, "domain": {"name": "s3",
+        "command": "modify-data", "options": ["--ops", "Insert"]}},
+      {"name": "settle", "wait": ["churn", "files"]},
+      {"name": "reset", "domain": {"name": "pg", "command": "delete-data"}}
     ]
 
-Every call is one step of the run, in program order; a command naming several
-domains runs one call per domain in parallel, and the first failure stops the
-program. ``create-model`` and ``create-data`` default ``--model``/``--size`` to
-what the suite's domain declares, so a program that deletes and recreates a
-domain's data says only what it changes.
+A domain entry is one `tdd domain` data verb; ``sleep_secs`` pauses; ``wait``
+holds until the entries it names have finished; ``repeat`` runs a nested
+``live`` script N times. Domain and repeat entries are blocking unless they say
+``"blocking": false``: then they start on a thread of their own and the script
+goes straight on, side by side. A script -- the whole one, or one pass of a
+repeat -- is complete when everything it started has finished, so its end waits
+for what is still running and nothing outlives the loop that started it.
+
+A wait names entries before it in its own list or an enclosing one (checked
+when the suite is read), so what it names has been started, on this path, by
+the time it is reached; each pass of a repeat has its own scope, so a name
+means that pass's run. Every call is one step of the run, labelled with the
+entries and passes it is under (``churn 7/20 > churn-change``). The first
+failure anywhere stops the script: every entry still running stops at its next
+step or pause, nothing later starts, and that failure is the run's error.
+``create-model``/``create-data`` default ``--model``/``--size`` to what the
+suite's domain declares. Under --dry-run the calls print in script order as
+the commands they are, the pauses as ``sleep N``, and where an entry goes to the
+background, ends or is waited for as ``#`` comment lines.
 """
 
 from __future__ import annotations
 
-import time
+import threading
+from concurrent.futures import Future
 
 from tabsdata_dev.common.core import proc
 
 from . import domains, lanes, pointers, shell, state
-from .models import Instance, LiveStep
+from .models import Instance, LiveDomain, LiveEntry
 from .reporter import rep, reporting
 
 
-def count(steps: list[LiveStep]) -> int:
-    """How many calls the program makes -- its steps, for the [N/M] total."""
+def count(entries: list[LiveEntry]) -> int:
+    """How many calls the script makes -- its steps, for the [N/M] total."""
     total = 0
-    for s in steps:
-        if s.command is not None:
-            per = len(s.domains())
-        else:
-            per = count(s.steps or [])
-        total += s.repeat * per
+    for e in entries:
+        if e.domain is not None:
+            total += 1
+        elif e.live is not None:
+            total += e.passes * count(e.live)
     return total
 
 
-def argv_of(inst: Instance, s: LiveStep, domain: str) -> list[str]:
-    """`tdd domain <command> --domain <instance>_<domain> --<opt> <value>...`,
-    the suite domain's model and size filled in where the step left them out."""
-    opts = dict(s.options)
-    d = inst.domain(domain)
-    if s.command == "create-model" and "model" not in opts:
-        if not d.model:
+def argv_of(inst: Instance, d: LiveDomain) -> list[str]:
+    """`tdd domain <command> --domain <instance>_<name> <options...>`, the
+    suite domain's model and size filled in where the entry left them out."""
+    extra: list[str] = []
+    spec = inst.domain(d.name)
+    if d.command == "create-model" and not d.has_option("--model"):
+        if not spec.model:
             state.die(
-                f"live create-model on '{domain}': the step gives no 'model' option and the suite's domain declares none"
+                f"live create-model on '{d.name}': no --model in its options and the suite's domain declares none"
             )
-        opts["model"] = d.model
-    if s.command == "create-data" and "size" not in opts and d.model:
-        opts["size"] = domains.size_multiplier(d.data or "xs")
-    words = [str(s.command), "--domain", inst.domain_full(domain)]
-    for key, value in opts.items():
-        if value is False:
-            continue
-        words.append(f"--{key}")
-        if value is not True:
-            words.append(str(value))
-    return proc.tool_argv("domain", *words)
+        extra = ["--model", spec.model]
+    if d.command == "create-data" and not d.has_option("--size") and spec.model:
+        extra = ["--size", str(domains.size_multiplier(spec.data or "xs"))]
+    return proc.tool_argv(
+        "domain", d.command, "--domain", inst.domain_full(d.name), *d.options, *extra
+    )
 
 
 def _call(argv: list[str], action: str, path: str, where: str) -> None:
@@ -92,38 +100,150 @@ def _call(argv: list[str], action: str, path: str, where: str) -> None:
             )
 
 
-def _pause(seconds: float) -> None:
-    if not seconds:
-        return
-    if state.run.dry_run:
-        shell.dry_echo(["sleep", f"{seconds:g}"])
-        return
-    rep().log(f"sleep {seconds:g}s")
-    time.sleep(seconds)
+class _Run:
+    """What every thread of one script shares: the stop flag and the first
+    failure, which is the run's."""
 
+    def __init__(self) -> None:
+        self.stop = threading.Event()
+        self.first: BaseException | None = None
+        self._lock = threading.Lock()
 
-def run(inst: Instance, steps: list[LiveStep], where: str = "") -> None:
-    """Run `steps` in order. `where` is the iteration they run in -- ``2/3``,
-    ``2/3.7/10`` -- shown on each call so a progress line says which pass it is."""
-    for s in steps:
-        for i in range(1, s.repeat + 1):
-            if s.command is None and s.steps is None:
-                _pause(s.sleep)  # a pause step: the sleep is the step itself
-                continue
-            if i > 1:
-                _pause(s.sleep)
-            here = where
-            if s.repeat > 1:
-                here = f"{where}.{i}/{s.repeat}" if where else f"{i}/{s.repeat}"
-            if s.command is not None:
-                lanes.parallel(
-                    s.domains(),
-                    lambda d, s=s, here=here: _call(
-                        argv_of(inst, s, d), str(s.command), inst.domain_full(d), here
-                    ),
-                )
+    def fail(self, exc: BaseException) -> None:
+        with self._lock:
+            if self.first is None:
+                self.first = exc
+        self.stop.set()
+
+    def pause(self, seconds: float) -> None:
+        if not seconds:
+            return
+        if state.run.dry_run:
+            shell.dry_echo(["sleep", f"{seconds:g}"])
+            return
+        rep().log(f"sleep {seconds:g}s")
+        self.stop.wait(seconds)  # a failure elsewhere cuts the pause short
+
+    def spawn(self, body) -> Future:
+        """`body` on a thread of its own. A thread, not a bounded pool: an entry
+        may wait for another, and a pool full of waiters would never run what
+        they wait for."""
+        future: Future = Future()
+
+        def target() -> None:
+            try:
+                body()
+            except BaseException as exc:  # noqa: BLE001 -- the run's, via fail()
+                self.fail(exc)
+                future.set_exception(exc)
             else:
-                run(inst, s.steps or [], here)
+                future.set_result(None)
+
+        threading.Thread(target=target, daemon=True).start()
+        return future
+
+    def join(self, futures: list[Future]) -> None:
+        for future in futures:
+            try:
+                future.result()
+            except BaseException as exc:  # noqa: BLE001 -- recorded by fail()
+                self.fail(exc)
+
+
+class _Scope:
+    """One running script -- the whole one, or one pass of a repeat: the
+    background runs it started, by name, and the scope it sits in."""
+
+    def __init__(self, parent: _Scope | None) -> None:
+        self.parent = parent
+        self._running: dict[str, list[Future]] = {}
+        self._lock = threading.Lock()
+
+    def started(self, name: str, future: Future) -> None:
+        with self._lock:
+            self._running.setdefault(name, []).append(future)
+
+    def runs_of(self, name: str) -> list[Future]:
+        scope: _Scope | None = self
+        while scope is not None:
+            with scope._lock:
+                if name in scope._running:
+                    return list(scope._running[name])
+            scope = scope.parent
+        return []  # it ran blocking: finished before the wait was reached
+
+    def everything(self) -> list[Future]:
+        with self._lock:
+            return [f for runs in self._running.values() for f in runs]
+
+
+def _run_list(
+    inst: Instance, entries: list[LiveEntry], scope: _Scope, run: _Run, where: str
+) -> None:
+    for e in entries:
+        if run.stop.is_set():
+            return
+        label = f"{where} > {e.name}" if where else e.name
+        if e.sleep_secs is not None:
+            run.pause(e.sleep_secs)
+        elif e.wait is not None:
+            rep().log(f"live {label}: wait for {', '.join(e.wait)}")
+            if state.run.dry_run:
+                shell.dry_text(f"# {label}: wait for {', '.join(e.wait)}")
+            for name in e.wait:
+                run.join(scope.runs_of(name))
+        elif e.is_blocking or state.run.dry_run:
+            # Under --dry-run the plan stays one ordered list: a background
+            # entry prints where it starts, marked.
+            if not e.is_blocking:
+                shell.dry_text(f"# {label}: starts in the background")
+            _run_entry(inst, e, scope, run, label)
+            if not e.is_blocking:
+                shell.dry_text(f"# {label}: ends")
+        else:
+            rep().log(f"live {label}: starts in the background")
+            scope.started(
+                e.name,
+                run.spawn(
+                    lambda e=e, label=label: _run_entry(inst, e, scope, run, label)
+                ),
+            )
+
+
+def _run_entry(
+    inst: Instance, e: LiveEntry, scope: _Scope, run: _Run, label: str
+) -> None:
+    if e.domain is not None:
+        d = e.domain
+        _call(argv_of(inst, d), d.command, inst.domain_full(d.name), label)
+        return
+    for i in range(1, e.passes + 1):
+        if run.stop.is_set():
+            return
+        here = f"{label} {i}/{e.passes}" if e.passes > 1 else label
+        inner = _Scope(scope)
+        try:
+            _run_list(inst, e.live or [], inner, run, here)
+        except BaseException as exc:
+            run.fail(exc)  # before the join: what still runs must stop
+            raise
+        finally:
+            run.join(inner.everything())  # a pass is done when all it started is
+
+
+def run_script(inst: Instance) -> None:
+    """The ``live`` script, to the end of everything it started. The first
+    failure anywhere is raised once all of it has stopped."""
+    run = _Run()
+    top = _Scope(None)
+    try:
+        _run_list(inst, inst.live, top, run, "")
+    except BaseException as exc:
+        run.fail(exc)
+    finally:
+        run.join(top.everything())
+    if run.first is not None:
+        raise run.first
 
 
 def has_live(definitions) -> bool:
@@ -168,4 +288,4 @@ def cmd_live_domains(args) -> None:
             return
         domains.require_crypto_key()
         rep().plan(count(inst.live))
-        run(inst, inst.live)
+        run_script(inst)

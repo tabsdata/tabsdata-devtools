@@ -748,149 +748,6 @@ def test_a_watch_that_reached_the_server_restarts_the_outage_clock(
     assert rc == 0 and watched[-1] == 0
 
 
-LIVE = [
-    {
-        "repeat": 3,
-        "sleep": 2,
-        "steps": [
-            {"command": "create-data", "domain": "world"},
-            {
-                "repeat": 10,
-                "steps": [
-                    {"sleep": 1},
-                    {
-                        "command": "modify-data",
-                        "domain": "world",
-                        "options": {"entity": "city", "ops": "Insert", "sets": 5},
-                    },
-                    {"command": "modify-data", "domain": ["world", "fs"]},
-                ],
-            },
-            {"command": "delete-data", "domain": "world"},
-            {"command": "delete-model", "domain": "world"},
-            {"command": "create-model", "domain": "world", "options": {"force": True}},
-        ],
-    }
-]
-
-
-def _live_suite(xp_root, live=LIVE):
-    path = xp_root / "suites" / "live" / "one.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({**SUITE, "live": live}))
-    return path
-
-
-def test_a_live_program_counts_its_calls_through_every_loop(xp_root):
-    from tabsdata_dev.tool.xp import live
-    from tabsdata_dev.tool.xp.models import build_instance
-
-    inst = build_instance("i", _live_suite(xp_root))
-    # 3 x (create-data + 10 x (1 + 2 domains) + delete-data + delete-model + create-model)
-    assert live.count(inst.live) == 3 * (1 + 10 * 3 + 3)
-
-
-@pytest.mark.parametrize(
-    "step, why",
-    [
-        ({"command": "destroy", "domain": "world"}, "is not one of"),
-        ({"command": "modify-data", "domain": "nope"}, "does not define: nope"),
-        ({"command": "modify-data"}, "needs a 'domain'"),
-        ({"command": "modify-data", "domain": "world", "steps": []}, "not both"),
-        (
-            {"command": "modify-data", "domain": "world", "options": {"--format": "x"}},
-            "set by xp itself: format",
-        ),
-        ({"steps": [], "repeat": 0}, "repeat must be >= 1"),
-        ({"domain": "world"}, "belong to a step with a 'command'"),
-        ({}, "needs a 'command', 'steps' or a 'sleep'"),
-    ],
-)
-def test_a_live_program_is_refused_when_the_suite_is_read(xp_root, step, why):
-    from tabsdata_dev.tool.xp import state
-    from tabsdata_dev.tool.xp.models import build_instance
-
-    with pytest.raises(state.XpError, match=why):
-        build_instance("i", _live_suite(xp_root, [{"steps": [step]}]))
-
-
-def test_dry_run_live_domains_prints_the_program_in_order(xp_root, capsys):
-    _live_suite(xp_root)
-    assert (
-        _run(
-            [
-                "create-instance",
-                "--suite",
-                "live/one",
-                *_suites_dir(xp_root),
-                "--instance",
-                "i",
-            ]
-        )
-        == 0
-    )
-    capsys.readouterr()
-    rc = _run(["live-domains", "--instance", "i", "--dry-run"])
-    out, err = capsys.readouterr()
-    assert rc == 0, err
-    lines = [ln for ln in out.splitlines() if ln.startswith(("tdd ", "sleep "))]
-    first = lines[: lines.index("tdd domain delete-model --domain i_world") + 2]
-    # create-data takes the size the suite declares (s = x10), create-model its model
-    assert first[0] == "tdd domain create-data --domain i_world --size 10"
-    assert first[1] == "sleep 1"
-    assert (
-        first[2]
-        == "tdd domain modify-data --domain i_world --entity city --ops Insert --sets 5"
-    )
-    assert first[3:5] == [
-        "tdd domain modify-data --domain i_world",
-        "tdd domain modify-data --domain i_fs",
-    ]
-    assert first[5] == "sleep 1"  # the inner loop's next pass
-    assert first[-3:] == [
-        "tdd domain delete-data --domain i_world",
-        "tdd domain delete-model --domain i_world",
-        "tdd domain create-model --domain i_world --force --model world",
-    ]
-    # the outer loop pauses between its passes (sleep 2), never after the last
-    assert lines[len(first)] == "sleep 2"
-    assert lines.count("sleep 2") == 2
-    assert lines[-1].startswith("tdd domain create-model")
-    assert len([ln for ln in lines if ln.startswith("tdd ")]) == 3 * 34
-    # each call is a step, labelled with the pass it ran in
-    assert "modify-data" in err and "1/3.10/10" in err
-
-
-def test_one_shot_runs_the_live_program_after_the_triggers_unless_told_not_to(
-    xp_root, capsys
-):
-    _live_suite(xp_root, [{"command": "modify-data", "domain": "world"}])
-
-    def lines(*extra):
-        rc = _run(
-            [
-                "one-shot",
-                "--suite",
-                "live/one",
-                *_suites_dir(xp_root),
-                "--project",
-                "p",
-                "--dry-run",
-                *extra,
-            ]
-        )
-        out, err = capsys.readouterr()
-        assert rc == 0, err
-        return [ln for ln in out.splitlines() if ln.startswith("tdd ")]
-
-    ran = lines()
-    live_at = ran.index("tdd domain modify-data --domain p_world")
-    monitors = [i for i, ln in enumerate(ran) if ln.startswith("tdd tdk trx list")]
-    # watched once for the triggers, then again for what the changes started
-    assert monitors[0] < live_at < monitors[1]
-    assert "tdd domain modify-data --domain p_world" not in lines("--no-live")
-
-
 def test_a_failed_lane_shows_its_own_error_not_just_its_exit_code(
     xp_root, monkeypatch, capsys
 ):
@@ -936,3 +793,382 @@ def test_one_shot_refuses_without_the_crypto_key_before_writing_anything(
     assert rc == 1 and "the domain crypto key is not set: _TDD_CRYPTO_KEY" in err
     assert "tdd env set --crypto" in err
     assert not pointers.instance_file("g").exists()
+
+
+def _live_instance(xp_root, script):
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import state
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    return build_instance("i", _live_suite(xp_root, script))
+
+
+def _dom(name, command, *options):
+    doc = {"name": name, "command": command}
+    if options:
+        doc["options"] = list(options)
+    return doc
+
+
+LIVE = [
+    {
+        "name": "cycle",
+        "repeat": 3,
+        "live": [
+            {"name": "load", "domain": _dom("world", "create-data")},
+            {
+                "name": "churn",
+                "repeat": 10,
+                "live": [
+                    {"name": "pause", "sleep_secs": 1},
+                    {
+                        "name": "city",
+                        "domain": _dom(
+                            "world",
+                            "modify-data",
+                            "--entity",
+                            "city",
+                            "--ops",
+                            "Insert",
+                        ),
+                    },
+                    {"name": "files", "domain": _dom("fs", "modify-data")},
+                ],
+            },
+            {"name": "empty", "domain": _dom("world", "delete-data")},
+            {"name": "drop", "domain": _dom("world", "delete-model")},
+            {"name": "model", "domain": _dom("world", "create-model", "--force")},
+        ],
+    }
+]
+
+
+def _live_suite(xp_root, live=LIVE):
+    path = xp_root / "suites" / "live" / "one.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({**SUITE, "live": live}))
+    return path
+
+
+def _instance(xp_root, name="i"):
+    assert (
+        _run(
+            [
+                "create-instance",
+                "--suite",
+                "live/one",
+                *_suites_dir(xp_root),
+                "--instance",
+                name,
+            ]
+        )
+        == 0
+    )
+
+
+def test_a_live_script_counts_its_calls_through_every_loop(xp_root):
+    from tabsdata_dev.tool.xp import live
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    inst = build_instance("i", _live_suite(xp_root))
+    # 3 x (load + 10 x (city + files) + empty + drop + model); sleeps are no calls
+    assert live.count(inst.live) == 3 * (1 + 10 * 2 + 3)
+
+
+@pytest.mark.parametrize(
+    "script, why",
+    [
+        ([{"domain": _dom("world", "delete-data")}], "name"),
+        ([{"name": "1st", "sleep_secs": 1}], "a letter"),
+        ([{"name": "x"}], "exactly one of 'domain', 'sleep_secs', 'wait' or 'live'"),
+        (
+            [{"name": "x", "sleep_secs": 1, "wait": ["y"]}],
+            "exactly one of .* \\(has sleep_secs, wait\\)",
+        ),
+        ([{"name": "x", "domain": _dom("world", "destroy")}], "is not one of"),
+        ([{"name": "x", "domain": _dom("nope", "delete-data")}], "does not define"),
+        (
+            [{"name": "x", "domain": _dom("world", "modify-data", "--format", "json")}],
+            "set by xp itself: --format",
+        ),
+        (
+            [
+                {
+                    "name": "x",
+                    "domain": {"name": "world", "command": "delete-data", "opts": []},
+                }
+            ],
+            "Extra inputs",
+        ),
+        (
+            [{"name": "x", "sleep_secs": 1, "blocking": False}],
+            "only a 'domain' or 'live' entry",
+        ),
+        (
+            [{"name": "x", "repeat": 2, "domain": _dom("world", "delete-data")}],
+            "'repeat' goes with 'live'",
+        ),
+        ([{"name": "x", "repeat": 0, "live": []}], "repeat must be >= 1"),
+        (
+            [
+                {"name": "x", "sleep_secs": 1},
+                {"name": "x", "sleep_secs": 1},
+            ],
+            "'x' is used twice",
+        ),
+        (
+            [{"name": "w", "wait": ["later"]}, {"name": "later", "sleep_secs": 1}],
+            "not an entry before it",
+        ),
+        (
+            # out of reach: inside another entry's nested live
+            [
+                {
+                    "name": "g",
+                    "live": [{"name": "inner", "domain": _dom("world", "delete-data")}],
+                },
+                {"name": "w", "wait": ["inner"]},
+            ],
+            "'inner', which is not an entry before it",
+        ),
+        (
+            # the entry that contains the wait: it would wait for itself
+            [{"name": "g", "live": [{"name": "w", "wait": ["g"]}]}],
+            "'g', which is not an entry before it",
+        ),
+        (
+            [{"name": "s", "sleep_secs": 1}, {"name": "w", "wait": ["s"]}],
+            "a sleep entry",
+        ),
+    ],
+)
+def test_a_live_script_is_refused_when_the_suite_is_read(xp_root, script, why):
+    from tabsdata_dev.tool.xp import state
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    with pytest.raises(state.XpError, match=why):
+        build_instance("i", _live_suite(xp_root, script))
+
+
+def test_a_wait_reaches_entries_before_it_here_and_in_enclosing_lists(xp_root):
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    script = [
+        {"name": "bg", "blocking": False, "domain": _dom("world", "modify-data")},
+        {
+            "name": "g",
+            "repeat": 2,
+            "live": [
+                {"name": "one", "blocking": False, "domain": _dom("fs", "modify-data")},
+                {"name": "w", "wait": ["one", "bg"]},  # a sibling and an outer entry
+            ],
+        },
+        {"name": "w2", "wait": "g"},  # one name may be a bare string
+    ]
+    assert build_instance("i", _live_suite(xp_root, script)).live[2].wait == ["g"]
+
+
+def test_dry_run_live_domains_prints_the_script_in_order(xp_root, capsys):
+    _live_suite(xp_root)
+    _instance(xp_root)
+    capsys.readouterr()
+    rc = _run(["live-domains", "--instance", "i", "--dry-run"])
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    lines = [ln for ln in out.splitlines() if ln.startswith(("tdd ", "sleep "))]
+    first = lines[: lines.index("tdd domain delete-model --domain i_world") + 2]
+    # create-data takes the size the suite declares (s = x10), create-model its model
+    assert first[0] == "tdd domain create-data --domain i_world --size 10"
+    assert first[1:4] == [
+        "sleep 1",
+        "tdd domain modify-data --domain i_world --entity city --ops Insert",
+        "tdd domain modify-data --domain i_fs",
+    ]
+    assert first[4] == "sleep 1"  # the inner loop's next pass
+    assert first[-3:] == [
+        "tdd domain delete-data --domain i_world",
+        "tdd domain delete-model --domain i_world",
+        "tdd domain create-model --domain i_world --force --model world",
+    ]
+    assert len([ln for ln in lines if ln.startswith("tdd ")]) == 3 * 24
+    # each call is a step, labelled with the entries and passes it is under
+    assert "cycle 1/3 > churn 10/10 > city" in err
+
+
+def test_dry_run_marks_what_goes_to_the_background_and_what_waits(xp_root, capsys):
+    _live_suite(
+        xp_root,
+        [
+            {"name": "seed", "domain": _dom("world", "create-data")},
+            {
+                "name": "churn",
+                "blocking": False,
+                "repeat": 2,
+                "live": [
+                    {"name": "change", "domain": _dom("world", "modify-data")},
+                ],
+            },
+            {"name": "settle", "wait": ["churn"]},
+            {"name": "reset", "domain": _dom("world", "delete-data")},
+        ],
+    )
+    _instance(xp_root)
+    capsys.readouterr()
+    rc = _run(["live-domains", "--instance", "i", "--dry-run"])
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    assert out.splitlines()[:7] == [
+        "tdd domain create-data --domain i_world --size 10",
+        "# churn: starts in the background",
+        "tdd domain modify-data --domain i_world",
+        "tdd domain modify-data --domain i_world",
+        "# churn: ends",
+        "# settle: wait for churn",
+        "tdd domain delete-data --domain i_world",
+    ]
+
+
+def test_a_non_blocking_entry_runs_side_by_side_until_waited_for(xp_root, monkeypatch):
+    """`churn` starts and the script goes on: `seed`, after it, runs while
+    churn is still inside its call -- churn only finishes once seed has run, so
+    a churn that held the script would never finish. `reset` waits for it."""
+    import threading
+
+    from tabsdata_dev.tool.xp import live
+
+    seeded = threading.Event()
+    order: list[str] = []
+
+    def call(argv, action, path, where):
+        if where == "churn":
+            assert seeded.wait(5), "churn held the script"
+        if where == "seed":
+            seeded.set()
+        order.append(where)
+
+    monkeypatch.setattr(live, "_call", call)
+    inst = _live_instance(
+        xp_root,
+        [
+            {
+                "name": "churn",
+                "blocking": False,
+                "domain": _dom("world", "modify-data"),
+            },
+            {"name": "seed", "domain": _dom("world", "create-data")},
+            {"name": "settle", "wait": ["churn"]},
+            {"name": "reset", "domain": _dom("world", "delete-data")},
+        ],
+    )
+    live.run_script(inst)
+    assert order == ["seed", "churn", "reset"]
+
+
+def test_a_repeat_pass_ends_when_everything_it_started_has(xp_root, monkeypatch):
+    """A background entry inside a pass is waited for at the end of the pass:
+    pass 2 does not start while pass 1's background call still runs."""
+    import threading
+    import time
+
+    from tabsdata_dev.tool.xp import live
+
+    lock = threading.Lock()
+    events: list[str] = []
+
+    def call(argv, action, path, where):
+        with lock:
+            events.append(f"start {where}")
+        if where.endswith("slow"):
+            time.sleep(0.1)
+        with lock:
+            events.append(f"end {where}")
+
+    monkeypatch.setattr(live, "_call", call)
+    inst = _live_instance(
+        xp_root,
+        [
+            {
+                "name": "g",
+                "repeat": 2,
+                "live": [
+                    {
+                        "name": "slow",
+                        "blocking": False,
+                        "domain": _dom("world", "modify-data"),
+                    },
+                    {"name": "quick", "domain": _dom("fs", "modify-data")},
+                ],
+            },
+        ],
+    )
+    live.run_script(inst)
+    assert events.index("end g 1/2 > slow") < events.index("start g 2/2 > slow")
+
+
+def test_a_failed_background_entry_stops_the_script_and_is_its_error(
+    xp_root, monkeypatch
+):
+    """The first failure anywhere is the run's: what still runs stops at its
+    next step or pause, and nothing after it starts."""
+    from tabsdata_dev.tool.xp import live, state
+
+    calls: list[str] = []
+
+    def call(argv, action, path, where):
+        calls.append(where)
+        if where == "bad":
+            state.die("bad entry failed")
+
+    monkeypatch.setattr(live, "_call", call)
+    inst = _live_instance(
+        xp_root,
+        [
+            {
+                "name": "slow",
+                "blocking": False,
+                "repeat": 50,
+                "live": [
+                    {"name": "nap", "sleep_secs": 0.05},
+                    {"name": "tick", "domain": _dom("world", "modify-data")},
+                ],
+            },
+            {"name": "bad", "blocking": False, "domain": _dom("fs", "modify-data")},
+            {"name": "settle", "wait": ["bad"]},
+            {"name": "after", "domain": _dom("world", "delete-data")},
+        ],
+    )
+    with pytest.raises(state.XpError, match="bad entry failed"):
+        live.run_script(inst)
+    assert "after" not in calls
+    assert len([c for c in calls if c.startswith("slow")]) < 50
+
+
+def test_one_shot_runs_the_live_script_after_the_triggers_unless_told_not_to(
+    xp_root, capsys
+):
+    _live_suite(xp_root, [{"name": "b", "domain": _dom("world", "modify-data")}])
+
+    def lines(*extra):
+        rc = _run(
+            [
+                "one-shot",
+                "--suite",
+                "live/one",
+                *_suites_dir(xp_root),
+                "--project",
+                "p",
+                "--dry-run",
+                *extra,
+            ]
+        )
+        out, err = capsys.readouterr()
+        assert rc == 0, err
+        return [ln for ln in out.splitlines() if ln.startswith("tdd ")]
+
+    ran = lines()
+    live_at = ran.index("tdd domain modify-data --domain p_world")
+    monitors = [i for i, ln in enumerate(ran) if ln.startswith("tdd tdk trx list")]
+    # watched once for the triggers, then again for what the changes started
+    assert monitors[0] < live_at < monitors[1]
+    assert "tdd domain modify-data --domain p_world" not in lines("--no-live")
