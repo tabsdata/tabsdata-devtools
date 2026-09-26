@@ -30,6 +30,15 @@ def test_defaults_are_appended_and_typed_options_win(tmp_path):
     assert used == ["venv.toml [options]"]
 
 
+def test_after_a_double_dash_nothing_is_an_option(tmp_path):
+    _config(tmp_path, "mexe", '[options]\noutput = "on-completion"\n')
+    argv = ["--dirs", "a", "--", "git", "log", "--output", "x"]
+    merged, _ = defaults.resolve(tmp_path, "mexe", argv)
+    assert merged == [
+        "--dirs", "a", "--output", "on-completion", "--", "git", "log", "--output", "x",
+    ]  # fmt: skip
+
+
 def test_an_action_table_beats_the_command_table(tmp_path):
     _config(
         tmp_path,

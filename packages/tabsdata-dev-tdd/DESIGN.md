@@ -23,7 +23,9 @@ The executable half: `tdd-exe` (dispatch, `help`, `doctor`, `info`, `--reqs`, `-
   (a pyenv/asdf/mise shim only if its manager wires it) unless `-h`/`--help` is among the args.
 - **Defaults** (`defaults.py`): the `[options]` / `[options.<action>]` tables of
   `<tdd_dir>/<cmd>.toml` merged
-  under the typed options; the `tdd` function only rebuilds argv from `tdd-exe --defaults`.
+  under the typed options, appended -- or inserted before a `--`, after which nothing is an
+  option (a tool's free-form tail, `tdd mexe ... -- git log --output x`); the `tdd` function only
+  rebuilds argv from `tdd-exe --defaults`.
 - **Generator** (`discover.py`, `generate.py`): reads every `tool-*`/`deps-*`/`common-*`
   `pyproject.toml` and the shell scripts, writes the `toolset-*` packages and the catalog, and
   rejects layout mistakes (one `deps-*` per tool, name collisions, bad `bin-reqs`, lock drift).

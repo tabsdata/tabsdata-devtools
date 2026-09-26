@@ -16,7 +16,8 @@ prints the resolved invocation.
 Precedence: what was typed wins over any default, and an action's table wins
 over the command's. An option counts as typed when its name appears on the
 command line in either spelling (`--name` or `--name=`); the default is then
-left out entirely, never appended as a second value. The two short forms the
+left out entirely, never appended as a second value. Defaults go at the end,
+or before a `--`: what follows one is an argument, never an option. The two short forms the
 guidelines allow are understood as their long names.
 
 The mapping from a TOML value to command-line tokens is the twin of
@@ -108,8 +109,12 @@ def resolve(
     order = [a for a in (action, "") if a in tables]
     if not order:
         return None
-    merged = list(argv)
-    present = typed_names(argv)
+    # Everything after `--` is an argument, never an option -- a command line a
+    # tool runs (`tdd mexe --dirs a -- git log --output x`) -- so a name there
+    # does not count as typed, and the defaults go in before it, not after.
+    cut = argv.index("--") if "--" in argv else len(argv)
+    merged, tail = list(argv[:cut]), argv[cut:]
+    present = typed_names(merged)
     used: list[str] = []
     name_of = config_path(dir_, command).name
     for table in order:
@@ -125,6 +130,7 @@ def resolve(
                 applied = True
         if applied:
             used.append(f"{name_of} [{OPTIONS_TABLE}{'.' + table if table else ''}]")
+    merged.extend(tail)
     if merged == argv:
         return None
     return merged, used
