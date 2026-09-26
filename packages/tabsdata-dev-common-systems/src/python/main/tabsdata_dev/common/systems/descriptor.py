@@ -222,6 +222,17 @@ def set_model(path: str | Path, model: str, entity_names: list[str]) -> None:
     save(info, path)
 
 
+def clear_model(path: str | Path) -> None:
+    """Forget the domain's model and everything that hung off it -- the state a
+    freshly created domain is in, which is what ``delete-model`` leaves."""
+    info = _load_domain(path)
+    info.model = None
+    info.data = None
+    info.entities = {}
+    info.seed = 0
+    save(info, path)
+
+
 def record_data(path: str | Path, size: str, entities: dict[str, int]) -> None:
     """Record the loaded data `size` and per-entity row counts, resetting the
     ``modify-data`` seed to the fresh baseline."""

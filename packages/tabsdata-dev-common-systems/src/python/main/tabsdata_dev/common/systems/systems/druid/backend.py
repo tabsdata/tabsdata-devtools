@@ -135,6 +135,9 @@ class Druid(ContainersBackend):
     ) -> None:
         print(">>> druid: datasource materialises on ingestion; model recorded only")
 
+    def uninstall_schema(self, meta: dict[str, str], model: str) -> None:
+        print(">>> druid: model was recorded only; nothing to remove")
+
     # ---- domain lifecycle: a datasource --------------------------------
 
     def new_domain_password(self) -> str:

@@ -118,6 +118,10 @@ class Backend(Protocol):
     def install_schema(
         self, meta: dict[str, str], model: str, *, force: bool = False
     ) -> None: ...
+    def uninstall_schema(self, meta: dict[str, str], model: str) -> None:
+        """Remove `model`'s entities from the domain, rows and all -- the
+        inverse of ``install_schema``, which ``delete-model`` calls."""
+
     def load_tables(self, uri: str, tables: list[Table]) -> dict[str, int]:
         """Load `tables`; return the ``entities`` to record — ``{table: rows}`` for
         SQL, ``{file_path: rows}`` for file backends."""

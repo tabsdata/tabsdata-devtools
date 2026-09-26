@@ -147,6 +147,14 @@ def _wipe(sf, objects: list[str], log) -> None:
         log(msg)
 
 
+def wipe(model_dir: Path, meta: dict, *, log=print) -> None:
+    """Delete every record of the objects `model_dir`'s mapping loads, children
+    first -- the org half of ``load`` alone, for ``delete-data``/``delete-model``."""
+    steps = _load_mapping(_find_one(model_dir, ".mapping.yml"))
+    log(">>> wiping existing data ...")
+    _wipe(_client(meta), [s["object"] for s in reversed(steps)], log)
+
+
 def _check(results: list[dict], obj: str) -> None:
     bad = [r for r in results if not r.get("success")]
     if bad:

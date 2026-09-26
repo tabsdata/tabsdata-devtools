@@ -456,6 +456,13 @@ class Db2Cdc(Db2):
             self._deregister_schema(meta)
         super().install_schema(meta, model, force=force)
 
+    def uninstall_schema(self, meta: dict[str, str], model: str) -> None:
+        """Deregistered before the drop, for the reason :meth:`install_schema`
+        gives -- and because a registration outliving its table keeps the CD
+        table name, so the next model install would be refused."""
+        self._deregister_schema(meta)
+        super().uninstall_schema(meta, model)
+
     def _deregister_schema(self, meta: dict[str, str]) -> None:
         """Deregister every table ASN still holds under the domain's schema.
         Best-effort per table -- a teardown must not strand the schema because

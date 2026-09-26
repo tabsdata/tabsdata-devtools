@@ -37,6 +37,8 @@
     tdd domain create-data  --domain NAME --size N
     tdd domain modify-data  --domain NAME --entity NAME|ALL --sets N
                             --ops Insert|Update|Delete|Mix --seed N|AUTO
+    tdd domain delete-data  --domain NAME     # empty the model's entities, keep them
+    tdd domain delete-model --domain NAME     # drop the model's entities and data
 
 Every verb takes ``--format json|view`` and ``--verbose`` (docs/command-cli-
 guidelines.md). In json the data verbs' ``ok`` event carries the per-entity
@@ -113,6 +115,8 @@ LOGGED_VERBS = {
     constants.V_CREATE_MODEL,
     constants.V_CREATE_DATA,
     constants.V_MODIFY_DATA,
+    constants.V_DELETE_DATA,
+    constants.V_DELETE_MODEL,
 }
 # Verbs that accept ``--latch FILE`` (the long-running ones).
 LATCH_VERBS = {
@@ -122,6 +126,8 @@ LATCH_VERBS = {
     constants.V_CREATE_MODEL,
     constants.V_CREATE_DATA,
     constants.V_MODIFY_DATA,
+    constants.V_DELETE_DATA,
+    constants.V_DELETE_MODEL,
 }
 # System-tool verbs that only touch a system from the outside; every other
 # delegated verb (`purge` included) reaches inside it and uses `dom_toolset`.
@@ -137,7 +143,13 @@ _SYS_PLANE_VERBS = frozenset(
 )
 # Verbs whose toolset a model may override (the data plane).
 _MODEL_VERBS = frozenset(
-    {constants.V_CREATE_MODEL, constants.V_CREATE_DATA, constants.V_MODIFY_DATA}
+    {
+        constants.V_CREATE_MODEL,
+        constants.V_CREATE_DATA,
+        constants.V_MODIFY_DATA,
+        constants.V_DELETE_DATA,
+        constants.V_DELETE_MODEL,
+    }
 )
 
 # ======================================================================
@@ -164,6 +176,8 @@ _DOM_CATALOG: dict[str, tuple[str, str | None]] = {
     constants.V_CREATE_MODEL: ("dom_create_model", "supports_models"),
     constants.V_CREATE_DATA: ("dom_create_data", "supports_data"),
     constants.V_MODIFY_DATA: ("dom_modify_data", "supports_changes"),
+    constants.V_DELETE_DATA: ("dom_delete_data", "supports_data"),
+    constants.V_DELETE_MODEL: ("dom_delete_model", "supports_models"),
 }
 
 _COMMANDS_PKG = f"{systems.__name__}._common.commands"

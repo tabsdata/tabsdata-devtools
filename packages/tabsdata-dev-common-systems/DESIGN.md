@@ -66,7 +66,8 @@ the create/drop-domain SQL and the schema-listing query, and the server's own sc
 never be read as domains. The container lifecycle, TCP admin over SQLAlchemy, per-domain
 provisioning, model and data loading and delta application live here once. A model is available
 for a system exactly when `<slug>/domain/models/<model>/<slug>.ddl` exists, which is what lets the
-generic `models`/`create-model`/`create-data`/`modify-data` serve every dialect.
+generic `models`/`create-model`/`create-data`/`modify-data`/`delete-data`/`delete-model` serve
+every dialect.
 
 **`ManagedPostgres`** (`_common/managed_postgres.py`) for provider-managed PostgreSQL -- AWS RDS
 (`awspostgres`), GCP Cloud SQL (`gcppostgres`), Azure Flexible Server (`azpostgres`). They differ

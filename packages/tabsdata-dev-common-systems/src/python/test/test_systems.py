@@ -43,6 +43,9 @@ def test_every_verb_has_a_command_module():
         verbs = dispatch._discover(tool)
         assert constants.V_CREATE in verbs and constants.V_DESTROY in verbs
     assert constants.V_MODIFY_DATA in dispatch._discover(constants.DOM_TOOL)
+    for verb in (constants.V_DELETE_DATA, constants.V_DELETE_MODEL):
+        assert verb in dispatch._discover(constants.DOM_TOOL)
+        assert verb in dispatch.LATCH_VERBS and verb in dispatch._MODEL_VERBS
 
 
 def test_domain_sf_speaks_the_domain_family():
@@ -1349,3 +1352,78 @@ def test_a_valid_batch_starts_and_a_missing_target_is_left_to_its_child(
     )
     assert rc == 0
     assert [step[2] for step in small_store] == ["dev1", "fs1", "ghost"]
+
+
+def test_delete_data_empties_the_model_and_delete_model_forgets_it(
+    tmp_path, monkeypatch
+):
+    """delete-data re-installs the schema (force) and leaves the descriptor as
+    create-model does; delete-model hands the backend uninstall_schema and leaves
+    the domain with no model. Both refuse a domain that has none."""
+    import argparse
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.common.systems import cli, console, descriptor
+    from tabsdata_dev.common.systems.systems._common.commands import (
+        dom_delete_data,
+        dom_delete_model,
+    )
+
+    console.bind(render.Renderer(constants.DOM_TOOL))
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-test-secret-long-enough")
+    path = tmp_path / "d1"
+    descriptor.write_domain(
+        path, "postgres", "d1", sys_name="pg", external_name="d1", meta={"DB": "d1"}
+    )
+    model = "world"
+    descriptor.set_model(path, model, datagen.entities_of(model))
+    descriptor.record_data(path, "2", {e: 10 for e in datagen.entities_of(model)})
+
+    calls: list[tuple] = []
+
+    class Fake:
+        def install_schema(self, meta, m, *, force=False):
+            calls.append(("install", m, force))
+
+        def uninstall_schema(self, meta, m):
+            calls.append(("uninstall", m))
+
+    def ctx(verb):
+        return cli.Context(
+            tool=constants.DOM_TOOL,
+            verb=verb,
+            slug="postgres",
+            system=Fake(),  # type: ignore[arg-type]
+            args=argparse.Namespace(),
+            name="d1",
+            info=descriptor.load(path),
+            path=path,
+            store_dir=tmp_path,
+        )
+
+    assert dom_delete_data.run(ctx(constants.V_DELETE_DATA)) == 0
+    info = descriptor.load(path)
+    assert calls == [("install", model, True)]
+    assert info.model == model and info.data is None and info.seed == 0
+    assert set(info.entities.values()) == {0}
+
+    assert dom_delete_model.run(ctx(constants.V_DELETE_MODEL)) == 0
+    info = descriptor.load(path)
+    assert calls[-1] == ("uninstall", model)
+    assert info.model is None and info.data is None and info.entities == {}
+
+    for mod, verb in (
+        (dom_delete_data, constants.V_DELETE_DATA),
+        (dom_delete_model, constants.V_DELETE_MODEL),
+    ):
+        with pytest.raises(TdxError, match="no model"):
+            mod.run(ctx(verb))
+
+
+def test_every_backend_with_models_can_uninstall_them():
+    """delete-model is gated on supports_models, so each such backend must
+    implement uninstall_schema (the Protocol alone would let one slip)."""
+    for slug in systems.all_slugs():
+        cls = systems.get_class(slug)
+        if cls.supports_models:
+            assert callable(getattr(cls, "uninstall_schema", None)), slug

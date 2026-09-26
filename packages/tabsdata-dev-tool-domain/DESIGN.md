@@ -18,7 +18,8 @@ manifests so a test suite gets the same data on every backend.
 
 ## How it works
 
-- Verbs: `create/destroy/status/models/create-model/create-data/modify-data`, plus
+- Verbs: `create/destroy/status/models/create-model/create-data/modify-data/delete-data/
+  delete-model`, plus
   `types/list/info/manifest/upgrade` and the shared `config`. A domain's name is `<user>_<build>`
   unless given, and its system's descriptor must be readable first (`_TDD_CRYPTO_KEY`, which
   every store-reading verb requires before it runs).
@@ -32,8 +33,15 @@ manifests so a test suite gets the same data on every backend.
   in their own `tdd-exe` children, heaviest first, bounded by `$TDD_PARALLELISM`, and their
   events are re-emitted by the parent; `--fail-fast` stops at the first failure and
   `--report FILE` writes a JSON run record. This is how `xp` provisions.
-- **The long verbs are waitable.** `create`, `destroy`, `create-model`, `create-data` and
-  `modify-data` take `--latch FILE`, and their chatty detail goes to `/tmp/tdd-domain-<verb>-...`
+- **The model and its data come off as they went on.** `delete-data` empties the model's
+  entities and keeps them -- the domain is left as `create-model` leaves it, so `create-data`
+  follows without `--force` -- and it is the schema dropped and installed again, not a `DELETE`
+  per entity, because that reload is already right for every backend (staged files, topics, CDC
+  registrations). `delete-model` drops the entities and forgets the model through the backend's
+  `uninstall_schema`; the domain itself stays for `destroy`. Both refuse a domain with no model
+  and neither minds one with no data, so a loop may delete on every pass.
+- **The long verbs are waitable.** `create`, `destroy`, `create-model`, `create-data`,
+  `modify-data`, `delete-data` and `delete-model` take `--latch FILE`, and their chatty detail goes to `/tmp/tdd-domain-<verb>-...`
   while the console keeps to brief progress.
 - **Toolset hops are invisible.** A backend declares the toolset its data plane needs
   (`dom_toolset`) and a model may override it (`models/<model>/model.json`); when that is not the

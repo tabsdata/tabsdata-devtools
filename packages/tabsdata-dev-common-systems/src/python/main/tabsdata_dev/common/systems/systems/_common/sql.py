@@ -518,6 +518,11 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
             self.after_install_schema(meta, model)
         print(">>> schema ready")
 
+    def uninstall_schema(self, meta: dict[str, str], model: str) -> None:
+        with self.data_plane_uri(meta) as uri:
+            self.drop_all_tables(uri)
+        print(f">>> model '{model}' removed")
+
     def load_tables(self, uri: str, tables: list[emit.Table]) -> dict[str, int]:
         statements: list[str] = []
         counts: dict[str, int] = {}

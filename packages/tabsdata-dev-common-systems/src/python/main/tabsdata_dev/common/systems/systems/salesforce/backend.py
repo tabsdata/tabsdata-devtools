@@ -16,6 +16,8 @@ ships one under ``domain/models/<model>/`` (a recipe + a CumulusCI load mapping,
 the salesforce analogue of the SQL systems' per-model DDL), and the three domain
 verbs that would otherwise reach for the shared pipeline are overridden in
 ``domain/``. ``modify-data`` stays off — a load is a full wipe and replace.
+``delete-data``/``delete-model`` take the shared commands: the objects cannot
+be dropped, so both come down to wiping the records the model loaded.
 """
 
 from __future__ import annotations
@@ -62,6 +64,21 @@ class Salesforce(ServiceBackend):
         if not root.is_dir():
             return []
         return sorted(d.name for d in root.iterdir() if self.has_model(d.name))
+
+    def install_schema(
+        self, meta: dict[str, str], model: str, *, force: bool = False
+    ) -> None:
+        """Standard objects every org already has: nothing to install, and a
+        forced re-install -- what ``delete-data`` asks for -- is a wipe."""
+        if force:
+            self.uninstall_schema(meta, model)
+
+    def uninstall_schema(self, meta: dict[str, str], model: str) -> None:
+        """The objects cannot be dropped, so removing the model deletes the
+        records it loaded into them."""
+        from tabsdata_dev.common.systems import salesforce_loader
+
+        salesforce_loader.wipe(self.model_assets(model), meta, log=print)
 
     @staticmethod
     def _reachable(url: str) -> bool:

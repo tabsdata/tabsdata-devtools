@@ -212,6 +212,12 @@ class FileBackend:
                 self.store_clear(dest)
         print(">>> file domain: no schema to install")
 
+    def uninstall_schema(self, meta: dict[str, str], model: str) -> None:
+        # A file domain's model IS its staged files: removing it clears them.
+        with self.data_plane_uri(meta) as dest:
+            self.store_clear(dest)
+        print(f">>> file domain: model '{model}' files removed")
+
     def _stage_and_upload(
         self, dest: str, tables: list[emit.Table], stamp: str
     ) -> dict[str, int]:
