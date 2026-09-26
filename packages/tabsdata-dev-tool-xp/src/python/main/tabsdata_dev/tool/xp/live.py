@@ -10,7 +10,7 @@ The script is a list of named entries (``models.LiveEntry``) of four kinds::
     "live": [
       {"name": "seed", "domain": {"name": "pg", "command": "create-data"}},
       {"name": "churn", "blocking": false, "repeat": 20, "live": [
-        {"name": "churn-pause", "sleep_secs": 1},
+        {"name": "churn-pause", "sleep": "1s"},
         {"name": "churn-change", "domain": {"name": "pg", "command": "modify-data",
                                             "options": ["--sets", "2"]}}
       ]},
@@ -20,8 +20,8 @@ The script is a list of named entries (``models.LiveEntry``) of four kinds::
       {"name": "reset", "domain": {"name": "pg", "command": "delete-data"}}
     ]
 
-A domain entry is one `tdd domain` data verb; ``sleep_secs`` pauses (a duration:
-``"30s"``, ``"2m"``, ``"1h"``, or a bare number of seconds); ``wait``
+A domain entry is one `tdd domain` data verb; ``sleep`` pauses (``"<VALUE><UNIT>"``:
+``"30s"``, ``"2m"``, ``"1h"``); ``wait``
 holds until the entries it names have finished; ``repeat`` runs a nested
 ``live`` script N times. Domain and repeat entries are blocking unless they say
 ``"blocking": false``: then they start on a thread of their own and the script
@@ -185,8 +185,8 @@ def _run_list(
         if run.stop.is_set():
             return
         label = f"{where} > {e.name}" if where else e.name
-        if e.sleep_secs is not None:
-            run.pause(e.sleep_secs)
+        if e.sleep is not None:
+            run.pause(e.sleep_seconds)
         elif e.wait is not None:
             rep().log(f"live {label}: wait for {', '.join(e.wait)}")
             if state.run.dry_run:

@@ -21,9 +21,9 @@ A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
   a project table (``tdd domain sentinel-data`` wrote it at the source), or
   fails when its ``time_out`` runs out.
 
-A duration -- ``sleep_secs``, ``time_out`` -- is ``"<TIME><UNIT>"`` with unit
-``s``, ``m`` or ``h`` (``"90s"``, ``"2m"``, ``"1.5h"``), or a bare number of
-seconds.
+A duration -- a live ``sleep``, a sentinel's ``time_out`` -- is
+``"<VALUE><UNIT>"`` with unit ``s``, ``m`` or ``h`` (``"90s"``, ``"2m"``,
+``"1.5h"``); a bare number is refused, since nothing says what it counts.
 
 A stage may carry ``_``-prefixed annotations (``_comment``, ``_copyright``), and
 an object holding only those is a comment.
@@ -56,20 +56,11 @@ _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600}
 
 
 def seconds_of(value: Any, what: str) -> float:
-    """A suite duration in seconds: ``"<TIME><UNIT>"`` (s, m, h) or a bare
-    number of seconds, the form every suite used before units."""
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        seconds = float(value)
-    else:
-        m = _DURATION.match(str(value).strip())
-        if m is None:
-            raise ValueError(
-                f"{what}: {value!r} is not <TIME><UNIT> (units s, m, h) or a number of seconds"
-            )
-        seconds = float(m.group(1)) * _UNIT_SECONDS[m.group(2)]
-    if seconds < 0:
-        raise ValueError(f"{what} must be >= 0")
-    return seconds
+    """A suite duration, ``"<VALUE><UNIT>"`` (s, m, h), in seconds."""
+    m = _DURATION.match(value.strip()) if isinstance(value, str) else None
+    if m is None:
+        raise ValueError(f"{what}: {value!r} is not <VALUE><UNIT> (units s, m, h)")
+    return float(m.group(1)) * _UNIT_SECONDS[m.group(2)]
 
 
 class Domain(BaseModel):
@@ -159,7 +150,7 @@ class LiveEntry(BaseModel):
 
     * ``{"name", "domain": {"name", "command", "options": [...]}, "blocking"}``
       -- one `tdd domain` data verb against a suite domain;
-    * ``{"name", "sleep_secs": N}`` -- a pause;
+    * ``{"name", "sleep": "<VALUE><UNIT>"}`` -- a pause;
     * ``{"name", "wait": [NAMES]}`` -- hold until those entries have finished;
     * ``{"name", "repeat": N, "live": [...], "blocking"}`` -- a nested script,
       run N times, each pass complete when everything it started has finished.
@@ -174,8 +165,9 @@ class LiveEntry(BaseModel):
 
     name: str
     domain: LiveDomain | None = None
-    # A duration (see `seconds_of`), held as seconds once read.
-    sleep_secs: float | str | None = None
+    # A duration, "<VALUE><UNIT>" (see `seconds_of`). Typed loosely so a number
+    # reaches that check and is refused naming the form, not as "not a string".
+    sleep: Any = None
     wait: list[str] | None = None
     live: list[LiveEntry] | None = None
     repeat: int | None = None
@@ -198,7 +190,7 @@ class LiveEntry(BaseModel):
             k
             for k, v in (
                 ("domain", self.domain),
-                ("sleep_secs", self.sleep_secs),
+                ("sleep", self.sleep),
                 ("wait", self.wait),
                 ("live", self.live),
             )
@@ -206,7 +198,7 @@ class LiveEntry(BaseModel):
         ]
         if len(kinds) != 1:
             raise ValueError(
-                f"live entry {self.name!r} needs exactly one of 'domain', 'sleep_secs', "
+                f"live entry {self.name!r} needs exactly one of 'domain', 'sleep', "
                 f"'wait' or 'live' (has {', '.join(kinds) or 'none'})"
             )
         if self.repeat is not None and self.live is None:
@@ -217,10 +209,8 @@ class LiveEntry(BaseModel):
             raise ValueError(
                 f"live entry {self.name!r}: only a 'domain' or 'live' entry can be non-blocking"
             )
-        if self.sleep_secs is not None:
-            self.sleep_secs = seconds_of(
-                self.sleep_secs, f"live entry {self.name!r}: sleep_secs"
-            )
+        if self.sleep is not None:
+            seconds_of(self.sleep, f"live entry {self.name!r}: sleep")
         if self.wait is not None and not self.wait:
             raise ValueError(f"live entry {self.name!r}: 'wait' names nothing")
         return self
@@ -229,11 +219,15 @@ class LiveEntry(BaseModel):
     def kind(self) -> str:
         if self.domain is not None:
             return "domain"
-        if self.sleep_secs is not None:
+        if self.sleep is not None:
             return "sleep"
         if self.wait is not None:
             return "wait"
         return "live"
+
+    @property
+    def sleep_seconds(self) -> float:
+        return seconds_of(self.sleep, "sleep")
 
     @property
     def is_blocking(self) -> bool:
@@ -255,7 +249,7 @@ class Sentinel(BaseModel):
     collection: str
     table: str
     wait_for_key: str
-    time_out: float | str
+    time_out: Any  # "<VALUE><UNIT>", checked by `seconds_of` (see `sleep`)
 
     @model_validator(mode="after")
     def _a_duration(self) -> Sentinel:

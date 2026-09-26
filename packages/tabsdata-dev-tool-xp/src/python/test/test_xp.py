@@ -830,7 +830,7 @@ LIVE = [
                 "name": "churn",
                 "repeat": 10,
                 "live": [
-                    {"name": "pause", "sleep_secs": 1},
+                    {"name": "pause", "sleep": "1s"},
                     {
                         "name": "city",
                         "domain": _dom(
@@ -889,11 +889,11 @@ def test_a_live_script_counts_its_calls_through_every_loop(xp_root):
     "script, why",
     [
         ([{"domain": _dom("world", "delete-data")}], "name"),
-        ([{"name": "1st", "sleep_secs": 1}], "a letter"),
-        ([{"name": "x"}], "exactly one of 'domain', 'sleep_secs', 'wait' or 'live'"),
+        ([{"name": "1st", "sleep": "1s"}], "a letter"),
+        ([{"name": "x"}], "exactly one of 'domain', 'sleep', 'wait' or 'live'"),
         (
-            [{"name": "x", "sleep_secs": 1, "wait": ["y"]}],
-            "exactly one of .* \\(has sleep_secs, wait\\)",
+            [{"name": "x", "sleep": "1s", "wait": ["y"]}],
+            "exactly one of .* \\(has sleep, wait\\)",
         ),
         ([{"name": "x", "domain": _dom("world", "destroy")}], "is not one of"),
         ([{"name": "x", "domain": _dom("nope", "delete-data")}], "does not define"),
@@ -911,7 +911,7 @@ def test_a_live_script_counts_its_calls_through_every_loop(xp_root):
             "Extra inputs",
         ),
         (
-            [{"name": "x", "sleep_secs": 1, "blocking": False}],
+            [{"name": "x", "sleep": "1s", "blocking": False}],
             "only a 'domain' or 'live' entry",
         ),
         (
@@ -921,13 +921,13 @@ def test_a_live_script_counts_its_calls_through_every_loop(xp_root):
         ([{"name": "x", "repeat": 0, "live": []}], "repeat must be >= 1"),
         (
             [
-                {"name": "x", "sleep_secs": 1},
-                {"name": "x", "sleep_secs": 1},
+                {"name": "x", "sleep": "1s"},
+                {"name": "x", "sleep": "1s"},
             ],
             "'x' is used twice",
         ),
         (
-            [{"name": "w", "wait": ["later"]}, {"name": "later", "sleep_secs": 1}],
+            [{"name": "w", "wait": ["later"]}, {"name": "later", "sleep": "1s"}],
             "not an entry before it",
         ),
         (
@@ -947,7 +947,7 @@ def test_a_live_script_counts_its_calls_through_every_loop(xp_root):
             "'g', which is not an entry before it",
         ),
         (
-            [{"name": "s", "sleep_secs": 1}, {"name": "w", "wait": ["s"]}],
+            [{"name": "s", "sleep": "1s"}, {"name": "w", "wait": ["s"]}],
             "a sleep entry",
         ),
     ],
@@ -1138,7 +1138,7 @@ def test_a_failed_background_entry_stops_the_script_and_is_its_error(
                 "blocking": False,
                 "repeat": 50,
                 "live": [
-                    {"name": "nap", "sleep_secs": 0.05},
+                    {"name": "nap", "sleep": "0.05s"},
                     {"name": "tick", "domain": _dom("world", "modify-data")},
                 ],
             },
@@ -1412,15 +1412,15 @@ def test_a_live_stages_background_entries_run_through_later_stages(
 
 @pytest.mark.parametrize(
     "value, seconds",
-    [("90s", 90.0), ("2m", 120.0), ("1.5h", 5400.0), (" 3 s ", 3.0), (30, 30.0)],
+    [("90s", 90.0), ("2m", 120.0), ("1.5h", 5400.0), (" 3 s ", 3.0), ("0s", 0.0)],
 )
-def test_a_duration_is_time_and_unit_or_bare_seconds(value, seconds):
+def test_a_duration_is_a_value_and_a_unit(value, seconds):
     from tabsdata_dev.tool.xp.models import seconds_of
 
     assert seconds_of(value, "x") == seconds
 
 
-@pytest.mark.parametrize("value", ["5", "5x", "m", "-1s", True, None])
+@pytest.mark.parametrize("value", ["5", 5, 0.5, "5x", "m", "-1s", True, None])
 def test_a_duration_without_a_known_unit_is_refused(value):
     from tabsdata_dev.tool.xp.models import seconds_of
 
@@ -1438,17 +1438,17 @@ def _sentinel_suite(**over):
     }
     return [
         {"collections": [{"name": "c", "type": "t", "group": "g"}]},
-        {"live": [{"name": "settle", "sleep_secs": "2m"}]},
+        {"live": [{"name": "settle", "sleep": "2m"}]},
         {"sentinel": [entry]},
     ]
 
 
-def test_a_sentinel_stage_reads_and_sleep_secs_takes_a_unit(xp_root):
+def test_a_sentinel_stage_reads_and_sleep_takes_a_unit(xp_root):
     from tabsdata_dev.tool.xp.models import build_instance
 
     inst = build_instance("i", _staged_suite(xp_root, _sentinel_suite()))
     assert [s.kind for s in inst.stages] == ["collections", "live", "sentinel"]
-    assert inst.live[0].sleep_secs == 120.0
+    assert inst.live[0].sleep_seconds == 120.0
     [s] = inst.stages[2].sentinel
     assert (s.collection, s.table, s.wait_for_key, s.seconds) == (
         "c",
@@ -1461,15 +1461,23 @@ def test_a_sentinel_stage_reads_and_sleep_secs_takes_a_unit(xp_root):
 @pytest.mark.parametrize(
     "doc, why",
     [
-        (_sentinel_suite(time_out="soon"), "time_out: 'soon' is not <TIME><UNIT>"),
+        (_sentinel_suite(time_out="soon"), "time_out: 'soon' is not <VALUE><UNIT>"),
         (_sentinel_suite(key="k"), "Extra inputs are not permitted"),
         (
             [_sentinel_suite()[2], _sentinel_suite()[0]],
             "sentinel 'k' reads collection 'c', created by a later stage",
         ),
         (
-            [{"live": [{"name": "x", "sleep_secs": "soon"}]}],
-            "sleep_secs: 'soon' is not <TIME><UNIT>",
+            [{"live": [{"name": "x", "sleep": "soon"}]}],
+            "sleep: 'soon' is not <VALUE><UNIT>",
+        ),
+        (
+            [{"live": [{"name": "x", "sleep": 30}]}],
+            "sleep: 30 is not <VALUE><UNIT>",
+        ),
+        (
+            [{"live": [{"name": "x", "sleep_secs": 30}]}],
+            "sleep_secs\n  Extra inputs are not permitted",
         ),
     ],
 )

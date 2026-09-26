@@ -127,9 +127,10 @@ annotations (`_comment`, `_copyright`; an object holding only those is a comment
   the entries run in turn, but a key that arrived while an earlier one was awaited is found on
   the first look. It is how a stage waits for data to have *arrived* rather than for a guessed
   pause. It runs under `run-suite` (so one-shot); no phase verb takes it and `bench` ignores it.
-- **Durations** -- a sentinel's `time_out`, a live `sleep_secs` -- are `"<TIME><UNIT>"` with unit
-  `s`, `m` or `h` (`"90s"`, `"2m"`, `"1.5h"`); a bare number is seconds, as every `sleep_secs`
-  was before units. Anything else is refused when the suite is read.
+- **Durations** -- a sentinel's `time_out`, a live `sleep` -- are `"<VALUE><UNIT>"` with unit `s`,
+  `m` or `h` (`"90s"`, `"2m"`, `"1.5h"`), and nothing else: a bare number is refused when the
+  suite is read, since nothing in it says what it counts. `sleep` was `sleep_secs`, a number of
+  seconds; the one suite using it was converted.
 - **`"enabled": false`** on a function registers it with `tdk fn register --disabled`: a stream
   publisher does not start until `enable-function --project P --collection C --function F`
   (tdk's `fn enable`); `disable-function` stops one. A group project is refused -- its lanes'
@@ -146,7 +147,7 @@ and is one of four kinds:
 
 ```
 {"name", "domain": {"name", "command", "options": ["--sets", "5"]}, "blocking": true|false}
-{"name", "sleep_secs": "<TIME><UNIT>" | N}
+{"name", "sleep": "<VALUE><UNIT>"}
 {"name", "wait": [NAMES]}
 {"name", "repeat": N, "live": [...], "blocking": true|false}
 ```
@@ -183,9 +184,9 @@ its end waits for what still runs, so nothing outlives the loop that started it,
   a pid its parent started.
 - **Where it runs is the suite's stage order**: a `live` stage wherever the list puts it. `--no-live`
   skips every live stage. A monitor stage sees what has started when it begins: a stream that
-  buffers its changes needs the live stage before it to end with a `sleep_secs` long enough for
-  the last flush. `live-domains --instance I` runs every live stage as one script, over a group's
-  lanes too; `bench` does not run it -- its phases are timings, and a script's pauses would be
+  buffers its changes needs the live stage before it to end with a `sleep` long enough for the
+  last flush -- or, better, a sentinel stage waiting for a key written after the last change.
+  `live-domains --instance I` runs every live stage as one script, over a group's lanes too; `bench` does not run it -- its phases are timings, and a script's pauses would be
   what they measured.
 
 ## Suites, lanes and pointers

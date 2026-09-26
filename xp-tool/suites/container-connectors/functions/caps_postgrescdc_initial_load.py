@@ -36,7 +36,7 @@ Two functions, one per suite, identical -- each suite's domain brings its own sl
                                       seed, arrives with the snapshot.
 - ``postgrescdc_initial_load_live`` : suite ``postgrescdc_initial_load_live`` -- a live
                                       stage keeps changing the tables (modify-data Mix,
-                                      every 30s for ~10 min) from before the project
+                                      20 passes back to back) from before the project
                                       exists, so the snapshot is taken over tables
                                       changing under it and the changes after it arrive
                                       as CDC rows. ``employees`` gets inserts, updates
