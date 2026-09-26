@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 
 from tabsdata_dev.common.core import batch as core_batch
 from tabsdata_dev.common.core import proc
@@ -226,12 +227,26 @@ def _expand(tool: str, verb: str, rest: list[str]) -> list[Task]:
     return tasks
 
 
-def run(tool: str, verb: str, rest: list[str], *, final: bool = True) -> int:
+def run(
+    tool: str,
+    verb: str,
+    rest: list[str],
+    *,
+    final: bool = True,
+    check: Callable[[list[str]], None] | None = None,
+) -> int:
+    """Run `verb` over the targets `rest` selects. `check`, when given, is run
+    on every child's argv before any child starts and raises to refuse the
+    batch (dispatch passes the parse each child would do)."""
     tasks = _expand(tool, verb, rest)
     role = "domain" if tool == constants.DOM_TOOL else "system"
     if not tasks:
         console.out(f"no {role}s matched -- nothing to do")
         return 0
+    if check is not None:
+        for task in tasks:
+            for step in task.steps:
+                check(step)
     return execute(
         tool,
         verb,

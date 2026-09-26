@@ -1269,3 +1269,83 @@ def test_db2cdc_deregisters_before_a_forced_recreate_drops_the_tables(monkeypatc
     b.provision_domain({}, "d", {})
     b.install_schema({}, "employees")
     assert order == ["provision force=False", "install force=False"]
+
+
+@pytest.fixture
+def small_store(tmp_path, monkeypatch):
+    """A tdd dir holding two container-free systems, dev1 and fs1, and a batch
+    runner that records what it would have started instead of starting it."""
+    from tabsdata_dev.common.core import batch as core_batch
+    from tabsdata_dev.common.systems import main
+
+    monkeypatch.chdir(tmp_path)  # an fs root is relative to the cwd
+    monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-key-for-the-test-only")
+    monkeypatch.delenv("_TDD_TOOL", raising=False)
+    for slug, name in (("dev", "dev1"), ("fs", "fs1")):
+        rc = main.run(
+            constants.SYS_TOOL,
+            [constants.V_CREATE, "--type", slug, "--sys", name, "--format", "json"],
+        )
+        assert rc == 0, (slug, name)
+    started: list[list[str]] = []
+
+    def execute(label, tasks, spawn, out, **kwargs):
+        started.extend(step for task in tasks for step in task.steps)
+        return 0
+
+    monkeypatch.setattr(core_batch, "execute", execute)
+    return started
+
+
+def _run_json(capsys, tool, *argv):
+    from tabsdata_dev.common.systems import main
+
+    capsys.readouterr()
+    rc = main.run(tool, [*argv, "--format", "json"])
+    events = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("{")
+    ]
+    return rc, events
+
+
+def test_a_batch_refuses_an_option_no_child_takes_before_starting_any(
+    small_store, capsys
+):
+    """`destroy --sys a,b --yes` started every child, and each one failed on
+    `--yes` -- the parent only peeks at its selector and forwards the rest.
+    The parent now parses each child's argv with that child's own parser
+    first, so the batch is one error and nothing runs."""
+    rc, events = _run_json(
+        capsys, constants.SYS_TOOL, constants.V_STATUS, "--sys", "dev1,fs1", "--yes"
+    )
+    assert rc == 1 and small_store == []
+    error = [e for e in events if e["event"] == "error"][0]
+    assert "unrecognized arguments: --yes" in error["message"]
+
+    rc, _ = _run_json(
+        capsys,
+        constants.SYS_TOOL,
+        constants.V_CREATE,
+        "--type",
+        "dev,fs",
+        "--sys-prefix",
+        "zz",
+        "--bogus",
+    )
+    assert rc == 1 and small_store == []
+
+
+def test_a_valid_batch_starts_and_a_missing_target_is_left_to_its_child(
+    small_store, capsys
+):
+    """What the check cannot judge it does not block: a target not in the
+    store has no type to build a parser from, so its child reports it, per
+    target, as before -- and the targets that exist still run."""
+    rc, _ = _run_json(
+        capsys, constants.SYS_TOOL, constants.V_STATUS, "--sys", "dev1,fs1,ghost"
+    )
+    assert rc == 0
+    assert [step[2] for step in small_store] == ["dev1", "fs1", "ghost"]

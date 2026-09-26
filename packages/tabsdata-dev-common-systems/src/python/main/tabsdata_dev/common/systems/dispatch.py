@@ -425,16 +425,22 @@ def _needed_toolset(tool: str, verb: str, slug: str, info) -> str:
     )
 
 
-def _reroute(tool: str, verb: str, rest: list[str], needed: str) -> int | None:
-    """Hand the invocation to the sibling tool of toolset `needed` when this
-    tool is not it. None when this tool is the right one."""
+def _elsewhere(tool: str, needed: str) -> str | None:
+    """The sibling tool that owns toolset `needed`, or None when it is this one."""
     running = os.environ.get("_TDD_TOOL", tool)
     wanted = (
         constants.DOMAIN_TOOL_BY_TOOLSET.get(needed)
         if _is_domain_tool(tool)
         else constants.SYS_TOOL
     )
-    if wanted is None or wanted == running:
+    return None if wanted is None or wanted == running else wanted
+
+
+def _reroute(tool: str, verb: str, rest: list[str], needed: str) -> int | None:
+    """Hand the invocation to the sibling tool of toolset `needed` when this
+    tool is not it. None when this tool is the right one."""
+    wanted = _elsewhere(tool, needed)
+    if wanted is None:
         return None
     if not os.environ.get("TDD_DIR"):
         raise TdxError(
@@ -1439,7 +1445,7 @@ def _verb_from_manifest(tool: str, verb: str, rest: list[str]) -> int:
         return 0
     selector = constants.OPT_DOMAIN if _is_domain_tool(tool) else constants.OPT_SYS
     new_rest = _drop_flag(rest, constants.OPT_MANIFEST) + [selector, ",".join(names)]
-    return batch.run(tool, verb, new_rest)
+    return batch.run(tool, verb, new_rest, check=_check_child(tool))
 
 
 _MANIFEST_VERBS = {
@@ -1462,8 +1468,35 @@ def _maybe_batch(tool: str, verb: str, rest: list[str]) -> int | None:
     if verb in _MANIFEST_VERBS and cli.peek(rest, constants.OPT_MANIFEST):
         return _verb_from_manifest(tool, verb, rest)
     if batch.is_batch(tool, verb, rest):
-        return batch.run(tool, verb, rest)
+        return batch.run(tool, verb, rest, check=_check_child(tool))
     return None
+
+
+def _check_child(tool: str):
+    """What a batch parent runs on each child's argv before any child starts:
+    parse it with the parser that child will build, so an option no target
+    takes -- or a bad value -- is one error up front rather than the same
+    failure once per target after the batch has begun.
+
+    The parse needs the target's type, and only a stored target has one: a
+    target that is not in the store, a verb its type does not have, or a type
+    whose verb lives in another toolset (its module may not import here) is
+    left to its child, which reports it as it always has -- per target, so an
+    `ALL` batch still runs the targets that can.
+    """
+
+    def check(argv: list[str]) -> None:
+        verb, rest = argv[0], argv[1:]
+        try:
+            slug, _, info, _, _ = _resolve(tool, verb, rest)
+            _require_verb(tool, slug, verb)
+        except TdxError:
+            return
+        if _elsewhere(tool, _needed_toolset(tool, verb, slug, info)) is not None:
+            return
+        _verb_parser(tool, verb, slug, info)[0].parse_args(rest)
+
+    return check
 
 
 # ======================================================================
@@ -1595,6 +1628,16 @@ def dispatch(tool: str, argv: list[str]) -> int:
     rerouted = _reroute(tool, verb, rest, _needed_toolset(tool, verb, slug, info))
     if rerouted is not None:
         return rerouted
+    p, system, module = _verb_parser(tool, verb, slug, info)
+    args = p.parse_args(rest)
+    ctx = cli.Context(family, verb, slug, system, args, name, info, path, store_dir)
+    return module.run(ctx) or 0
+
+
+def _verb_parser(tool: str, verb: str, slug: str, info):
+    """(parser, system, module) for a delegated verb on a `slug` target: the
+    options depend on the type, and on the stored descriptor it is bound to.
+    One construction for the run and for a batch parent's check of it."""
     system = systems.get(slug)
     if info is not None:
         bind = getattr(system, "configure", None)
@@ -1605,6 +1648,4 @@ def dispatch(tool: str, argv: list[str]) -> int:
     p.tdx_system = system  # type: ignore[attr-defined]
     module.add_arguments(p)
     cli.add_format_verbose(p)
-    args = p.parse_args(rest)
-    ctx = cli.Context(family, verb, slug, system, args, name, info, path, store_dir)
-    return module.run(ctx) or 0
+    return p, system, module
