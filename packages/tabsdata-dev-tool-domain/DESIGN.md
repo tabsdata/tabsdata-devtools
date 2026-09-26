@@ -40,6 +40,15 @@ manifests so a test suite gets the same data on every backend.
   registrations). `delete-model` drops the entities and forgets the model through the backend's
   `uninstall_schema`; the domain itself stays for `destroy`. Both refuse a domain with no model
   and neither minds one with no data, so a loop may delete on every pass.
+- **modify-data's targets are the seeded rows**, the ones `Entity.target` addresses, counted
+  by what create-data loaded (`seeded` in the descriptor) rather than today's counts, which
+  drift with every insert and delete. DELETEs walk in from the tail, each seed taking its own
+  block (`seed x deletes-per-run`), so `--seed AUTO` passes delete a distinct row each time
+  and stop -- plan and report none -- once the seeded rows are used up; UPDATEs walk from the
+  head over the rows those deletes have not reached. The old walk offset the seed against the
+  current count, and a Mix pass (one row and one seed more) deleted the same row forever. The
+  walk assumes the domain's earlier passes were consecutive seeds of the same shape, which is
+  what AUTO produces; a descriptor from before `seeded` bounds by its current counts.
 - **The long verbs are waitable.** `create`, `destroy`, `create-model`, `create-data`,
   `modify-data`, `delete-data` and `delete-model` take `--latch FILE`, and their chatty detail goes to `/tmp/tdd-domain-<verb>-...`
   while the console keeps to brief progress.

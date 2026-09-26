@@ -1427,3 +1427,40 @@ def test_every_backend_with_models_can_uninstall_them():
         cls = systems.get_class(slug)
         if cls.supports_models:
             assert callable(getattr(cls, "uninstall_schema", None)), slug
+
+
+def test_mix_passes_delete_a_distinct_row_each_and_update_only_live_ones():
+    """100 `modify-data --ops Mix --sets 5 --seed AUTO` passes over employees
+    at xs, the live CDC suite's churn. The old walk offset the seed against the
+    CURRENT row count; a Mix pass adds a row and a seed, which cancelled, and
+    every pass deleted the same employee. Bounded by the SEEDED counts, each
+    delete takes a row nothing touched before, no update lands on a deleted
+    row, and once the seeded rows run out no delete is planned -- or reported."""
+    from tabsdata_dev.common.systems.datagen import ChangeSpec, OpKind, OpSelector
+
+    model = datagen.load_model("employees")
+    seeded = {"employees": 100, "departments": 9}
+    alive = {("emp_no", 10001 + i) for i in range(100)}
+    deleted: list = []
+    for seed in range(1, 101):
+        spec = ChangeSpec(
+            entities=[e.table for e in model.entities],
+            ops=OpSelector.MIX,
+            sets=5,
+            rows_per_entity={e.table: e.rows_per_set for e in model.entities},
+            seed=seed,
+            insert_base=seed * datagen.FIXED_SEED_INSERT_STRIDE,
+        )
+        for txn in datagen.plan(model, spec, seeded):
+            for ch in txn:
+                if ch.table != "employees":
+                    continue
+                if ch.kind is OpKind.INSERT:
+                    alive.add(("emp_no", ch.row["emp_no"]))
+                    continue
+                key = next(iter(ch.where.items()))
+                assert key in alive, (seed, ch.kind, key)
+                if ch.kind is OpKind.DELETE:
+                    alive.discard(key)
+                    deleted.append(key)
+    assert len(deleted) == len(set(deleted)) == 99  # seeds 1..99; then exhausted

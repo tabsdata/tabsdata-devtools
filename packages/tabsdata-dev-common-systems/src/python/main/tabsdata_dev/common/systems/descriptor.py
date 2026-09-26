@@ -64,7 +64,9 @@ class SystemInfo(BaseModel):
 class DomainInfo(BaseModel):
     """A domain in a system: connection ``meta`` plus model/data/seed state.
 
-    ``model`` / ``data`` are stamped by create-model / create-data; ``entities``
+    ``model`` / ``data`` are stamped by create-model / create-data; ``seeded`` is
+    what create-data loaded -- per-entity row counts, fixed until the next load,
+    which bound modify-data's UPDATE / DELETE targets; ``entities``
     maps each seeded entity to its row count — for a SQL domain that is
     ``{table: rows}``; for a file domain it is ``{staged_file_path: rows}`` (the
     files relative to the domain root). ``seed`` is the last ``modify-data --seed
@@ -87,6 +89,7 @@ class DomainInfo(BaseModel):
     model: str | None = None
     data: str | None = None
     entities: dict[str, int] = Field(default_factory=dict)
+    seeded: dict[str, int] = Field(default_factory=dict)
     seed: int = 0
 
 
@@ -218,6 +221,7 @@ def set_model(path: str | Path, model: str, entity_names: list[str]) -> None:
     info.model = model
     info.data = None
     info.entities = {n: 0 for n in entity_names}
+    info.seeded = {}
     info.seed = 0
     save(info, path)
 
@@ -229,6 +233,7 @@ def clear_model(path: str | Path) -> None:
     info.model = None
     info.data = None
     info.entities = {}
+    info.seeded = {}
     info.seed = 0
     save(info, path)
 
@@ -239,6 +244,7 @@ def record_data(path: str | Path, size: str, entities: dict[str, int]) -> None:
     info = _load_domain(path)
     info.data = size
     info.entities = dict(entities)
+    info.seeded = dict(entities)
     info.seed = 0
     save(info, path)
 

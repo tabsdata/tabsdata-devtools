@@ -177,9 +177,10 @@ def resolve_entities(model: Model, names: list[str]) -> list[Entity]:
 
 def plan(model: Model, spec: ChangeSpec, counts: dict[str, int]) -> list[Transaction]:
     """Build ``spec.sets`` transactions, applying ``spec.rows_per_entity`` changes
-    to each requested entity per transaction (parents-first). ``counts`` (the
-    seeded per-table row counts) bounds UPDATE / DELETE targets. Deterministic
-    for a given ``spec.seed`` / ``spec.insert_base``."""
+    to each requested entity per transaction (parents-first). ``counts`` -- the
+    SEEDED per-table row counts, the rows ``Entity.target`` addresses -- bounds
+    UPDATE / DELETE targets (see ``_Planner._take`` for how they are walked).
+    Deterministic for a given ``spec.seed`` / ``spec.insert_base``."""
     if spec.sets < 1:
         raise TdxError("modify-data: --sets must be >= 1")
     entities = resolve_entities(model, spec.entities)
@@ -244,6 +245,22 @@ class _Planner:
         self._cursor: dict[tuple[str, OpKind], int] = {}
         self._inserts = 0
         self._mix = 0
+        # How many UPDATEs / DELETEs one run plans per table: the stride that
+        # gives each seed a block of targets of its own.
+        self._per_run: dict[tuple[str, OpKind], int] = {}
+        kinds = [
+            _MIX_CYCLE[t % len(_MIX_CYCLE)]
+            if spec.ops is OpSelector.MIX
+            else OpKind(spec.ops.value)
+            for t in range(spec.sets)
+        ]
+        for kind in kinds:
+            for entity in entities:
+                if kind in entity.supports:
+                    key = (entity.table, kind)
+                    self._per_run[key] = self._per_run.get(
+                        key, 0
+                    ) + spec.rows_per_entity.get(entity.table, 1)
 
     def _next_kind(self) -> OpKind:
         if self.spec.ops is OpSelector.MIX:
@@ -261,24 +278,42 @@ class _Planner:
             return Change(
                 kind, entity.table, entity.columns, row=entity.new_row(self.rng, i)
             )
-        existing = self.counts.get(entity.table, 0)
-        if existing <= 0:
+        # The seeded rows `target` addresses. DELETEs walk in from the tail,
+        # each seed taking a block of its own (seed * deletes-per-run on), so a
+        # run of `--seed AUTO` passes deletes a distinct row every time and stops
+        # -- plans none, reports none -- once the seeded rows are used up.
+        # UPDATEs walk from the head over the rows those deletes have not
+        # reached. Offsetting by the seed alone (the old walk) against the
+        # CURRENT row count repeated one target forever: a Mix pass adds a row
+        # and a seed, and the two cancelled.
+        seeded = self.counts.get(entity.table, 0)
+        if seeded <= 0:
             return None
         key = (entity.table, kind)
         local = self._cursor.get(key, 0)
         self._cursor[key] = local + 1
-        offset = (self.spec.seed + local) % existing
+        deletes = self._per_run.get((entity.table, OpKind.DELETE), 0)
         if kind is OpKind.UPDATE:
+            alive = seeded - (self.spec.seed + 1) * deletes
+            if alive <= 0:
+                return None
+            per_run = self._per_run.get(key, 1)
+            offset = (self.spec.seed * per_run + local) % alive
             return Change(
                 kind,
                 entity.table,
                 entity.columns,
-                set_values=entity.mutate(self.rng, offset, existing),
-                where=entity.target(offset, existing),
+                set_values=entity.mutate(self.rng, offset, seeded),
+                where=entity.target(offset, seeded),
             )
-        idx = existing - 1 - offset  # DELETE walks in from the tail
+        position = self.spec.seed * deletes + local
+        if position >= seeded:
+            return None
         return Change(
-            kind, entity.table, entity.columns, where=entity.target(idx, existing)
+            kind,
+            entity.table,
+            entity.columns,
+            where=entity.target(seeded - 1 - position, seeded),
         )
 
     def build(self, t: int) -> Transaction:

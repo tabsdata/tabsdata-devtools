@@ -131,7 +131,10 @@ def run(ctx: cli.Context) -> int:
         seed=seed,
         insert_base=insert_base,
     )
-    txns = datagen.plan(model_obj, spec, counts)
+    # Targets are bounded by what create-data loaded, not by today's counts:
+    # `target` addresses seeded rows. A descriptor from before `seeded` was
+    # recorded falls back to its current counts.
+    txns = datagen.plan(model_obj, spec, info.seeded or counts)
     with sysobj.data_plane_uri(info.meta) as uri:
         new_entities = sysobj.apply_changes(uri, txns, counts)
     descriptor.record_changes(ctx.path, new_entities, seed=seed if auto else None)
