@@ -12,17 +12,22 @@ table -- and then captures changes from the exact position the snapshot is consi
 at, so nothing is missed between the two and nothing is repeated. ``start_from`` is
 not allowed with it.
 
-``replication_slot_behavior="create"`` is what makes that exact: the load CREATES the
-slot, which exports the snapshot and its position in one operation -- so the slot must
-NOT exist yet (each function names its own, and slots are per database, each domain
-being its own). With ``"reuse"`` the load would take its snapshot from a transaction
-of its own and a transaction committing at that moment could be delivered twice.
+The slot is the domain's own: a postgrescdc domain creates one with its database, named
+after it, and destroying the domain drops it (``${D0__REPLICATION_SLOT}``, interpolated
+by xp when it registers the function). Slot names are server-wide, so one per domain is
+what keeps runs against the same system apart. Since the slot exists before the function
+does, the source REUSES it (``replication_slot_behavior="reuse"``): the load leaves the
+slot alone, takes its snapshot in a transaction of its own and starts capture at the WAL
+position of that moment. Nothing is missed; a transaction committing just as the
+snapshot is taken may be delivered again. ``"create"`` would make the pair exact -- the
+slot exporting snapshot and position in one operation -- but only on a slot that does
+not exist yet, and one the suite would then have to drop itself.
 
 ``xp_sentinel`` is the model's sentinel entity: a suite writes keys into it with ``tdd
 domain sentinel-data`` and waits for them to arrive in ``xp_sentinel_changes`` (an xp
 ``sentinel`` stage), which is how it knows the changes before a key have flushed.
 
-Two functions, one per suite, identical but for the slot:
+Two functions, one per suite, identical -- each suite's domain brings its own slot:
 
 - ``postgrescdc_initial_load``      : suite ``postgrescdc_initial_load`` -- the seed is
                                       loaded, then the snapshot is taken over quiet
@@ -40,13 +45,14 @@ Two functions, one per suite, identical but for the slot:
                                       and salaries go too (ON DELETE CASCADE), so those
                                       tables see deletes after their load. A second
                                       sentinel, written once the churn has ended,
-                                      arrives after its last change.
+                                      arrives after its last change. A change committing
+                                      as the snapshot is taken may arrive twice (reuse).
 
 The postgrescdc system runs ``wal_level=logical``, installs wal2json, grants the domain
 owner REPLICATION and sets REPLICA IDENTITY FULL on every model table, so updates and
 deletes carry full before-images. Registering a stream publisher STARTS it (no
-trigger); the snapshot is its first work. A slot left behind by an abandoned run pins
-WAL: ``SELECT pg_drop_replication_slot('td_cdc_initial_load')``.
+trigger); the snapshot is its first work. The domain's slot pins WAL until the domain
+is destroyed, which ends any reader still on it and drops it.
 """
 
 from __future__ import annotations
@@ -89,11 +95,15 @@ _CFG = {
 }
 
 
-def _source(slot: str) -> PostgresCdcStreamSrc:
+# The D0 domain's own replication slot, created with the domain and dropped with it.
+_SLOT = "${D0__REPLICATION_SLOT}"
+
+
+def _source() -> PostgresCdcStreamSrc:
     return PostgresCdcStreamSrc(
         tables=[*_TABLES, _SENTINEL_TABLE],
-        replication_slot=slot,
-        replication_slot_behavior="create",
+        replication_slot=_SLOT,
+        replication_slot_behavior="reuse",
         initial_load=True,
         src_cfg=_CFG,
     )
@@ -103,7 +113,7 @@ def _source(slot: str) -> PostgresCdcStreamSrc:
 # drops None entries and returns None for an empty list, so it doubles as the "this
 # flush carried nothing for this table" guard.
 @stream_publisher(
-    source=_source("td_cdc_initial_load"),
+    source=_source(),
     flush_interval_mins=1,
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )
@@ -136,7 +146,7 @@ def postgrescdc_initial_load(
 
 
 @stream_publisher(
-    source=_source("td_cdc_initial_load_live"),
+    source=_source(),
     flush_interval_mins=1,
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )
