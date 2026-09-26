@@ -298,14 +298,24 @@ def add_dry_run(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def add_emit_changes(parser: argparse.ArgumentParser) -> None:
+def add_data_dry_run(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        constants.OPT_EMIT_CHANGES,
-        dest="emit_changes",
+        constants.OPT_DRY_RUN,
+        dest="dry_run",
+        action="store_true",
+        help="plan the operations without applying them; the system and the "
+        "descriptor are not touched (with --emit-ops, the plan is written there)",
+    )
+
+
+def add_emit_ops(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        constants.OPT_EMIT_OPS,
+        dest="emit_ops",
         default=None,
         metavar="FILE",
-        help="write the operations to FILE, one JSON line each, instead of "
-        "applying them; the system and the descriptor are not touched",
+        help="append the operations to FILE, one JSON line each, once they are "
+        "applied (or planned, with --dry-run)",
     )
 
 

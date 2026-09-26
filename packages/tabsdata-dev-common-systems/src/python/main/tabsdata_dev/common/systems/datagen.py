@@ -28,8 +28,10 @@ from __future__ import annotations
 
 import enum
 import json
+import os
 import random
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from importlib import import_module
 from pathlib import Path
 
@@ -371,22 +373,18 @@ def _where_sql(where: dict, cols: dict[str, Column], quote: str) -> str:
 
 
 # ======================================================================
-# Rendering — CDC lines (--emit-changes)
+# Rendering — operation lines (--emit-ops)
 # ======================================================================
 
 
-def cdc_line(domain: str, txn: int, change: Change) -> dict:
-    """One change as a CDC-style record: ``op`` and ``entity`` always, then
-    ``row`` for an INSERT, ``key`` + ``set`` for an UPDATE, ``key`` for a DELETE.
-    An INSERT carries every value the model generated, ``auto`` columns
-    included, as a file load does: the surrogate keys are what later changes
-    and other entities refer to."""
-    out: dict = {
-        "domain": domain,
-        "txn": txn,
-        "op": change.kind.value,
-        "entity": change.table,
-    }
+def op_line(run: dict, txn: int, change: Change) -> dict:
+    """One change as a CDC-style record: the run's fields (``run``), the
+    transaction's number within the run, ``op`` and ``entity``, then ``row``
+    for an INSERT, ``key`` + ``set`` for an UPDATE, ``key`` for a DELETE. An
+    INSERT carries every value the model generated, ``auto`` columns included,
+    as a file load does: the surrogate keys are what later changes and other
+    entities refer to."""
+    out: dict = {**run, "txn": txn, "op": change.kind.value, "entity": change.table}
     if change.kind is OpKind.INSERT:
         assert change.row is not None
         out["row"] = {
@@ -416,25 +414,45 @@ def _json_value(v):
     return str(v)
 
 
-def write_cdc(path: str | Path, domain: str, transactions: list[Transaction]) -> int:
-    """Write `transactions` to `path` as JSON lines, one per change, numbering
-    the transactions from 0 in order. The file is written whole or not at all
-    (a temporary file and one rename). Returns the number of lines."""
+def append_ops(
+    path: str | Path,
+    domain: str,
+    verb: str,
+    transactions: list[Transaction],
+    *,
+    dry_run: bool,
+    seed: int | None = None,
+) -> int:
+    """Append `transactions` to `path` as JSON lines, one per change. Every
+    line names its run -- ``ts`` (UTC, to the second), ``domain``, ``verb``,
+    ``seed`` when the verb has one, ``dry_run`` -- and numbers its transaction
+    from 0 within that run, so one file can hold the trail of many runs and
+    domains. A run's lines go out in one append, so runs sharing the file (a
+    batch's children, a live script's entries) never interleave inside one.
+    Returns the number of lines."""
+    stamp = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    run: dict = {"ts": stamp.isoformat(), "domain": domain, "verb": verb}
+    if seed is not None:
+        run["seed"] = seed
+    run["dry_run"] = dry_run
+    text = "".join(
+        json.dumps(op_line(run, txn, ch), default=_json_value) + "\n"
+        for txn, changes in enumerate(transactions)
+        for ch in changes
+    )
+    if not text:
+        return 0
     dest = Path(path)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(f".{dest.name}.tmp")
-    lines = 0
+    data = text.encode("utf-8")
+    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     try:
-        with tmp.open("w", encoding="utf-8") as f:
-            for txn, changes in enumerate(transactions):
-                for ch in changes:
-                    record = cdc_line(domain, txn, ch)
-                    f.write(json.dumps(record, default=_json_value) + "\n")
-                    lines += 1
-        tmp.replace(dest)
+        view = memoryview(data)
+        while view:
+            view = view[os.write(fd, view) :]
     finally:
-        tmp.unlink(missing_ok=True)
-    return lines
+        os.close(fd)
+    return text.count("\n")
 
 
 # ======================================================================

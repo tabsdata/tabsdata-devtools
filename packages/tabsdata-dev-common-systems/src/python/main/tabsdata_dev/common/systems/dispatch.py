@@ -34,11 +34,12 @@
     tdd domain status      --domain NAME
     tdd domain models      --domain NAME
     tdd domain create-model --domain NAME --model MODEL
-    tdd domain create-data  --domain NAME --size N [--emit-changes FILE]
+    tdd domain create-data  --domain NAME --size N [--dry-run] [--emit-ops FILE]
     tdd domain modify-data  --domain NAME --entity NAME|ALL --sets N
                             --ops Insert|Update|Delete|Mix --seed N|AUTO
-                            [--emit-changes FILE]  # JSON lines, nothing applied
+                            [--dry-run] [--emit-ops FILE]  # appends JSON lines
     tdd domain sentinel-data --domain NAME --key KEY  # xp_sentinel row, stamped now
+                             [--dry-run] [--emit-ops FILE]
     tdd domain delete-data  --domain NAME     # empty the model's entities, keep them
     tdd domain delete-model --domain NAME     # drop the model's entities and data
 
@@ -1489,12 +1490,6 @@ def _maybe_batch(tool: str, verb: str, rest: list[str]) -> int | None:
     if verb in _MANIFEST_VERBS and cli.peek(rest, constants.OPT_MANIFEST):
         return _verb_from_manifest(tool, verb, rest)
     if batch.is_batch(tool, verb, rest):
-        if cli.peek(rest, constants.OPT_EMIT_CHANGES):
-            # Every child would write the one file, and the last would win.
-            raise TdxError(
-                f"{constants.OPT_EMIT_CHANGES} takes a single "
-                f"{constants.OPT_DOMAIN}, one file per domain"
-            )
         return batch.run(tool, verb, rest, check=_check_child(tool))
     return None
 

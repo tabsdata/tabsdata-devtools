@@ -1466,11 +1466,12 @@ def test_mix_passes_delete_a_distinct_row_each_and_update_only_live_ones():
     assert len(deleted) == len(set(deleted)) == 99  # seeds 1..99; then exhausted
 
 
-def test_emit_changes_writes_cdc_lines_and_touches_nothing(tmp_path, monkeypatch):
-    """`--emit-changes` plans what create-data / modify-data would do and
-    writes it as JSON lines: the backend is never called and the descriptor
-    keeps its seed and counts, so AUTO repeats the same plan. create-data needs
-    no --force on a domain that already has data, since it replaces nothing."""
+def test_dry_run_touches_nothing_and_emit_ops_appends_the_plan(tmp_path, monkeypatch):
+    """`--dry-run` plans what create-data / modify-data / sentinel-data would
+    do and applies none of it: the backend is never called and the descriptor
+    keeps its seed and counts, so AUTO repeats the same plan, and create-data
+    needs no --force on a domain that already has data. Alone it writes no
+    file; `--emit-ops` APPENDS the plan, each line naming its run."""
     import argparse
 
     from tabsdata_dev.common.core import render
@@ -1478,10 +1479,12 @@ def test_emit_changes_writes_cdc_lines_and_touches_nothing(tmp_path, monkeypatch
     from tabsdata_dev.common.systems.systems._common.commands import (
         dom_create_data,
         dom_modify_data,
+        dom_sentinel_data,
     )
 
     console.bind(render.Renderer(constants.DOM_TOOL))
     monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-test-secret-long-enough")
+    monkeypatch.chdir(tmp_path)
     path = tmp_path / "d1"
     descriptor.write_domain(
         path, "postgres", "d1", sys_name="pg", external_name="d1", meta={"DB": "d1"}
@@ -1496,7 +1499,7 @@ def test_emit_changes_writes_cdc_lines_and_touches_nothing(tmp_path, monkeypatch
             raise AssertionError(f"dry run reached the system: {name}")
 
     def run(mod, verb, dest, **opts):
-        args = argparse.Namespace(emit_changes=str(dest), **opts)
+        args = argparse.Namespace(dry_run=True, emit_ops=dest and str(dest), **opts)
         return mod.run(
             cli.Context(
                 tool=constants.DOM_TOOL,
@@ -1514,43 +1517,44 @@ def test_emit_changes_writes_cdc_lines_and_touches_nothing(tmp_path, monkeypatch
     def lines(dest):
         return [json.loads(x) for x in dest.read_text().splitlines()]
 
+    run_keys = {"ts", "domain", "verb", "dry_run", "txn", "op", "entity"}
+    load = dict(size=1, force=False)
+    assert run(dom_create_data, constants.V_CREATE_DATA, None, **load) == 0
+    assert list(tmp_path.glob("*.jsonl")) == []  # a dry run alone writes nothing
+
     initial = tmp_path / "out" / "initial.jsonl"
-    rc = run(dom_create_data, constants.V_CREATE_DATA, initial, size=1, force=False)
-    assert rc == 0
+    assert run(dom_create_data, constants.V_CREATE_DATA, initial, **load) == 0
     rows = lines(initial)
     assert rows and {r["op"] for r in rows} == {"insert"}
     assert {r["txn"] for r in rows} == {0} and {r["domain"] for r in rows} == {"d1"}
-    assert all(set(r) == {"domain", "txn", "op", "entity", "row"} for r in rows)
+    assert {r["verb"] for r in rows} == {constants.V_CREATE_DATA}
+    assert all(r["dry_run"] is True for r in rows)
+    assert all(set(r) == run_keys | {"row"} for r in rows)
 
     opts = dict(entity="ALL", sets=3, ops="Mix", seed="AUTO")
-    first, second = tmp_path / "m1.jsonl", tmp_path / "m2.jsonl"
-    assert run(dom_modify_data, constants.V_MODIFY_DATA, first, **opts) == 0
-    assert run(dom_modify_data, constants.V_MODIFY_DATA, second, **opts) == 0
-    assert first.read_bytes() == second.read_bytes()  # AUTO did not advance
-    changes = lines(first)
-    assert [r["txn"] for r in changes] == sorted(r["txn"] for r in changes)
-    by_op = {r["op"]: r for r in changes}
+    trail = tmp_path / "trail.jsonl"
+    assert run(dom_modify_data, constants.V_MODIFY_DATA, trail, **opts) == 0
+    first = lines(trail)
+    assert run(dom_modify_data, constants.V_MODIFY_DATA, trail, **opts) == 0
+    both = lines(trail)
+    assert len(both) == 2 * len(first)  # appended, not replaced
+
+    def untimed(rs):
+        return [{k: v for k, v in r.items() if k != "ts"} for r in rs]
+
+    assert untimed(both[len(first) :]) == untimed(first)  # AUTO did not advance
+    assert {r["seed"] for r in first} == {1}
+    assert [r["txn"] for r in first] == sorted(r["txn"] for r in first)
+    by_op = {r["op"]: r for r in first}
     assert set(by_op) == {"insert", "update", "delete"}
-    assert set(by_op["update"]) == {"domain", "txn", "op", "entity", "key", "set"}
-    assert set(by_op["delete"]) == {"domain", "txn", "op", "entity", "key"}
+    assert set(by_op["update"]) == run_keys | {"seed", "key", "set"}
+    assert set(by_op["delete"]) == run_keys | {"seed", "key"}
+
+    assert run(dom_sentinel_data, constants.V_SENTINEL_DATA, trail, key="k1") == 0
+    last = lines(trail)[-1]
+    assert last["verb"] == constants.V_SENTINEL_DATA and last["dry_run"] is True
+    assert last["row"]["sentinel_key"] == "k1"
     assert path.read_bytes() == before
-
-
-def test_emit_changes_refuses_a_batch(small_store, capsys):
-    """One file, many children: the last writer would win, so a batch is refused
-    before any child starts."""
-    rc, events = _run_json(
-        capsys,
-        constants.DOM_TOOL,
-        constants.V_MODIFY_DATA,
-        "--domain",
-        "a,b",
-        "--emit-changes",
-        "x.jsonl",
-    )
-    assert rc == 1 and small_store == []
-    error = [e for e in events if e["event"] == "error"][0]
-    assert "--emit-changes takes a single --domain" in error["message"]
 
 
 def test_every_model_carries_an_empty_sentinel_in_every_ddl():
@@ -1650,7 +1654,9 @@ def test_sentinel_data_writes_one_stamped_row_and_create_data_keeps_its_count(
     descriptor.set_model(path, "world", datagen.entities_of("world"))
 
     before = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
-    assert run(dom_sentinel_data, constants.V_SENTINEL_DATA, key="k1") == 0
+    trail = tmp_path / "trail.jsonl"
+    live = dict(dry_run=False, emit_ops=str(trail))
+    assert run(dom_sentinel_data, constants.V_SENTINEL_DATA, key="k1", **live) == 0
     [[change]] = applied
     assert labels == [constants.V_SENTINEL_DATA]  # a failure names this verb
     assert change.kind is datagen.OpKind.INSERT
@@ -1663,11 +1669,18 @@ def test_sentinel_data_writes_one_stamped_row_and_create_data_keeps_its_count(
     )
     assert descriptor.load(path).entities[datagen.SENTINEL_ENTITY] == 1
 
-    load = dict(size=1, force=False, emit_changes=None)
+    [line] = [json.loads(x) for x in trail.read_text().splitlines()]
+    assert line["dry_run"] is False and line["row"]["sentinel_key"] == "k1"
+    load = dict(size=1, force=False, **live)
     assert run(dom_create_data, constants.V_CREATE_DATA, **load) == 0
     assert descriptor.load(path).entities[datagen.SENTINEL_ENTITY] == 1
     assert run(dom_create_data, constants.V_CREATE_DATA, **{**load, "force": True}) == 0
     assert descriptor.load(path).entities[datagen.SENTINEL_ENTITY] == 0
+    loads = [json.loads(x) for x in trail.read_text().splitlines()][1:]
+    assert {r["verb"] for r in loads} == {constants.V_CREATE_DATA}
+    assert {r["dry_run"] for r in loads} == {False}
+    assert loads and len(loads) % 2 == 0  # both loads, the same rows each
 
     with pytest.raises(TdxError, match="1 to 255"):
-        run(dom_sentinel_data, constants.V_SENTINEL_DATA, key="x" * 256)
+        run(dom_sentinel_data, constants.V_SENTINEL_DATA, key="x" * 256, **live)
+    assert len(trail.read_text().splitlines()) == 1 + len(loads)  # failed: nothing
