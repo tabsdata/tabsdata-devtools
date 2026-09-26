@@ -1,0 +1,62 @@
+[
+  {
+    "_comment": "CAPABILITY suite for the PostgreSQL CDC stream source with initial_load, over every table of the employees model and its xp_sentinel (functions/caps_postgrescdc_initial_load.py::postgrescdc_initial_load). STAGES, in order: (1) domains -- create the postgrescdc domain, install the employees model, load the xs seed; (2) live -- `tdd domain sentinel-data --key after-create-data`, one xp_sentinel row stamped after the seed, so the snapshot carries it; (3) collections -- the project and one postgres_cdc source collection; (4) functions -- register the @stream_publisher, which STARTS it (no trigger): with initial_load=True it first emits a snapshot of each tracked table (rows as inserts, a LOAD control row per table ahead of them), then captures changes from the snapshot's exact position; replication_slot_behavior=create makes the load create the slot td_cdc_initial_load, so it must not exist yet; (5) live -- a 120s pause so the first flushes (flush_interval_mins=1) land before (6) monitor watches their transactions. Nothing changes the tables here: the load is the whole seed plus the sentinel and no change follows it; postgrescdc_initial_load_live is the same with changes running throughout. Seven output tables, <table>_changes, xp_sentinel_changes among them. An abandoned slot pins WAL -- `SELECT pg_drop_replication_slot('td_cdc_initial_load')`. Run: `tdd xp one-shot --suite container-connectors/postgrescdc_initial_load --keep`, then `tdk worker list` / `tdk table sample`."
+  },
+  {
+    "domains": [
+      {
+        "name": "postgrescdc_employees_xs",
+        "system": "postgrescdc",
+        "model": "employees",
+        "data": "xs"
+      }
+    ]
+  },
+  {
+    "live": [
+      {
+        "name": "sentinel",
+        "domain": {
+          "name": "postgrescdc_employees_xs",
+          "command": "sentinel-data",
+          "options": [
+            "--key",
+            "after-create-data"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "postgrescdc_initial_load",
+        "type": "postgres_cdc",
+        "connection_template": "connection-file:connections/postgres_cdc.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "postgrescdc_employees_xs"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "postgrescdc_initial_load",
+        "functionpath": "functions/caps_postgrescdc_initial_load.py::postgrescdc_initial_load"
+      }
+    ]
+  },
+  {
+    "live": [
+      {
+        "name": "settle",
+        "sleep_secs": 120
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]
