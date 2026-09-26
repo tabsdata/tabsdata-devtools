@@ -2,7 +2,8 @@
 # Copyright 2026 Tabsdata Inc.
 #
 """The whole-cycle verbs: ``one-shot`` (create-instance -> domains -> project ->
-run --monitor, then tear down unless --keep or something failed) and ``bench``
+run --monitor [-> live-domains -> monitor], then tear down unless --keep or
+something failed) and ``bench``
 (a suite DIR, phased and timed across all lanes).
 """
 
@@ -17,7 +18,7 @@ from datetime import datetime, timezone
 
 from tabsdata_dev.common.core import batch as core_batch
 
-from . import domains, lanes, pointers, project, shell, state, suites
+from . import domains, lanes, live, pointers, project, shell, state, suites
 from .models import build_instance
 from .project import ns
 from .reporter import rep, reporting, scratch
@@ -30,8 +31,10 @@ def _profile_hint() -> str:
 
 def cmd_one_shot(args) -> None:
     """Pick a name (--project, else xp_<ts>_<suite>) and run the whole cycle
-    under it for both the instance and the project. A FAILED run stops before
-    teardown, leaving the setup in place for debugging."""
+    under it for both the instance and the project. A suite with a live program
+    runs it once the triggers have been watched, and is watched again after, for
+    the transactions its changes started (unless --no-live). A FAILED run stops
+    before teardown, leaving the setup in place for debugging."""
     shell.require_login()  # fail fast before creating any pointer or domains
     suites_dir = getattr(args, "suites_dir", None)
     path, files = suites.resolve(args.suite, suites.suites_dir(suites_dir))
@@ -50,6 +53,9 @@ def cmd_one_shot(args) -> None:
         domains.cmd_create_domains(ns(instance=name, secret_env=senv))
         project.cmd_create_project(ns(instance=name, project=name, secret_env=senv))
         project.cmd_run_project(ns(project=name, monitor=True))
+        if not getattr(args, "no_live", False) and live.has_live(files or [path]):
+            live.cmd_live_domains(ns(instance=name, secret_env=senv))
+            project.cmd_monitor_project(ns(project=name))
 
         dead = state.run.lanes or {}
         state.run.lanes = None

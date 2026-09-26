@@ -33,7 +33,8 @@ manifest this tool writes.
     tdd xp destroy-instance --instance I
     tdd xp run-project      --project P [--monitor] [--profile NAME] ...
     tdd xp monitor-project  --project P [--profile NAME] ...
-    tdd xp one-shot         --suite SEL [--project P] [--keep] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
+    tdd xp live-domains     --instance I [--secret-env VAR] [--dry-run] ...
+    tdd xp one-shot         --suite SEL [--project P] [--keep] [--no-live] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
     tdd xp bench            --suite TYPE [--name N] [--keep] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
 """
 
@@ -47,7 +48,7 @@ from tabsdata_dev.common.core import cli
 from tabsdata_dev.common.core import latch as core_latch
 from tabsdata_dev.common.core import render
 
-from . import cycle, domains, project, state
+from . import cycle, domains, live, project, state
 from .reporter import render_summary
 
 NAME = state.TOOL
@@ -270,6 +271,15 @@ def configure(p: argparse.ArgumentParser) -> None:
     c.set_defaults(func=project.cmd_monitor_project)
 
     c = sub.add_parser(
+        "live-domains",
+        help="run the suite's live program: tdd domain data verbs against its domains, repeated and paced",
+    )
+    c.add_argument("--instance", required=True)
+    for add in (_secret_env, _latch, _report, _dry_run, _common):
+        add(c)
+    c.set_defaults(func=live.cmd_live_domains)
+
+    c = sub.add_parser(
         "one-shot",
         help="create-instance + domains + project + run --monitor, then tear down (--keep preserves)",
     )
@@ -283,6 +293,11 @@ def configure(p: argparse.ArgumentParser) -> None:
         "--keep",
         action="store_true",
         help="leave the instance, project and domains set up afterwards",
+    )
+    c.add_argument(
+        "--no-live",
+        action="store_true",
+        help="skip the suite's live program (run by default after the triggers, then monitored again)",
     )
     for add in (_fail_fast, _secret_env, _profile, _latch, _report, _dry_run, _common):
         add(c)

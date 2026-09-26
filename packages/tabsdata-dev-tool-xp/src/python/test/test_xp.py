@@ -746,3 +746,146 @@ def test_a_watch_that_reached_the_server_restarts_the_outage_clock(
     watched = _fake_monitor(monkeypatch, [*outage, (60, 1), *outage, (5, 0)])
     rc, _ = _monitor_events(capsys)
     assert rc == 0 and watched[-1] == 0
+
+
+LIVE = [
+    {
+        "repeat": 3,
+        "sleep": 2,
+        "steps": [
+            {"command": "create-data", "domain": "world"},
+            {
+                "repeat": 10,
+                "steps": [
+                    {"sleep": 1},
+                    {
+                        "command": "modify-data",
+                        "domain": "world",
+                        "options": {"entity": "city", "ops": "Insert", "sets": 5},
+                    },
+                    {"command": "modify-data", "domain": ["world", "fs"]},
+                ],
+            },
+            {"command": "delete-data", "domain": "world"},
+            {"command": "delete-model", "domain": "world"},
+            {"command": "create-model", "domain": "world", "options": {"force": True}},
+        ],
+    }
+]
+
+
+def _live_suite(xp_root, live=LIVE):
+    path = xp_root / "suites" / "live" / "one.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({**SUITE, "live": live}))
+    return path
+
+
+def test_a_live_program_counts_its_calls_through_every_loop(xp_root):
+    from tabsdata_dev.tool.xp import live
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    inst = build_instance("i", _live_suite(xp_root))
+    # 3 x (create-data + 10 x (1 + 2 domains) + delete-data + delete-model + create-model)
+    assert live.count(inst.live) == 3 * (1 + 10 * 3 + 3)
+
+
+@pytest.mark.parametrize(
+    "step, why",
+    [
+        ({"command": "destroy", "domain": "world"}, "is not one of"),
+        ({"command": "modify-data", "domain": "nope"}, "does not define: nope"),
+        ({"command": "modify-data"}, "needs a 'domain'"),
+        ({"command": "modify-data", "domain": "world", "steps": []}, "not both"),
+        (
+            {"command": "modify-data", "domain": "world", "options": {"--format": "x"}},
+            "set by xp itself: format",
+        ),
+        ({"steps": [], "repeat": 0}, "repeat must be >= 1"),
+        ({"domain": "world"}, "belong to a step with a 'command'"),
+        ({}, "needs a 'command', 'steps' or a 'sleep'"),
+    ],
+)
+def test_a_live_program_is_refused_when_the_suite_is_read(xp_root, step, why):
+    from tabsdata_dev.tool.xp import state
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    with pytest.raises(state.XpError, match=why):
+        build_instance("i", _live_suite(xp_root, [{"steps": [step]}]))
+
+
+def test_dry_run_live_domains_prints_the_program_in_order(xp_root, capsys):
+    _live_suite(xp_root)
+    assert (
+        _run(
+            [
+                "create-instance",
+                "--suite",
+                "live/one",
+                *_suites_dir(xp_root),
+                "--instance",
+                "i",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    rc = _run(["live-domains", "--instance", "i", "--dry-run"])
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    lines = [ln for ln in out.splitlines() if ln.startswith(("tdd ", "sleep "))]
+    first = lines[: lines.index("tdd domain delete-model --domain i_world") + 2]
+    # create-data takes the size the suite declares (s = x10), create-model its model
+    assert first[0] == "tdd domain create-data --domain i_world --size 10"
+    assert first[1] == "sleep 1"
+    assert (
+        first[2]
+        == "tdd domain modify-data --domain i_world --entity city --ops Insert --sets 5"
+    )
+    assert first[3:5] == [
+        "tdd domain modify-data --domain i_world",
+        "tdd domain modify-data --domain i_fs",
+    ]
+    assert first[5] == "sleep 1"  # the inner loop's next pass
+    assert first[-3:] == [
+        "tdd domain delete-data --domain i_world",
+        "tdd domain delete-model --domain i_world",
+        "tdd domain create-model --domain i_world --force --model world",
+    ]
+    # the outer loop pauses between its passes (sleep 2), never after the last
+    assert lines[len(first)] == "sleep 2"
+    assert lines.count("sleep 2") == 2
+    assert lines[-1].startswith("tdd domain create-model")
+    assert len([ln for ln in lines if ln.startswith("tdd ")]) == 3 * 34
+    # each call is a step, labelled with the pass it ran in
+    assert "modify-data" in err and "1/3.10/10" in err
+
+
+def test_one_shot_runs_the_live_program_after_the_triggers_unless_told_not_to(
+    xp_root, capsys
+):
+    _live_suite(xp_root, [{"command": "modify-data", "domain": "world"}])
+
+    def lines(*extra):
+        rc = _run(
+            [
+                "one-shot",
+                "--suite",
+                "live/one",
+                *_suites_dir(xp_root),
+                "--project",
+                "p",
+                "--dry-run",
+                *extra,
+            ]
+        )
+        out, err = capsys.readouterr()
+        assert rc == 0, err
+        return [ln for ln in out.splitlines() if ln.startswith("tdd ")]
+
+    ran = lines()
+    live_at = ran.index("tdd domain modify-data --domain p_world")
+    monitors = [i for i, ln in enumerate(ran) if ln.startswith("tdd tdk trx list")]
+    # watched once for the triggers, then again for what the changes started
+    assert monitors[0] < live_at < monitors[1]
+    assert "tdd domain modify-data --domain p_world" not in lines("--no-live")

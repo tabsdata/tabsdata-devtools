@@ -12,7 +12,7 @@ provision domains, create the project, register functions and triggers, run, che
 
 - Toolset `systems`; depends on `deps-systems` (pydantic, pyyaml), `common-core`. Modules:
   `state`, `reporter`, `models`, `suites`, `pointers`, `shell`, `conn`, `lanes`, `domains`,
-  `project`, `cycle`.
+  `project`, `live`, `cycle`.
 - The tabsdata-xp `suites/` and `connections/` trees are **carried by** the package and are the
   default. They live at `<repo>/xp-tool/` (excluded from ruff), where they are read and edited,
   and a wheel build copies them in beside the module (`force-include`); an editable install
@@ -30,7 +30,8 @@ provision domains, create the project, register functions and triggers, run, che
   under `/tmp/tdd-xp/`.
 - Verbs, in the order a run uses them: `list-suites`/`list-systems`/`export-suites`;
   `create-instance`, `create-domains`, `create-project`, `run-project`, `monitor-project`, and
-  the matching `destroy-domains`/`destroy-project`/`destroy-instance`; `list-instances` and
+  `live-domains`, and the matching `destroy-domains`/`destroy-project`/`destroy-instance`;
+  `list-instances` and
   `list-projects` over the pointer store; `one-shot` and `bench` over the whole cycle. Every
   phase is a verb of its own so a failed run can be resumed at the phase that failed rather than
   from the beginning.
@@ -68,6 +69,35 @@ provision domains, create the project, register functions and triggers, run, che
   --conn-file -` -- a credential is never written to disk. `${D<n>__KEY}`, in a template or in a
   function's source, interpolates plain, for a value that is a name rather than a secret (the D0
   domain's in-system name, say).
+
+## Live domains
+
+A suite may carry a `live` program: the `tdd domain` data verbs (`create-model`, `create-data`,
+`modify-data`, `delete-data`, `delete-model` -- never `create`/`destroy`, the domain's lifecycle
+is xp's) run against its domains while the project is up, so a stream publisher or a
+re-triggered publisher sees its source change the way a real one does. A step is a command
+(`{"command", "domain": NAME|[NAMES], "options": {"sets": 5}}`), a pause (`{"sleep": S}`) or a
+group (`{"steps": [...]}`); a command or group may `repeat` N times with `sleep` S seconds
+between two passes, never after the last, which is how loops nest. `options` are the verb's own
+long options without the dashes (`true` a bare flag, `false` left out); `--domain`, `--format`
+and `--latch` are xp's and refused. `create-model`/`create-data` default `--model`/`--size` to
+what the suite's domain declares, so a program that deletes and reloads says only what it
+changes.
+
+- **Validated when the suite is read**, like the rest of it: an unknown verb, a domain the suite
+  does not define, a step that is both a command and a group -- `create-instance` refuses, not
+  pass 7 of a loop 20 minutes in.
+- **Every call is one step, in program order**, labelled with the pass it ran in (`2/3.7/10`); a
+  command naming several domains runs one call per domain in parallel. The first failure stops
+  the program: the next pass would only run against a domain in a state nobody chose. Under
+  `--dry-run` the program prints as it would run, the pauses as `sleep S` lines, so the output
+  is a paste-ready script.
+- **`one-shot` runs it by default** after the triggers have been watched, then watches again for
+  the transactions the changes started (`--no-live` skips both). The second watch sees what has
+  started when it begins: a stream that buffers its changes needs the program to end with a
+  `sleep` long enough for the last flush. `live-domains --instance I` runs it on its own, over
+  a group's lanes too; `bench` does not run it -- its phases are timings, and a program's pauses
+  would be what they measured.
 
 ## Suites, lanes and pointers
 

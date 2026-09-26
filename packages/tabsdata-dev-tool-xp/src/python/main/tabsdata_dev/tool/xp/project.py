@@ -749,6 +749,27 @@ def cmd_monitor_project(args) -> None:
         args.project,
         suite=pointers.suite_of_project(args.project),
     ):
+        members = pointers.project_group(args.project)
+        if members is not None:
+            lanes.dispatch(
+                f"monitor-project group '{args.project}'",
+                [
+                    (
+                        m,
+                        lanes.child_argv(
+                            "monitor-project",
+                            "--project",
+                            m,
+                            *shell.profile_flag(),
+                            *shell.dry_flag(),
+                        ),
+                    )
+                    for m in members
+                ],
+                phase="monitor",
+                base=args.project,
+            )
+            return
         rep().plan(1)
         with rep().step("monitor", args.project):
             monitor_trx(args.project)
