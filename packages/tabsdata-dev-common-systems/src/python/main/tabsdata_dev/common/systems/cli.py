@@ -298,6 +298,17 @@ def add_dry_run(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_emit_changes(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        constants.OPT_EMIT_CHANGES,
+        dest="emit_changes",
+        default=None,
+        metavar="FILE",
+        help="write the operations to FILE, one JSON line each, instead of "
+        "applying them; the system and the descriptor are not touched",
+    )
+
+
 def add_latch(parser: argparse.ArgumentParser) -> None:
     # Parsed here so the flag is accepted; the dispatcher reads it from raw argv.
     parser.add_argument(

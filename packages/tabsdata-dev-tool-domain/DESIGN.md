@@ -49,6 +49,12 @@ manifests so a test suite gets the same data on every backend.
   current count, and a Mix pass (one row and one seed more) deleted the same row forever. The
   walk assumes the domain's earlier passes were consecutive seeds of the same shape, which is
   what AUTO produces; a descriptor from before `seeded` bounds by its current counts.
+- **`--emit-changes FILE` plans without applying.** `create-data` and `modify-data` write
+  the operations they would run as CDC-style JSON lines (`domain`, `txn`, `op`, `entity`, then
+  `row` for an insert, `key` + `set` for an update, `key` for a delete) and never reach the
+  system. The descriptor is not touched either: nothing changed, so `--seed AUTO` does not
+  advance and `create-data` needs no `--force`. One file is one domain, so a batch is refused;
+  salesforce refuses it, its records existing only inside the load.
 - **The long verbs are waitable.** `create`, `destroy`, `create-model`, `create-data`,
   `modify-data`, `delete-data` and `delete-model` take `--latch FILE`, and their chatty detail goes to `/tmp/tdd-domain-<verb>-...`
   while the console keeps to brief progress.

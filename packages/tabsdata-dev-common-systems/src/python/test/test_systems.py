@@ -1464,3 +1464,90 @@ def test_mix_passes_delete_a_distinct_row_each_and_update_only_live_ones():
                     alive.discard(key)
                     deleted.append(key)
     assert len(deleted) == len(set(deleted)) == 99  # seeds 1..99; then exhausted
+
+
+def test_emit_changes_writes_cdc_lines_and_touches_nothing(tmp_path, monkeypatch):
+    """`--emit-changes` plans what create-data / modify-data would do and
+    writes it as JSON lines: the backend is never called and the descriptor
+    keeps its seed and counts, so AUTO repeats the same plan. create-data needs
+    no --force on a domain that already has data, since it replaces nothing."""
+    import argparse
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.common.systems import cli, console, descriptor
+    from tabsdata_dev.common.systems.systems._common.commands import (
+        dom_create_data,
+        dom_modify_data,
+    )
+
+    console.bind(render.Renderer(constants.DOM_TOOL))
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-test-secret-long-enough")
+    path = tmp_path / "d1"
+    descriptor.write_domain(
+        path, "postgres", "d1", sys_name="pg", external_name="d1", meta={"DB": "d1"}
+    )
+    model = "employees"
+    descriptor.set_model(path, model, datagen.entities_of(model))
+    descriptor.record_data(path, "1", {"employees": 100, "departments": 9})
+    before = path.read_bytes()
+
+    class Untouchable:
+        def __getattr__(self, name):
+            raise AssertionError(f"dry run reached the system: {name}")
+
+    def run(mod, verb, dest, **opts):
+        args = argparse.Namespace(emit_changes=str(dest), **opts)
+        return mod.run(
+            cli.Context(
+                tool=constants.DOM_TOOL,
+                verb=verb,
+                slug="postgres",
+                system=Untouchable(),  # type: ignore[arg-type]
+                args=args,
+                name="d1",
+                info=descriptor.load(path),
+                path=path,
+                store_dir=tmp_path,
+            )
+        )
+
+    def lines(dest):
+        return [json.loads(x) for x in dest.read_text().splitlines()]
+
+    initial = tmp_path / "out" / "initial.jsonl"
+    rc = run(dom_create_data, constants.V_CREATE_DATA, initial, size=1, force=False)
+    assert rc == 0
+    rows = lines(initial)
+    assert rows and {r["op"] for r in rows} == {"insert"}
+    assert {r["txn"] for r in rows} == {0} and {r["domain"] for r in rows} == {"d1"}
+    assert all(set(r) == {"domain", "txn", "op", "entity", "row"} for r in rows)
+
+    opts = dict(entity="ALL", sets=3, ops="Mix", seed="AUTO")
+    first, second = tmp_path / "m1.jsonl", tmp_path / "m2.jsonl"
+    assert run(dom_modify_data, constants.V_MODIFY_DATA, first, **opts) == 0
+    assert run(dom_modify_data, constants.V_MODIFY_DATA, second, **opts) == 0
+    assert first.read_bytes() == second.read_bytes()  # AUTO did not advance
+    changes = lines(first)
+    assert [r["txn"] for r in changes] == sorted(r["txn"] for r in changes)
+    by_op = {r["op"]: r for r in changes}
+    assert set(by_op) == {"insert", "update", "delete"}
+    assert set(by_op["update"]) == {"domain", "txn", "op", "entity", "key", "set"}
+    assert set(by_op["delete"]) == {"domain", "txn", "op", "entity", "key"}
+    assert path.read_bytes() == before
+
+
+def test_emit_changes_refuses_a_batch(small_store, capsys):
+    """One file, many children: the last writer would win, so a batch is refused
+    before any child starts."""
+    rc, events = _run_json(
+        capsys,
+        constants.DOM_TOOL,
+        constants.V_MODIFY_DATA,
+        "--domain",
+        "a,b",
+        "--emit-changes",
+        "x.jsonl",
+    )
+    assert rc == 1 and small_store == []
+    error = [e for e in events if e["event"] == "error"][0]
+    assert "--emit-changes takes a single --domain" in error["message"]

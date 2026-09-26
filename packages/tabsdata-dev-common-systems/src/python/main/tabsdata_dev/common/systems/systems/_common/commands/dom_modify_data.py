@@ -9,6 +9,11 @@ transactions; ``--entity NAME`` applies ``--sets`` rows to that one entity.
 ``--seed N`` is reproducible; ``--seed AUTO`` continues from the last seed (last
 + 1). Insert ordinals derive from the seed, so the same op/set/seed sequence is
 repeatable.
+
+``--emit-changes FILE`` writes the planned operations as CDC-style JSON lines
+instead of applying them. Neither the system nor the descriptor is touched, so
+``--seed AUTO`` does not advance and the same dry run repeats what the next real
+run would do.
 """
 
 from __future__ import annotations
@@ -56,6 +61,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         metavar="N|AUTO",
         help="seed number, or AUTO to continue from the last (default AUTO)",
     )
+    cli.add_emit_changes(parser)
     cli.add_latch(parser)
 
 
@@ -135,9 +141,15 @@ def run(ctx: cli.Context) -> int:
     # `target` addresses seeded rows. A descriptor from before `seeded` was
     # recorded falls back to its current counts.
     txns = datagen.plan(model_obj, spec, info.seeded or counts)
-    with sysobj.data_plane_uri(info.meta) as uri:
-        new_entities = sysobj.apply_changes(uri, txns, counts)
-    descriptor.record_changes(ctx.path, new_entities, seed=seed if auto else None)
+    dest = a.emit_changes
+    if dest:
+        assert ctx.name is not None
+        lines = datagen.write_cdc(dest, ctx.name, txns)
+        new_entities: dict[str, int] = {}
+    else:
+        with sysobj.data_plane_uri(info.meta) as uri:
+            new_entities = sysobj.apply_changes(uri, txns, counts)
+        descriptor.record_changes(ctx.path, new_entities, seed=seed if auto else None)
     applied = len(txns)
     summary = datagen.op_counts(txns)
     if json_mode:
@@ -151,10 +163,17 @@ def run(ctx: cli.Context) -> int:
         }
         console.result(report)
     else:
-        console.good(
-            f"applied {applied} change set(s) [{ops.value}] seed={seed} "
-            f"to domain '{ctx.name}'"
-        )
+        if dest:
+            console.good(
+                f"wrote {applied} change set(s) [{ops.value}] seed={seed} for "
+                f"domain '{ctx.name}', {lines} operation(s), to {dest} -- "
+                f"nothing applied"
+            )
+        else:
+            console.good(
+                f"applied {applied} change set(s) [{ops.value}] seed={seed} "
+                f"to domain '{ctx.name}'"
+            )
         if summary:
             width = max(len(t) for t in summary)
             for table, per in summary.items():

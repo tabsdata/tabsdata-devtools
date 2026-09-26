@@ -361,6 +361,73 @@ def _where_sql(where: dict, cols: dict[str, Column], quote: str) -> str:
 
 
 # ======================================================================
+# Rendering — CDC lines (--emit-changes)
+# ======================================================================
+
+
+def cdc_line(domain: str, txn: int, change: Change) -> dict:
+    """One change as a CDC-style record: ``op`` and ``entity`` always, then
+    ``row`` for an INSERT, ``key`` + ``set`` for an UPDATE, ``key`` for a DELETE.
+    An INSERT carries every value the model generated, ``auto`` columns
+    included, as a file load does: the surrogate keys are what later changes
+    and other entities refer to."""
+    out: dict = {
+        "domain": domain,
+        "txn": txn,
+        "op": change.kind.value,
+        "entity": change.table,
+    }
+    if change.kind is OpKind.INSERT:
+        assert change.row is not None
+        out["row"] = {
+            c.name: change.row[c.name] for c in change.columns if c.name in change.row
+        }
+    else:
+        out["key"] = change.where
+        if change.kind is OpKind.UPDATE:
+            out["set"] = change.set_values
+    return out
+
+
+def initial_changes(tables: list[Table]) -> Transaction:
+    """A create-data load as one transaction of INSERTs, in load order."""
+    return [
+        Change(OpKind.INSERT, t.name, t.columns, row=row)
+        for t in tables
+        for row in t.rows
+    ]
+
+
+def _json_value(v):
+    # Dates and times as ISO strings; Decimal (and anything else a model mints)
+    # as its string, so a value keeps its precision rather than becoming a float.
+    if hasattr(v, "isoformat"):
+        return v.isoformat()
+    return str(v)
+
+
+def write_cdc(path: str | Path, domain: str, transactions: list[Transaction]) -> int:
+    """Write `transactions` to `path` as JSON lines, one per change, numbering
+    the transactions from 0 in order. The file is written whole or not at all
+    (a temporary file and one rename). Returns the number of lines."""
+    dest = Path(path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f".{dest.name}.tmp")
+    lines = 0
+    try:
+        with tmp.open("w", encoding="utf-8") as f:
+            for txn, changes in enumerate(transactions):
+                for ch in changes:
+                    record = cdc_line(domain, txn, ch)
+                    f.write(json.dumps(record, default=_json_value) + "\n")
+                    lines += 1
+        tmp.replace(dest)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return lines
+
+
+# ======================================================================
 # Model discovery / loading
 # ======================================================================
 
