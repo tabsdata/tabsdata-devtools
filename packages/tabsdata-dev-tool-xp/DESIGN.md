@@ -5,8 +5,10 @@ Copyright 2026 Tabsdata Inc.
 # xp
 
 `tdd xp`: tabsdata-xp's `tdx-xp` ported -- run the example suites end to end against a tdkserver:
-provision domains, create the project, register functions and triggers, run, check, tear down;
-`one-shot` does the cycle, `bench` times it, `--dry-run` prints the `tdd tdk`/`tdd domain` lines.
+a suite is an ordered list of stages -- provision domains, create collections, register
+functions, fire triggers, watch, change the data live -- that `run-suite` runs in order;
+`one-shot` creates the instance, runs it and tears down, `bench` times the phases, `--dry-run`
+prints the `tdd tdk`/`tdd domain` lines.
 
 ## Shape
 
@@ -28,13 +30,14 @@ provision domains, create the project, register functions and triggers, run, che
   and those launchers declare the binaries themselves -- the requirement belongs to the
   command that runs the program. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run
   under `/tmp/tdd-xp/`.
-- Verbs, in the order a run uses them: `list-suites`/`list-systems`/`export-suites`;
-  `create-instance`, `create-domains`, `create-project`, `run-project`, `monitor-project`, and
-  `live-domains`, and the matching `destroy-domains`/`destroy-project`/`destroy-instance`;
-  `list-instances` and
-  `list-projects` over the pointer store; `one-shot` and `bench` over the whole cycle. Every
-  phase is a verb of its own so a failed run can be resumed at the phase that failed rather than
-  from the beginning.
+- Verbs: `list-suites`/`list-systems`/`export-suites`; `create-instance`; `run-suite` (the
+  stages in order); the phase verbs `create-domains`, `create-project`, `run-project`,
+  `monitor-project`, `live-domains`, each over every stage of its kind, and the matching
+  `destroy-domains`/`destroy-project`/`destroy-instance`; `enable-function`/`disable-function`;
+  `list-instances` and `list-projects` over the pointer store; `one-shot` and `bench` over the
+  whole cycle. The phase verbs stay so a failed run can be finished or taken apart by hand;
+  `run-suite` is safe to run again -- a domain or collection that exists is left alone, a
+  function is registered with `--update`.
 
 ## How it works
 
@@ -47,7 +50,7 @@ provision domains, create the project, register functions and triggers, run, che
   connection. tdk attaches `--profile` to every command, not to the root group -- `tdk --profile
   P login` is refused, `tdk login --profile P` works -- so `shell.tdk_argv`, which builds every
   tdk argv, appends it last, past the verb; no call can miss it or misplace it; the verbs that reach tdk (`create-`/`destroy-`/`run-`/`monitor-project`,
-  `one-shot`, `bench`) take it and hand it to their fan-out children. The domain verbs never
+  `run-suite`, `enable-`/`disable-function`, `one-shot`, `bench`) take it and hand it to their fan-out children. The domain verbs never
   reach tdk and do not take it.
 - **The domains phase is one call, not a loop**: xp writes a manifest into its scratch dir and
   hands it to `tdd domain create --manifest`, the toolkit's own batch entry point, which runs
@@ -70,9 +73,52 @@ provision domains, create the project, register functions and triggers, run, che
   function's source, interpolates plain, for a value that is a name rather than a secret (the D0
   domain's in-system name, say).
 
+## Suite stages
+
+A suite is an ordered **list of stages**, each an object holding one of `domains`,
+`collections`, `functions`, `triggers`, `monitor` (`true`) or `live`, with an optional `_comment`
+(an object holding only one is a comment). Kinds repeat, in any order the dependencies allow:
+
+```
+[
+  {"domains": [...]},
+  {"live": [{"name": "churn", "blocking": false, ...}]},
+  {"collections": [...]},
+  {"functions": [{"collection": "c", "functionpath": "...", "enabled": false}]},
+  {"triggers": [...]},
+  {"monitor": true},
+  {"live": [{"name": "settle", "wait": ["churn"]}]}
+]
+```
+
+- **`run-suite` runs them in order**, one-shot through it: a domains stage is one `tdd domain
+  create --manifest` of its own (`domains-<n>.yaml`), the project is created before the first
+  stage that talks to it, collections in parallel, functions serial, triggers in their gated
+  batches, a monitor stage watches until the transactions finish. A live stage's background
+  entries keep running through the stages after it -- the point of ordering: data changing
+  while a collection is created or a stream publisher takes its initial snapshot -- and a later
+  live stage may wait for them; the suite's end waits for whatever still runs, and a stage that
+  fails stops them.
+- **Checked when the suite is read**, besides each kind's own checks: exactly one kind per
+  stage, and nothing named from a *later* stage -- a collection's domains, a function's
+  collection, a live entry's domain. A name defined nowhere is left to the stage that uses it.
+  Stage numbers in messages count every entry of the list, comments included: the number a
+  reader counts to in the file.
+- **The older single object still reads**, as the stages it always ran: domains, collections,
+  functions, triggers, monitor, and live then monitor when it has a live script. The 121
+  built-in suites stay in it -- they mirror tabsdata-xp, and each reads as exactly what it ran.
+- **The phase verbs take every stage of their kind** (`create-domains` all domains stages,
+  `live-domains` all live stages as one script); `bench` runs the phases in lockstep across its
+  lanes and ignores the order. A suite dir under `run-suite` or one-shot is one lane per
+  definition, each running its own stages -- lanes no longer move in lockstep.
+- **`"enabled": false`** on a function registers it with `tdk fn register --disabled`: a stream
+  publisher does not start until `enable-function --project P --collection C --function F`
+  (tdk's `fn enable`); `disable-function` stops one. A group project is refused -- its lanes'
+  functions are each their own.
+
 ## Live domains
 
-A suite may carry a `live` script: the `tdd domain` data verbs (`create-model`, `create-data`,
+A suite's `live` stages hold a script: the `tdd domain` data verbs (`create-model`, `create-data`,
 `modify-data`, `delete-data`, `delete-model` -- never `create`/`destroy`, the domain's lifecycle
 is xp's) run against its domains while the project is up, so a stream publisher or a
 re-triggered publisher sees its source change the way a real one does. Every entry has a `name`
@@ -116,12 +162,13 @@ its end waits for what still runs, so nothing outlives the loop that started it,
   goes to the background, ends or is waited for as `#` comments. A shell rendering with
   subshells was the first version and was dropped with nested waits: a subshell cannot `wait` on
   a pid its parent started.
-- **`one-shot` runs it by default** after the triggers have been watched, then watches again for
-  the transactions the changes started (`--no-live` skips both). The second watch sees what has
-  started when it begins: a stream that buffers its changes needs the script to end with a
-  `sleep_secs` long enough for the last flush. `live-domains --instance I` runs it on its own,
-  over a group's lanes too; `bench` does not run it -- its phases are timings, and a script's
-  pauses would be what they measured.
+- **Where it runs is the suite's stage order**: a `live` stage wherever the list puts it (the
+  older single object puts it after the triggers' watch, followed by another watch). `--no-live`
+  skips every live stage. A monitor stage sees what has started when it begins: a stream that
+  buffers its changes needs the live stage before it to end with a `sleep_secs` long enough for
+  the last flush. `live-domains --instance I` runs every live stage as one script, over a group's
+  lanes too; `bench` does not run it -- its phases are timings, and a script's pauses would be
+  what they measured.
 
 ## Suites, lanes and pointers
 

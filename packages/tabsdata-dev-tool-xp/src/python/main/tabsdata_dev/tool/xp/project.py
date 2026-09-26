@@ -313,127 +313,183 @@ def cmd_create_project(args) -> None:
             return
         shell.require_login()
         inst = pointers.load_instance(args.instance)
-        # Custom collection groups must exist before a collection can be assigned.
-        groups = sorted(
-            {c.group for c in inst.collections if c.group not in BUILTIN_GROUPS}
-        )
-        rep().plan(1 + len(groups) + len(inst.collections) + len(inst.functions))
-
-        with rep().step("create-project", args.project) as step:
-            if shell.project_exists(args.project):
-                step["note"] = "exists"
-            else:
-                shell.tdk(
-                    [
-                        "project",
-                        "create",
-                        "--name",
-                        args.project,
-                        "--description",
-                        f"{inst.type} suite ({inst.name})",
-                    ],
-                    want_json=False,
-                )
-
-        def _create_group(g):
-            with rep().step("create-group", f"{args.project}/{g}") as step:
-                r = shell.tdk(
-                    ["group", "create", "--proj", args.project, "--name", g],
-                    want_json=False,
-                    check=False,
-                )
-                if r.returncode != 0:
-                    step["note"] = "exists"
-
-        have = shell.collection_names(args.project)
-
-        def _create_collection(c):
-            with rep().step("create-collection", f"{args.project}/{c.name}") as step:
-                if c.name in have:
-                    step["note"] = "exists"
-                    return
-                cmd = [
-                    "collection",
-                    "create",
-                    "--proj",
-                    args.project,
-                    "--name",
-                    c.name,
-                    "--group",
-                    c.group,
-                ]
-                conn_yaml = None
-                # Compute-only (transformer) collections have no template: created
-                # connection-less (the group must not be sources/destinations).
-                if c.connection_template:
-                    template = inst.conn_template_path(c.connection_template)
-                    if not template.exists():
-                        state.die(f"connection template not found: {template}")
-                    cmd += ["--conn-file", "-"]
-                    # Under --dry-run skip secret resolution entirely (it would read
-                    # the domain descriptors and could print resolved values).
-                    if not state.run.dry_run:
-                        conn_yaml = conn.prepare_conn(
-                            template, shell.collection_descriptor(inst, c)
-                        )
-                shell.tdk(cmd, want_json=False, stdin_text=conn_yaml)
-                step["note"] = c.type
-
-        lanes.parallel(groups, _create_group)
-        lanes.parallel(inst.collections, _create_collection)
-
-        # Functions stay SERIAL: inter-function dependencies require order.
-        by_name = {c.name: c for c in inst.collections}
-        bags: dict[str, dict] = {}
-
-        def _values(coll: str) -> dict:
-            if coll not in bags:
-                c = by_name.get(coll)
-                if c is None:
-                    state.die(f"function names unknown collection {coll!r}")
-                bags[coll] = {
-                    **os.environ,
-                    **{
-                        k: str(v)
-                        for k, v in shell.collection_descriptor(inst, c).items()
-                        if v is not None
-                    },
-                }
-            return bags[coll]
-
-        for f in inst.functions:
-            # The step names the FUNCTION: the ::symbol when the path selects one,
-            # else the file (tdx-xp showed the file stem for both).
-            fn = (
-                f.functionpath.split("::", 1)[1]
-                if "::" in f.functionpath
-                else pathlib.Path(conn.fn_file(f.functionpath)).stem
-            )
-            with rep().step("register-fn", f"{args.project}/{f.collection}/{fn}"):
-                if f.local_pkg:
-                    state.die(
-                        f"function {f.collection}:{fn} sets local_pkg, but tdk's `fn register --local-pkg` is disabled -- bundle via dir_to_bundle instead"
-                    )
-                path, bundle = conn.render_function(
-                    inst, f, lambda coll=f.collection: _values(coll)
-                )
-                cmd = [
-                    "fn",
-                    "register",
-                    "--update",
-                    "--proj",
-                    args.project,
-                    "--coll",
-                    f.collection,
-                    "--path",
-                    path,
-                ]
-                if bundle:
-                    cmd += ["--dir-to-bundle", bundle]
-                shell.tdk(cmd, want_json=False)
-
         pointers.write_project(args.project, args.instance)
+        ensure_project(inst, args.project)
+        create_collections(inst, args.project, inst.collections)
+        register_functions(inst, args.project, inst.functions)
         rep().note(f"project pointer {pointers.project_file(args.project)} written")
+
+
+# ------------------------------------------------------------- stages ----
+# One per kind of suite stage, over the entries that stage holds: the phase
+# verbs call them over every entry of their kind, run-suite over each stage in
+# order.
+def ensure_project(inst, project: str) -> None:
+    rep().plan(1)
+    with rep().step("create-project", project) as step:
+        if shell.project_exists(project):
+            step["note"] = "exists"
+        else:
+            shell.tdk(
+                [
+                    "project",
+                    "create",
+                    "--name",
+                    project,
+                    "--description",
+                    f"{inst.type} suite ({inst.name})",
+                ],
+                want_json=False,
+            )
+
+
+def create_collections(inst, project: str, collections: list) -> None:
+    # Custom collection groups must exist before a collection can be assigned.
+    groups = sorted({c.group for c in collections if c.group not in BUILTIN_GROUPS})
+    rep().plan(len(groups) + len(collections))
+
+    def _create_group(g):
+        with rep().step("create-group", f"{project}/{g}") as step:
+            r = shell.tdk(
+                ["group", "create", "--proj", project, "--name", g],
+                want_json=False,
+                check=False,
+            )
+            if r.returncode != 0:
+                step["note"] = "exists"
+
+    have = shell.collection_names(project)
+
+    def _create_collection(c):
+        with rep().step("create-collection", f"{project}/{c.name}") as step:
+            if c.name in have:
+                step["note"] = "exists"
+                return
+            cmd = [
+                "collection",
+                "create",
+                "--proj",
+                project,
+                "--name",
+                c.name,
+                "--group",
+                c.group,
+            ]
+            conn_yaml = None
+            # Compute-only (transformer) collections have no template: created
+            # connection-less (the group must not be sources/destinations).
+            if c.connection_template:
+                template = inst.conn_template_path(c.connection_template)
+                if not template.exists():
+                    state.die(f"connection template not found: {template}")
+                cmd += ["--conn-file", "-"]
+                # Under --dry-run skip secret resolution entirely (it would read
+                # the domain descriptors and could print resolved values).
+                if not state.run.dry_run:
+                    conn_yaml = conn.prepare_conn(
+                        template, shell.collection_descriptor(inst, c)
+                    )
+            shell.tdk(cmd, want_json=False, stdin_text=conn_yaml)
+            step["note"] = c.type
+
+    lanes.parallel(groups, _create_group)
+    lanes.parallel(collections, _create_collection)
+
+
+def fn_name(f) -> str:
+    """The FUNCTION a registration names: the ::symbol when the path selects
+    one, else the file (tdx-xp showed the file stem for both)."""
+    return (
+        f.functionpath.split("::", 1)[1]
+        if "::" in f.functionpath
+        else pathlib.Path(conn.fn_file(f.functionpath)).stem
+    )
+
+
+def register_functions(inst, project: str, functions: list) -> None:
+    """SERIAL: registration order is what the dependency graph is built from.
+    ``enabled: false`` registers disabled -- a stream publisher then does not
+    start until it is enabled."""
+    rep().plan(len(functions))
+    by_name = {c.name: c for c in inst.collections}
+    bags: dict[str, dict] = {}
+
+    def _values(coll: str) -> dict:
+        if coll not in bags:
+            c = by_name.get(coll)
+            if c is None:
+                state.die(f"function names unknown collection {coll!r}")
+            bags[coll] = {
+                **os.environ,
+                **{
+                    k: str(v)
+                    for k, v in shell.collection_descriptor(inst, c).items()
+                    if v is not None
+                },
+            }
+        return bags[coll]
+
+    for f in functions:
+        fn = fn_name(f)
+        with rep().step("register-fn", f"{project}/{f.collection}/{fn}") as step:
+            if f.local_pkg:
+                state.die(
+                    f"function {f.collection}:{fn} sets local_pkg, but tdk's `fn register --local-pkg` is disabled -- bundle via dir_to_bundle instead"
+                )
+            path, bundle = conn.render_function(
+                inst, f, lambda coll=f.collection: _values(coll)
+            )
+            cmd = [
+                "fn",
+                "register",
+                "--update",
+                "--proj",
+                project,
+                "--coll",
+                f.collection,
+                "--path",
+                path,
+            ]
+            if bundle:
+                cmd += ["--dir-to-bundle", bundle]
+            if not f.enabled:
+                cmd.append("--disabled")
+                step["note"] = "disabled"
+            shell.tdk(cmd, want_json=False)
+
+
+def fire_triggers(inst, project: str, triggers: list) -> None:
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    rep().plan(len(triggers))
+
+    def _trigger(t):
+        with rep().step("trigger-fn", f"{project}/{t.collection}/{t.function}") as step:
+            plan = plan_name(ts, inst.name, project, t.function)
+            cmd = [
+                "fn",
+                "trigger",
+                "--proj",
+                project,
+                "--coll",
+                t.collection,
+                "--name",
+                t.function,
+                "--plan-name",
+                plan,
+            ]
+            if t.detached:
+                cmd.append("--detach")
+            shell.tdk(cmd, want_json=False)
+            step["note"] = f"plan={plan}" + ("" if t.detached else ", gated")
+
+    for batch in trigger_batches(triggers):
+        lanes.parallel(batch, _trigger)
+
+
+def watch(project: str) -> None:
+    rep().plan(1)
+    with rep().step("monitor", project):
+        monitor_trx(project)
 
 
 def cmd_destroy_project(args) -> None:
@@ -709,36 +765,9 @@ def cmd_run_project(args) -> None:
             return
         shell.require_login()
         inst = pointers.load_instance(pointers.load_project(args.project))
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        rep().plan(len(inst.triggers) + (1 if monitor else 0))
-
-        def _trigger(t):
-            with rep().step(
-                "trigger-fn", f"{args.project}/{t.collection}/{t.function}"
-            ) as step:
-                plan = plan_name(ts, inst.name, args.project, t.function)
-                cmd = [
-                    "fn",
-                    "trigger",
-                    "--proj",
-                    args.project,
-                    "--coll",
-                    t.collection,
-                    "--name",
-                    t.function,
-                    "--plan-name",
-                    plan,
-                ]
-                if t.detached:
-                    cmd.append("--detach")
-                shell.tdk(cmd, want_json=False)
-                step["note"] = f"plan={plan}" + ("" if t.detached else ", gated")
-
-        for batch in trigger_batches(inst.triggers):
-            lanes.parallel(batch, _trigger)
+        fire_triggers(inst, args.project, inst.triggers)
         if monitor:
-            with rep().step("monitor", args.project):
-                monitor_trx(args.project)
+            watch(args.project)
 
 
 def cmd_monitor_project(args) -> None:
@@ -770,9 +799,51 @@ def cmd_monitor_project(args) -> None:
                 base=args.project,
             )
             return
+        watch(args.project)
+
+
+def _set_enabled(args, enabled: bool) -> None:
+    verb = "enable" if enabled else "disable"
+    with reporting(
+        args,
+        f"{verb}-function",
+        args.project,
+        suite=pointers.suite_of_project(args.project),
+    ):
+        if pointers.project_group(args.project) is not None:
+            state.die(
+                f"project '{args.project}' is a group: name one lane's project "
+                f"(`tdd xp list-projects`), whose functions are its own"
+            )
+        shell.require_login()
         rep().plan(1)
-        with rep().step("monitor", args.project):
-            monitor_trx(args.project)
+        path = f"{args.project}/{args.collection}/{args.function}"
+        with rep().step(f"{verb}-fn", path):
+            shell.tdk(
+                [
+                    "fn",
+                    verb,
+                    "--proj",
+                    args.project,
+                    "--coll",
+                    args.collection,
+                    "--name",
+                    args.function,
+                ],
+                want_json=False,
+            )
+
+
+def cmd_enable_function(args) -> None:
+    """Enable a registered function -- a stream publisher registered with
+    ``"enabled": false`` starts here. Enabling an enabled one does nothing."""
+    _set_enabled(args, True)
+
+
+def cmd_disable_function(args) -> None:
+    """Disable a registered function -- a stream publisher stops. Disabling a
+    disabled one does nothing."""
+    _set_enabled(args, False)
 
 
 def ns(**kw) -> argparse.Namespace:

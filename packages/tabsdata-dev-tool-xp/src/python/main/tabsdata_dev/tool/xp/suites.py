@@ -25,17 +25,22 @@ from importlib.resources import files
 
 from . import state
 
-SECTIONS = {"domains", "collections", "functions", "triggers"}
+SECTIONS = {"domains", "collections", "functions", "triggers", "monitor", "live"}
 
 
 def is_suite_def(path: pathlib.Path) -> bool:
-    """True if ``path`` is a suite-definition JSON (a dict carrying at least one
-    suite section) rather than some other JSON living in the dir."""
+    """True if ``path`` is a suite-definition JSON -- a list of stages, or the
+    older single object, carrying at least one suite section -- rather than
+    some other JSON living in the dir."""
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return False
-    return isinstance(doc, dict) and bool(SECTIONS & doc.keys())
+    if isinstance(doc, dict):
+        return bool(SECTIONS & doc.keys())
+    return isinstance(doc, list) and any(
+        isinstance(e, dict) and SECTIONS & e.keys() for e in doc
+    )
 
 
 def lane_files(directory: pathlib.Path) -> list[pathlib.Path]:

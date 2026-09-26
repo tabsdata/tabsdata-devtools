@@ -309,12 +309,13 @@ def test_a_fan_out_hands_the_profile_to_every_child_that_calls_tdk(
     verbs = {}
     for argv in children:
         verbs.setdefault(argv[argv.index("xp") + 1], []).append(argv)
-    for verb in ("create-project", "run-project", "destroy-project"):
+    # each lane runs its own stages through run-suite, which reaches tdk
+    for verb in ("run-suite", "destroy-project"):
         assert verbs[verb] and all(
             argv[argv.index("--profile") + 1] == "sm_a" for argv in verbs[verb]
         ), verb
     # the domain verbs never reach tdk and take no --profile
-    assert all("--profile" not in argv for argv in verbs["create-domains"])
+    assert all("--profile" not in argv for argv in verbs["destroy-domains"])
 
 
 def test_json_stream_carries_steps_and_ends_in_one_ok(xp_root, capsys):
@@ -1172,3 +1173,256 @@ def test_one_shot_runs_the_live_script_after_the_triggers_unless_told_not_to(
     # watched once for the triggers, then again for what the changes started
     assert monitors[0] < live_at < monitors[1]
     assert "tdd domain modify-data --domain p_world" not in lines("--no-live")
+
+
+STAGED = [
+    {"_comment": "a comment entry reads as nothing"},
+    {"domains": [{"name": "world", "system": "fs", "model": "world", "data": "s"}]},
+    {
+        "live": [
+            {"name": "early", "domain": _dom("world", "modify-data", "--ops", "Insert")}
+        ]
+    },
+    {
+        "collections": [
+            {
+                "name": "src",
+                "type": "local_file_in",
+                "connection_template": "connection-file:connections/local_file_in.yaml",
+                "group": "sources",
+                "domains": {"D0": "world"},
+            }
+        ]
+    },
+    {
+        "functions": [
+            {
+                "collection": "src",
+                "functionpath": "functions/f.py::pub",
+                "enabled": False,
+            }
+        ]
+    },
+    {"domains": [{"name": "fs", "system": "fs"}]},
+    {"triggers": [{"collection": "src", "function": "pub", "detached": True}]},
+    {"monitor": True},
+]
+
+
+def _staged_suite(xp_root, doc=STAGED):
+    path = xp_root / "suites" / "staged" / "one.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc))
+    return path
+
+
+def test_a_suite_is_an_ordered_list_of_stages(xp_root):
+    from tabsdata_dev.tool.xp import suites
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    path = _staged_suite(xp_root)
+    assert suites.is_suite_def(path)
+    inst = build_instance("i", path)
+    assert [s.kind for s in inst.stages] == [
+        "domains",
+        "live",
+        "collections",
+        "functions",
+        "domains",
+        "triggers",
+        "monitor",
+    ]
+    # every entry of a kind, across its stages, for the phase verbs
+    assert [d.name for d in inst.domains] == ["world", "fs"]
+    assert inst.functions[0].enabled is False
+
+
+def test_the_older_single_object_reads_as_the_stages_it_always_ran(xp_root):
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    inst = build_instance("i", xp_root / "suites" / "demo" / "one.json")
+    assert [s.kind for s in inst.stages] == [
+        "domains",
+        "collections",
+        "functions",
+        "triggers",
+        "monitor",
+    ]
+    live = {**SUITE, "live": [{"name": "b", "domain": _dom("world", "delete-data")}]}
+    inst = build_instance("i", _staged_suite(xp_root, live))
+    assert [s.kind for s in inst.stages][-2:] == ["live", "monitor"]
+
+
+@pytest.mark.parametrize(
+    "doc, why",
+    [
+        ("nope", "must be a JSON list of stages"),
+        (["nope"], "stage 1 is not a JSON object"),
+        (
+            [{"domains": [], "triggers": []}],
+            "exactly one of .* \\(has domains, triggers\\)",
+        ),
+        ([{"deploy": []}], "exactly one of"),
+        ([{"monitor": 5}], "monitor takes true"),
+        ([{"domains": {}}], "domains takes a list"),
+        (
+            [
+                {
+                    "collections": [
+                        {"name": "c", "type": "t", "group": "g", "domains": {"D0": "d"}}
+                    ]
+                },
+                {"domains": [{"name": "d", "system": "fs"}]},
+            ],
+            "collection 'c' names domain 'd', created by a later stage",
+        ),
+        (
+            [
+                {
+                    "functions": [
+                        {"collection": "c", "functionpath": "functions/f.py::x"}
+                    ]
+                },
+                {"collections": [{"name": "c", "type": "t", "group": "g"}]},
+            ],
+            "in collection 'c', created by a later stage",
+        ),
+        (
+            [
+                {"live": [{"name": "x", "domain": _dom("d", "delete-data")}]},
+                {"domains": [{"name": "d", "system": "fs"}]},
+            ],
+            "live entry 'x' names domain 'd', created by a later stage",
+        ),
+    ],
+)
+def test_a_list_suite_is_refused_when_it_is_read(xp_root, doc, why):
+    from tabsdata_dev.tool.xp import state
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    with pytest.raises(state.XpError, match=why):
+        build_instance("i", _staged_suite(xp_root, doc))
+
+
+def test_run_suite_runs_the_stages_in_the_order_listed(xp_root, capsys):
+    _staged_suite(xp_root)
+    rc = _run(
+        [
+            "create-instance",
+            "--suite",
+            "staged/one",
+            *_suites_dir(xp_root),
+            "--instance",
+            "i",
+        ]
+    )
+    assert rc == 0
+    capsys.readouterr()
+    rc = _run(["run-suite", "--instance", "i", "--project", "p", "--dry-run"])
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    lines = [ln for ln in out.splitlines() if ln.startswith("tdd ")]
+
+    def at(prefix):
+        return next(i for i, ln in enumerate(lines) if ln.startswith(prefix))
+
+    order = [
+        at("tdd domain create --manifest"),  # stage 1: world
+        at(
+            "tdd domain modify-data --domain i_world --ops Insert"
+        ),  # live, before the project
+        at("tdd tdk project create --name p"),  # the first project stage creates it
+        at("tdd tdk collection create --proj p --name src"),
+        at("tdd tdk fn register --update --proj p --coll src"),
+        at("tdd tdk fn trigger --proj p --coll src --name pub"),
+        at("tdd tdk trx list --proj p --monitor"),
+    ]
+    assert order == sorted(order)
+    # the second domains stage has a manifest of its own, between them
+    manifests = [
+        i for i, ln in enumerate(lines) if ln.startswith("tdd domain create --manifest")
+    ]
+    assert len(manifests) == 2 and order[4] < manifests[1] < order[5]
+    assert "domains-6.yaml" in lines[manifests[1]]
+    # "enabled": false registers it disabled
+    assert lines[order[4]].endswith(" --disabled")
+
+
+def test_a_live_stages_background_entries_run_through_later_stages(
+    xp_root, monkeypatch
+):
+    """A live stage returns with its non-blocking entries still running; a
+    later live stage waits for them by name; the suite's end waits for the
+    rest."""
+    import threading
+
+    from tabsdata_dev.tool.xp import live
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    released = threading.Event()
+    done: list[str] = []
+
+    def call(argv, action, path, where):
+        if where == "bg":
+            assert released.wait(5)
+        done.append(where)
+
+    monkeypatch.setattr(live, "_call", call)
+    doc = [
+        {"domains": [{"name": "world", "system": "fs"}]},
+        {
+            "live": [
+                {
+                    "name": "bg",
+                    "blocking": False,
+                    "domain": _dom("world", "modify-data"),
+                }
+            ]
+        },
+        {
+            "live": [
+                {"name": "settle", "wait": ["bg"]},
+                {"name": "after", "domain": _dom("world", "delete-data")},
+            ]
+        },
+    ]
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import state
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    inst = build_instance("i", _staged_suite(xp_root, doc))
+    session = live.Session(inst)
+    session.stage(inst.stages[1].live)  # returns while bg still runs
+    assert done == []
+    released.set()  # a stage in between, running beside it
+    session.stage(inst.stages[2].live)
+    session.finish()
+    assert done == ["bg", "after"]
+
+
+def test_enable_and_disable_a_registered_function(xp_root, capsys):
+    from tabsdata_dev.tool.xp import pointers
+
+    for verb in ("enable", "disable"):
+        rc = _run(
+            [
+                f"{verb}-function",
+                "--project",
+                "p",
+                "--collection",
+                "src",
+                "--function",
+                "pub",
+                "--dry-run",
+                "--profile",
+                "sm_a",
+            ]
+        )
+        out, err = capsys.readouterr()
+        assert rc == 0, err
+        assert f"tdd tdk fn {verb} --proj p --coll src --name pub --profile sm_a" in out
+    pointers.write_group_project("g", ["g_a", "g_b"])
+    rc = _run(
+        ["enable-function", "--project", "g", "--collection", "c", "--function", "f"]
+    )
+    assert rc == 1 and "is a group" in capsys.readouterr().err

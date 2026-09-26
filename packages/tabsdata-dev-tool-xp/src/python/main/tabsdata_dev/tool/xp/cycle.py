@@ -1,8 +1,8 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""The whole-cycle verbs: ``one-shot`` (create-instance -> domains -> project ->
-run --monitor [-> live-domains -> monitor], then tear down unless --keep or
+"""The whole-cycle verbs: ``run-suite`` (the suite's stages, in order),
+``one-shot`` (create-instance -> run-suite, then tear down unless --keep or
 something failed) and ``bench``
 (a suite DIR, phased and timed across all lanes).
 """
@@ -29,12 +29,90 @@ def _profile_hint() -> str:
     return "".join(f" {shlex.quote(w)}" for w in shell.profile_flag())
 
 
+# Stages that talk to the project: the first of them creates it.
+_PROJECT_STAGES = ("collections", "functions", "triggers", "monitor")
+
+
+def cmd_run_suite(args) -> None:
+    """Run the instance's stages in the order the suite lists them. A live
+    stage's background entries keep running through the stages after it; the
+    suite's end waits for them. A suite dir runs one lane per definition, each
+    through its own stages, in parallel."""
+    no_live = bool(getattr(args, "no_live", False))
+    with reporting(
+        args, "run-suite", args.project, suite=pointers.suite_of_instance(args.instance)
+    ):
+        members = pointers.instance_group(args.instance)
+        if members is not None:
+            pairs = [
+                (m, f"{args.project}_{lanes.lane_of(args.instance, m)}")
+                for m in members
+            ]
+            # Written first: a failed lane is torn down through this pointer.
+            pointers.write_group_project(args.project, [mp for _, mp in pairs])
+            lanes.dispatch(
+                f"run-suite group '{args.project}'",
+                [
+                    (
+                        mp,
+                        lanes.child_argv(
+                            "run-suite",
+                            "--instance",
+                            mi,
+                            "--project",
+                            mp,
+                            "--secret-env",
+                            state.run.secret_env,
+                            *(["--no-live"] if no_live else []),
+                            *shell.profile_flag(),
+                            *shell.dry_flag(),
+                        ),
+                    )
+                    for mi, mp in pairs
+                ],
+                phase="suite",
+                base=args.project,
+            )
+            return
+        inst = pointers.load_instance(args.instance)
+        domains.require_crypto_key()
+        if any(s.kind in _PROJECT_STAGES for s in inst.stages):
+            shell.require_login()
+        pointers.write_project(args.project, args.instance)
+        session = live.Session(inst)
+        made = False
+        try:
+            for stage in inst.stages:
+                i = stage.at
+                session.check()
+                if stage.kind in _PROJECT_STAGES and not made:
+                    project.ensure_project(inst, args.project)
+                    made = True
+                if stage.kind == "domains":
+                    domains.create_domains(inst, stage.domains, f"domains-{i}.yaml")
+                elif stage.kind == "collections":
+                    project.create_collections(inst, args.project, stage.collections)
+                elif stage.kind == "functions":
+                    project.register_functions(inst, args.project, stage.functions)
+                elif stage.kind == "triggers":
+                    project.fire_triggers(inst, args.project, stage.triggers)
+                elif stage.kind == "monitor":
+                    project.watch(args.project)
+                elif no_live:
+                    rep().note(f"stage {i}: live skipped (--no-live)")
+                else:
+                    session.stage(stage.live)
+        except BaseException as exc:
+            session.abort(exc)
+            raise
+        session.finish()
+
+
 def cmd_one_shot(args) -> None:
-    """Pick a name (--project, else xp_<ts>_<suite>) and run the whole cycle
-    under it for both the instance and the project. A suite with a live script
-    runs it once the triggers have been watched, and is watched again after, for
-    the transactions its changes started (unless --no-live). A FAILED run stops
-    before teardown, leaving the setup in place for debugging."""
+    """Pick a name (--project, else xp_<ts>_<suite>), create the instance and
+    run its stages in order under that name (`run-suite`), then tear down. A
+    FAILED run stops before teardown, leaving the setup in place for
+    debugging."""
     # Fail fast, before any pointer or domain: every lane's domains phase needs
     # the key, and it is checked first because it costs nothing.
     domains.require_crypto_key()
@@ -53,12 +131,14 @@ def cmd_one_shot(args) -> None:
         # suite file costs only its own lane.
         if files is not None:
             state.run.lanes = {}
-        domains.cmd_create_domains(ns(instance=name, secret_env=senv))
-        project.cmd_create_project(ns(instance=name, project=name, secret_env=senv))
-        project.cmd_run_project(ns(project=name, monitor=True))
-        if not getattr(args, "no_live", False) and live.has_live(files or [path]):
-            live.cmd_live_domains(ns(instance=name, secret_env=senv))
-            project.cmd_monitor_project(ns(project=name))
+        cmd_run_suite(
+            ns(
+                instance=name,
+                project=name,
+                secret_env=senv,
+                no_live=getattr(args, "no_live", False),
+            )
+        )
 
         dead = state.run.lanes or {}
         state.run.lanes = None

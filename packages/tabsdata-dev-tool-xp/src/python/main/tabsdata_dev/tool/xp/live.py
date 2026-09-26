@@ -231,19 +231,57 @@ def _run_entry(
             run.join(inner.everything())  # a pass is done when all it started is
 
 
+class Session:
+    """The suite's live scripts, however many stages hold one: a single scope,
+    so a live stage's background entries keep running through the stages after
+    it and a later live stage may wait for them. `finish` -- the suite's end --
+    waits for everything still running; `abort` stops it all when a stage
+    fails; either raises the first live failure."""
+
+    def __init__(self, inst: Instance) -> None:
+        self.inst = inst
+        self._run = _Run()
+        self._top = _Scope(None)
+
+    def stage(self, entries: list[LiveEntry]) -> None:
+        """Run one live stage's entries; blocking ones before returning. A
+        failure in any live entry so far is raised here, so the next stage
+        does not start on top of it."""
+        if self._run.stop.is_set():
+            self._raise()
+        try:
+            _run_list(self.inst, entries, self._top, self._run, "")
+        except BaseException as exc:
+            self._run.fail(exc)
+            self.finish()
+        if self._run.stop.is_set():
+            self.finish()
+
+    def check(self) -> None:
+        """Between stages: a background entry that failed stops the suite."""
+        if self._run.stop.is_set():
+            self.finish()
+
+    def abort(self, exc: BaseException) -> None:
+        self._run.fail(exc)
+        self._run.join(self._top.everything())
+
+    def finish(self) -> None:
+        self._run.join(self._top.everything())
+        self._raise()
+
+    def _raise(self) -> None:
+        if self._run.first is not None:
+            raise self._run.first
+
+
 def run_script(inst: Instance) -> None:
-    """The ``live`` script, to the end of everything it started. The first
-    failure anywhere is raised once all of it has stopped."""
-    run = _Run()
-    top = _Scope(None)
-    try:
-        _run_list(inst, inst.live, top, run, "")
-    except BaseException as exc:
-        run.fail(exc)
-    finally:
-        run.join(top.everything())
-    if run.first is not None:
-        raise run.first
+    """Every live stage of the suite as one script, to the end of everything
+    it started -- what `live-domains` runs. The first failure anywhere is
+    raised once all of it has stopped."""
+    session = Session(inst)
+    session.stage(inst.live)
+    session.finish()
 
 
 def has_live(definitions) -> bool:

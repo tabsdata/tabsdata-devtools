@@ -94,7 +94,8 @@ def run_manifest(
     ``seconds``), which is what makes the domains phase incremental rather than
     one opaque wait. Its --report JSON is the authoritative record for anything
     the stream never mentioned."""
-    report = scratch() / f"domains-{verb}-report.json"
+    # One per manifest: a suite with two domains stages writes two.
+    report = scratch() / f"{manifest.stem}-{verb}-report.json"
     words = [verb, "--manifest", str(manifest), *extra]
     if verb == "create":
         words += ["--report", str(report)]
@@ -191,8 +192,6 @@ def require_crypto_key() -> None:
 
 
 def cmd_create_domains(args) -> None:
-    from .reporter import RUN_TS
-
     with reporting(
         args,
         "create-domains",
@@ -223,27 +222,34 @@ def cmd_create_domains(args) -> None:
             return
         inst = pointers.load_instance(args.instance)
         require_crypto_key()
-        rep().plan(len(inst.domains))
-        stored = shell.stored_domains()
-        todo = []
-        for d in inst.domains:
-            full = inst.domain_full(d.name)
-            if full in stored:
-                with rep().step("create-domain", full) as step:
-                    step["note"] = "exists"
-            else:
-                todo.append(d)
-        if not todo:
-            return
-        manifest = write_manifest(
-            "domains.yaml", [domain_entry(inst, d, RUN_TS) for d in todo]
-        )
-        run_manifest(
-            "create",
-            manifest,
-            [inst.domain_full(d.name) for d in todo],
-            ["--fail-fast"],
-        )
+        create_domains(inst, inst.domains)
+
+
+def create_domains(inst, subset: list, manifest: str = "domains.yaml") -> None:
+    """Create `subset` of the instance's domains through one `tdd domain
+    create --manifest`, leaving those already in the store alone -- the whole
+    domains phase, or one domains stage of the suite (each its own manifest)."""
+    from .reporter import RUN_TS
+
+    rep().plan(len(subset))
+    stored = shell.stored_domains()
+    todo = []
+    for d in subset:
+        full = inst.domain_full(d.name)
+        if full in stored:
+            with rep().step("create-domain", full) as step:
+                step["note"] = "exists"
+        else:
+            todo.append(d)
+    if not todo:
+        return
+    path = write_manifest(manifest, [domain_entry(inst, d, RUN_TS) for d in todo])
+    run_manifest(
+        "create",
+        path,
+        [inst.domain_full(d.name) for d in todo],
+        ["--fail-fast"],
+    )
 
 
 def cmd_destroy_domains(args) -> None:

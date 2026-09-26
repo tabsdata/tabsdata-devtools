@@ -4,8 +4,9 @@
 
 """xp -- run tabsdata example suites (the tabsdata-xp repo's tdx-xp, ported).
 
-A SUITE is a JSON definition -- domains, collections, functions, triggers --
-living in a dir with its ``functions/``; ``connections/`` templates sit at the
+A SUITE is a JSON definition -- an ordered list of stages: domains,
+collections, functions, triggers, monitor, live -- living in a dir with its
+``functions/``; ``connections/`` templates sit at the
 XP root above. The suites ship inside this package and are the default;
 ``--suites-dir DIR`` looks them up elsewhere (``export-suites --dir DIR`` copies
 the built-in ones out). ``--suite <type>/<name>`` names one definition (one
@@ -34,6 +35,9 @@ manifest this tool writes.
     tdd xp run-project      --project P [--monitor] [--profile NAME] ...
     tdd xp monitor-project  --project P [--profile NAME] ...
     tdd xp live-domains     --instance I [--secret-env VAR] [--dry-run] ...
+    tdd xp run-suite        --instance I --project P [--no-live] [--profile NAME] ...
+    tdd xp enable-function  --project P --collection C --function F [--profile NAME]
+    tdd xp disable-function --project P --collection C --function F [--profile NAME]
     tdd xp one-shot         --suite SEL [--project P] [--keep] [--no-live] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
     tdd xp bench            --suite TYPE [--name N] [--keep] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
 """
@@ -280,8 +284,38 @@ def configure(p: argparse.ArgumentParser) -> None:
     c.set_defaults(func=live.cmd_live_domains)
 
     c = sub.add_parser(
+        "run-suite",
+        help="run the instance's stages in the order the suite lists them: domains, collections, functions, triggers, monitor, live",
+    )
+    c.add_argument("--instance", required=True)
+    c.add_argument("--project", required=True)
+    c.add_argument(
+        "--no-live",
+        action="store_true",
+        help="skip the suite's live stages",
+    )
+    for add in (_fail_fast, _secret_env, _profile, _latch, _report, _dry_run, _common):
+        add(c)
+    c.set_defaults(func=cycle.cmd_run_suite)
+
+    for verb, func, what in (
+        ("enable-function", project.cmd_enable_function, "enable"),
+        ("disable-function", project.cmd_disable_function, "disable"),
+    ):
+        c = sub.add_parser(
+            verb,
+            help=f"{what} a function already registered in a project (tdk fn {what})",
+        )
+        c.add_argument("--project", required=True)
+        c.add_argument("--collection", required=True)
+        c.add_argument("--function", required=True, help="the function's name")
+        for add in (_profile, _dry_run, _common):
+            add(c)
+        c.set_defaults(func=func)
+
+    c = sub.add_parser(
         "one-shot",
-        help="create-instance + domains + project + run --monitor, then tear down (--keep preserves)",
+        help="create-instance + run-suite (the suite's stages, in order), then tear down (--keep preserves)",
     )
     _suite(c, SUITE_HELP)
     c.add_argument(
@@ -297,7 +331,7 @@ def configure(p: argparse.ArgumentParser) -> None:
     c.add_argument(
         "--no-live",
         action="store_true",
-        help="skip the suite's live script (run by default after the triggers, then monitored again)",
+        help="skip the suite's live stages",
     )
     for add in (_fail_fast, _secret_env, _profile, _latch, _report, _dry_run, _common):
         add(c)
