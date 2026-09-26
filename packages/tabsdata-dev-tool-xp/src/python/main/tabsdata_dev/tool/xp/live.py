@@ -20,7 +20,8 @@ The script is a list of named entries (``models.LiveEntry``) of four kinds::
       {"name": "reset", "domain": {"name": "pg", "command": "delete-data"}}
     ]
 
-A domain entry is one `tdd domain` data verb; ``sleep_secs`` pauses; ``wait``
+A domain entry is one `tdd domain` data verb; ``sleep_secs`` pauses (a duration:
+``"30s"``, ``"2m"``, ``"1h"``, or a bare number of seconds); ``wait``
 holds until the entries it names have finished; ``repeat`` runs a nested
 ``live`` script N times. Domain and repeat entries are blocking unless they say
 ``"blocking": false``: then they start on a thread of their own and the script

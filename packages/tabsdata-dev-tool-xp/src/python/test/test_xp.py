@@ -1410,6 +1410,176 @@ def test_a_live_stages_background_entries_run_through_later_stages(
     assert done == ["bg", "after"]
 
 
+@pytest.mark.parametrize(
+    "value, seconds",
+    [("90s", 90.0), ("2m", 120.0), ("1.5h", 5400.0), (" 3 s ", 3.0), (30, 30.0)],
+)
+def test_a_duration_is_time_and_unit_or_bare_seconds(value, seconds):
+    from tabsdata_dev.tool.xp.models import seconds_of
+
+    assert seconds_of(value, "x") == seconds
+
+
+@pytest.mark.parametrize("value", ["5", "5x", "m", "-1s", True, None])
+def test_a_duration_without_a_known_unit_is_refused(value):
+    from tabsdata_dev.tool.xp.models import seconds_of
+
+    with pytest.raises(ValueError, match="x"):
+        seconds_of(value, "x")
+
+
+def _sentinel_suite(**over):
+    entry = {
+        "collection": "c",
+        "table": "xp_sentinel_changes",
+        "wait_for_key": "k",
+        "time_out": "5m",
+        **over,
+    }
+    return [
+        {"collections": [{"name": "c", "type": "t", "group": "g"}]},
+        {"live": [{"name": "settle", "sleep_secs": "2m"}]},
+        {"sentinel": [entry]},
+    ]
+
+
+def test_a_sentinel_stage_reads_and_sleep_secs_takes_a_unit(xp_root):
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    inst = build_instance("i", _staged_suite(xp_root, _sentinel_suite()))
+    assert [s.kind for s in inst.stages] == ["collections", "live", "sentinel"]
+    assert inst.live[0].sleep_secs == 120.0
+    [s] = inst.stages[2].sentinel
+    assert (s.collection, s.table, s.wait_for_key, s.seconds) == (
+        "c",
+        "xp_sentinel_changes",
+        "k",
+        300.0,
+    )
+
+
+@pytest.mark.parametrize(
+    "doc, why",
+    [
+        (_sentinel_suite(time_out="soon"), "time_out: 'soon' is not <TIME><UNIT>"),
+        (_sentinel_suite(key="k"), "Extra inputs are not permitted"),
+        (
+            [_sentinel_suite()[2], _sentinel_suite()[0]],
+            "sentinel 'k' reads collection 'c', created by a later stage",
+        ),
+        (
+            [{"live": [{"name": "x", "sleep_secs": "soon"}]}],
+            "sleep_secs: 'soon' is not <TIME><UNIT>",
+        ),
+    ],
+)
+def test_a_bad_sentinel_or_duration_is_refused_when_read(xp_root, doc, why):
+    from tabsdata_dev.tool.xp import state
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    with pytest.raises(state.XpError, match=why):
+        build_instance("i", _staged_suite(xp_root, doc))
+
+
+def test_a_sentinel_reads_every_version_once_until_one_holds_the_key(
+    xp_root, monkeypatch
+):
+    """Each flush of a stream is a version of its own, so every version is
+    read -- once, since a committed one never changes; one that cannot be read
+    yet is tried again. The latch opens on the version holding the key."""
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import project, shell, state
+    from tabsdata_dev.tool.xp.models import Sentinel
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    monkeypatch.setattr(project.time, "sleep", lambda s: None)
+    looks = iter(
+        [[{"id": "v1"}, {"id": "v2"}], [{"id": "v1"}, {"id": "v2"}, {"id": "v3"}]]
+    )
+    reads: list[str] = []
+    unreadable = {"v2"}
+
+    def tdk(args, want_json=True, check=True, stdin_text=None):
+        if args[:2] == ["table", "versions"]:
+            assert "--max-result" in args and "xp_sentinel_changes" in args
+            return next(looks)
+        vid = args[args.index("--version") + 1]
+        reads.append(vid)
+        sql = args[args.index("--sql") + 1]
+        assert sql.endswith("WHERE sentinel_key = 'it''s'")
+        if vid in unreadable:
+            unreadable.discard(vid)
+            return None
+        return [{"sentinel_key": "it's"}] if vid == "v3" else []
+
+    monkeypatch.setattr(shell, "tdk", tdk)
+    s = Sentinel(
+        collection="c", table="xp_sentinel_changes", wait_for_key="it's", time_out="1m"
+    )
+    project.wait_sentinels("p", [s])
+    assert reads == ["v1", "v2", "v2", "v3"]
+
+
+def test_a_sentinel_that_never_arrives_fails_at_its_time_out(xp_root, monkeypatch):
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import project, shell, state
+    from tabsdata_dev.tool.xp.models import Sentinel
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    monkeypatch.setattr(
+        shell,
+        "tdk",
+        lambda args, **kw: [{"id": "v1"}] if args[1] == "versions" else [],
+    )
+    s = Sentinel(collection="c", table="t", wait_for_key="k", time_out="0s")
+    with pytest.raises(
+        state.XpError, match="sentinel 'k' not in any version of c/t after 0s"
+    ):
+        project.wait_sentinels("p", [s])
+
+
+def test_run_suite_dry_run_shows_the_sentinel_after_the_stages_before_it(
+    xp_root, capsys
+):
+    doc = [
+        *STAGED,
+        {
+            "sentinel": [
+                {
+                    "collection": "src",
+                    "table": "xp_sentinel_changes",
+                    "wait_for_key": "k",
+                    "time_out": "90s",
+                }
+            ]
+        },
+    ]
+    _staged_suite(xp_root, doc)
+    rc = _run(
+        [
+            "create-instance",
+            "--suite",
+            "staged/one",
+            *_suites_dir(xp_root),
+            "--instance",
+            "i",
+        ]
+    )
+    assert rc == 0
+    capsys.readouterr()
+    rc = _run(["run-suite", "--instance", "i", "--project", "p", "--dry-run"])
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    lines = out.splitlines()
+    monitor = next(
+        i for i, ln in enumerate(lines) if "trx list --proj p --monitor" in ln
+    )
+    versions = next(i for i, ln in enumerate(lines) if "table versions" in ln)
+    assert monitor < versions
+    assert "--coll src --name xp_sentinel_changes --max-result 0" in lines[versions]
+    assert any("until 'k' is in one, at most 90s" in ln for ln in lines)
+
+
 def test_enable_and_disable_a_registered_function(xp_root, capsys):
     from tabsdata_dev.tool.xp import pointers
 

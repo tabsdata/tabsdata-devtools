@@ -16,7 +16,14 @@ A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
 * ``monitor`` -- ``true``: watch the project's transactions until they finish;
 * ``live`` -- a script of named entries (`tdd domain` data verbs, pauses,
   waits, repeated nested scripts), blocking or side by side; its background
-  entries keep running through the stages after it (see ``live``).
+  entries keep running through the stages after it (see ``live``);
+* ``sentinel`` -- latches: each holds until a key shows up in some version of
+  a project table (``tdd domain sentinel-data`` wrote it at the source), or
+  fails when its ``time_out`` runs out.
+
+A duration -- ``sleep_secs``, ``time_out`` -- is ``"<TIME><UNIT>"`` with unit
+``s``, ``m`` or ``h`` (``"90s"``, ``"2m"``, ``"1.5h"``), or a bare number of
+seconds.
 
 A stage may carry ``_``-prefixed annotations (``_comment``, ``_copyright``), and
 an object holding only those is a comment.
@@ -42,6 +49,27 @@ from pydantic import (
 from . import state, suites
 
 CONN_FILE_SCHEME = "connection-file:"
+
+
+_DURATION = re.compile(r"^(\d+(?:\.\d+)?)\s*([smh])$")
+_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600}
+
+
+def seconds_of(value: Any, what: str) -> float:
+    """A suite duration in seconds: ``"<TIME><UNIT>"`` (s, m, h) or a bare
+    number of seconds, the form every suite used before units."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        seconds = float(value)
+    else:
+        m = _DURATION.match(str(value).strip())
+        if m is None:
+            raise ValueError(
+                f"{what}: {value!r} is not <TIME><UNIT> (units s, m, h) or a number of seconds"
+            )
+        seconds = float(m.group(1)) * _UNIT_SECONDS[m.group(2)]
+    if seconds < 0:
+        raise ValueError(f"{what} must be >= 0")
+    return seconds
 
 
 class Domain(BaseModel):
@@ -146,7 +174,8 @@ class LiveEntry(BaseModel):
 
     name: str
     domain: LiveDomain | None = None
-    sleep_secs: float | None = None
+    # A duration (see `seconds_of`), held as seconds once read.
+    sleep_secs: float | str | None = None
     wait: list[str] | None = None
     live: list[LiveEntry] | None = None
     repeat: int | None = None
@@ -188,8 +217,10 @@ class LiveEntry(BaseModel):
             raise ValueError(
                 f"live entry {self.name!r}: only a 'domain' or 'live' entry can be non-blocking"
             )
-        if self.sleep_secs is not None and self.sleep_secs < 0:
-            raise ValueError(f"live entry {self.name!r}: sleep_secs must be >= 0")
+        if self.sleep_secs is not None:
+            self.sleep_secs = seconds_of(
+                self.sleep_secs, f"live entry {self.name!r}: sleep_secs"
+            )
         if self.wait is not None and not self.wait:
             raise ValueError(f"live entry {self.name!r}: 'wait' names nothing")
         return self
@@ -213,7 +244,38 @@ class LiveEntry(BaseModel):
         return self.repeat or 1
 
 
-STAGE_KINDS = ("domains", "collections", "functions", "triggers", "monitor", "live")
+class Sentinel(BaseModel):
+    """A latch: hold until ``wait_for_key`` is in some version of ``table`` in
+    ``collection``, or fail once ``time_out`` has passed. Every version is
+    looked at, not only the latest: a stream publisher writes each flush as a
+    version of its own, holding only that flush's rows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    collection: str
+    table: str
+    wait_for_key: str
+    time_out: float | str
+
+    @model_validator(mode="after")
+    def _a_duration(self) -> Sentinel:
+        seconds_of(self.time_out, f"sentinel {self.wait_for_key!r}: time_out")
+        return self
+
+    @property
+    def seconds(self) -> float:
+        return seconds_of(self.time_out, "time_out")
+
+
+STAGE_KINDS = (
+    "domains",
+    "collections",
+    "functions",
+    "triggers",
+    "monitor",
+    "live",
+    "sentinel",
+)
 
 
 class Stage(BaseModel):
@@ -229,6 +291,7 @@ class Stage(BaseModel):
     functions: list[Function] = []
     triggers: list[Trigger] = []
     live: list[LiveEntry] = []
+    sentinel: list[Sentinel] = []
 
 
 class Instance(BaseModel):
@@ -263,6 +326,11 @@ class Instance(BaseModel):
                 if f.collection in later_colls:
                     raise ValueError(
                         f"stage {i}: function {f.functionpath!r} is in collection {f.collection!r}, created by a later stage"
+                    )
+            for s in stage.sentinel:
+                if s.collection in later_colls:
+                    raise ValueError(
+                        f"stage {i}: sentinel {s.wait_for_key!r} reads collection {s.collection!r}, created by a later stage"
                     )
 
             def domains_of(entries: list[LiveEntry]):

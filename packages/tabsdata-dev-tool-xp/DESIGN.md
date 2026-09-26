@@ -76,7 +76,7 @@ prints the `tdd tdk`/`tdd domain` lines.
 ## Suite stages
 
 A suite is an ordered **list of stages**, each an object holding one of `domains`,
-`collections`, `functions`, `triggers`, `monitor` (`true`) or `live`, plus `_`-prefixed
+`collections`, `functions`, `triggers`, `monitor` (`true`), `live` or `sentinel`, plus `_`-prefixed
 annotations (`_comment`, `_copyright`; an object holding only those is a comment). Kinds repeat, in any order the dependencies allow:
 
 ```
@@ -87,7 +87,9 @@ annotations (`_comment`, `_copyright`; an object holding only those is a comment
   {"functions": [{"collection": "c", "functionpath": "...", "enabled": false}]},
   {"triggers": [...]},
   {"monitor": true},
-  {"live": [{"name": "settle", "wait": ["churn"]}]}
+  {"live": [{"name": "settle", "wait": ["churn"]}]},
+  {"sentinel": [{"collection": "c", "table": "xp_sentinel_changes",
+                 "wait_for_key": "done", "time_out": "10m"}]}
 ]
 ```
 
@@ -115,6 +117,19 @@ annotations (`_comment`, `_copyright`; an object holding only those is a comment
   `live-domains` all live stages as one script); `bench` runs the phases in lockstep across its
   lanes and ignores the order. A suite dir under `run-suite` or one-shot is one lane per
   definition, each running its own stages -- lanes no longer move in lockstep.
+- **A sentinel stage is a latch**: each entry holds until `wait_for_key` is in some version of
+  `table` in `collection`, and fails the run once `time_out` has passed. The key is one
+  `tdd domain sentinel-data --key` wrote at the source, which the functions carry through to a
+  table of the project; the stage reads its `sentinel_key` column. Every committed version is
+  read (`tdk table versions --max-result 0`, then `tdk table data --version V --sql ...` for the
+  key), each once -- a stream publisher writes each flush as a version of its own, holding only
+  that flush's rows, so the latest alone would miss a key flushed earlier. It polls every 5s;
+  the entries run in turn, but a key that arrived while an earlier one was awaited is found on
+  the first look. It is how a stage waits for data to have *arrived* rather than for a guessed
+  pause. It runs under `run-suite` (so one-shot); no phase verb takes it and `bench` ignores it.
+- **Durations** -- a sentinel's `time_out`, a live `sleep_secs` -- are `"<TIME><UNIT>"` with unit
+  `s`, `m` or `h` (`"90s"`, `"2m"`, `"1.5h"`); a bare number is seconds, as every `sleep_secs`
+  was before units. Anything else is refused when the suite is read.
 - **`"enabled": false`** on a function registers it with `tdk fn register --disabled`: a stream
   publisher does not start until `enable-function --project P --collection C --function F`
   (tdk's `fn enable`); `disable-function` stops one. A group project is refused -- its lanes'
@@ -131,7 +146,7 @@ and is one of four kinds:
 
 ```
 {"name", "domain": {"name", "command", "options": ["--sets", "5"]}, "blocking": true|false}
-{"name", "sleep_secs": N}
+{"name", "sleep_secs": "<TIME><UNIT>" | N}
 {"name", "wait": [NAMES]}
 {"name", "repeat": N, "live": [...], "blocking": true|false}
 ```

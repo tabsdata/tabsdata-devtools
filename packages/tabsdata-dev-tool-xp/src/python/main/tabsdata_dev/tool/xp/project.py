@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from tabsdata_dev.common.core import proc
 
 from . import conn, lanes, pointers, shell, state, suites
-from .models import build_instance
+from .models import Sentinel, build_instance
 from .reporter import fs_token, rep, reporting, say
 
 BUILTIN_GROUPS = {"sources", "destinations", "default"}
@@ -655,6 +655,73 @@ def monitor_trx(project: str) -> None:
         state.die(
             f"project '{project}' has {len(failed)} failed transaction(s):\n{detail}"
         )
+
+
+# ------------------------------------------------------------- sentinel ----
+#: How long a sentinel waits between looks at its table's versions.
+SENTINEL_POLL = 5.0
+#: The column `tdd domain sentinel-data` writes the key into; a table carrying
+#: the sentinel entity downstream keeps the name.
+SENTINEL_KEY_COLUMN = "sentinel_key"
+
+
+def wait_sentinels(project: str, sentinels: list[Sentinel]) -> None:
+    """A sentinel stage: each entry in turn, one step each. Their clocks start
+    when each is reached, but a key that arrived meanwhile is found on the
+    first look -- every version is read -- so the stage takes as long as its
+    slowest sentinel, not the sum."""
+    rep().plan(len(sentinels))
+    for s in sentinels:
+        with rep().step("sentinel", f"{project}/{s.collection}/{s.table}") as step:
+            step["note"] = s.wait_for_key
+            _wait_sentinel(project, s)
+
+
+def _wait_sentinel(project: str, s: Sentinel) -> None:
+    """Poll the table's committed versions until one holds the key. A version
+    is final once committed, so each is read once; one that cannot be read yet
+    (the table half made, a hiccup) is tried again on the next look."""
+    where = ["--proj", project, "--coll", s.collection, "--name", s.table]
+    key = s.wait_for_key.replace("'", "''")
+    sql = (
+        f"SELECT {SENTINEL_KEY_COLUMN} FROM {s.table} "
+        f"WHERE {SENTINEL_KEY_COLUMN} = '{key}'"
+    )
+    versions_args = ["table", "versions", *where, "--max-result", "0"]
+    if state.run.dry_run:
+        shell.dry_echo(shell.tdk_argv(*versions_args, "--format", "json"))
+        shell.dry_text(
+            f"# sentinel: every {SENTINEL_POLL:g}s, each new version of {s.table} "
+            f"until {s.wait_for_key!r} is in one, at most {s.time_out}"
+        )
+        return
+    deadline = time.monotonic() + s.seconds
+    read: set[str] = set()
+    while True:
+        for version in shell.tdk(versions_args, check=False) or []:
+            vid = str(version.get("id") or "")
+            if not vid or vid in read:
+                continue
+            rows = shell.tdk(
+                ["table", "data", *where, "--version", vid, "--sql", sql, "--len", "1"],
+                check=False,
+            )
+            if rows is None:
+                continue
+            read.add(vid)
+            if rows:
+                rep().log(
+                    f"sentinel {s.wait_for_key!r} found in {s.table} version {vid}"
+                )
+                return
+        left = deadline - time.monotonic()
+        if left <= 0:
+            state.die(
+                f"sentinel {s.wait_for_key!r} not in any version of "
+                f"{s.collection}/{s.table} after {s.time_out} "
+                f"({len(read)} version(s) read)"
+            )
+        time.sleep(min(SENTINEL_POLL, left))
 
 
 def collect_worker_logs(failed: list) -> str:

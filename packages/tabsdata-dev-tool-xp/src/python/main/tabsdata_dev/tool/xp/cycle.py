@@ -30,7 +30,7 @@ def _profile_hint() -> str:
 
 
 # Stages that talk to the project: the first of them creates it.
-_PROJECT_STAGES = ("collections", "functions", "triggers", "monitor")
+_PROJECT_STAGES = ("collections", "functions", "triggers", "monitor", "sentinel")
 
 
 def cmd_run_suite(args) -> None:
@@ -98,6 +98,8 @@ def cmd_run_suite(args) -> None:
                     project.fire_triggers(inst, args.project, stage.triggers)
                 elif stage.kind == "monitor":
                     project.watch(args.project)
+                elif stage.kind == "sentinel":
+                    project.wait_sentinels(args.project, stage.sentinel)
                 elif no_live:
                     rep().note(f"stage {i}: live skipped (--no-live)")
                 else:

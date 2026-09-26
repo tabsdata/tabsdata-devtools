@@ -25,7 +25,15 @@ from importlib.resources import files
 
 from . import state
 
-SECTIONS = {"domains", "collections", "functions", "triggers", "monitor", "live"}
+SECTIONS = {
+    "domains",
+    "collections",
+    "functions",
+    "triggers",
+    "monitor",
+    "live",
+    "sentinel",
+}
 
 
 def is_suite_def(path: pathlib.Path) -> bool:
