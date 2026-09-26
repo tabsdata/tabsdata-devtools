@@ -49,12 +49,17 @@ manifests so a test suite gets the same data on every backend.
   current count, and a Mix pass (one row and one seed more) deleted the same row forever. The
   walk assumes the domain's earlier passes were consecutive seeds of the same shape, which is
   what AUTO produces; a descriptor from before `seeded` bounds by its current counts.
-- **`--emit-changes FILE` plans without applying.** `create-data` and `modify-data` write
-  the operations they would run as CDC-style JSON lines (`domain`, `txn`, `op`, `entity`, then
-  `row` for an insert, `key` + `set` for an update, `key` for a delete) and never reach the
-  system. The descriptor is not touched either: nothing changed, so `--seed AUTO` does not
-  advance and `create-data` needs no `--force`. One file is one domain, so a batch is refused;
-  salesforce refuses it, its records existing only inside the load.
+- **`--dry-run` plans; `--emit-ops FILE` keeps the trail.** `create-data`, `modify-data` and
+  `sentinel-data` take both. `--dry-run` works out the operations and applies none: neither
+  the system nor the descriptor is touched, so `--seed AUTO` does not advance and
+  `create-data` needs no `--force`; on its own it writes no file. `--emit-ops FILE` APPENDS the
+  operations as CDC-style JSON lines -- `ts`, `domain`, `verb`, `seed` (modify-data),
+  `dry_run`, `txn` (numbered from 0 within the run), `op`, `entity`, then `row` for an insert,
+  `key` + `set` for an update, `key` for a delete -- after a real run has applied them, or as
+  planned under `--dry-run`. Appending is what lets one file be the trail of a whole live
+  script, or of a batch: each run's lines go out in one `O_APPEND` write, so runs sharing the
+  file do not interleave. A failed run writes nothing. Salesforce refuses both, its records
+  existing only inside the load.
 - **Every model carries an empty `xp_sentinel`** (`sentinel_key` VARCHAR(255), the primary
   key where the backend has one; `sentinel_ts` TIMESTAMP), in its `entities.json` and in every
   DDL of it. Only `sentinel-data --key KEY` writes it: one row, the key at the current UTC

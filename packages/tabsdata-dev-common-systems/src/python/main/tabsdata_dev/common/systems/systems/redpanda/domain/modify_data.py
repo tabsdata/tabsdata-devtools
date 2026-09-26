@@ -9,8 +9,8 @@ Kafka is append-only, so modify-data does not apply the shared delta recipe
 model's rows as new JSON messages to every ``<domain>.<entity>`` topic. ``--size``
 sets the batch multiplier (as in create-data); successive runs advance the seed so
 models with random data vary (fixed reference models re-emit the same rows).
-``--emit-changes FILE`` writes the batch as CDC-style JSON lines instead of
-producing it, and leaves the seed where it was.
+``--dry-run`` plans the batch without producing it and leaves the seed where it
+was; ``--emit-ops FILE`` appends the batch to FILE as CDC-style JSON lines.
 """
 
 from __future__ import annotations
@@ -26,7 +26,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     cli.add_domain(parser)
     cli.add_domain_dir(parser)
     cli.add_size(parser)
-    cli.add_emit_changes(parser)
+    cli.add_data_dry_run(parser)
+    cli.add_emit_ops(parser)
     cli.add_latch(parser)
 
 
@@ -44,16 +45,14 @@ def run(ctx: cli.Context) -> int:
     tables = datagen.load_model(info.model).build_initial(
         random.Random(datagen.INITIAL_SEED + seed), n
     )
-    if a.emit_changes:
-        assert ctx.name is not None
-        batch = [datagen.initial_changes(tables)]
-        lines = datagen.write_cdc(a.emit_changes, ctx.name, batch)
+    if a.dry_run:
+        _emit(ctx, tables, seed, dry_run=True)
         if console.json_mode():
             console.result({t.name: datagen.iud(insert=len(t.rows)) for t in tables})
         else:
             console.good(
-                f"wrote {lines} message(s) for domain '{ctx.name}' to "
-                f"{a.emit_changes} -- nothing produced"
+                f"would push {sum(len(t.rows) for t in tables)} message(s) to "
+                f"domain '{ctx.name}' -- dry run, nothing produced"
             )
         return 0
     with sysobj.data_plane_uri(info.meta) as uri:
@@ -62,6 +61,7 @@ def run(ctx: cli.Context) -> int:
     for topic, count in produced.items():
         counts[topic] = counts.get(topic, 0) + count  # kafka log appends
     descriptor.record_changes(ctx.path, counts, seed=seed)
+    _emit(ctx, tables, seed, dry_run=False)
     if console.json_mode():
         report = {topic: datagen.iud(insert=n) for topic, n in produced.items()}
         console.result(report)
@@ -71,3 +71,12 @@ def run(ctx: cli.Context) -> int:
             f"topic(s) in domain '{ctx.name}'"
         )
     return 0
+
+
+def _emit(ctx: cli.Context, tables: list, seed: int, *, dry_run: bool) -> None:
+    if ctx.args.emit_ops:
+        assert ctx.name is not None
+        batch = [datagen.initial_changes(tables)]
+        datagen.append_ops(
+            ctx.args.emit_ops, ctx.name, ctx.verb, batch, dry_run=dry_run, seed=seed
+        )
