@@ -22,9 +22,7 @@ A stage may carry ``_``-prefixed annotations (``_comment``, ``_copyright``), and
 an object holding only those is a comment.
 Kinds may repeat, in any order the dependencies allow (a collection after the
 domains it names, a function after its collection). The older form -- one
-object with a list per kind -- still reads, as the stages it always ran:
-domains, collections, functions, triggers, monitor, then live and monitor when
-it has a live script.
+object with a list per kind -- is refused with what to convert it to.
 """
 
 from __future__ import annotations
@@ -215,8 +213,6 @@ class LiveEntry(BaseModel):
 
 
 STAGE_KINDS = ("domains", "collections", "functions", "triggers", "monitor", "live")
-# The order an old single-object suite always ran in.
-_LEGACY_ORDER = ("domains", "collections", "functions", "triggers")
 
 
 class Stage(BaseModel):
@@ -375,17 +371,19 @@ def build_instance(name: str, definition: pathlib.Path) -> Instance:
 
 
 def stages_of(doc, definition: pathlib.Path) -> list[dict]:
-    """The suite's stages, in order, as ``{"kind": K, K: [...]}`` -- from the
-    list form, or from the older single object as the order it always ran."""
+    """The suite's stages, in order, as ``{"kind": K, K: [...]}``."""
     if isinstance(doc, dict):
-        stages: list[dict] = [{"kind": k, k: doc.get(k) or []} for k in _LEGACY_ORDER]
-        stages.append({"kind": "monitor"})
-        if doc.get("live"):
-            stages += [{"kind": "live", "live": doc["live"]}, {"kind": "monitor"}]
-        return [{**s, "at": i} for i, s in enumerate(stages, 1)]
+        # The form every suite had before stages: named rather than left to fail
+        # as "not a list", so the fix is in the message.
+        state.die(
+            f"suite {definition} is a single object, a form xp no longer reads: a "
+            "suite is a list of stages -- "
+            '[{"domains": [...]}, {"collections": [...]}, {"functions": [...]}, '
+            '{"triggers": [...]}, {"monitor": true}] is what it ran'
+        )
     if not isinstance(doc, list):
         state.die(f"suite {definition} must be a JSON list of stages")
-    stages = []
+    stages: list[dict] = []
     for i, element in enumerate(doc, 1):
         if not isinstance(element, dict):
             state.die(f"suite {definition}: stage {i} is not a JSON object")

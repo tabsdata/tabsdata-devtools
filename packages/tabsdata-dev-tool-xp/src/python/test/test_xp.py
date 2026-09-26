@@ -35,15 +35,23 @@ SUITE = {
 }
 
 
+def _stages(doc: dict) -> list:
+    """A suite written as its sections, as the list of stages xp reads."""
+    stages = [
+        {k: doc[k]}
+        for k in ("domains", "collections", "functions", "triggers")
+        if doc.get(k)
+    ]
+    return stages + [{"monitor": True}]
+
+
 @pytest.fixture
 def xp_root(tmp_path, monkeypatch):
     root = tmp_path / "xp"
     (root / "suites" / "demo" / "functions").mkdir(parents=True)
     (root / "connections").mkdir()
-    (root / "suites" / "demo" / "one.json").write_text(json.dumps(SUITE))
-    (root / "suites" / "demo" / "two.json").write_text(
-        json.dumps({"domains": [], "collections": [], "functions": [], "triggers": []})
-    )
+    (root / "suites" / "demo" / "one.json").write_text(json.dumps(_stages(SUITE)))
+    (root / "suites" / "demo" / "two.json").write_text(json.dumps([{"monitor": True}]))
     (root / "suites" / "demo" / "notes.json").write_text(
         json.dumps({"_comment": "not a suite"})
     )
@@ -848,7 +856,7 @@ LIVE = [
 def _live_suite(xp_root, live=LIVE):
     path = xp_root / "suites" / "live" / "one.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({**SUITE, "live": live}))
+    path.write_text(json.dumps(_stages(SUITE) + [{"live": live}, {"monitor": True}]))
     return path
 
 
@@ -1237,20 +1245,22 @@ def test_a_suite_is_an_ordered_list_of_stages(xp_root):
     assert inst.functions[0].enabled is False
 
 
-def test_the_older_single_object_reads_as_the_stages_it_always_ran(xp_root):
+def test_the_older_single_object_is_refused_naming_the_list_it_ran(xp_root, capsys):
+    """Recognised, so a suite dir holding one fails loudly and list-suites
+    marks it -- never read as a suite."""
+    from tabsdata_dev.tool.xp import state, suites
     from tabsdata_dev.tool.xp.models import build_instance
 
-    inst = build_instance("i", xp_root / "suites" / "demo" / "one.json")
-    assert [s.kind for s in inst.stages] == [
-        "domains",
-        "collections",
-        "functions",
-        "triggers",
-        "monitor",
-    ]
-    live = {**SUITE, "live": [{"name": "b", "domain": _dom("world", "delete-data")}]}
-    inst = build_instance("i", _staged_suite(xp_root, live))
-    assert [s.kind for s in inst.stages][-2:] == ["live", "monitor"]
+    path = _staged_suite(xp_root, SUITE)
+    assert suites.is_suite_def(path)
+    with pytest.raises(
+        state.XpError,
+        match='a single object, a form xp no longer reads.*"monitor": true',
+    ):
+        build_instance("i", path)
+    assert _run(["list-suites", *_suites_dir(xp_root)]) == 0
+    out = capsys.readouterr().out
+    assert "staged/one" in out and "single object: no longer read" in out
 
 
 @pytest.mark.parametrize(

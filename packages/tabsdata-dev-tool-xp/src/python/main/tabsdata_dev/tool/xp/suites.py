@@ -29,9 +29,10 @@ SECTIONS = {"domains", "collections", "functions", "triggers", "monitor", "live"
 
 
 def is_suite_def(path: pathlib.Path) -> bool:
-    """True if ``path`` is a suite-definition JSON -- a list of stages, or the
-    older single object, carrying at least one suite section -- rather than
-    some other JSON living in the dir."""
+    """True if ``path`` is a suite-definition JSON -- a list of stages carrying
+    at least one suite section -- rather than some other JSON living in the dir.
+    The older single object is recognised too, so reading it fails loudly with
+    what to convert it to instead of a suite dir silently skipping it."""
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
@@ -208,6 +209,7 @@ def list_suites(root: pathlib.Path) -> list[dict]:
             {
                 "suite": str(path.relative_to(root).with_suffix("")),
                 "path": str(path),
+                "old_form": isinstance(doc, dict),
                 **{
                     k: _count(doc, k)
                     for k in ("domains", "collections", "functions", "triggers")
@@ -218,9 +220,10 @@ def list_suites(root: pathlib.Path) -> list[dict]:
 
 
 def _count(doc, kind: str) -> int:
-    """Entries of `kind` in a suite, across its stages when it is a list."""
-    if isinstance(doc, dict):
-        return len(doc.get(kind) or [])
+    """Entries of `kind` in a suite, across its stages (0 for the older single
+    object, which list-suites marks)."""
+    if not isinstance(doc, list):
+        return 0
     return sum(
         len(e.get(kind) or [])
         for e in doc

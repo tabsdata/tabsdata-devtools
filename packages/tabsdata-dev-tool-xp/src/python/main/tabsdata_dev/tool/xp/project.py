@@ -48,6 +48,11 @@ def cmd_list_suites(args) -> tuple[str, dict]:
     lines = [
         f"  {r['suite']:<{width}}  domains={r['domains']:<3} collections={r['collections']:<3} "
         f"functions={r['functions']:<3} triggers={r['triggers']}"
+        + (
+            "  (single object: no longer read, convert it to a list of stages)"
+            if r["old_form"]
+            else ""
+        )
         for r in rows
     ]
     text = (

@@ -104,10 +104,13 @@ annotations (`_comment`, `_copyright`; an object holding only those is a comment
   collection, a live entry's domain. A name defined nowhere is left to the stage that uses it.
   Stage numbers in messages count every entry of the list, comments included: the number a
   reader counts to in the file.
-- **The older single object still reads**, as the stages it always ran: domains, collections,
-  functions, triggers, monitor, and live then monitor when it has a live script. The built-in
-  suites are all in the list form, converted to exactly the stages they ran (empty kinds
-  dropped); `examples/gen_examples.py` writes its 49 in it too.
+- **The older single object is refused**, naming the list it ran as
+  (`[{"domains"}, {"collections"}, {"functions"}, {"triggers"}, {"monitor": true}]`). It is
+  still *recognised* -- by `list-suites`, which marks it, and by a suite dir -- so an old file is a
+  loud error rather than a lane silently missing. The built-in suites were converted to exactly
+  the stages they ran (empty kinds dropped); `examples/gen_examples.py` writes its 49 in the
+  list form. Rejected: keeping both forms -- two ways to write a suite, and the old one cannot
+  express order.
 - **The phase verbs take every stage of their kind** (`create-domains` all domains stages,
   `live-domains` all live stages as one script); `bench` runs the phases in lockstep across its
   lanes and ignores the order. A suite dir under `run-suite` or one-shot is one lane per
@@ -163,8 +166,7 @@ its end waits for what still runs, so nothing outlives the loop that started it,
   goes to the background, ends or is waited for as `#` comments. A shell rendering with
   subshells was the first version and was dropped with nested waits: a subshell cannot `wait` on
   a pid its parent started.
-- **Where it runs is the suite's stage order**: a `live` stage wherever the list puts it (the
-  older single object puts it after the triggers' watch, followed by another watch). `--no-live`
+- **Where it runs is the suite's stage order**: a `live` stage wherever the list puts it. `--no-live`
   skips every live stage. A monitor stage sees what has started when it begins: a stream that
   buffers its changes needs the live stage before it to end with a `sleep_secs` long enough for
   the last flush. `live-domains --instance I` runs every live stage as one script, over a group's
