@@ -208,10 +208,21 @@ def list_suites(root: pathlib.Path) -> list[dict]:
             {
                 "suite": str(path.relative_to(root).with_suffix("")),
                 "path": str(path),
-                "domains": len(doc.get("domains", [])),
-                "collections": len(doc.get("collections", [])),
-                "functions": len(doc.get("functions", [])),
-                "triggers": len(doc.get("triggers", [])),
+                **{
+                    k: _count(doc, k)
+                    for k in ("domains", "collections", "functions", "triggers")
+                },
             }
         )
     return rows
+
+
+def _count(doc, kind: str) -> int:
+    """Entries of `kind` in a suite, across its stages when it is a list."""
+    if isinstance(doc, dict):
+        return len(doc.get(kind) or [])
+    return sum(
+        len(e.get(kind) or [])
+        for e in doc
+        if isinstance(e, dict) and isinstance(e.get(kind), list)
+    )

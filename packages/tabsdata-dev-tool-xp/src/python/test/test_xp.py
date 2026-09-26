@@ -1426,3 +1426,20 @@ def test_enable_and_disable_a_registered_function(xp_root, capsys):
         ["enable-function", "--project", "g", "--collection", "c", "--function", "f"]
     )
     assert rc == 1 and "is a group" in capsys.readouterr().err
+
+
+def test_every_built_in_suite_reads(tmp_path, monkeypatch):
+    """Both forms -- the list of stages and the older single object -- across
+    every definition the package carries: a suite that no longer validates is
+    found here, not by the run that picks it."""
+    from tabsdata_dev.tool.xp import suites
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    root = suites.builtin_root() / "suites"
+    files = [
+        f for d in sorted(root.iterdir()) if d.is_dir() for f in suites.lane_files(d)
+    ]
+    assert len(files) > 100
+    for f in files:
+        assert build_instance("i", f).stages, f
