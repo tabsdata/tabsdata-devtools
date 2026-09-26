@@ -13,6 +13,7 @@ dependencies = [
     "tabsdata-dev-deps-launchers",
     "tabsdata-dev-tool-apidoc",
     "tabsdata-dev-tool-km",
+    "tabsdata-dev-tool-mexe",
     "tabsdata-dev-tool-pycache",
     "tabsdata-dev-tool-smoke",
     "tabsdata-dev-tool-tdk",
@@ -23,6 +24,7 @@ dependencies = [
 tabsdata-dev-deps-launchers = { path = "../tabsdata-dev-deps-launchers", editable = true }
 tabsdata-dev-tool-apidoc = { path = "../tabsdata-dev-tool-apidoc", editable = true }
 tabsdata-dev-tool-km = { path = "../tabsdata-dev-tool-km", editable = true }
+tabsdata-dev-tool-mexe = { path = "../tabsdata-dev-tool-mexe", editable = true }
 tabsdata-dev-tool-pycache = { path = "../tabsdata-dev-tool-pycache", editable = true }
 tabsdata-dev-tool-smoke = { path = "../tabsdata-dev-tool-smoke", editable = true }
 tabsdata-dev-tool-tdk = { path = "../tabsdata-dev-tool-tdk", editable = true }

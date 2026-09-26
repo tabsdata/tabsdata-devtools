@@ -46,7 +46,10 @@ dependencies are declared as ranges; each toolset's lock pins them.
   tool's `bin-reqs.txt` (`UndeclaredRequirement`; skipped when `_TDD_TOOL` is unset so tests
   import freely); `tool_argv()`/`run_tool()` reach a sibling tool through `tdd-exe`, never an import.
 - `batch` -- parallel child runs on the event model, heaviest first, bounded by `TDD_PARALLELISM`
-  (default 10); `parallel.map_bounded()` for plain fan-out.
+  (default 10); `parallel.map_bounded()` for plain fan-out. Without a `spawn` it streams: it
+  launches each step itself in `Task.cwd`, hands each line to a `Reporter` as it comes, and runs
+  each child as a `Tree` (a POSIX session, a Windows job object) so `kill_on_fail` and Ctrl-C stop
+  a whole pipeline; `heaviest_first=False` keeps the given order, `workers` overrides the bound.
 - `managedvenv` + `launcher` -- run a program inside the `tdd venv` named by `_TDD_VENV` (or, without
   the record, the managed venv `VIRTUAL_ENV`/`CONDA_PREFIX` points at: `adopted()`): uv via
   `VIRTUAL_ENV=DIR uv run --active --no-project`, conda via `conda run --prefix DIR DIR/bin/CMD`, pyenv via

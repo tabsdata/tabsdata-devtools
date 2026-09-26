@@ -1,11 +1,12 @@
 {
-  "fingerprint": "b5972eaf79d1a03c",
+  "fingerprint": "297a774de035b4a6",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
       "tabsdata-dev-deps-launchers",
       "tabsdata-dev-tool-apidoc",
       "tabsdata-dev-tool-km",
+      "tabsdata-dev-tool-mexe",
       "tabsdata-dev-tool-pycache",
       "tabsdata-dev-tool-smoke",
       "tabsdata-dev-tool-tdk",
@@ -140,6 +141,17 @@
         "pyenv"
       ],
       "summary": "run tabsdata's km CLI inside the managed venv named by $_TDD_VENV",
+      "toolset": "launchers"
+    },
+    "mexe": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "hidden": false,
+      "launcher": false,
+      "package": "tabsdata-dev-tool-mexe",
+      "reqs": [],
+      "summary": "run shell commands in several directories, in parallel or serial (one after the other)",
       "toolset": "launchers"
     },
     "pycache": {
