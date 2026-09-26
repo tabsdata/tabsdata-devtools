@@ -80,3 +80,9 @@ CREATE TABLE prescriptions (
     end_date        DATE,
     notes           NVARCHAR(MAX)
 );
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL PRIMARY KEY,
+    sentinel_ts      DATETIME2       NOT NULL
+);

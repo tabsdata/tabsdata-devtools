@@ -127,9 +127,15 @@ class Backend(Protocol):
         SQL, ``{file_path: rows}`` for file backends."""
 
     def apply_changes(
-        self, uri: str, transactions: list[Transaction], before: dict[str, int]
+        self,
+        uri: str,
+        transactions: list[Transaction],
+        before: dict[str, int],
+        *,
+        label: str = "modify-data",
     ) -> dict[str, int]:
         """Apply `transactions` and return the new ``entities`` map (SQL: `before`
-        adjusted by the net row deltas; file: `before` plus the new files)."""
+        adjusted by the net row deltas; file: `before` plus the new files).
+        `label` is the verb a failure is reported under."""
 
     def drop_all_tables(self, uri: str) -> None: ...

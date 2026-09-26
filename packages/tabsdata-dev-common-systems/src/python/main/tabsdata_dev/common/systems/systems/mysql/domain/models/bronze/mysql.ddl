@@ -95,3 +95,10 @@ CREATE TABLE brz_append_events (
     is_active       TINYINT(1)      NOT NULL,
     PRIMARY KEY (sim_counter)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL,
+    sentinel_ts      DATETIME        NOT NULL,
+    PRIMARY KEY (sentinel_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

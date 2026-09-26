@@ -78,3 +78,9 @@ CREATE TABLE grades (
     notes           VARCHAR(300),
     CONSTRAINT uq_sch_grade UNIQUE (enrollment_id, assessment_id)
 );
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL PRIMARY KEY,
+    sentinel_ts      TIMESTAMP       NOT NULL
+);

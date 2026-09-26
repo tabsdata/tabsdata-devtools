@@ -37,3 +37,9 @@ CREATE TABLE country_language (
     is_official      STRING          NOT NULL,
     percentage       DECIMAL(4,1)    NOT NULL
 );
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     STRING          NOT NULL,
+    sentinel_ts      TIMESTAMP       NOT NULL
+);

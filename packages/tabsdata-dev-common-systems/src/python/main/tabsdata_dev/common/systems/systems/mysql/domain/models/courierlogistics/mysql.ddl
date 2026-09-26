@@ -80,3 +80,10 @@ CREATE TABLE tracking_events (
     CONSTRAINT fk_couevt_hub FOREIGN KEY (hub_id)      REFERENCES hubs      (hub_id)      ON DELETE SET NULL,
     CONSTRAINT fk_couevt_cur FOREIGN KEY (courier_id)  REFERENCES couriers  (courier_id)  ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL,
+    sentinel_ts      DATETIME        NOT NULL,
+    PRIMARY KEY (sentinel_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

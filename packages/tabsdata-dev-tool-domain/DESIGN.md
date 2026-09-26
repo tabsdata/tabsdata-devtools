@@ -18,8 +18,8 @@ manifests so a test suite gets the same data on every backend.
 
 ## How it works
 
-- Verbs: `create/destroy/status/models/create-model/create-data/modify-data/delete-data/
-  delete-model`, plus
+- Verbs: `create/destroy/status/models/create-model/create-data/modify-data/sentinel-data/
+  delete-data/delete-model`, plus
   `types/list/info/manifest/upgrade` and the shared `config`. A domain's name is `<user>_<build>`
   unless given, and its system's descriptor must be readable first (`_TDD_CRYPTO_KEY`, which
   every store-reading verb requires before it runs).
@@ -55,8 +55,16 @@ manifests so a test suite gets the same data on every backend.
   system. The descriptor is not touched either: nothing changed, so `--seed AUTO` does not
   advance and `create-data` needs no `--force`. One file is one domain, so a batch is refused;
   salesforce refuses it, its records existing only inside the load.
+- **Every model carries an empty `xp_sentinel`** (`sentinel_key` VARCHAR(255), the primary
+  key where the backend has one; `sentinel_ts` TIMESTAMP), in its `entities.json` and in every
+  DDL of it. Only `sentinel-data --key KEY` writes it: one row, the key at the current UTC
+  second, through `apply_changes`, so a test can mark a point in its run and wait for that key
+  downstream. It needs the model, not data; no generator builds it and no `Entity` declares it,
+  so create-data leaves it empty (its count carried, unless a reload dropped it) and modify-data
+  never picks it. A repeated key is refused on SQL, appended on the file and kafka backends.
+  Gated like modify-data; salesforce's model has none, its objects living in the org.
 - **The long verbs are waitable.** `create`, `destroy`, `create-model`, `create-data`,
-  `modify-data`, `delete-data` and `delete-model` take `--latch FILE`, and their chatty detail goes to `/tmp/tdd-domain-<verb>-...`
+  `modify-data`, `sentinel-data`, `delete-data` and `delete-model` take `--latch FILE`, and their chatty detail goes to `/tmp/tdd-domain-<verb>-...`
   while the console keeps to brief progress.
 - **Toolset hops are invisible.** A backend declares the toolset its data plane needs
   (`dom_toolset`) and a model may override it (`models/<model>/model.json`); when that is not the

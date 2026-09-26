@@ -104,3 +104,10 @@ CREATE TABLE prescriptions (
     CONSTRAINT fk_hprx_adm FOREIGN KEY (admission_id) REFERENCES admissions  (admission_id) ON DELETE CASCADE,
     CONSTRAINT fk_hprx_doc FOREIGN KEY (doctor_id)    REFERENCES staff        (staff_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL,
+    sentinel_ts      DATETIME        NOT NULL,
+    PRIMARY KEY (sentinel_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

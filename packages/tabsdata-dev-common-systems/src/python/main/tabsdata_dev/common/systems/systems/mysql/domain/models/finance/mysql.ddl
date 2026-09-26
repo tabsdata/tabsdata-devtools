@@ -189,3 +189,10 @@ CREATE TABLE customer_subscription_events (
 
 CREATE INDEX ix_sub_event_subscription ON customer_subscription_events (subscription_id, occurred_at);
 CREATE INDEX ix_sub_event_type         ON customer_subscription_events (event_type);
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL,
+    sentinel_ts      DATETIME        NOT NULL,
+    PRIMARY KEY (sentinel_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

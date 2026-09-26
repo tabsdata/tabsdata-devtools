@@ -243,12 +243,17 @@ class FileBackend:
         return self._stage_and_upload(uri, tables, stamp)
 
     def apply_changes(
-        self, uri: str, transactions: list, before: dict[str, int]
+        self,
+        uri: str,
+        transactions: list,
+        before: dict[str, int],
+        *,
+        label: str = "modify-data",
     ) -> dict[str, int]:
         changes = [c for txn in transactions for c in txn]
         if any(c.kind is not OpKind.INSERT for c in changes):
             raise TdxError(
-                f"{self.slug} domains support only inserts for modify-data "
+                f"{self.slug} domains support only inserts for {label} "
                 f"(a change is a new file) — use --ops Insert"
             )
         by_table: dict[str, tuple[list, list]] = {}

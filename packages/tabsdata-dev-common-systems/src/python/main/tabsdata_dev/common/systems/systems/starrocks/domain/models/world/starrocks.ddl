@@ -46,3 +46,12 @@ CREATE TABLE country_language (
 PRIMARY KEY (country_code, language)
 DISTRIBUTED BY HASH (country_code, language) BUCKETS 1
 PROPERTIES ("replication_num" = "1");
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL,
+    sentinel_ts      DATETIME        NOT NULL
+)
+PRIMARY KEY (sentinel_key)
+DISTRIBUTED BY HASH (sentinel_key) BUCKETS 1
+PROPERTIES ("replication_num" = "1");

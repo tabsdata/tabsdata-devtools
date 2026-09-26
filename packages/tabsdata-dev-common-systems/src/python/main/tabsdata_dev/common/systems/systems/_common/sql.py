@@ -545,14 +545,19 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         return counts
 
     def apply_changes(
-        self, uri: str, transactions: list, before: dict[str, int]
+        self,
+        uri: str,
+        transactions: list,
+        before: dict[str, int],
+        *,
+        label: str = "modify-data",
     ) -> dict[str, int]:
         rendered = [
             self.session_setup()
             + [datagen.render_sql(c, quote=self.sql_quote) for c in txn]
             for txn in transactions
         ]
-        run_sql_transactions(uri, rendered, label="modify-data")
+        run_sql_transactions(uri, rendered, label=label)
         new = dict(before)
         for table, delta in datagen.net_row_deltas(transactions).items():
             new[table] = max(0, new.get(table, 0) + delta)

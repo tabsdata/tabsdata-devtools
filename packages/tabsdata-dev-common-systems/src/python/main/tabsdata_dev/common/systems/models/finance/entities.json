@@ -22,5 +22,9 @@
   {
     "name": "customer_subscription_events",
     "sizeable": true
+  },
+  {
+    "name": "xp_sentinel",
+    "sizeable": false
   }
 ]

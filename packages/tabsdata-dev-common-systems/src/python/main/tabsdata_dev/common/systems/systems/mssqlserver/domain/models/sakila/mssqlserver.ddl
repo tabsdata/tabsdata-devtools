@@ -127,3 +127,9 @@ CREATE TABLE payment (
     amount          DECIMAL(7,2)    NOT NULL,
     payment_date    DATETIME2       NOT NULL
 );
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL PRIMARY KEY,
+    sentinel_ts      DATETIME2       NOT NULL
+);

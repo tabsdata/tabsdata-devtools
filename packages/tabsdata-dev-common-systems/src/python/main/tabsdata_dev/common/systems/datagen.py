@@ -46,6 +46,16 @@ FIXED_SEED_INSERT_STRIDE = 1000
 # Initial data is seeded from this fixed base so a given size is reproducible.
 INITIAL_SEED = 42
 
+# The entity every model carries for `sentinel-data` alone: a row a test writes
+# to mark a point in time, which it then waits to see arrive downstream. No
+# model generates it and no Entity declares it, so create-data leaves it empty
+# and modify-data never picks it.
+SENTINEL_ENTITY = "xp_sentinel"
+SENTINEL_COLUMNS = [
+    Column("sentinel_key", "varchar(255)", nullable=False),
+    Column("sentinel_ts", "timestamp", nullable=False),
+]
+
 _B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 

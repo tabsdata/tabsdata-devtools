@@ -26,5 +26,9 @@
   {
     "name": "prescriptions",
     "sizeable": true
+  },
+  {
+    "name": "xp_sentinel",
+    "sizeable": false
   }
 ]

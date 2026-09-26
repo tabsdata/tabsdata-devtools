@@ -38,6 +38,7 @@
     tdd domain modify-data  --domain NAME --entity NAME|ALL --sets N
                             --ops Insert|Update|Delete|Mix --seed N|AUTO
                             [--emit-changes FILE]  # JSON lines, nothing applied
+    tdd domain sentinel-data --domain NAME --key KEY  # xp_sentinel row, stamped now
     tdd domain delete-data  --domain NAME     # empty the model's entities, keep them
     tdd domain delete-model --domain NAME     # drop the model's entities and data
 
@@ -116,6 +117,7 @@ LOGGED_VERBS = {
     constants.V_CREATE_MODEL,
     constants.V_CREATE_DATA,
     constants.V_MODIFY_DATA,
+    constants.V_SENTINEL_DATA,
     constants.V_DELETE_DATA,
     constants.V_DELETE_MODEL,
 }
@@ -127,6 +129,7 @@ LATCH_VERBS = {
     constants.V_CREATE_MODEL,
     constants.V_CREATE_DATA,
     constants.V_MODIFY_DATA,
+    constants.V_SENTINEL_DATA,
     constants.V_DELETE_DATA,
     constants.V_DELETE_MODEL,
 }
@@ -177,6 +180,9 @@ _DOM_CATALOG: dict[str, tuple[str, str | None]] = {
     constants.V_CREATE_MODEL: ("dom_create_model", "supports_models"),
     constants.V_CREATE_DATA: ("dom_create_data", "supports_data"),
     constants.V_MODIFY_DATA: ("dom_modify_data", "supports_changes"),
+    # Gated on changes, not data: it writes one row through apply_changes, and
+    # needs only the model's tables.
+    constants.V_SENTINEL_DATA: ("dom_sentinel_data", "supports_changes"),
     constants.V_DELETE_DATA: ("dom_delete_data", "supports_data"),
     constants.V_DELETE_MODEL: ("dom_delete_model", "supports_models"),
 }

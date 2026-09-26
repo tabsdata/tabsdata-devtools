@@ -48,11 +48,18 @@ def run(ctx: cli.Context) -> int:
     tables = model_obj.build_initial(random.Random(datagen.INITIAL_SEED), n)
     if emit:
         return _emit(ctx, tables, emit)
-    if a.force or info.data:
+    reload = bool(a.force or info.data)
+    if reload:
         sysobj.install_schema(info.meta, model, force=True)  # reload = drop + recreate
     with sysobj.data_plane_uri(info.meta) as uri:
         entities = sysobj.load_tables(uri, tables)
-    descriptor.record_data(ctx.path, str(a.size), entities)
+    recorded = dict(entities)
+    if datagen.SENTINEL_ENTITY in info.entities:
+        # Never loaded here, so its count is carried: rows sentinel-data wrote
+        # after create-model are still there, unless this load dropped them.
+        kept = 0 if reload else info.entities[datagen.SENTINEL_ENTITY]
+        recorded[datagen.SENTINEL_ENTITY] = kept
+    descriptor.record_data(ctx.path, str(a.size), recorded)
     rows = sum(len(t.rows) for t in tables)
     if console.json_mode():
         report = {name: datagen.iud(insert=count) for name, count in entities.items()}

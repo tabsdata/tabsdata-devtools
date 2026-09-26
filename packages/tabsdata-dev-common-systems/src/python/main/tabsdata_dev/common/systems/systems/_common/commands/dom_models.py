@@ -24,7 +24,7 @@ def run(ctx: cli.Context) -> int:
     console.out(
         "Available models  "
         "(* grows with create-data --size;  (I/U/D) = modify-data ops;  "
-        "(fixed) = not changed by modify-data)"
+        "(fixed) = not changed by modify-data;  (sentinel) = sentinel-data only)"
     )
     for model in avail:
         sizeable = set(datagen.sizeable_entities(model))
@@ -34,6 +34,11 @@ def run(ctx: cli.Context) -> int:
         console.out(f"  {model}")
         for name in names:
             star = "*" if name in sizeable else " "
-            tag = f"({datagen.ops_tag(ops_by[name])})" if name in ops_by else "(fixed)"
+            if name in ops_by:
+                tag = f"({datagen.ops_tag(ops_by[name])})"
+            elif name == datagen.SENTINEL_ENTITY:
+                tag = "(sentinel)"
+            else:
+                tag = "(fixed)"
             console.out(f"    {name:<{width}} {star} {tag}")
     return 0

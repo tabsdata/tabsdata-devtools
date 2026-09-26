@@ -79,3 +79,10 @@ CREATE TABLE stock_movements (
     CONSTRAINT fk_smmov_prod FOREIGN KEY (product_id)  REFERENCES products   (product_id),
     CONSTRAINT fk_smmov_wh   FOREIGN KEY (warehouse_id) REFERENCES warehouses (warehouse_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL,
+    sentinel_ts      DATETIME        NOT NULL,
+    PRIMARY KEY (sentinel_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

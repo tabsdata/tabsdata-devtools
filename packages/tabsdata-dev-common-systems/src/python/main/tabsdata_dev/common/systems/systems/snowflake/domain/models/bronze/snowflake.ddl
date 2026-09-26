@@ -87,3 +87,9 @@ CREATE TABLE brz_append_events (
     score           DOUBLE,
     is_active       BOOLEAN         NOT NULL
 );
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     STRING          NOT NULL,
+    sentinel_ts      TIMESTAMP       NOT NULL
+);

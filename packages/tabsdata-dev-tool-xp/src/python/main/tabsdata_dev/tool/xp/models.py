@@ -91,6 +91,7 @@ LIVE_COMMANDS = (
     "create-model",
     "create-data",
     "modify-data",
+    "sentinel-data",
     "delete-data",
     "delete-model",
 )

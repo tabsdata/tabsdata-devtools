@@ -58,5 +58,9 @@
   {
     "name": "payment",
     "sizeable": false
+  },
+  {
+    "name": "xp_sentinel",
+    "sizeable": false
   }
 ]

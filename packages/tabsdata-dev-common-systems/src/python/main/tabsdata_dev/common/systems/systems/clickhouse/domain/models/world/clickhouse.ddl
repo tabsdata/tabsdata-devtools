@@ -46,3 +46,11 @@ CREATE TABLE country_language (
 )
 ENGINE = MergeTree
 ORDER BY (country_code, language);
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     String,
+    sentinel_ts      DateTime
+)
+ENGINE = MergeTree
+ORDER BY (sentinel_key);

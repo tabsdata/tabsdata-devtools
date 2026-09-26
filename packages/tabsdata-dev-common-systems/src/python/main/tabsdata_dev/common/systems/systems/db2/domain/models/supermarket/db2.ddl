@@ -58,3 +58,9 @@ CREATE TABLE stock_movements (
     reference       VARCHAR(100),
     moved_at        TIMESTAMP       NOT NULL DEFAULT CURRENT TIMESTAMP
 );
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL PRIMARY KEY,
+    sentinel_ts      TIMESTAMP       NOT NULL
+);

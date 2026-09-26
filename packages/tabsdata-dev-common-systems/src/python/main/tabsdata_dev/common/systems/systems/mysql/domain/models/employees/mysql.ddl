@@ -59,3 +59,10 @@ CREATE TABLE salaries (
     PRIMARY KEY (emp_no, from_date),
     CONSTRAINT fk_empsal_emp FOREIGN KEY (emp_no) REFERENCES employees (emp_no) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL,
+    sentinel_ts      DATETIME        NOT NULL,
+    PRIMARY KEY (sentinel_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

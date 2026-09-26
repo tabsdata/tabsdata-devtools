@@ -10,5 +10,9 @@
   {
     "name": "country_language",
     "sizeable": false
+  },
+  {
+    "name": "xp_sentinel",
+    "sizeable": false
   }
 ]

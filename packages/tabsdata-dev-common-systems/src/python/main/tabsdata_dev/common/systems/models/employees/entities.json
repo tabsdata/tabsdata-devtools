@@ -22,5 +22,9 @@
   {
     "name": "salaries",
     "sizeable": true
+  },
+  {
+    "name": "xp_sentinel",
+    "sizeable": false
   }
 ]

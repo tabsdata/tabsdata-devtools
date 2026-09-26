@@ -97,7 +97,11 @@ def run(ctx: cli.Context) -> int:
                 f"model '{model}' has no entities that modify-data can change "
                 f"(all are fixed — see 'tdd domain models')"
             )
-        fixed = [t for t in datagen.entities_of(model) if t not in by]
+        fixed = [
+            t
+            for t in datagen.entities_of(model)
+            if t not in by and t != datagen.SENTINEL_ENTITY
+        ]
         if fixed and not json_mode:
             console.out(f"no modify-data support (skipped): {', '.join(fixed)}")
     else:

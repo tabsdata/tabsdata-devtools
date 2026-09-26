@@ -41,3 +41,10 @@ CREATE TABLE country_language (
     PRIMARY KEY (country_code, language),
     CONSTRAINT fk_wldlang_country FOREIGN KEY (country_code) REFERENCES country (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL,
+    sentinel_ts      DATETIME        NOT NULL,
+    PRIMARY KEY (sentinel_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

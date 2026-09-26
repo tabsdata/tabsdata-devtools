@@ -121,3 +121,10 @@ CREATE TABLE order_lines (
     CONSTRAINT fk_rstol_ord  FOREIGN KEY (order_id) REFERENCES orders    (order_id) ON DELETE CASCADE,
     CONSTRAINT fk_rstol_item FOREIGN KEY (item_id)  REFERENCES menu_items (item_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
+CREATE TABLE xp_sentinel (
+    sentinel_key     VARCHAR(255)    NOT NULL,
+    sentinel_ts      DATETIME        NOT NULL,
+    PRIMARY KEY (sentinel_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

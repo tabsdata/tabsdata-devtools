@@ -1551,3 +1551,123 @@ def test_emit_changes_refuses_a_batch(small_store, capsys):
     assert rc == 1 and small_store == []
     error = [e for e in events if e["event"] == "error"][0]
     assert "--emit-changes takes a single --domain" in error["message"]
+
+
+def test_every_model_carries_an_empty_sentinel_in_every_ddl():
+    """xp_sentinel is in every generated model and every DDL of it, and nothing
+    but sentinel-data writes it: no model builds it and no Entity declares it,
+    so create-data leaves it empty and modify-data never picks it."""
+    import random
+
+    from tabsdata_dev.common.systems.systems._common.sql import SqlContainerBackend
+
+    sentinel = datagen.SENTINEL_ENTITY
+    for model in datagen.list_models():
+        assert sentinel in datagen.entities_of(model), model
+        obj = datagen.load_model(model)
+        assert sentinel not in {e.table for e in obj.entities}, model
+        tables = obj.build_initial(
+            random.Random(datagen.INITIAL_SEED), datagen.BASE_SIZE
+        )
+        assert sentinel not in {t.name for t in tables}, model
+    checked = 0
+    for slug in systems.all_slugs():
+        backend = systems.get(slug)
+        if not isinstance(backend, SqlContainerBackend) or not backend.supports_models:
+            continue
+        for model in datagen.list_models():
+            if not any(backend._ddl_dir(model).glob("*.ddl")):
+                continue  # not a DDL model here (redpanda, or a missing dialect)
+            ddl = backend.ddl_text(model)
+            assert f"CREATE TABLE {sentinel} (" in ddl, (slug, model)
+            assert "sentinel_key" in ddl and "sentinel_ts" in ddl, (slug, model)
+            checked += 1
+    assert checked >= 79
+
+
+def test_sentinel_data_writes_one_stamped_row_and_create_data_keeps_its_count(
+    tmp_path, monkeypatch
+):
+    """sentinel-data needs only the model: one INSERT of the key at the current
+    UTC second, through apply_changes, counted in the descriptor. A first
+    create-data leaves that count alone (it drops nothing); a reload zeroes it."""
+    import argparse
+    import contextlib
+    from datetime import datetime, timezone
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.common.systems import cli, console, descriptor
+    from tabsdata_dev.common.systems.systems._common.commands import (
+        dom_create_data,
+        dom_sentinel_data,
+    )
+
+    console.bind(render.Renderer(constants.DOM_TOOL))
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-test-secret-long-enough")
+    path = tmp_path / "d1"
+    descriptor.write_domain(
+        path, "postgres", "d1", sys_name="pg", external_name="d1", meta={"DB": "d1"}
+    )
+    applied: list = []
+    labels: list = []
+
+    class Fake:
+        @contextlib.contextmanager
+        def data_plane_uri(self, meta):
+            yield "fake://"
+
+        def apply_changes(self, uri, txns, before, *, label="modify-data"):
+            labels.append(label)
+            applied.extend(txns)
+            new = dict(before)
+            for table, delta in datagen.net_row_deltas(txns).items():
+                new[table] = new.get(table, 0) + delta
+            return new
+
+        def install_schema(self, meta, model, *, force=False):
+            pass
+
+        def load_tables(self, uri, tables):
+            return {t.name: len(t.rows) for t in tables}
+
+    def run(mod, verb, **opts):
+        return mod.run(
+            cli.Context(
+                tool=constants.DOM_TOOL,
+                verb=verb,
+                slug="postgres",
+                system=Fake(),  # type: ignore[arg-type]
+                args=argparse.Namespace(**opts),
+                name="d1",
+                info=descriptor.load(path),
+                path=path,
+                store_dir=tmp_path,
+            )
+        )
+
+    with pytest.raises(TdxError, match="no model"):
+        run(dom_sentinel_data, constants.V_SENTINEL_DATA, key="k1")
+    descriptor.set_model(path, "world", datagen.entities_of("world"))
+
+    before = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    assert run(dom_sentinel_data, constants.V_SENTINEL_DATA, key="k1") == 0
+    [[change]] = applied
+    assert labels == [constants.V_SENTINEL_DATA]  # a failure names this verb
+    assert change.kind is datagen.OpKind.INSERT
+    assert change.table == datagen.SENTINEL_ENTITY
+    assert change.row["sentinel_key"] == "k1"
+    ts = change.row["sentinel_ts"]
+    assert ts.tzinfo is None and ts.microsecond == 0 and ts >= before
+    assert datagen.render_sql(change).startswith(
+        "INSERT INTO xp_sentinel (sentinel_key,sentinel_ts) VALUES ('k1','"
+    )
+    assert descriptor.load(path).entities[datagen.SENTINEL_ENTITY] == 1
+
+    load = dict(size=1, force=False, emit_changes=None)
+    assert run(dom_create_data, constants.V_CREATE_DATA, **load) == 0
+    assert descriptor.load(path).entities[datagen.SENTINEL_ENTITY] == 1
+    assert run(dom_create_data, constants.V_CREATE_DATA, **{**load, "force": True}) == 0
+    assert descriptor.load(path).entities[datagen.SENTINEL_ENTITY] == 0
+
+    with pytest.raises(TdxError, match="1 to 255"):
+        run(dom_sentinel_data, constants.V_SENTINEL_DATA, key="x" * 256)

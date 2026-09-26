@@ -123,11 +123,11 @@ annotations (`_comment`, `_copyright`; an object holding only those is a comment
 ## Live domains
 
 A suite's `live` stages hold a script: the `tdd domain` data verbs (`create-model`, `create-data`,
-`modify-data`, `delete-data`, `delete-model` -- never `create`/`destroy`, the domain's lifecycle
-is xp's) run against its domains while the project is up, so a stream publisher or a
-re-triggered publisher sees its source change the way a real one does. Every entry has a `name`
-(a letter, then letters, digits, `_`, `-`; unique across the whole script) and is one of four
-kinds:
+`modify-data`, `sentinel-data`, `delete-data`, `delete-model` -- never `create`/`destroy`, the
+domain's lifecycle is xp's) run against its domains while the project is up, so a stream
+publisher or a re-triggered publisher sees its source change the way a real one does. Every
+entry has a `name` (a letter, then letters, digits, `_`, `-`; unique across the whole script)
+and is one of four kinds:
 
 ```
 {"name", "domain": {"name", "command", "options": ["--sets", "5"]}, "blocking": true|false}
