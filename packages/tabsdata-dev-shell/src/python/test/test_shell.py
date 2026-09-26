@@ -1152,3 +1152,38 @@ def test_powershell_says_why_a_bare_marker_arrives_empty():
     assert (
         '[ -n "$_TDD_INDEX_RESOLVED" ]' in (shell.scripts_dir() / "env.sh").read_text()
     )
+
+
+def test_the_powershell_loader_passes_an_unquoted_comma_list_as_typed():
+    """`tdd mexe --dirs a,b` under pwsh reached the command as `--dirs "a b"`:
+    PowerShell parses an unquoted `a,b` as an array and [string] joins an
+    array with spaces. The loader joins it back with the commas that were
+    typed, for every comma-separated option of every command."""
+    import re
+    import shutil
+    import subprocess
+
+    import pytest
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("pwsh not installed")
+    source = shell.source_template(shell.POWERSHELL)
+    helper = re.search(r"(?ms)^function _tdd_argv_text \{.*?^\}", source)
+    assert helper, "_tdd_argv_text is gone from the loader"
+    assert source.count("@(_tdd_argv_text $args)") == 2  # tdd and tdd-fn
+    script = (
+        helper.group(0)
+        + "\nfunction probe { $a = @(_tdd_argv_text $args); "
+        + "[Console]::Out.WriteLine(\"$($a.Count)|\" + ($a -join '|')) }\n"
+        + "probe\nprobe x\nprobe --dirs a,b git 'two words' 1,2,3\n"
+    )
+    done = subprocess.run(
+        [pwsh, "-NoProfile", "-Command", script], capture_output=True, text=True
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.splitlines() == [
+        "0|",
+        "1|x",
+        "5|--dirs|a,b|git|two words|1,2,3",
+    ]

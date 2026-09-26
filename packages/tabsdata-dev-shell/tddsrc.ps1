@@ -366,6 +366,21 @@ function _tdd_apply_defaults {
 
 # ---------------------------------------------------------------- dispatch
 
+# The arguments as the strings a command receives. PowerShell parses an
+# unquoted `a,b` as an array, and [string] of an array joins it with spaces,
+# so `--dirs a,b` reached the command as "a b". Every comma-separated option
+# means the commas, so an array is joined back with them -- what was typed.
+function _tdd_argv_text {
+    param([object[]]$Items)
+    # foreach, not a pipeline: piping no arguments still runs once, on $null.
+    $out = [System.Collections.Generic.List[string]]::new()
+    foreach ($item in $Items) {
+        if ($item -is [array]) { $out.Add((@($item | ForEach-Object { [string]$_ }) -join ',')) }
+        else { $out.Add([string]$item) }
+    }
+    return $out.ToArray()  # callers wrap it in @(): no argument, one, or many
+}
+
 # The shell half of the pair: the same role as tdd-exe, for loaded functions.
 function tdd-fn {
     if ($args.Count -eq 0) {
@@ -373,7 +388,7 @@ function tdd-fn {
         _tdd_fn_help
         return
     }
-    $argv = @($args | ForEach-Object { [string]$_ })
+    $argv = @(_tdd_argv_text $args)
     if ($argv[0] -in @('-h', '--help', 'help', 'list')) {
         _tdd_cmd_reset
         _tdd_scan_common $argv
@@ -427,7 +442,7 @@ function tdd {
         _tdd_warn "_TDD_TOOL was set in this session ($($env:_TDD_TOOL)); it is tdd's private variable and is ignored"
         $env:_TDD_TOOL = $null
     }
-    $argv = @($args | ForEach-Object { [string]$_ })
+    $argv = @(_tdd_argv_text $args)
     # Leading options are tdd's own; --format/--verbose also travel on to the
     # command that runs, appended after its word, so `tdd --format json venv
     # list` and `tdd venv list --format json` are the same request.
