@@ -1,36 +1,142 @@
-{
-  "_comment": "CONSOLIDATED StarRocks bulk-out suite (same shape as clickhouse.json), via `--type connectors/starrocks.json`. A staging-backend x write-mode matrix: one destination collection per cloud staging (s3/az/gcs), each writing to ITS OWN world-model-seeded StarRocks DB (starrocks_world_xs_<cloud>), exercising append + replace. Input is the dev datagen `caps_input` (caps_world -> cap_country/cap_city), like every other capability suite — no local-file seed, so the suite runs anywhere the workers run (a local-file source needs the worker to share the host filesystem, which is false on Kubernetes). StarRocks has NO create-on-write, so the targets are the tables the `world` model seeded and the datagen frames are world-shaped: append -> city (AUTO_INCREMENT id omitted, so the row count GROWS 3/run); replace -> country (TRUNCATE+reload, count STAYS at 3). Functions (cloud-agnostic; DB+staging come from each collection's connection) in functions/caps_starrocks.py, registered once per cloud collection. (iceberg schema-evolution not exercised: StarRocks' FILES() load can't pre-ALTER the target.)",
-  "domains": [
-    { "name": "dev", "system": "dev" },
-    { "name": "starrocks_world_xs_s3", "system": "starrocks", "model": "world", "data": "xs" },
-    { "name": "starrocks_world_xs_az", "system": "starrocks", "model": "world", "data": "xs" },
-    { "name": "starrocks_world_xs_gcs", "system": "starrocks", "model": "world", "data": "xs" },
-    { "name": "s3", "system": "s3" },
-    { "name": "gcs", "system": "gcs" },
-    { "name": "azureblob", "system": "azureblob" }
-  ],
-  "collections": [
-    { "name": "caps_input", "type": "datagen_in", "connection_template": "connection-file:connections/datagen_in.yaml", "group": "sources", "domains": { "D0": "dev" } },
-    { "name": "starrocks_s3", "type": "starrocks_bulk_out_s3", "connection_template": "connection-file:connections/starrocks_bulk_out_s3.yaml", "group": "destinations", "domains": { "D0": "starrocks_world_xs_s3", "D1": "s3" } },
-    { "name": "starrocks_az", "type": "starrocks_bulk_out_az", "connection_template": "connection-file:connections/starrocks_bulk_out_az.yaml", "group": "destinations", "domains": { "D0": "starrocks_world_xs_az", "D1": "azureblob" } },
-    { "name": "starrocks_gcs", "type": "starrocks_bulk_out_gcs", "connection_template": "connection-file:connections/starrocks_bulk_out_gcs.yaml", "group": "destinations", "domains": { "D0": "starrocks_world_xs_gcs", "D1": "gcs" } }
-  ],
-  "functions": [
-    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_world" },
-
-    { "collection": "starrocks_s3", "functionpath": "functions/caps_starrocks.py::starrocks_out_append" },
-    { "collection": "starrocks_s3", "functionpath": "functions/caps_starrocks.py::starrocks_out_replace" },
-    { "collection": "starrocks_s3", "functionpath": "functions/caps_starrocks.py::starrocks_out_none" },
-
-    { "collection": "starrocks_az", "functionpath": "functions/caps_starrocks.py::starrocks_out_append" },
-    { "collection": "starrocks_az", "functionpath": "functions/caps_starrocks.py::starrocks_out_replace" },
-    { "collection": "starrocks_az", "functionpath": "functions/caps_starrocks.py::starrocks_out_none" },
-
-    { "collection": "starrocks_gcs", "functionpath": "functions/caps_starrocks.py::starrocks_out_append" },
-    { "collection": "starrocks_gcs", "functionpath": "functions/caps_starrocks.py::starrocks_out_replace" },
-    { "collection": "starrocks_gcs", "functionpath": "functions/caps_starrocks.py::starrocks_out_none" }
-  ],
-  "triggers": [
-    { "collection": "caps_input", "function": "caps_world", "detached": true }
-  ]
-}
+[
+  {
+    "_comment": "CONSOLIDATED StarRocks bulk-out suite (same shape as clickhouse.json), via `--type connectors/starrocks.json`. A staging-backend x write-mode matrix: one destination collection per cloud staging (s3/az/gcs), each writing to ITS OWN world-model-seeded StarRocks DB (starrocks_world_xs_<cloud>), exercising append + replace. Input is the dev datagen `caps_input` (caps_world -> cap_country/cap_city), like every other capability suite — no local-file seed, so the suite runs anywhere the workers run (a local-file source needs the worker to share the host filesystem, which is false on Kubernetes). StarRocks has NO create-on-write, so the targets are the tables the `world` model seeded and the datagen frames are world-shaped: append -> city (AUTO_INCREMENT id omitted, so the row count GROWS 3/run); replace -> country (TRUNCATE+reload, count STAYS at 3). Functions (cloud-agnostic; DB+staging come from each collection's connection) in functions/caps_starrocks.py, registered once per cloud collection. (iceberg schema-evolution not exercised: StarRocks' FILES() load can't pre-ALTER the target.)"
+  },
+  {
+    "domains": [
+      {
+        "name": "dev",
+        "system": "dev"
+      },
+      {
+        "name": "starrocks_world_xs_s3",
+        "system": "starrocks",
+        "model": "world",
+        "data": "xs"
+      },
+      {
+        "name": "starrocks_world_xs_az",
+        "system": "starrocks",
+        "model": "world",
+        "data": "xs"
+      },
+      {
+        "name": "starrocks_world_xs_gcs",
+        "system": "starrocks",
+        "model": "world",
+        "data": "xs"
+      },
+      {
+        "name": "s3",
+        "system": "s3"
+      },
+      {
+        "name": "gcs",
+        "system": "gcs"
+      },
+      {
+        "name": "azureblob",
+        "system": "azureblob"
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "caps_input",
+        "type": "datagen_in",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "dev"
+        }
+      },
+      {
+        "name": "starrocks_s3",
+        "type": "starrocks_bulk_out_s3",
+        "connection_template": "connection-file:connections/starrocks_bulk_out_s3.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "starrocks_world_xs_s3",
+          "D1": "s3"
+        }
+      },
+      {
+        "name": "starrocks_az",
+        "type": "starrocks_bulk_out_az",
+        "connection_template": "connection-file:connections/starrocks_bulk_out_az.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "starrocks_world_xs_az",
+          "D1": "azureblob"
+        }
+      },
+      {
+        "name": "starrocks_gcs",
+        "type": "starrocks_bulk_out_gcs",
+        "connection_template": "connection-file:connections/starrocks_bulk_out_gcs.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "starrocks_world_xs_gcs",
+          "D1": "gcs"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_datagen.py::caps_world"
+      },
+      {
+        "collection": "starrocks_s3",
+        "functionpath": "functions/caps_starrocks.py::starrocks_out_append"
+      },
+      {
+        "collection": "starrocks_s3",
+        "functionpath": "functions/caps_starrocks.py::starrocks_out_replace"
+      },
+      {
+        "collection": "starrocks_s3",
+        "functionpath": "functions/caps_starrocks.py::starrocks_out_none"
+      },
+      {
+        "collection": "starrocks_az",
+        "functionpath": "functions/caps_starrocks.py::starrocks_out_append"
+      },
+      {
+        "collection": "starrocks_az",
+        "functionpath": "functions/caps_starrocks.py::starrocks_out_replace"
+      },
+      {
+        "collection": "starrocks_az",
+        "functionpath": "functions/caps_starrocks.py::starrocks_out_none"
+      },
+      {
+        "collection": "starrocks_gcs",
+        "functionpath": "functions/caps_starrocks.py::starrocks_out_append"
+      },
+      {
+        "collection": "starrocks_gcs",
+        "functionpath": "functions/caps_starrocks.py::starrocks_out_replace"
+      },
+      {
+        "collection": "starrocks_gcs",
+        "functionpath": "functions/caps_starrocks.py::starrocks_out_none"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "caps_input",
+        "function": "caps_world",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

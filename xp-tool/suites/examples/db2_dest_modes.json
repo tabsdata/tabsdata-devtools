@@ -1,67 +1,80 @@
-{
-  "_copyright": "Copyright 2026 Tabsdata Inc.",
-  "_comment": "EXAMPLE · Db2 destination / write modes. `tables` declares one WRITE SLOT per entry, fed by input_tables in the same order. if_table_exists is the one decision: \"append\" (default) inserts and the table grows across runs, \"replace\" truncates then inserts so the count stays put — and NEITHER is an upsert (no key matching, no merge). Both CREATE the table when it is missing, which is also the only moment column types are decided: writing into an existing table uses that table's types. transactional=True (default) makes a multi-table write all-or-nothing; False commits per table. A returned None skips the write and does NOT truncate, so 'no data this run' never destroys what is there. Five sinks: write_append, write_replace, write_two_tables, write_without_transaction (+ dest_cfg chunk size), write_nothing. RE-RUN to watch customers_append grow while customers_replace stays at three rows. One function per file under functions/db2_dest_modes/. Run: `tdx-xp oneshot --suite examples/db2_dest_modes --keep`.",
-  "domains": [
-    {
-      "name": "dev",
-      "system": "dev"
-    },
-    {
-      "name": "db2_out",
-      "system": "db2"
-    }
-  ],
-  "collections": [
-    {
-      "name": "gen",
-      "type": "datagen_in",
-      "group": "sources",
-      "connection_template": "connection-file:connections/datagen_in.yaml",
-      "domains": {
-        "D0": "dev"
+[
+  {
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "EXAMPLE · Db2 destination / write modes. `tables` declares one WRITE SLOT per entry, fed by input_tables in the same order. if_table_exists is the one decision: \"append\" (default) inserts and the table grows across runs, \"replace\" truncates then inserts so the count stays put — and NEITHER is an upsert (no key matching, no merge). Both CREATE the table when it is missing, which is also the only moment column types are decided: writing into an existing table uses that table's types. transactional=True (default) makes a multi-table write all-or-nothing; False commits per table. A returned None skips the write and does NOT truncate, so 'no data this run' never destroys what is there. Five sinks: write_append, write_replace, write_two_tables, write_without_transaction (+ dest_cfg chunk size), write_nothing. RE-RUN to watch customers_append grow while customers_replace stays at three rows. One function per file under functions/db2_dest_modes/. Run: `tdx-xp oneshot --suite examples/db2_dest_modes --keep`."
+  },
+  {
+    "domains": [
+      {
+        "name": "dev",
+        "system": "dev"
+      },
+      {
+        "name": "db2_out",
+        "system": "db2"
       }
-    },
-    {
-      "name": "db",
-      "type": "db2_sql_out",
-      "group": "destinations",
-      "connection_template": "connection-file:connections/db2_sql_out.yaml",
-      "domains": {
-        "D0": "db2_out"
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "gen",
+        "type": "datagen_in",
+        "group": "sources",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "domains": {
+          "D0": "dev"
+        }
+      },
+      {
+        "name": "db",
+        "type": "db2_sql_out",
+        "group": "destinations",
+        "connection_template": "connection-file:connections/db2_sql_out.yaml",
+        "domains": {
+          "D0": "db2_out"
+        }
       }
-    }
-  ],
-  "functions": [
-    {
-      "collection": "gen",
-      "functionpath": "functions/db2_dest_modes/supporting_generate_customers.py::generate_customers"
-    },
-    {
-      "collection": "db",
-      "functionpath": "functions/db2_dest_modes/write_append.py::write_append"
-    },
-    {
-      "collection": "db",
-      "functionpath": "functions/db2_dest_modes/write_replace.py::write_replace"
-    },
-    {
-      "collection": "db",
-      "functionpath": "functions/db2_dest_modes/write_two_tables.py::write_two_tables"
-    },
-    {
-      "collection": "db",
-      "functionpath": "functions/db2_dest_modes/write_without_transaction.py::write_without_transaction"
-    },
-    {
-      "collection": "db",
-      "functionpath": "functions/db2_dest_modes/write_nothing.py::write_nothing"
-    }
-  ],
-  "triggers": [
-    {
-      "collection": "gen",
-      "function": "generate_customers",
-      "detached": true
-    }
-  ]
-}
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "gen",
+        "functionpath": "functions/db2_dest_modes/supporting_generate_customers.py::generate_customers"
+      },
+      {
+        "collection": "db",
+        "functionpath": "functions/db2_dest_modes/write_append.py::write_append"
+      },
+      {
+        "collection": "db",
+        "functionpath": "functions/db2_dest_modes/write_replace.py::write_replace"
+      },
+      {
+        "collection": "db",
+        "functionpath": "functions/db2_dest_modes/write_two_tables.py::write_two_tables"
+      },
+      {
+        "collection": "db",
+        "functionpath": "functions/db2_dest_modes/write_without_transaction.py::write_without_transaction"
+      },
+      {
+        "collection": "db",
+        "functionpath": "functions/db2_dest_modes/write_nothing.py::write_nothing"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "gen",
+        "function": "generate_customers",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

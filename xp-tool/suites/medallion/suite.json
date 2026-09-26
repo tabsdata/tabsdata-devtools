@@ -1,1363 +1,1376 @@
-{
-  "_comment": "Medallion-suite descriptor consumed by ../suite.py. One full medallion pipeline per source system (mysql, postgres, oracle, db2, mssqlserver, databricks) over that system's 'bronze' arrival-pattern model (a dedicated table per pattern, a data_ts event timestamp, a (tenant_id, entity_id) business key). Functions are organized on disk by source, then layer, then pattern: functions/<sys>/<layer>/<pattern>.py. Collections mirror the layers, each in its own group: <sys>_src (sources), <sys>_bronze, <sys>_silver, <sys>_gold; the bronze/silver/gold groups are created by ../suite.py at create-project time. Tables are referenced cross-collection between layers (<collection>/<table>@<version>) and bare within a layer. The bronze/silver/gold transformer logic is identical across systems (pure TableFrame helpers); only publishers (Src type + dialect SQL) differ -- the update-stream incremental watermark uses each dialect's epoch expression, and Oracle/Db2 alias SELECT columns to quoted lowercase (they upper-fold unquoted identifiers). Chains per system: append-only, periodic-snapshot, snapshot-diff -> SCD2+SCD1 (entity_* tables), update-stream, and gold Type1/Type2 dims + a fact. CDC-capable systems (mysql, postgres, db2) add a CDC chain: a bootstrap-snapshot publisher (SQL src, in <sys>_src) + a binlog/WAL stream publisher (@stream_publisher via the CDC src, in a dedicated <sys>_cdc_src collection with the *_cdc.yaml connection) -> build_cdc_bronze -> SCD2+SCD1 silver, all under a cdc_* slug so it never collides with the snapshot-diff entity_* tables. Only batch publishers are triggered (detached), including the CDC bootstrap; the continuous CDC stream publisher is registered but started separately. Transformers fire via table dependency (@NEW). NOTE: a single static onboarding load commits everything as inserts, so it populates the bronze/silver tables and the Type1 dims; Type2 history, the fact, and live CDC events become meaningful once the source evolves. GOLD SERVING: the dest layer is split per destination system into functions/<sys>/dest/databricks/<pattern>.py and functions/<sys>/dest/snowflake/<pattern>.py -- one subscriber per (system, pattern), each forwarding that pattern's gold table(s) to <sys>_<table>. Databricks subscribers register in the databricks_dest collection (databricks_bulk_out.yaml, domain databricks_bronze_xs); Snowflake subscribers register in snowflake_dest (snowflake_bulk_out.yaml, domain snowflake). Both serve every system; targets are unique within each destination collection. Each sink fires on <sys>_in_gold/<table>@NEW, so no explicit trigger is needed. Snowflake has no source connector, so it appears only as this gold destination.",
-  "domains": [
-    {
-      "name": "mysql_bronze_xs",
-      "system": "mysql",
-      "model": "bronze",
-      "data": "xs"
-    },
-    {
-      "name": "postgres_bronze_xs",
-      "system": "postgres",
-      "model": "bronze",
-      "data": "xs"
-    },
-    {
-      "name": "oracle_bronze_xs",
-      "system": "oracle",
-      "model": "bronze",
-      "data": "xs"
-    },
-    {
-      "name": "db2_bronze_xs",
-      "system": "db2",
-      "model": "bronze",
-      "data": "xs"
-    },
-    {
-      "name": "mssqlserver_bronze_xs",
-      "system": "mssqlserver",
-      "model": "bronze",
-      "data": "xs"
-    },
-    {
-      "name": "databricks_bronze_xs",
-      "system": "databricks",
-      "model": "bronze",
-      "data": "xs"
-    },
-    {
-      "name": "snowflake",
-      "system": "snowflake"
-    },
-    {
-      "name": "databricks",
-      "system": "databricks"
-    }
-  ],
-  "collections": [
-    {
-      "name": "mysql_in_src",
-      "type": "sources",
-      "connection_template": "connection-file:connections/mysql_sql_in.yaml",
-      "group": "sources",
-      "domains": {
-        "D0": "mysql_bronze_xs"
+[
+  {
+    "_comment": "Medallion-suite descriptor consumed by ../suite.py. One full medallion pipeline per source system (mysql, postgres, oracle, db2, mssqlserver, databricks) over that system's 'bronze' arrival-pattern model (a dedicated table per pattern, a data_ts event timestamp, a (tenant_id, entity_id) business key). Functions are organized on disk by source, then layer, then pattern: functions/<sys>/<layer>/<pattern>.py. Collections mirror the layers, each in its own group: <sys>_src (sources), <sys>_bronze, <sys>_silver, <sys>_gold; the bronze/silver/gold groups are created by ../suite.py at create-project time. Tables are referenced cross-collection between layers (<collection>/<table>@<version>) and bare within a layer. The bronze/silver/gold transformer logic is identical across systems (pure TableFrame helpers); only publishers (Src type + dialect SQL) differ -- the update-stream incremental watermark uses each dialect's epoch expression, and Oracle/Db2 alias SELECT columns to quoted lowercase (they upper-fold unquoted identifiers). Chains per system: append-only, periodic-snapshot, snapshot-diff -> SCD2+SCD1 (entity_* tables), update-stream, and gold Type1/Type2 dims + a fact. CDC-capable systems (mysql, postgres, db2) add a CDC chain: a bootstrap-snapshot publisher (SQL src, in <sys>_src) + a binlog/WAL stream publisher (@stream_publisher via the CDC src, in a dedicated <sys>_cdc_src collection with the *_cdc.yaml connection) -> build_cdc_bronze -> SCD2+SCD1 silver, all under a cdc_* slug so it never collides with the snapshot-diff entity_* tables. Only batch publishers are triggered (detached), including the CDC bootstrap; the continuous CDC stream publisher is registered but started separately. Transformers fire via table dependency (@NEW). NOTE: a single static onboarding load commits everything as inserts, so it populates the bronze/silver tables and the Type1 dims; Type2 history, the fact, and live CDC events become meaningful once the source evolves. GOLD SERVING: the dest layer is split per destination system into functions/<sys>/dest/databricks/<pattern>.py and functions/<sys>/dest/snowflake/<pattern>.py -- one subscriber per (system, pattern), each forwarding that pattern's gold table(s) to <sys>_<table>. Databricks subscribers register in the databricks_dest collection (databricks_bulk_out.yaml, domain databricks_bronze_xs); Snowflake subscribers register in snowflake_dest (snowflake_bulk_out.yaml, domain snowflake). Both serve every system; targets are unique within each destination collection. Each sink fires on <sys>_in_gold/<table>@NEW, so no explicit trigger is needed. Snowflake has no source connector, so it appears only as this gold destination."
+  },
+  {
+    "domains": [
+      {
+        "name": "mysql_bronze_xs",
+        "system": "mysql",
+        "model": "bronze",
+        "data": "xs"
+      },
+      {
+        "name": "postgres_bronze_xs",
+        "system": "postgres",
+        "model": "bronze",
+        "data": "xs"
+      },
+      {
+        "name": "oracle_bronze_xs",
+        "system": "oracle",
+        "model": "bronze",
+        "data": "xs"
+      },
+      {
+        "name": "db2_bronze_xs",
+        "system": "db2",
+        "model": "bronze",
+        "data": "xs"
+      },
+      {
+        "name": "mssqlserver_bronze_xs",
+        "system": "mssqlserver",
+        "model": "bronze",
+        "data": "xs"
+      },
+      {
+        "name": "databricks_bronze_xs",
+        "system": "databricks",
+        "model": "bronze",
+        "data": "xs"
+      },
+      {
+        "name": "snowflake",
+        "system": "snowflake"
+      },
+      {
+        "name": "databricks",
+        "system": "databricks"
       }
-    },
-    {
-      "name": "mysql_in_bronze",
-      "type": "bronze",
-      "group": "bronze"
-    },
-    {
-      "name": "mysql_in_silver",
-      "type": "silver",
-      "group": "silver"
-    },
-    {
-      "name": "mysql_in_gold",
-      "type": "gold",
-      "group": "gold"
-    },
-    {
-      "name": "mysql_in_cdc_src",
-      "type": "sources",
-      "connection_template": "connection-file:connections/mysql_cdc.yaml",
-      "group": "sources",
-      "domains": {
-        "D0": "mysql_bronze_xs"
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "mysql_in_src",
+        "type": "sources",
+        "connection_template": "connection-file:connections/mysql_sql_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "mysql_bronze_xs"
+        }
+      },
+      {
+        "name": "mysql_in_bronze",
+        "type": "bronze",
+        "group": "bronze"
+      },
+      {
+        "name": "mysql_in_silver",
+        "type": "silver",
+        "group": "silver"
+      },
+      {
+        "name": "mysql_in_gold",
+        "type": "gold",
+        "group": "gold"
+      },
+      {
+        "name": "mysql_in_cdc_src",
+        "type": "sources",
+        "connection_template": "connection-file:connections/mysql_cdc.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "mysql_bronze_xs"
+        }
+      },
+      {
+        "name": "postgres_in_src",
+        "type": "sources",
+        "connection_template": "connection-file:connections/postgres_sql_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "postgres_bronze_xs"
+        }
+      },
+      {
+        "name": "postgres_in_bronze",
+        "type": "bronze",
+        "group": "bronze"
+      },
+      {
+        "name": "postgres_in_silver",
+        "type": "silver",
+        "group": "silver"
+      },
+      {
+        "name": "postgres_in_gold",
+        "type": "gold",
+        "group": "gold"
+      },
+      {
+        "name": "postgres_in_cdc_src",
+        "type": "sources",
+        "connection_template": "connection-file:connections/postgres_cdc.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "postgres_bronze_xs"
+        }
+      },
+      {
+        "name": "oracle_in_src",
+        "type": "sources",
+        "connection_template": "connection-file:connections/oracle_sql_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "oracle_bronze_xs"
+        }
+      },
+      {
+        "name": "oracle_in_bronze",
+        "type": "bronze",
+        "group": "bronze"
+      },
+      {
+        "name": "oracle_in_silver",
+        "type": "silver",
+        "group": "silver"
+      },
+      {
+        "name": "oracle_in_gold",
+        "type": "gold",
+        "group": "gold"
+      },
+      {
+        "name": "db2_in_src",
+        "type": "sources",
+        "connection_template": "connection-file:connections/db2_sql_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "db2_bronze_xs"
+        }
+      },
+      {
+        "name": "db2_in_bronze",
+        "type": "bronze",
+        "group": "bronze"
+      },
+      {
+        "name": "db2_in_silver",
+        "type": "silver",
+        "group": "silver"
+      },
+      {
+        "name": "db2_in_gold",
+        "type": "gold",
+        "group": "gold"
+      },
+      {
+        "name": "db2_in_cdc_src",
+        "type": "sources",
+        "connection_template": "connection-file:connections/db2_cdc.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "db2_bronze_xs"
+        }
+      },
+      {
+        "name": "mssqlserver_in_src",
+        "type": "sources",
+        "connection_template": "connection-file:connections/mssql_sql_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "mssqlserver_bronze_xs"
+        }
+      },
+      {
+        "name": "mssqlserver_in_bronze",
+        "type": "bronze",
+        "group": "bronze"
+      },
+      {
+        "name": "mssqlserver_in_silver",
+        "type": "silver",
+        "group": "silver"
+      },
+      {
+        "name": "mssqlserver_in_gold",
+        "type": "gold",
+        "group": "gold"
+      },
+      {
+        "name": "databricks_in_src",
+        "type": "sources",
+        "connection_template": "connection-file:connections/databricks_bulk_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "databricks_bronze_xs"
+        }
+      },
+      {
+        "name": "databricks_in_bronze",
+        "type": "bronze",
+        "group": "bronze"
+      },
+      {
+        "name": "databricks_in_silver",
+        "type": "silver",
+        "group": "silver"
+      },
+      {
+        "name": "databricks_in_gold",
+        "type": "gold",
+        "group": "gold"
+      },
+      {
+        "name": "databricks_dest",
+        "type": "destinations",
+        "connection_template": "connection-file:connections/databricks_bulk_out.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "databricks_bronze_xs"
+        }
+      },
+      {
+        "name": "snowflake_dest",
+        "type": "destinations",
+        "connection_template": "connection-file:connections/snowflake_bulk_out.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "snowflake"
+        }
       }
-    },
-    {
-      "name": "postgres_in_src",
-      "type": "sources",
-      "connection_template": "connection-file:connections/postgres_sql_in.yaml",
-      "group": "sources",
-      "domains": {
-        "D0": "postgres_bronze_xs"
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "mysql_in_src",
+        "functionpath": "functions/mysql/src/append_only.py::pub_append_events"
+      },
+      {
+        "collection": "mysql_in_src",
+        "functionpath": "functions/mysql/src/periodic_snapshot.py::pub_period_snapshot"
+      },
+      {
+        "collection": "mysql_in_src",
+        "functionpath": "functions/mysql/src/entity_scd.py::pub_entity_snapshot"
+      },
+      {
+        "collection": "mysql_in_src",
+        "functionpath": "functions/mysql/src/update_stream.py::pub_upd_full"
+      },
+      {
+        "collection": "mysql_in_src",
+        "functionpath": "functions/mysql/src/update_stream.py::pub_upd_stream"
+      },
+      {
+        "collection": "mysql_in_bronze",
+        "functionpath": "functions/mysql/bronze/append_only.py::tfr_append_bronze"
+      },
+      {
+        "collection": "mysql_in_bronze",
+        "functionpath": "functions/mysql/bronze/periodic_snapshot.py::tfr_period_bronze"
+      },
+      {
+        "collection": "mysql_in_bronze",
+        "functionpath": "functions/mysql/bronze/entity_scd.py::tfr_entity_bronze"
+      },
+      {
+        "collection": "mysql_in_bronze",
+        "functionpath": "functions/mysql/bronze/update_stream.py::tfr_upd_bronze"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/append_only.py::tfr_append_silver"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/periodic_snapshot.py::tfr_period_silver"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/entity_scd.py::tfr_entity_scd2_change_detect"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/entity_scd.py::tfr_entity_scd2_cleanse"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/entity_scd.py::tfr_entity_scd1_change_detect"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/entity_scd.py::tfr_entity_scd1_cleanse"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/update_stream.py::tfr_upd_scd2_change_detect"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/update_stream.py::tfr_upd_scd2_cleanse"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/update_stream.py::tfr_upd_scd1_change_detect"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/update_stream.py::tfr_upd_scd1_cleanse"
+      },
+      {
+        "collection": "mysql_in_gold",
+        "functionpath": "functions/mysql/gold/entity_scd.py::tfr_dim_entity_type1"
+      },
+      {
+        "collection": "mysql_in_gold",
+        "functionpath": "functions/mysql/gold/entity_scd.py::tfr_dim_entity_history_type2"
+      },
+      {
+        "collection": "mysql_in_gold",
+        "functionpath": "functions/mysql/gold/entity_scd.py::tfr_dim_entity_ref_type1"
+      },
+      {
+        "collection": "mysql_in_gold",
+        "functionpath": "functions/mysql/gold/append_only.py::tfr_fct_append"
+      },
+      {
+        "collection": "mysql_in_gold",
+        "functionpath": "functions/mysql/gold/periodic_snapshot.py::tfr_fct_periodic"
+      },
+      {
+        "collection": "mysql_in_gold",
+        "functionpath": "functions/mysql/gold/update_stream.py::tfr_dim_upd_entity_type1"
+      },
+      {
+        "collection": "mysql_in_gold",
+        "functionpath": "functions/mysql/gold/update_stream.py::tfr_dim_upd_entity_history_type2"
+      },
+      {
+        "collection": "mysql_in_gold",
+        "functionpath": "functions/mysql/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
+      },
+      {
+        "collection": "mysql_in_src",
+        "functionpath": "functions/mysql/src/cdc.py::pub_cdc_full"
+      },
+      {
+        "collection": "mysql_in_cdc_src",
+        "functionpath": "functions/mysql/src/cdc.py::pub_cdc_stream"
+      },
+      {
+        "collection": "mysql_in_bronze",
+        "functionpath": "functions/mysql/bronze/cdc.py::tfr_cdc_bronze"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/cdc.py::tfr_cdc_scd2_change_detect"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/cdc.py::tfr_cdc_scd2_cleanse"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/cdc.py::tfr_cdc_scd1_change_detect"
+      },
+      {
+        "collection": "mysql_in_silver",
+        "functionpath": "functions/mysql/silver/cdc.py::tfr_cdc_scd1_cleanse"
+      },
+      {
+        "collection": "mysql_in_gold",
+        "functionpath": "functions/mysql/gold/cdc.py::tfr_dim_cdc_entity_type1"
+      },
+      {
+        "collection": "mysql_in_gold",
+        "functionpath": "functions/mysql/gold/cdc.py::tfr_dim_cdc_entity_history_type2"
+      },
+      {
+        "collection": "mysql_in_gold",
+        "functionpath": "functions/mysql/gold/cdc.py::tfr_dim_cdc_entity_ref_type1"
+      },
+      {
+        "collection": "postgres_in_src",
+        "functionpath": "functions/postgres/src/append_only.py::pub_append_events"
+      },
+      {
+        "collection": "postgres_in_src",
+        "functionpath": "functions/postgres/src/periodic_snapshot.py::pub_period_snapshot"
+      },
+      {
+        "collection": "postgres_in_src",
+        "functionpath": "functions/postgres/src/entity_scd.py::pub_entity_snapshot"
+      },
+      {
+        "collection": "postgres_in_src",
+        "functionpath": "functions/postgres/src/update_stream.py::pub_upd_full"
+      },
+      {
+        "collection": "postgres_in_src",
+        "functionpath": "functions/postgres/src/update_stream.py::pub_upd_stream"
+      },
+      {
+        "collection": "postgres_in_bronze",
+        "functionpath": "functions/postgres/bronze/append_only.py::tfr_append_bronze"
+      },
+      {
+        "collection": "postgres_in_bronze",
+        "functionpath": "functions/postgres/bronze/periodic_snapshot.py::tfr_period_bronze"
+      },
+      {
+        "collection": "postgres_in_bronze",
+        "functionpath": "functions/postgres/bronze/entity_scd.py::tfr_entity_bronze"
+      },
+      {
+        "collection": "postgres_in_bronze",
+        "functionpath": "functions/postgres/bronze/update_stream.py::tfr_upd_bronze"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/append_only.py::tfr_append_silver"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/periodic_snapshot.py::tfr_period_silver"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/entity_scd.py::tfr_entity_scd2_change_detect"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/entity_scd.py::tfr_entity_scd2_cleanse"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/entity_scd.py::tfr_entity_scd1_change_detect"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/entity_scd.py::tfr_entity_scd1_cleanse"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/update_stream.py::tfr_upd_scd2_change_detect"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/update_stream.py::tfr_upd_scd2_cleanse"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/update_stream.py::tfr_upd_scd1_change_detect"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/update_stream.py::tfr_upd_scd1_cleanse"
+      },
+      {
+        "collection": "postgres_in_gold",
+        "functionpath": "functions/postgres/gold/entity_scd.py::tfr_dim_entity_type1"
+      },
+      {
+        "collection": "postgres_in_gold",
+        "functionpath": "functions/postgres/gold/entity_scd.py::tfr_dim_entity_history_type2"
+      },
+      {
+        "collection": "postgres_in_gold",
+        "functionpath": "functions/postgres/gold/entity_scd.py::tfr_dim_entity_ref_type1"
+      },
+      {
+        "collection": "postgres_in_gold",
+        "functionpath": "functions/postgres/gold/append_only.py::tfr_fct_append"
+      },
+      {
+        "collection": "postgres_in_gold",
+        "functionpath": "functions/postgres/gold/periodic_snapshot.py::tfr_fct_periodic"
+      },
+      {
+        "collection": "postgres_in_gold",
+        "functionpath": "functions/postgres/gold/update_stream.py::tfr_dim_upd_entity_type1"
+      },
+      {
+        "collection": "postgres_in_gold",
+        "functionpath": "functions/postgres/gold/update_stream.py::tfr_dim_upd_entity_history_type2"
+      },
+      {
+        "collection": "postgres_in_gold",
+        "functionpath": "functions/postgres/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
+      },
+      {
+        "collection": "postgres_in_src",
+        "functionpath": "functions/postgres/src/cdc.py::pub_cdc_full"
+      },
+      {
+        "collection": "postgres_in_cdc_src",
+        "functionpath": "functions/postgres/src/cdc.py::pub_cdc_stream"
+      },
+      {
+        "collection": "postgres_in_bronze",
+        "functionpath": "functions/postgres/bronze/cdc.py::tfr_cdc_bronze"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/cdc.py::tfr_cdc_scd2_change_detect"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/cdc.py::tfr_cdc_scd2_cleanse"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/cdc.py::tfr_cdc_scd1_change_detect"
+      },
+      {
+        "collection": "postgres_in_silver",
+        "functionpath": "functions/postgres/silver/cdc.py::tfr_cdc_scd1_cleanse"
+      },
+      {
+        "collection": "postgres_in_gold",
+        "functionpath": "functions/postgres/gold/cdc.py::tfr_dim_cdc_entity_type1"
+      },
+      {
+        "collection": "postgres_in_gold",
+        "functionpath": "functions/postgres/gold/cdc.py::tfr_dim_cdc_entity_history_type2"
+      },
+      {
+        "collection": "postgres_in_gold",
+        "functionpath": "functions/postgres/gold/cdc.py::tfr_dim_cdc_entity_ref_type1"
+      },
+      {
+        "collection": "oracle_in_src",
+        "functionpath": "functions/oracle/src/append_only.py::pub_append_events"
+      },
+      {
+        "collection": "oracle_in_src",
+        "functionpath": "functions/oracle/src/periodic_snapshot.py::pub_period_snapshot"
+      },
+      {
+        "collection": "oracle_in_src",
+        "functionpath": "functions/oracle/src/entity_scd.py::pub_entity_snapshot"
+      },
+      {
+        "collection": "oracle_in_src",
+        "functionpath": "functions/oracle/src/update_stream.py::pub_upd_full"
+      },
+      {
+        "collection": "oracle_in_src",
+        "functionpath": "functions/oracle/src/update_stream.py::pub_upd_stream"
+      },
+      {
+        "collection": "oracle_in_bronze",
+        "functionpath": "functions/oracle/bronze/append_only.py::tfr_append_bronze"
+      },
+      {
+        "collection": "oracle_in_bronze",
+        "functionpath": "functions/oracle/bronze/periodic_snapshot.py::tfr_period_bronze"
+      },
+      {
+        "collection": "oracle_in_bronze",
+        "functionpath": "functions/oracle/bronze/entity_scd.py::tfr_entity_bronze"
+      },
+      {
+        "collection": "oracle_in_bronze",
+        "functionpath": "functions/oracle/bronze/update_stream.py::tfr_upd_bronze"
+      },
+      {
+        "collection": "oracle_in_silver",
+        "functionpath": "functions/oracle/silver/append_only.py::tfr_append_silver"
+      },
+      {
+        "collection": "oracle_in_silver",
+        "functionpath": "functions/oracle/silver/periodic_snapshot.py::tfr_period_silver"
+      },
+      {
+        "collection": "oracle_in_silver",
+        "functionpath": "functions/oracle/silver/entity_scd.py::tfr_entity_scd2_change_detect"
+      },
+      {
+        "collection": "oracle_in_silver",
+        "functionpath": "functions/oracle/silver/entity_scd.py::tfr_entity_scd2_cleanse"
+      },
+      {
+        "collection": "oracle_in_silver",
+        "functionpath": "functions/oracle/silver/entity_scd.py::tfr_entity_scd1_change_detect"
+      },
+      {
+        "collection": "oracle_in_silver",
+        "functionpath": "functions/oracle/silver/entity_scd.py::tfr_entity_scd1_cleanse"
+      },
+      {
+        "collection": "oracle_in_silver",
+        "functionpath": "functions/oracle/silver/update_stream.py::tfr_upd_scd2_change_detect"
+      },
+      {
+        "collection": "oracle_in_silver",
+        "functionpath": "functions/oracle/silver/update_stream.py::tfr_upd_scd2_cleanse"
+      },
+      {
+        "collection": "oracle_in_silver",
+        "functionpath": "functions/oracle/silver/update_stream.py::tfr_upd_scd1_change_detect"
+      },
+      {
+        "collection": "oracle_in_silver",
+        "functionpath": "functions/oracle/silver/update_stream.py::tfr_upd_scd1_cleanse"
+      },
+      {
+        "collection": "oracle_in_gold",
+        "functionpath": "functions/oracle/gold/entity_scd.py::tfr_dim_entity_type1"
+      },
+      {
+        "collection": "oracle_in_gold",
+        "functionpath": "functions/oracle/gold/entity_scd.py::tfr_dim_entity_history_type2"
+      },
+      {
+        "collection": "oracle_in_gold",
+        "functionpath": "functions/oracle/gold/entity_scd.py::tfr_dim_entity_ref_type1"
+      },
+      {
+        "collection": "oracle_in_gold",
+        "functionpath": "functions/oracle/gold/append_only.py::tfr_fct_append"
+      },
+      {
+        "collection": "oracle_in_gold",
+        "functionpath": "functions/oracle/gold/periodic_snapshot.py::tfr_fct_periodic"
+      },
+      {
+        "collection": "oracle_in_gold",
+        "functionpath": "functions/oracle/gold/update_stream.py::tfr_dim_upd_entity_type1"
+      },
+      {
+        "collection": "oracle_in_gold",
+        "functionpath": "functions/oracle/gold/update_stream.py::tfr_dim_upd_entity_history_type2"
+      },
+      {
+        "collection": "oracle_in_gold",
+        "functionpath": "functions/oracle/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
+      },
+      {
+        "collection": "db2_in_src",
+        "functionpath": "functions/db2/src/append_only.py::pub_append_events"
+      },
+      {
+        "collection": "db2_in_src",
+        "functionpath": "functions/db2/src/periodic_snapshot.py::pub_period_snapshot"
+      },
+      {
+        "collection": "db2_in_src",
+        "functionpath": "functions/db2/src/entity_scd.py::pub_entity_snapshot"
+      },
+      {
+        "collection": "db2_in_src",
+        "functionpath": "functions/db2/src/update_stream.py::pub_upd_full"
+      },
+      {
+        "collection": "db2_in_src",
+        "functionpath": "functions/db2/src/update_stream.py::pub_upd_stream"
+      },
+      {
+        "collection": "db2_in_bronze",
+        "functionpath": "functions/db2/bronze/append_only.py::tfr_append_bronze"
+      },
+      {
+        "collection": "db2_in_bronze",
+        "functionpath": "functions/db2/bronze/periodic_snapshot.py::tfr_period_bronze"
+      },
+      {
+        "collection": "db2_in_bronze",
+        "functionpath": "functions/db2/bronze/entity_scd.py::tfr_entity_bronze"
+      },
+      {
+        "collection": "db2_in_bronze",
+        "functionpath": "functions/db2/bronze/update_stream.py::tfr_upd_bronze"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/append_only.py::tfr_append_silver"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/periodic_snapshot.py::tfr_period_silver"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/entity_scd.py::tfr_entity_scd2_change_detect"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/entity_scd.py::tfr_entity_scd2_cleanse"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/entity_scd.py::tfr_entity_scd1_change_detect"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/entity_scd.py::tfr_entity_scd1_cleanse"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/update_stream.py::tfr_upd_scd2_change_detect"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/update_stream.py::tfr_upd_scd2_cleanse"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/update_stream.py::tfr_upd_scd1_change_detect"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/update_stream.py::tfr_upd_scd1_cleanse"
+      },
+      {
+        "collection": "db2_in_gold",
+        "functionpath": "functions/db2/gold/entity_scd.py::tfr_dim_entity_type1"
+      },
+      {
+        "collection": "db2_in_gold",
+        "functionpath": "functions/db2/gold/entity_scd.py::tfr_dim_entity_history_type2"
+      },
+      {
+        "collection": "db2_in_gold",
+        "functionpath": "functions/db2/gold/entity_scd.py::tfr_dim_entity_ref_type1"
+      },
+      {
+        "collection": "db2_in_gold",
+        "functionpath": "functions/db2/gold/append_only.py::tfr_fct_append"
+      },
+      {
+        "collection": "db2_in_gold",
+        "functionpath": "functions/db2/gold/periodic_snapshot.py::tfr_fct_periodic"
+      },
+      {
+        "collection": "db2_in_gold",
+        "functionpath": "functions/db2/gold/update_stream.py::tfr_dim_upd_entity_type1"
+      },
+      {
+        "collection": "db2_in_gold",
+        "functionpath": "functions/db2/gold/update_stream.py::tfr_dim_upd_entity_history_type2"
+      },
+      {
+        "collection": "db2_in_gold",
+        "functionpath": "functions/db2/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
+      },
+      {
+        "collection": "db2_in_src",
+        "functionpath": "functions/db2/src/cdc.py::pub_cdc_full"
+      },
+      {
+        "collection": "db2_in_cdc_src",
+        "functionpath": "functions/db2/src/cdc.py::pub_cdc_stream"
+      },
+      {
+        "collection": "db2_in_bronze",
+        "functionpath": "functions/db2/bronze/cdc.py::tfr_cdc_bronze"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/cdc.py::tfr_cdc_scd2_change_detect"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/cdc.py::tfr_cdc_scd2_cleanse"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/cdc.py::tfr_cdc_scd1_change_detect"
+      },
+      {
+        "collection": "db2_in_silver",
+        "functionpath": "functions/db2/silver/cdc.py::tfr_cdc_scd1_cleanse"
+      },
+      {
+        "collection": "db2_in_gold",
+        "functionpath": "functions/db2/gold/cdc.py::tfr_dim_cdc_entity_type1"
+      },
+      {
+        "collection": "db2_in_gold",
+        "functionpath": "functions/db2/gold/cdc.py::tfr_dim_cdc_entity_history_type2"
+      },
+      {
+        "collection": "db2_in_gold",
+        "functionpath": "functions/db2/gold/cdc.py::tfr_dim_cdc_entity_ref_type1"
+      },
+      {
+        "collection": "mssqlserver_in_src",
+        "functionpath": "functions/mssqlserver/src/append_only.py::pub_append_events"
+      },
+      {
+        "collection": "mssqlserver_in_src",
+        "functionpath": "functions/mssqlserver/src/periodic_snapshot.py::pub_period_snapshot"
+      },
+      {
+        "collection": "mssqlserver_in_src",
+        "functionpath": "functions/mssqlserver/src/entity_scd.py::pub_entity_snapshot"
+      },
+      {
+        "collection": "mssqlserver_in_src",
+        "functionpath": "functions/mssqlserver/src/update_stream.py::pub_upd_full"
+      },
+      {
+        "collection": "mssqlserver_in_src",
+        "functionpath": "functions/mssqlserver/src/update_stream.py::pub_upd_stream"
+      },
+      {
+        "collection": "mssqlserver_in_bronze",
+        "functionpath": "functions/mssqlserver/bronze/append_only.py::tfr_append_bronze"
+      },
+      {
+        "collection": "mssqlserver_in_bronze",
+        "functionpath": "functions/mssqlserver/bronze/periodic_snapshot.py::tfr_period_bronze"
+      },
+      {
+        "collection": "mssqlserver_in_bronze",
+        "functionpath": "functions/mssqlserver/bronze/entity_scd.py::tfr_entity_bronze"
+      },
+      {
+        "collection": "mssqlserver_in_bronze",
+        "functionpath": "functions/mssqlserver/bronze/update_stream.py::tfr_upd_bronze"
+      },
+      {
+        "collection": "mssqlserver_in_silver",
+        "functionpath": "functions/mssqlserver/silver/append_only.py::tfr_append_silver"
+      },
+      {
+        "collection": "mssqlserver_in_silver",
+        "functionpath": "functions/mssqlserver/silver/periodic_snapshot.py::tfr_period_silver"
+      },
+      {
+        "collection": "mssqlserver_in_silver",
+        "functionpath": "functions/mssqlserver/silver/entity_scd.py::tfr_entity_scd2_change_detect"
+      },
+      {
+        "collection": "mssqlserver_in_silver",
+        "functionpath": "functions/mssqlserver/silver/entity_scd.py::tfr_entity_scd2_cleanse"
+      },
+      {
+        "collection": "mssqlserver_in_silver",
+        "functionpath": "functions/mssqlserver/silver/entity_scd.py::tfr_entity_scd1_change_detect"
+      },
+      {
+        "collection": "mssqlserver_in_silver",
+        "functionpath": "functions/mssqlserver/silver/entity_scd.py::tfr_entity_scd1_cleanse"
+      },
+      {
+        "collection": "mssqlserver_in_silver",
+        "functionpath": "functions/mssqlserver/silver/update_stream.py::tfr_upd_scd2_change_detect"
+      },
+      {
+        "collection": "mssqlserver_in_silver",
+        "functionpath": "functions/mssqlserver/silver/update_stream.py::tfr_upd_scd2_cleanse"
+      },
+      {
+        "collection": "mssqlserver_in_silver",
+        "functionpath": "functions/mssqlserver/silver/update_stream.py::tfr_upd_scd1_change_detect"
+      },
+      {
+        "collection": "mssqlserver_in_silver",
+        "functionpath": "functions/mssqlserver/silver/update_stream.py::tfr_upd_scd1_cleanse"
+      },
+      {
+        "collection": "mssqlserver_in_gold",
+        "functionpath": "functions/mssqlserver/gold/entity_scd.py::tfr_dim_entity_type1"
+      },
+      {
+        "collection": "mssqlserver_in_gold",
+        "functionpath": "functions/mssqlserver/gold/entity_scd.py::tfr_dim_entity_history_type2"
+      },
+      {
+        "collection": "mssqlserver_in_gold",
+        "functionpath": "functions/mssqlserver/gold/entity_scd.py::tfr_dim_entity_ref_type1"
+      },
+      {
+        "collection": "mssqlserver_in_gold",
+        "functionpath": "functions/mssqlserver/gold/append_only.py::tfr_fct_append"
+      },
+      {
+        "collection": "mssqlserver_in_gold",
+        "functionpath": "functions/mssqlserver/gold/periodic_snapshot.py::tfr_fct_periodic"
+      },
+      {
+        "collection": "mssqlserver_in_gold",
+        "functionpath": "functions/mssqlserver/gold/update_stream.py::tfr_dim_upd_entity_type1"
+      },
+      {
+        "collection": "mssqlserver_in_gold",
+        "functionpath": "functions/mssqlserver/gold/update_stream.py::tfr_dim_upd_entity_history_type2"
+      },
+      {
+        "collection": "mssqlserver_in_gold",
+        "functionpath": "functions/mssqlserver/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
+      },
+      {
+        "collection": "databricks_in_src",
+        "functionpath": "functions/databricks/src/append_only.py::pub_append_events"
+      },
+      {
+        "collection": "databricks_in_src",
+        "functionpath": "functions/databricks/src/periodic_snapshot.py::pub_period_snapshot"
+      },
+      {
+        "collection": "databricks_in_src",
+        "functionpath": "functions/databricks/src/entity_scd.py::pub_entity_snapshot"
+      },
+      {
+        "collection": "databricks_in_src",
+        "functionpath": "functions/databricks/src/update_stream.py::pub_upd_full"
+      },
+      {
+        "collection": "databricks_in_src",
+        "functionpath": "functions/databricks/src/update_stream.py::pub_upd_stream"
+      },
+      {
+        "collection": "databricks_in_bronze",
+        "functionpath": "functions/databricks/bronze/append_only.py::tfr_append_bronze"
+      },
+      {
+        "collection": "databricks_in_bronze",
+        "functionpath": "functions/databricks/bronze/periodic_snapshot.py::tfr_period_bronze"
+      },
+      {
+        "collection": "databricks_in_bronze",
+        "functionpath": "functions/databricks/bronze/entity_scd.py::tfr_entity_bronze"
+      },
+      {
+        "collection": "databricks_in_bronze",
+        "functionpath": "functions/databricks/bronze/update_stream.py::tfr_upd_bronze"
+      },
+      {
+        "collection": "databricks_in_silver",
+        "functionpath": "functions/databricks/silver/append_only.py::tfr_append_silver"
+      },
+      {
+        "collection": "databricks_in_silver",
+        "functionpath": "functions/databricks/silver/periodic_snapshot.py::tfr_period_silver"
+      },
+      {
+        "collection": "databricks_in_silver",
+        "functionpath": "functions/databricks/silver/entity_scd.py::tfr_entity_scd2_change_detect"
+      },
+      {
+        "collection": "databricks_in_silver",
+        "functionpath": "functions/databricks/silver/entity_scd.py::tfr_entity_scd2_cleanse"
+      },
+      {
+        "collection": "databricks_in_silver",
+        "functionpath": "functions/databricks/silver/entity_scd.py::tfr_entity_scd1_change_detect"
+      },
+      {
+        "collection": "databricks_in_silver",
+        "functionpath": "functions/databricks/silver/entity_scd.py::tfr_entity_scd1_cleanse"
+      },
+      {
+        "collection": "databricks_in_silver",
+        "functionpath": "functions/databricks/silver/update_stream.py::tfr_upd_scd2_change_detect"
+      },
+      {
+        "collection": "databricks_in_silver",
+        "functionpath": "functions/databricks/silver/update_stream.py::tfr_upd_scd2_cleanse"
+      },
+      {
+        "collection": "databricks_in_silver",
+        "functionpath": "functions/databricks/silver/update_stream.py::tfr_upd_scd1_change_detect"
+      },
+      {
+        "collection": "databricks_in_silver",
+        "functionpath": "functions/databricks/silver/update_stream.py::tfr_upd_scd1_cleanse"
+      },
+      {
+        "collection": "databricks_in_gold",
+        "functionpath": "functions/databricks/gold/entity_scd.py::tfr_dim_entity_type1"
+      },
+      {
+        "collection": "databricks_in_gold",
+        "functionpath": "functions/databricks/gold/entity_scd.py::tfr_dim_entity_history_type2"
+      },
+      {
+        "collection": "databricks_in_gold",
+        "functionpath": "functions/databricks/gold/entity_scd.py::tfr_dim_entity_ref_type1"
+      },
+      {
+        "collection": "databricks_in_gold",
+        "functionpath": "functions/databricks/gold/append_only.py::tfr_fct_append"
+      },
+      {
+        "collection": "databricks_in_gold",
+        "functionpath": "functions/databricks/gold/periodic_snapshot.py::tfr_fct_periodic"
+      },
+      {
+        "collection": "databricks_in_gold",
+        "functionpath": "functions/databricks/gold/update_stream.py::tfr_dim_upd_entity_type1"
+      },
+      {
+        "collection": "databricks_in_gold",
+        "functionpath": "functions/databricks/gold/update_stream.py::tfr_dim_upd_entity_history_type2"
+      },
+      {
+        "collection": "databricks_in_gold",
+        "functionpath": "functions/databricks/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/mysql/dest/databricks/append_only.py::sub_mysql_append"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/mysql/dest/databricks/periodic_snapshot.py::sub_mysql_periodic"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/mysql/dest/databricks/entity_scd.py::sub_mysql_entity"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/mysql/dest/databricks/update_stream.py::sub_mysql_update"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/mysql/dest/databricks/cdc.py::sub_mysql_cdc"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/postgres/dest/databricks/append_only.py::sub_postgres_append"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/postgres/dest/databricks/periodic_snapshot.py::sub_postgres_periodic"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/postgres/dest/databricks/entity_scd.py::sub_postgres_entity"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/postgres/dest/databricks/update_stream.py::sub_postgres_update"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/postgres/dest/databricks/cdc.py::sub_postgres_cdc"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/oracle/dest/databricks/append_only.py::sub_oracle_append"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/oracle/dest/databricks/periodic_snapshot.py::sub_oracle_periodic"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/oracle/dest/databricks/entity_scd.py::sub_oracle_entity"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/oracle/dest/databricks/update_stream.py::sub_oracle_update"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/db2/dest/databricks/append_only.py::sub_db2_append"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/db2/dest/databricks/periodic_snapshot.py::sub_db2_periodic"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/db2/dest/databricks/entity_scd.py::sub_db2_entity"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/db2/dest/databricks/update_stream.py::sub_db2_update"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/db2/dest/databricks/cdc.py::sub_db2_cdc"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/mssqlserver/dest/databricks/append_only.py::sub_mssqlserver_append"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/mssqlserver/dest/databricks/periodic_snapshot.py::sub_mssqlserver_periodic"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/mssqlserver/dest/databricks/entity_scd.py::sub_mssqlserver_entity"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/mssqlserver/dest/databricks/update_stream.py::sub_mssqlserver_update"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/databricks/dest/databricks/append_only.py::sub_databricks_append"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/databricks/dest/databricks/periodic_snapshot.py::sub_databricks_periodic"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/databricks/dest/databricks/entity_scd.py::sub_databricks_entity"
+      },
+      {
+        "collection": "databricks_dest",
+        "functionpath": "functions/databricks/dest/databricks/update_stream.py::sub_databricks_update"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/mysql/dest/snowflake/append_only.py::snow_mysql_append"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/mysql/dest/snowflake/periodic_snapshot.py::snow_mysql_periodic"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/mysql/dest/snowflake/entity_scd.py::snow_mysql_entity"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/mysql/dest/snowflake/update_stream.py::snow_mysql_update"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/mysql/dest/snowflake/cdc.py::snow_mysql_cdc"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/postgres/dest/snowflake/append_only.py::snow_postgres_append"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/postgres/dest/snowflake/periodic_snapshot.py::snow_postgres_periodic"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/postgres/dest/snowflake/entity_scd.py::snow_postgres_entity"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/postgres/dest/snowflake/update_stream.py::snow_postgres_update"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/postgres/dest/snowflake/cdc.py::snow_postgres_cdc"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/oracle/dest/snowflake/append_only.py::snow_oracle_append"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/oracle/dest/snowflake/periodic_snapshot.py::snow_oracle_periodic"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/oracle/dest/snowflake/entity_scd.py::snow_oracle_entity"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/oracle/dest/snowflake/update_stream.py::snow_oracle_update"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/db2/dest/snowflake/append_only.py::snow_db2_append"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/db2/dest/snowflake/periodic_snapshot.py::snow_db2_periodic"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/db2/dest/snowflake/entity_scd.py::snow_db2_entity"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/db2/dest/snowflake/update_stream.py::snow_db2_update"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/db2/dest/snowflake/cdc.py::snow_db2_cdc"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/mssqlserver/dest/snowflake/append_only.py::snow_mssqlserver_append"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/mssqlserver/dest/snowflake/periodic_snapshot.py::snow_mssqlserver_periodic"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/mssqlserver/dest/snowflake/entity_scd.py::snow_mssqlserver_entity"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/mssqlserver/dest/snowflake/update_stream.py::snow_mssqlserver_update"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/databricks/dest/snowflake/append_only.py::snow_databricks_append"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/databricks/dest/snowflake/periodic_snapshot.py::snow_databricks_periodic"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/databricks/dest/snowflake/entity_scd.py::snow_databricks_entity"
+      },
+      {
+        "collection": "snowflake_dest",
+        "functionpath": "functions/databricks/dest/snowflake/update_stream.py::snow_databricks_update"
       }
-    },
-    {
-      "name": "postgres_in_bronze",
-      "type": "bronze",
-      "group": "bronze"
-    },
-    {
-      "name": "postgres_in_silver",
-      "type": "silver",
-      "group": "silver"
-    },
-    {
-      "name": "postgres_in_gold",
-      "type": "gold",
-      "group": "gold"
-    },
-    {
-      "name": "postgres_in_cdc_src",
-      "type": "sources",
-      "connection_template": "connection-file:connections/postgres_cdc.yaml",
-      "group": "sources",
-      "domains": {
-        "D0": "postgres_bronze_xs"
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "mysql_in_src",
+        "function": "pub_append_events",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in_src",
+        "function": "pub_period_snapshot",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in_src",
+        "function": "pub_entity_snapshot",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in_src",
+        "function": "pub_upd_full",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in_src",
+        "function": "pub_cdc_full",
+        "detached": true
+      },
+      {
+        "collection": "postgres_in_src",
+        "function": "pub_append_events",
+        "detached": true
+      },
+      {
+        "collection": "postgres_in_src",
+        "function": "pub_period_snapshot",
+        "detached": true
+      },
+      {
+        "collection": "postgres_in_src",
+        "function": "pub_entity_snapshot",
+        "detached": true
+      },
+      {
+        "collection": "postgres_in_src",
+        "function": "pub_upd_full",
+        "detached": true
+      },
+      {
+        "collection": "postgres_in_src",
+        "function": "pub_cdc_full",
+        "detached": true
+      },
+      {
+        "collection": "oracle_in_src",
+        "function": "pub_append_events",
+        "detached": true
+      },
+      {
+        "collection": "oracle_in_src",
+        "function": "pub_period_snapshot",
+        "detached": true
+      },
+      {
+        "collection": "oracle_in_src",
+        "function": "pub_entity_snapshot",
+        "detached": true
+      },
+      {
+        "collection": "oracle_in_src",
+        "function": "pub_upd_full",
+        "detached": true
+      },
+      {
+        "collection": "db2_in_src",
+        "function": "pub_append_events",
+        "detached": true
+      },
+      {
+        "collection": "db2_in_src",
+        "function": "pub_period_snapshot",
+        "detached": true
+      },
+      {
+        "collection": "db2_in_src",
+        "function": "pub_entity_snapshot",
+        "detached": true
+      },
+      {
+        "collection": "db2_in_src",
+        "function": "pub_upd_full",
+        "detached": true
+      },
+      {
+        "collection": "db2_in_src",
+        "function": "pub_cdc_full",
+        "detached": true
+      },
+      {
+        "collection": "mssqlserver_in_src",
+        "function": "pub_append_events",
+        "detached": true
+      },
+      {
+        "collection": "mssqlserver_in_src",
+        "function": "pub_period_snapshot",
+        "detached": true
+      },
+      {
+        "collection": "mssqlserver_in_src",
+        "function": "pub_entity_snapshot",
+        "detached": true
+      },
+      {
+        "collection": "mssqlserver_in_src",
+        "function": "pub_upd_full",
+        "detached": true
+      },
+      {
+        "collection": "databricks_in_src",
+        "function": "pub_append_events",
+        "detached": true
+      },
+      {
+        "collection": "databricks_in_src",
+        "function": "pub_period_snapshot",
+        "detached": true
+      },
+      {
+        "collection": "databricks_in_src",
+        "function": "pub_entity_snapshot",
+        "detached": true
+      },
+      {
+        "collection": "databricks_in_src",
+        "function": "pub_upd_full",
+        "detached": true
       }
-    },
-    {
-      "name": "oracle_in_src",
-      "type": "sources",
-      "connection_template": "connection-file:connections/oracle_sql_in.yaml",
-      "group": "sources",
-      "domains": {
-        "D0": "oracle_bronze_xs"
-      }
-    },
-    {
-      "name": "oracle_in_bronze",
-      "type": "bronze",
-      "group": "bronze"
-    },
-    {
-      "name": "oracle_in_silver",
-      "type": "silver",
-      "group": "silver"
-    },
-    {
-      "name": "oracle_in_gold",
-      "type": "gold",
-      "group": "gold"
-    },
-    {
-      "name": "db2_in_src",
-      "type": "sources",
-      "connection_template": "connection-file:connections/db2_sql_in.yaml",
-      "group": "sources",
-      "domains": {
-        "D0": "db2_bronze_xs"
-      }
-    },
-    {
-      "name": "db2_in_bronze",
-      "type": "bronze",
-      "group": "bronze"
-    },
-    {
-      "name": "db2_in_silver",
-      "type": "silver",
-      "group": "silver"
-    },
-    {
-      "name": "db2_in_gold",
-      "type": "gold",
-      "group": "gold"
-    },
-    {
-      "name": "db2_in_cdc_src",
-      "type": "sources",
-      "connection_template": "connection-file:connections/db2_cdc.yaml",
-      "group": "sources",
-      "domains": {
-        "D0": "db2_bronze_xs"
-      }
-    },
-    {
-      "name": "mssqlserver_in_src",
-      "type": "sources",
-      "connection_template": "connection-file:connections/mssql_sql_in.yaml",
-      "group": "sources",
-      "domains": {
-        "D0": "mssqlserver_bronze_xs"
-      }
-    },
-    {
-      "name": "mssqlserver_in_bronze",
-      "type": "bronze",
-      "group": "bronze"
-    },
-    {
-      "name": "mssqlserver_in_silver",
-      "type": "silver",
-      "group": "silver"
-    },
-    {
-      "name": "mssqlserver_in_gold",
-      "type": "gold",
-      "group": "gold"
-    },
-    {
-      "name": "databricks_in_src",
-      "type": "sources",
-      "connection_template": "connection-file:connections/databricks_bulk_in.yaml",
-      "group": "sources",
-      "domains": {
-        "D0": "databricks_bronze_xs"
-      }
-    },
-    {
-      "name": "databricks_in_bronze",
-      "type": "bronze",
-      "group": "bronze"
-    },
-    {
-      "name": "databricks_in_silver",
-      "type": "silver",
-      "group": "silver"
-    },
-    {
-      "name": "databricks_in_gold",
-      "type": "gold",
-      "group": "gold"
-    },
-    {
-      "name": "databricks_dest",
-      "type": "destinations",
-      "connection_template": "connection-file:connections/databricks_bulk_out.yaml",
-      "group": "destinations",
-      "domains": {
-        "D0": "databricks_bronze_xs"
-      }
-    },
-    {
-      "name": "snowflake_dest",
-      "type": "destinations",
-      "connection_template": "connection-file:connections/snowflake_bulk_out.yaml",
-      "group": "destinations",
-      "domains": {
-        "D0": "snowflake"
-      }
-    }
-  ],
-  "functions": [
-    {
-      "collection": "mysql_in_src",
-      "functionpath": "functions/mysql/src/append_only.py::pub_append_events"
-    },
-    {
-      "collection": "mysql_in_src",
-      "functionpath": "functions/mysql/src/periodic_snapshot.py::pub_period_snapshot"
-    },
-    {
-      "collection": "mysql_in_src",
-      "functionpath": "functions/mysql/src/entity_scd.py::pub_entity_snapshot"
-    },
-    {
-      "collection": "mysql_in_src",
-      "functionpath": "functions/mysql/src/update_stream.py::pub_upd_full"
-    },
-    {
-      "collection": "mysql_in_src",
-      "functionpath": "functions/mysql/src/update_stream.py::pub_upd_stream"
-    },
-    {
-      "collection": "mysql_in_bronze",
-      "functionpath": "functions/mysql/bronze/append_only.py::tfr_append_bronze"
-    },
-    {
-      "collection": "mysql_in_bronze",
-      "functionpath": "functions/mysql/bronze/periodic_snapshot.py::tfr_period_bronze"
-    },
-    {
-      "collection": "mysql_in_bronze",
-      "functionpath": "functions/mysql/bronze/entity_scd.py::tfr_entity_bronze"
-    },
-    {
-      "collection": "mysql_in_bronze",
-      "functionpath": "functions/mysql/bronze/update_stream.py::tfr_upd_bronze"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/append_only.py::tfr_append_silver"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/periodic_snapshot.py::tfr_period_silver"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/entity_scd.py::tfr_entity_scd2_change_detect"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/entity_scd.py::tfr_entity_scd2_cleanse"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/entity_scd.py::tfr_entity_scd1_change_detect"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/entity_scd.py::tfr_entity_scd1_cleanse"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/update_stream.py::tfr_upd_scd2_change_detect"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/update_stream.py::tfr_upd_scd2_cleanse"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/update_stream.py::tfr_upd_scd1_change_detect"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/update_stream.py::tfr_upd_scd1_cleanse"
-    },
-    {
-      "collection": "mysql_in_gold",
-      "functionpath": "functions/mysql/gold/entity_scd.py::tfr_dim_entity_type1"
-    },
-    {
-      "collection": "mysql_in_gold",
-      "functionpath": "functions/mysql/gold/entity_scd.py::tfr_dim_entity_history_type2"
-    },
-    {
-      "collection": "mysql_in_gold",
-      "functionpath": "functions/mysql/gold/entity_scd.py::tfr_dim_entity_ref_type1"
-    },
-    {
-      "collection": "mysql_in_gold",
-      "functionpath": "functions/mysql/gold/append_only.py::tfr_fct_append"
-    },
-    {
-      "collection": "mysql_in_gold",
-      "functionpath": "functions/mysql/gold/periodic_snapshot.py::tfr_fct_periodic"
-    },
-    {
-      "collection": "mysql_in_gold",
-      "functionpath": "functions/mysql/gold/update_stream.py::tfr_dim_upd_entity_type1"
-    },
-    {
-      "collection": "mysql_in_gold",
-      "functionpath": "functions/mysql/gold/update_stream.py::tfr_dim_upd_entity_history_type2"
-    },
-    {
-      "collection": "mysql_in_gold",
-      "functionpath": "functions/mysql/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
-    },
-    {
-      "collection": "mysql_in_src",
-      "functionpath": "functions/mysql/src/cdc.py::pub_cdc_full"
-    },
-    {
-      "collection": "mysql_in_cdc_src",
-      "functionpath": "functions/mysql/src/cdc.py::pub_cdc_stream"
-    },
-    {
-      "collection": "mysql_in_bronze",
-      "functionpath": "functions/mysql/bronze/cdc.py::tfr_cdc_bronze"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/cdc.py::tfr_cdc_scd2_change_detect"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/cdc.py::tfr_cdc_scd2_cleanse"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/cdc.py::tfr_cdc_scd1_change_detect"
-    },
-    {
-      "collection": "mysql_in_silver",
-      "functionpath": "functions/mysql/silver/cdc.py::tfr_cdc_scd1_cleanse"
-    },
-    {
-      "collection": "mysql_in_gold",
-      "functionpath": "functions/mysql/gold/cdc.py::tfr_dim_cdc_entity_type1"
-    },
-    {
-      "collection": "mysql_in_gold",
-      "functionpath": "functions/mysql/gold/cdc.py::tfr_dim_cdc_entity_history_type2"
-    },
-    {
-      "collection": "mysql_in_gold",
-      "functionpath": "functions/mysql/gold/cdc.py::tfr_dim_cdc_entity_ref_type1"
-    },
-    {
-      "collection": "postgres_in_src",
-      "functionpath": "functions/postgres/src/append_only.py::pub_append_events"
-    },
-    {
-      "collection": "postgres_in_src",
-      "functionpath": "functions/postgres/src/periodic_snapshot.py::pub_period_snapshot"
-    },
-    {
-      "collection": "postgres_in_src",
-      "functionpath": "functions/postgres/src/entity_scd.py::pub_entity_snapshot"
-    },
-    {
-      "collection": "postgres_in_src",
-      "functionpath": "functions/postgres/src/update_stream.py::pub_upd_full"
-    },
-    {
-      "collection": "postgres_in_src",
-      "functionpath": "functions/postgres/src/update_stream.py::pub_upd_stream"
-    },
-    {
-      "collection": "postgres_in_bronze",
-      "functionpath": "functions/postgres/bronze/append_only.py::tfr_append_bronze"
-    },
-    {
-      "collection": "postgres_in_bronze",
-      "functionpath": "functions/postgres/bronze/periodic_snapshot.py::tfr_period_bronze"
-    },
-    {
-      "collection": "postgres_in_bronze",
-      "functionpath": "functions/postgres/bronze/entity_scd.py::tfr_entity_bronze"
-    },
-    {
-      "collection": "postgres_in_bronze",
-      "functionpath": "functions/postgres/bronze/update_stream.py::tfr_upd_bronze"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/append_only.py::tfr_append_silver"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/periodic_snapshot.py::tfr_period_silver"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/entity_scd.py::tfr_entity_scd2_change_detect"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/entity_scd.py::tfr_entity_scd2_cleanse"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/entity_scd.py::tfr_entity_scd1_change_detect"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/entity_scd.py::tfr_entity_scd1_cleanse"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/update_stream.py::tfr_upd_scd2_change_detect"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/update_stream.py::tfr_upd_scd2_cleanse"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/update_stream.py::tfr_upd_scd1_change_detect"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/update_stream.py::tfr_upd_scd1_cleanse"
-    },
-    {
-      "collection": "postgres_in_gold",
-      "functionpath": "functions/postgres/gold/entity_scd.py::tfr_dim_entity_type1"
-    },
-    {
-      "collection": "postgres_in_gold",
-      "functionpath": "functions/postgres/gold/entity_scd.py::tfr_dim_entity_history_type2"
-    },
-    {
-      "collection": "postgres_in_gold",
-      "functionpath": "functions/postgres/gold/entity_scd.py::tfr_dim_entity_ref_type1"
-    },
-    {
-      "collection": "postgres_in_gold",
-      "functionpath": "functions/postgres/gold/append_only.py::tfr_fct_append"
-    },
-    {
-      "collection": "postgres_in_gold",
-      "functionpath": "functions/postgres/gold/periodic_snapshot.py::tfr_fct_periodic"
-    },
-    {
-      "collection": "postgres_in_gold",
-      "functionpath": "functions/postgres/gold/update_stream.py::tfr_dim_upd_entity_type1"
-    },
-    {
-      "collection": "postgres_in_gold",
-      "functionpath": "functions/postgres/gold/update_stream.py::tfr_dim_upd_entity_history_type2"
-    },
-    {
-      "collection": "postgres_in_gold",
-      "functionpath": "functions/postgres/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
-    },
-    {
-      "collection": "postgres_in_src",
-      "functionpath": "functions/postgres/src/cdc.py::pub_cdc_full"
-    },
-    {
-      "collection": "postgres_in_cdc_src",
-      "functionpath": "functions/postgres/src/cdc.py::pub_cdc_stream"
-    },
-    {
-      "collection": "postgres_in_bronze",
-      "functionpath": "functions/postgres/bronze/cdc.py::tfr_cdc_bronze"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/cdc.py::tfr_cdc_scd2_change_detect"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/cdc.py::tfr_cdc_scd2_cleanse"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/cdc.py::tfr_cdc_scd1_change_detect"
-    },
-    {
-      "collection": "postgres_in_silver",
-      "functionpath": "functions/postgres/silver/cdc.py::tfr_cdc_scd1_cleanse"
-    },
-    {
-      "collection": "postgres_in_gold",
-      "functionpath": "functions/postgres/gold/cdc.py::tfr_dim_cdc_entity_type1"
-    },
-    {
-      "collection": "postgres_in_gold",
-      "functionpath": "functions/postgres/gold/cdc.py::tfr_dim_cdc_entity_history_type2"
-    },
-    {
-      "collection": "postgres_in_gold",
-      "functionpath": "functions/postgres/gold/cdc.py::tfr_dim_cdc_entity_ref_type1"
-    },
-    {
-      "collection": "oracle_in_src",
-      "functionpath": "functions/oracle/src/append_only.py::pub_append_events"
-    },
-    {
-      "collection": "oracle_in_src",
-      "functionpath": "functions/oracle/src/periodic_snapshot.py::pub_period_snapshot"
-    },
-    {
-      "collection": "oracle_in_src",
-      "functionpath": "functions/oracle/src/entity_scd.py::pub_entity_snapshot"
-    },
-    {
-      "collection": "oracle_in_src",
-      "functionpath": "functions/oracle/src/update_stream.py::pub_upd_full"
-    },
-    {
-      "collection": "oracle_in_src",
-      "functionpath": "functions/oracle/src/update_stream.py::pub_upd_stream"
-    },
-    {
-      "collection": "oracle_in_bronze",
-      "functionpath": "functions/oracle/bronze/append_only.py::tfr_append_bronze"
-    },
-    {
-      "collection": "oracle_in_bronze",
-      "functionpath": "functions/oracle/bronze/periodic_snapshot.py::tfr_period_bronze"
-    },
-    {
-      "collection": "oracle_in_bronze",
-      "functionpath": "functions/oracle/bronze/entity_scd.py::tfr_entity_bronze"
-    },
-    {
-      "collection": "oracle_in_bronze",
-      "functionpath": "functions/oracle/bronze/update_stream.py::tfr_upd_bronze"
-    },
-    {
-      "collection": "oracle_in_silver",
-      "functionpath": "functions/oracle/silver/append_only.py::tfr_append_silver"
-    },
-    {
-      "collection": "oracle_in_silver",
-      "functionpath": "functions/oracle/silver/periodic_snapshot.py::tfr_period_silver"
-    },
-    {
-      "collection": "oracle_in_silver",
-      "functionpath": "functions/oracle/silver/entity_scd.py::tfr_entity_scd2_change_detect"
-    },
-    {
-      "collection": "oracle_in_silver",
-      "functionpath": "functions/oracle/silver/entity_scd.py::tfr_entity_scd2_cleanse"
-    },
-    {
-      "collection": "oracle_in_silver",
-      "functionpath": "functions/oracle/silver/entity_scd.py::tfr_entity_scd1_change_detect"
-    },
-    {
-      "collection": "oracle_in_silver",
-      "functionpath": "functions/oracle/silver/entity_scd.py::tfr_entity_scd1_cleanse"
-    },
-    {
-      "collection": "oracle_in_silver",
-      "functionpath": "functions/oracle/silver/update_stream.py::tfr_upd_scd2_change_detect"
-    },
-    {
-      "collection": "oracle_in_silver",
-      "functionpath": "functions/oracle/silver/update_stream.py::tfr_upd_scd2_cleanse"
-    },
-    {
-      "collection": "oracle_in_silver",
-      "functionpath": "functions/oracle/silver/update_stream.py::tfr_upd_scd1_change_detect"
-    },
-    {
-      "collection": "oracle_in_silver",
-      "functionpath": "functions/oracle/silver/update_stream.py::tfr_upd_scd1_cleanse"
-    },
-    {
-      "collection": "oracle_in_gold",
-      "functionpath": "functions/oracle/gold/entity_scd.py::tfr_dim_entity_type1"
-    },
-    {
-      "collection": "oracle_in_gold",
-      "functionpath": "functions/oracle/gold/entity_scd.py::tfr_dim_entity_history_type2"
-    },
-    {
-      "collection": "oracle_in_gold",
-      "functionpath": "functions/oracle/gold/entity_scd.py::tfr_dim_entity_ref_type1"
-    },
-    {
-      "collection": "oracle_in_gold",
-      "functionpath": "functions/oracle/gold/append_only.py::tfr_fct_append"
-    },
-    {
-      "collection": "oracle_in_gold",
-      "functionpath": "functions/oracle/gold/periodic_snapshot.py::tfr_fct_periodic"
-    },
-    {
-      "collection": "oracle_in_gold",
-      "functionpath": "functions/oracle/gold/update_stream.py::tfr_dim_upd_entity_type1"
-    },
-    {
-      "collection": "oracle_in_gold",
-      "functionpath": "functions/oracle/gold/update_stream.py::tfr_dim_upd_entity_history_type2"
-    },
-    {
-      "collection": "oracle_in_gold",
-      "functionpath": "functions/oracle/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
-    },
-    {
-      "collection": "db2_in_src",
-      "functionpath": "functions/db2/src/append_only.py::pub_append_events"
-    },
-    {
-      "collection": "db2_in_src",
-      "functionpath": "functions/db2/src/periodic_snapshot.py::pub_period_snapshot"
-    },
-    {
-      "collection": "db2_in_src",
-      "functionpath": "functions/db2/src/entity_scd.py::pub_entity_snapshot"
-    },
-    {
-      "collection": "db2_in_src",
-      "functionpath": "functions/db2/src/update_stream.py::pub_upd_full"
-    },
-    {
-      "collection": "db2_in_src",
-      "functionpath": "functions/db2/src/update_stream.py::pub_upd_stream"
-    },
-    {
-      "collection": "db2_in_bronze",
-      "functionpath": "functions/db2/bronze/append_only.py::tfr_append_bronze"
-    },
-    {
-      "collection": "db2_in_bronze",
-      "functionpath": "functions/db2/bronze/periodic_snapshot.py::tfr_period_bronze"
-    },
-    {
-      "collection": "db2_in_bronze",
-      "functionpath": "functions/db2/bronze/entity_scd.py::tfr_entity_bronze"
-    },
-    {
-      "collection": "db2_in_bronze",
-      "functionpath": "functions/db2/bronze/update_stream.py::tfr_upd_bronze"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/append_only.py::tfr_append_silver"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/periodic_snapshot.py::tfr_period_silver"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/entity_scd.py::tfr_entity_scd2_change_detect"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/entity_scd.py::tfr_entity_scd2_cleanse"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/entity_scd.py::tfr_entity_scd1_change_detect"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/entity_scd.py::tfr_entity_scd1_cleanse"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/update_stream.py::tfr_upd_scd2_change_detect"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/update_stream.py::tfr_upd_scd2_cleanse"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/update_stream.py::tfr_upd_scd1_change_detect"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/update_stream.py::tfr_upd_scd1_cleanse"
-    },
-    {
-      "collection": "db2_in_gold",
-      "functionpath": "functions/db2/gold/entity_scd.py::tfr_dim_entity_type1"
-    },
-    {
-      "collection": "db2_in_gold",
-      "functionpath": "functions/db2/gold/entity_scd.py::tfr_dim_entity_history_type2"
-    },
-    {
-      "collection": "db2_in_gold",
-      "functionpath": "functions/db2/gold/entity_scd.py::tfr_dim_entity_ref_type1"
-    },
-    {
-      "collection": "db2_in_gold",
-      "functionpath": "functions/db2/gold/append_only.py::tfr_fct_append"
-    },
-    {
-      "collection": "db2_in_gold",
-      "functionpath": "functions/db2/gold/periodic_snapshot.py::tfr_fct_periodic"
-    },
-    {
-      "collection": "db2_in_gold",
-      "functionpath": "functions/db2/gold/update_stream.py::tfr_dim_upd_entity_type1"
-    },
-    {
-      "collection": "db2_in_gold",
-      "functionpath": "functions/db2/gold/update_stream.py::tfr_dim_upd_entity_history_type2"
-    },
-    {
-      "collection": "db2_in_gold",
-      "functionpath": "functions/db2/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
-    },
-    {
-      "collection": "db2_in_src",
-      "functionpath": "functions/db2/src/cdc.py::pub_cdc_full"
-    },
-    {
-      "collection": "db2_in_cdc_src",
-      "functionpath": "functions/db2/src/cdc.py::pub_cdc_stream"
-    },
-    {
-      "collection": "db2_in_bronze",
-      "functionpath": "functions/db2/bronze/cdc.py::tfr_cdc_bronze"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/cdc.py::tfr_cdc_scd2_change_detect"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/cdc.py::tfr_cdc_scd2_cleanse"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/cdc.py::tfr_cdc_scd1_change_detect"
-    },
-    {
-      "collection": "db2_in_silver",
-      "functionpath": "functions/db2/silver/cdc.py::tfr_cdc_scd1_cleanse"
-    },
-    {
-      "collection": "db2_in_gold",
-      "functionpath": "functions/db2/gold/cdc.py::tfr_dim_cdc_entity_type1"
-    },
-    {
-      "collection": "db2_in_gold",
-      "functionpath": "functions/db2/gold/cdc.py::tfr_dim_cdc_entity_history_type2"
-    },
-    {
-      "collection": "db2_in_gold",
-      "functionpath": "functions/db2/gold/cdc.py::tfr_dim_cdc_entity_ref_type1"
-    },
-    {
-      "collection": "mssqlserver_in_src",
-      "functionpath": "functions/mssqlserver/src/append_only.py::pub_append_events"
-    },
-    {
-      "collection": "mssqlserver_in_src",
-      "functionpath": "functions/mssqlserver/src/periodic_snapshot.py::pub_period_snapshot"
-    },
-    {
-      "collection": "mssqlserver_in_src",
-      "functionpath": "functions/mssqlserver/src/entity_scd.py::pub_entity_snapshot"
-    },
-    {
-      "collection": "mssqlserver_in_src",
-      "functionpath": "functions/mssqlserver/src/update_stream.py::pub_upd_full"
-    },
-    {
-      "collection": "mssqlserver_in_src",
-      "functionpath": "functions/mssqlserver/src/update_stream.py::pub_upd_stream"
-    },
-    {
-      "collection": "mssqlserver_in_bronze",
-      "functionpath": "functions/mssqlserver/bronze/append_only.py::tfr_append_bronze"
-    },
-    {
-      "collection": "mssqlserver_in_bronze",
-      "functionpath": "functions/mssqlserver/bronze/periodic_snapshot.py::tfr_period_bronze"
-    },
-    {
-      "collection": "mssqlserver_in_bronze",
-      "functionpath": "functions/mssqlserver/bronze/entity_scd.py::tfr_entity_bronze"
-    },
-    {
-      "collection": "mssqlserver_in_bronze",
-      "functionpath": "functions/mssqlserver/bronze/update_stream.py::tfr_upd_bronze"
-    },
-    {
-      "collection": "mssqlserver_in_silver",
-      "functionpath": "functions/mssqlserver/silver/append_only.py::tfr_append_silver"
-    },
-    {
-      "collection": "mssqlserver_in_silver",
-      "functionpath": "functions/mssqlserver/silver/periodic_snapshot.py::tfr_period_silver"
-    },
-    {
-      "collection": "mssqlserver_in_silver",
-      "functionpath": "functions/mssqlserver/silver/entity_scd.py::tfr_entity_scd2_change_detect"
-    },
-    {
-      "collection": "mssqlserver_in_silver",
-      "functionpath": "functions/mssqlserver/silver/entity_scd.py::tfr_entity_scd2_cleanse"
-    },
-    {
-      "collection": "mssqlserver_in_silver",
-      "functionpath": "functions/mssqlserver/silver/entity_scd.py::tfr_entity_scd1_change_detect"
-    },
-    {
-      "collection": "mssqlserver_in_silver",
-      "functionpath": "functions/mssqlserver/silver/entity_scd.py::tfr_entity_scd1_cleanse"
-    },
-    {
-      "collection": "mssqlserver_in_silver",
-      "functionpath": "functions/mssqlserver/silver/update_stream.py::tfr_upd_scd2_change_detect"
-    },
-    {
-      "collection": "mssqlserver_in_silver",
-      "functionpath": "functions/mssqlserver/silver/update_stream.py::tfr_upd_scd2_cleanse"
-    },
-    {
-      "collection": "mssqlserver_in_silver",
-      "functionpath": "functions/mssqlserver/silver/update_stream.py::tfr_upd_scd1_change_detect"
-    },
-    {
-      "collection": "mssqlserver_in_silver",
-      "functionpath": "functions/mssqlserver/silver/update_stream.py::tfr_upd_scd1_cleanse"
-    },
-    {
-      "collection": "mssqlserver_in_gold",
-      "functionpath": "functions/mssqlserver/gold/entity_scd.py::tfr_dim_entity_type1"
-    },
-    {
-      "collection": "mssqlserver_in_gold",
-      "functionpath": "functions/mssqlserver/gold/entity_scd.py::tfr_dim_entity_history_type2"
-    },
-    {
-      "collection": "mssqlserver_in_gold",
-      "functionpath": "functions/mssqlserver/gold/entity_scd.py::tfr_dim_entity_ref_type1"
-    },
-    {
-      "collection": "mssqlserver_in_gold",
-      "functionpath": "functions/mssqlserver/gold/append_only.py::tfr_fct_append"
-    },
-    {
-      "collection": "mssqlserver_in_gold",
-      "functionpath": "functions/mssqlserver/gold/periodic_snapshot.py::tfr_fct_periodic"
-    },
-    {
-      "collection": "mssqlserver_in_gold",
-      "functionpath": "functions/mssqlserver/gold/update_stream.py::tfr_dim_upd_entity_type1"
-    },
-    {
-      "collection": "mssqlserver_in_gold",
-      "functionpath": "functions/mssqlserver/gold/update_stream.py::tfr_dim_upd_entity_history_type2"
-    },
-    {
-      "collection": "mssqlserver_in_gold",
-      "functionpath": "functions/mssqlserver/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
-    },
-    {
-      "collection": "databricks_in_src",
-      "functionpath": "functions/databricks/src/append_only.py::pub_append_events"
-    },
-    {
-      "collection": "databricks_in_src",
-      "functionpath": "functions/databricks/src/periodic_snapshot.py::pub_period_snapshot"
-    },
-    {
-      "collection": "databricks_in_src",
-      "functionpath": "functions/databricks/src/entity_scd.py::pub_entity_snapshot"
-    },
-    {
-      "collection": "databricks_in_src",
-      "functionpath": "functions/databricks/src/update_stream.py::pub_upd_full"
-    },
-    {
-      "collection": "databricks_in_src",
-      "functionpath": "functions/databricks/src/update_stream.py::pub_upd_stream"
-    },
-    {
-      "collection": "databricks_in_bronze",
-      "functionpath": "functions/databricks/bronze/append_only.py::tfr_append_bronze"
-    },
-    {
-      "collection": "databricks_in_bronze",
-      "functionpath": "functions/databricks/bronze/periodic_snapshot.py::tfr_period_bronze"
-    },
-    {
-      "collection": "databricks_in_bronze",
-      "functionpath": "functions/databricks/bronze/entity_scd.py::tfr_entity_bronze"
-    },
-    {
-      "collection": "databricks_in_bronze",
-      "functionpath": "functions/databricks/bronze/update_stream.py::tfr_upd_bronze"
-    },
-    {
-      "collection": "databricks_in_silver",
-      "functionpath": "functions/databricks/silver/append_only.py::tfr_append_silver"
-    },
-    {
-      "collection": "databricks_in_silver",
-      "functionpath": "functions/databricks/silver/periodic_snapshot.py::tfr_period_silver"
-    },
-    {
-      "collection": "databricks_in_silver",
-      "functionpath": "functions/databricks/silver/entity_scd.py::tfr_entity_scd2_change_detect"
-    },
-    {
-      "collection": "databricks_in_silver",
-      "functionpath": "functions/databricks/silver/entity_scd.py::tfr_entity_scd2_cleanse"
-    },
-    {
-      "collection": "databricks_in_silver",
-      "functionpath": "functions/databricks/silver/entity_scd.py::tfr_entity_scd1_change_detect"
-    },
-    {
-      "collection": "databricks_in_silver",
-      "functionpath": "functions/databricks/silver/entity_scd.py::tfr_entity_scd1_cleanse"
-    },
-    {
-      "collection": "databricks_in_silver",
-      "functionpath": "functions/databricks/silver/update_stream.py::tfr_upd_scd2_change_detect"
-    },
-    {
-      "collection": "databricks_in_silver",
-      "functionpath": "functions/databricks/silver/update_stream.py::tfr_upd_scd2_cleanse"
-    },
-    {
-      "collection": "databricks_in_silver",
-      "functionpath": "functions/databricks/silver/update_stream.py::tfr_upd_scd1_change_detect"
-    },
-    {
-      "collection": "databricks_in_silver",
-      "functionpath": "functions/databricks/silver/update_stream.py::tfr_upd_scd1_cleanse"
-    },
-    {
-      "collection": "databricks_in_gold",
-      "functionpath": "functions/databricks/gold/entity_scd.py::tfr_dim_entity_type1"
-    },
-    {
-      "collection": "databricks_in_gold",
-      "functionpath": "functions/databricks/gold/entity_scd.py::tfr_dim_entity_history_type2"
-    },
-    {
-      "collection": "databricks_in_gold",
-      "functionpath": "functions/databricks/gold/entity_scd.py::tfr_dim_entity_ref_type1"
-    },
-    {
-      "collection": "databricks_in_gold",
-      "functionpath": "functions/databricks/gold/append_only.py::tfr_fct_append"
-    },
-    {
-      "collection": "databricks_in_gold",
-      "functionpath": "functions/databricks/gold/periodic_snapshot.py::tfr_fct_periodic"
-    },
-    {
-      "collection": "databricks_in_gold",
-      "functionpath": "functions/databricks/gold/update_stream.py::tfr_dim_upd_entity_type1"
-    },
-    {
-      "collection": "databricks_in_gold",
-      "functionpath": "functions/databricks/gold/update_stream.py::tfr_dim_upd_entity_history_type2"
-    },
-    {
-      "collection": "databricks_in_gold",
-      "functionpath": "functions/databricks/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/mysql/dest/databricks/append_only.py::sub_mysql_append"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/mysql/dest/databricks/periodic_snapshot.py::sub_mysql_periodic"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/mysql/dest/databricks/entity_scd.py::sub_mysql_entity"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/mysql/dest/databricks/update_stream.py::sub_mysql_update"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/mysql/dest/databricks/cdc.py::sub_mysql_cdc"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/postgres/dest/databricks/append_only.py::sub_postgres_append"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/postgres/dest/databricks/periodic_snapshot.py::sub_postgres_periodic"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/postgres/dest/databricks/entity_scd.py::sub_postgres_entity"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/postgres/dest/databricks/update_stream.py::sub_postgres_update"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/postgres/dest/databricks/cdc.py::sub_postgres_cdc"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/oracle/dest/databricks/append_only.py::sub_oracle_append"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/oracle/dest/databricks/periodic_snapshot.py::sub_oracle_periodic"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/oracle/dest/databricks/entity_scd.py::sub_oracle_entity"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/oracle/dest/databricks/update_stream.py::sub_oracle_update"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/db2/dest/databricks/append_only.py::sub_db2_append"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/db2/dest/databricks/periodic_snapshot.py::sub_db2_periodic"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/db2/dest/databricks/entity_scd.py::sub_db2_entity"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/db2/dest/databricks/update_stream.py::sub_db2_update"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/db2/dest/databricks/cdc.py::sub_db2_cdc"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/mssqlserver/dest/databricks/append_only.py::sub_mssqlserver_append"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/mssqlserver/dest/databricks/periodic_snapshot.py::sub_mssqlserver_periodic"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/mssqlserver/dest/databricks/entity_scd.py::sub_mssqlserver_entity"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/mssqlserver/dest/databricks/update_stream.py::sub_mssqlserver_update"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/databricks/dest/databricks/append_only.py::sub_databricks_append"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/databricks/dest/databricks/periodic_snapshot.py::sub_databricks_periodic"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/databricks/dest/databricks/entity_scd.py::sub_databricks_entity"
-    },
-    {
-      "collection": "databricks_dest",
-      "functionpath": "functions/databricks/dest/databricks/update_stream.py::sub_databricks_update"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/mysql/dest/snowflake/append_only.py::snow_mysql_append"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/mysql/dest/snowflake/periodic_snapshot.py::snow_mysql_periodic"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/mysql/dest/snowflake/entity_scd.py::snow_mysql_entity"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/mysql/dest/snowflake/update_stream.py::snow_mysql_update"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/mysql/dest/snowflake/cdc.py::snow_mysql_cdc"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/postgres/dest/snowflake/append_only.py::snow_postgres_append"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/postgres/dest/snowflake/periodic_snapshot.py::snow_postgres_periodic"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/postgres/dest/snowflake/entity_scd.py::snow_postgres_entity"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/postgres/dest/snowflake/update_stream.py::snow_postgres_update"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/postgres/dest/snowflake/cdc.py::snow_postgres_cdc"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/oracle/dest/snowflake/append_only.py::snow_oracle_append"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/oracle/dest/snowflake/periodic_snapshot.py::snow_oracle_periodic"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/oracle/dest/snowflake/entity_scd.py::snow_oracle_entity"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/oracle/dest/snowflake/update_stream.py::snow_oracle_update"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/db2/dest/snowflake/append_only.py::snow_db2_append"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/db2/dest/snowflake/periodic_snapshot.py::snow_db2_periodic"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/db2/dest/snowflake/entity_scd.py::snow_db2_entity"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/db2/dest/snowflake/update_stream.py::snow_db2_update"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/db2/dest/snowflake/cdc.py::snow_db2_cdc"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/mssqlserver/dest/snowflake/append_only.py::snow_mssqlserver_append"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/mssqlserver/dest/snowflake/periodic_snapshot.py::snow_mssqlserver_periodic"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/mssqlserver/dest/snowflake/entity_scd.py::snow_mssqlserver_entity"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/mssqlserver/dest/snowflake/update_stream.py::snow_mssqlserver_update"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/databricks/dest/snowflake/append_only.py::snow_databricks_append"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/databricks/dest/snowflake/periodic_snapshot.py::snow_databricks_periodic"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/databricks/dest/snowflake/entity_scd.py::snow_databricks_entity"
-    },
-    {
-      "collection": "snowflake_dest",
-      "functionpath": "functions/databricks/dest/snowflake/update_stream.py::snow_databricks_update"
-    }
-  ],
-  "triggers": [
-    {
-      "collection": "mysql_in_src",
-      "function": "pub_append_events",
-      "detached": true
-    },
-    {
-      "collection": "mysql_in_src",
-      "function": "pub_period_snapshot",
-      "detached": true
-    },
-    {
-      "collection": "mysql_in_src",
-      "function": "pub_entity_snapshot",
-      "detached": true
-    },
-    {
-      "collection": "mysql_in_src",
-      "function": "pub_upd_full",
-      "detached": true
-    },
-    {
-      "collection": "mysql_in_src",
-      "function": "pub_cdc_full",
-      "detached": true
-    },
-    {
-      "collection": "postgres_in_src",
-      "function": "pub_append_events",
-      "detached": true
-    },
-    {
-      "collection": "postgres_in_src",
-      "function": "pub_period_snapshot",
-      "detached": true
-    },
-    {
-      "collection": "postgres_in_src",
-      "function": "pub_entity_snapshot",
-      "detached": true
-    },
-    {
-      "collection": "postgres_in_src",
-      "function": "pub_upd_full",
-      "detached": true
-    },
-    {
-      "collection": "postgres_in_src",
-      "function": "pub_cdc_full",
-      "detached": true
-    },
-    {
-      "collection": "oracle_in_src",
-      "function": "pub_append_events",
-      "detached": true
-    },
-    {
-      "collection": "oracle_in_src",
-      "function": "pub_period_snapshot",
-      "detached": true
-    },
-    {
-      "collection": "oracle_in_src",
-      "function": "pub_entity_snapshot",
-      "detached": true
-    },
-    {
-      "collection": "oracle_in_src",
-      "function": "pub_upd_full",
-      "detached": true
-    },
-    {
-      "collection": "db2_in_src",
-      "function": "pub_append_events",
-      "detached": true
-    },
-    {
-      "collection": "db2_in_src",
-      "function": "pub_period_snapshot",
-      "detached": true
-    },
-    {
-      "collection": "db2_in_src",
-      "function": "pub_entity_snapshot",
-      "detached": true
-    },
-    {
-      "collection": "db2_in_src",
-      "function": "pub_upd_full",
-      "detached": true
-    },
-    {
-      "collection": "db2_in_src",
-      "function": "pub_cdc_full",
-      "detached": true
-    },
-    {
-      "collection": "mssqlserver_in_src",
-      "function": "pub_append_events",
-      "detached": true
-    },
-    {
-      "collection": "mssqlserver_in_src",
-      "function": "pub_period_snapshot",
-      "detached": true
-    },
-    {
-      "collection": "mssqlserver_in_src",
-      "function": "pub_entity_snapshot",
-      "detached": true
-    },
-    {
-      "collection": "mssqlserver_in_src",
-      "function": "pub_upd_full",
-      "detached": true
-    },
-    {
-      "collection": "databricks_in_src",
-      "function": "pub_append_events",
-      "detached": true
-    },
-    {
-      "collection": "databricks_in_src",
-      "function": "pub_period_snapshot",
-      "detached": true
-    },
-    {
-      "collection": "databricks_in_src",
-      "function": "pub_entity_snapshot",
-      "detached": true
-    },
-    {
-      "collection": "databricks_in_src",
-      "function": "pub_upd_full",
-      "detached": true
-    }
-  ]
-}
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

@@ -1,75 +1,88 @@
-{
-  "_copyright": "Copyright 2026 Tabsdata Inc.",
-  "_comment": "EXAMPLE · local-file destination / formats — what a @subscriber writes. `paths` declares one WRITE SLOT per entry, fed by input_tables in the same order, one returned frame each; a destination path names ONE file (no wildcards); a returned None writes NOTHING — no empty file, and the previous file is left alone. Seven sinks over the same seeded table so only the format differs: write_parquet (AUTO from the extension — exact types, nothing to configure), write_avro, write_json (a text format; tz-aware timestamps are normalised to UTC ISO-8601, where parquet/avro keep the column's zone), write_csv (defaults — note a null becomes an EMPTY FIELD), write_csv_dialect (writer format_cfg: separator, null_value, date_format, float_precision, quote_style — side-typed, so a reader key here fails at decoration time), write_two_files, write_nothing. One function per file under functions/localfile_dest_formats/. Run: `tdx-xp oneshot --suite examples/localfile_dest_formats --keep`.",
-  "domains": [
-    {
-      "name": "dev",
-      "system": "dev"
-    },
-    {
-      "name": "fs_out",
-      "system": "fs"
-    }
-  ],
-  "collections": [
-    {
-      "name": "gen",
-      "type": "datagen_in",
-      "group": "sources",
-      "connection_template": "connection-file:connections/datagen_in.yaml",
-      "domains": {
-        "D0": "dev"
+[
+  {
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "EXAMPLE · local-file destination / formats — what a @subscriber writes. `paths` declares one WRITE SLOT per entry, fed by input_tables in the same order, one returned frame each; a destination path names ONE file (no wildcards); a returned None writes NOTHING — no empty file, and the previous file is left alone. Seven sinks over the same seeded table so only the format differs: write_parquet (AUTO from the extension — exact types, nothing to configure), write_avro, write_json (a text format; tz-aware timestamps are normalised to UTC ISO-8601, where parquet/avro keep the column's zone), write_csv (defaults — note a null becomes an EMPTY FIELD), write_csv_dialect (writer format_cfg: separator, null_value, date_format, float_precision, quote_style — side-typed, so a reader key here fails at decoration time), write_two_files, write_nothing. One function per file under functions/localfile_dest_formats/. Run: `tdx-xp oneshot --suite examples/localfile_dest_formats --keep`."
+  },
+  {
+    "domains": [
+      {
+        "name": "dev",
+        "system": "dev"
+      },
+      {
+        "name": "fs_out",
+        "system": "fs"
       }
-    },
-    {
-      "name": "files",
-      "type": "local_file_out",
-      "group": "destinations",
-      "connection_template": "connection-file:connections/local_file_out.yaml",
-      "domains": {
-        "D0": "fs_out"
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "gen",
+        "type": "datagen_in",
+        "group": "sources",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "domains": {
+          "D0": "dev"
+        }
+      },
+      {
+        "name": "files",
+        "type": "local_file_out",
+        "group": "destinations",
+        "connection_template": "connection-file:connections/local_file_out.yaml",
+        "domains": {
+          "D0": "fs_out"
+        }
       }
-    }
-  ],
-  "functions": [
-    {
-      "collection": "gen",
-      "functionpath": "functions/localfile_dest_formats/supporting_generate_customers.py::generate_customers"
-    },
-    {
-      "collection": "files",
-      "functionpath": "functions/localfile_dest_formats/write_parquet.py::write_parquet"
-    },
-    {
-      "collection": "files",
-      "functionpath": "functions/localfile_dest_formats/write_avro.py::write_avro"
-    },
-    {
-      "collection": "files",
-      "functionpath": "functions/localfile_dest_formats/write_json.py::write_json"
-    },
-    {
-      "collection": "files",
-      "functionpath": "functions/localfile_dest_formats/write_csv.py::write_csv"
-    },
-    {
-      "collection": "files",
-      "functionpath": "functions/localfile_dest_formats/write_csv_dialect.py::write_csv_dialect"
-    },
-    {
-      "collection": "files",
-      "functionpath": "functions/localfile_dest_formats/write_two_files.py::write_two_files"
-    },
-    {
-      "collection": "files",
-      "functionpath": "functions/localfile_dest_formats/write_nothing.py::write_nothing"
-    }
-  ],
-  "triggers": [
-    {
-      "collection": "gen",
-      "function": "generate_customers",
-      "detached": true
-    }
-  ]
-}
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "gen",
+        "functionpath": "functions/localfile_dest_formats/supporting_generate_customers.py::generate_customers"
+      },
+      {
+        "collection": "files",
+        "functionpath": "functions/localfile_dest_formats/write_parquet.py::write_parquet"
+      },
+      {
+        "collection": "files",
+        "functionpath": "functions/localfile_dest_formats/write_avro.py::write_avro"
+      },
+      {
+        "collection": "files",
+        "functionpath": "functions/localfile_dest_formats/write_json.py::write_json"
+      },
+      {
+        "collection": "files",
+        "functionpath": "functions/localfile_dest_formats/write_csv.py::write_csv"
+      },
+      {
+        "collection": "files",
+        "functionpath": "functions/localfile_dest_formats/write_csv_dialect.py::write_csv_dialect"
+      },
+      {
+        "collection": "files",
+        "functionpath": "functions/localfile_dest_formats/write_two_files.py::write_two_files"
+      },
+      {
+        "collection": "files",
+        "functionpath": "functions/localfile_dest_formats/write_nothing.py::write_nothing"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "gen",
+        "function": "generate_customers",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

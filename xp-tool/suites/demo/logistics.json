@@ -1,27 +1,99 @@
-{
-  "_copyright": "Copyright 2026 Tabsdata Inc.",
-  "_comment": "DEMO suite 'logistics' — courier operations over the courierlogistics sample staged as files in S3, served back to S3. DOMAINS: s3logistics (system s3, model courierlogistics, data m = `tdx-domain create-data --size 100`; the seed lands one file per entity per format, `<fmt>/<entity>_<YYYYMMDDThhmmss_mmm>.<fmt>`) and s3 (system s3, no model — the serving bucket prefix). INGEST: logistics_src reads the parquet shards of hubs/couriers/customers/shipments/tracking_events with one S3Src publisher (a wildcard per entity; file slots are ARRAYS, folded with concat so later `modify-data` shards are picked up too). MARTS: logistics_marts is a connection-less @transformer collection (group 'marts') building shipments_enriched, in_transit_shipments, failed_deliveries and tracking_timeline with the Tabsdata TableFrame API only (join/filter/select/sort/rename — row-preserving; no polars). SERVE: logistics_s3 writes each mart to a parquet object under logistics/ in the s3 domain. Only the publisher is triggered; the rest cascade by @NEW. Functions in functions/logistics.py. Run: `tdx-xp oneshot --suite demo/logistics`.",
-  "domains": [
-    { "name": "s3logistics", "system": "s3", "model": "courierlogistics", "data": "m" },
-    { "name": "s3", "system": "s3" }
-  ],
-  "collections": [
-    { "name": "logistics_src", "type": "s3_file_in", "connection_template": "connection-file:connections/s3_file_in.yaml", "group": "sources", "domains": { "D0": "s3logistics" } },
-    { "name": "logistics_marts", "type": "transform", "group": "marts" },
-    { "name": "logistics_s3", "type": "s3_file_out", "connection_template": "connection-file:connections/s3_file_out.yaml", "group": "destinations", "domains": { "D0": "s3" } }
-  ],
-  "functions": [
-    { "collection": "logistics_src", "functionpath": "functions/logistics.py::pub_logistics" },
-    { "collection": "logistics_marts", "functionpath": "functions/logistics.py::tfr_shipments_enriched" },
-    { "collection": "logistics_marts", "functionpath": "functions/logistics.py::tfr_in_transit_shipments" },
-    { "collection": "logistics_marts", "functionpath": "functions/logistics.py::tfr_failed_deliveries" },
-    { "collection": "logistics_marts", "functionpath": "functions/logistics.py::tfr_tracking_timeline" },
-    { "collection": "logistics_s3", "functionpath": "functions/logistics.py::sink_shipments_enriched" },
-    { "collection": "logistics_s3", "functionpath": "functions/logistics.py::sink_in_transit_shipments" },
-    { "collection": "logistics_s3", "functionpath": "functions/logistics.py::sink_failed_deliveries" },
-    { "collection": "logistics_s3", "functionpath": "functions/logistics.py::sink_tracking_timeline" }
-  ],
-  "triggers": [
-    { "collection": "logistics_src", "function": "pub_logistics", "detached": true }
-  ]
-}
+[
+  {
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "DEMO suite 'logistics' — courier operations over the courierlogistics sample staged as files in S3, served back to S3. DOMAINS: s3logistics (system s3, model courierlogistics, data m = `tdx-domain create-data --size 100`; the seed lands one file per entity per format, `<fmt>/<entity>_<YYYYMMDDThhmmss_mmm>.<fmt>`) and s3 (system s3, no model — the serving bucket prefix). INGEST: logistics_src reads the parquet shards of hubs/couriers/customers/shipments/tracking_events with one S3Src publisher (a wildcard per entity; file slots are ARRAYS, folded with concat so later `modify-data` shards are picked up too). MARTS: logistics_marts is a connection-less @transformer collection (group 'marts') building shipments_enriched, in_transit_shipments, failed_deliveries and tracking_timeline with the Tabsdata TableFrame API only (join/filter/select/sort/rename — row-preserving; no polars). SERVE: logistics_s3 writes each mart to a parquet object under logistics/ in the s3 domain. Only the publisher is triggered; the rest cascade by @NEW. Functions in functions/logistics.py. Run: `tdx-xp oneshot --suite demo/logistics`."
+  },
+  {
+    "domains": [
+      {
+        "name": "s3logistics",
+        "system": "s3",
+        "model": "courierlogistics",
+        "data": "m"
+      },
+      {
+        "name": "s3",
+        "system": "s3"
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "logistics_src",
+        "type": "s3_file_in",
+        "connection_template": "connection-file:connections/s3_file_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "s3logistics"
+        }
+      },
+      {
+        "name": "logistics_marts",
+        "type": "transform",
+        "group": "marts"
+      },
+      {
+        "name": "logistics_s3",
+        "type": "s3_file_out",
+        "connection_template": "connection-file:connections/s3_file_out.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "s3"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "logistics_src",
+        "functionpath": "functions/logistics.py::pub_logistics"
+      },
+      {
+        "collection": "logistics_marts",
+        "functionpath": "functions/logistics.py::tfr_shipments_enriched"
+      },
+      {
+        "collection": "logistics_marts",
+        "functionpath": "functions/logistics.py::tfr_in_transit_shipments"
+      },
+      {
+        "collection": "logistics_marts",
+        "functionpath": "functions/logistics.py::tfr_failed_deliveries"
+      },
+      {
+        "collection": "logistics_marts",
+        "functionpath": "functions/logistics.py::tfr_tracking_timeline"
+      },
+      {
+        "collection": "logistics_s3",
+        "functionpath": "functions/logistics.py::sink_shipments_enriched"
+      },
+      {
+        "collection": "logistics_s3",
+        "functionpath": "functions/logistics.py::sink_in_transit_shipments"
+      },
+      {
+        "collection": "logistics_s3",
+        "functionpath": "functions/logistics.py::sink_failed_deliveries"
+      },
+      {
+        "collection": "logistics_s3",
+        "functionpath": "functions/logistics.py::sink_tracking_timeline"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "logistics_src",
+        "function": "pub_logistics",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

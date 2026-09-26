@@ -1,202 +1,215 @@
-{
-  "_comment": "REGISTER suite exercising `tdk fn register` import bundling. Registers the same trivial DataGenSrc publisher (emits one empty table) under many import patterns to verify each is packaged correctly at register time AND resolves at runtime. Default-root cases (bundle root defaults to functions/, the entry file's folder): pub_standalone (no extra imports), pub_local_function (helper in the same module), pub_side_module_absolute/_relative (import from side_module.py beside it), pub_nested_module_absolute/_relative (import from nested/nested_module.py), pub_deep_module_absolute/_relative (two levels down, nested/deep/deep_module.py), pub_helper_chain_absolute (transitive absolute chain chain_a->chain_b->chain_c), pub_helper_chain_relative (transitive relative chain rel_chain_a->rel_chain_b), pub_mixed_imports (relative sibling + absolute nested in one function). Nested-entry cases register a function that lives in a subpackage (entry_pkg/) with --dir-to-bundle=functions so functions/ is the bundle root: pub_nested_entry_absolute_root (own-dir . sibling + absolute import of the bundle-root package nested.nested_module) and pub_nested_entry_same_level (own-dir . chain .entry_sibling/.entry_deep + the same sibling via its absolute name entry_pkg.entry_sibling). Note: `from ..x` that reaches above the bundle root is intentionally NOT tested -- it is invalid in plain Python ('relative import beyond top-level package') and fails identically at runtime. --dir-to-bundle cases exercise a deep tree (functions/mid/deep/) with shared modules at three levels (shared_root.py at functions/, mid/shared_mid.py, mid/deep/shared_deep.py): pub_default_root (no --dir-to-bundle, root defaults to mid/deep/, sees only .shared_deep beside it, recorded bare), pub_bundle_mid (--dir-to-bundle=functions/mid, imports shared_mid one level up -- works only because the root was widened, recorded deep.pub_bundle_mid), pub_bundle_mid_mixed (--dir-to-bundle=functions/mid, relative .shared_deep + absolute shared_mid), pub_bundle_top (--dir-to-bundle=functions, imports shared_root at the top and mid.shared_mid absolutely, recorded mid.deep.pub_bundle_top). A default-root function reaching above its own folder is intentionally NOT registered here -- it fails at register (proving folderN-and-below scoping) and would abort the oneshot; that negative is covered by the tabsdata-cli unit tests. Regression cases for bugs found in real suites: pub_imports_builtin_type imports an immutable builtin type (from datetime import datetime) alongside a user class -- register once crashed rewriting datetime.__module__ ('cannot set __module__ attribute of immutable type'); installed_name/json.py names the entry file after an installed package (recorded func 'json:pub_entry_named_like_installed') -- runtime once resolved the stdlib json instead of the user file and failed to find the function. Helper modules (side_module.py, nested/nested_module.py, nested/deep/deep_module.py, chain_*.py, rel_chain_*.py, entry_pkg/entry_sibling.py) are imported by the publishers, not registered on their own. All live in one collection `imports` in a single project; every publisher is triggered so runtime import resolution is exercised too. Domain `dev` (system 'dev', no model/data) backs the no-op DataGenSrc connection (../../connections/datagen_in.yaml).",
-  "domains": [
-    {
-      "name": "dev",
-      "system": "dev",
-      "model": null,
-      "data": null
-    }
-  ],
-  "collections": [
-    {
-      "name": "imports",
-      "type": "datagen_in",
-      "connection_template": "connection-file:connections/datagen_in.yaml",
-      "group": "sources",
-      "domains": {
-        "D0": "dev"
+[
+  {
+    "_comment": "REGISTER suite exercising `tdk fn register` import bundling. Registers the same trivial DataGenSrc publisher (emits one empty table) under many import patterns to verify each is packaged correctly at register time AND resolves at runtime. Default-root cases (bundle root defaults to functions/, the entry file's folder): pub_standalone (no extra imports), pub_local_function (helper in the same module), pub_side_module_absolute/_relative (import from side_module.py beside it), pub_nested_module_absolute/_relative (import from nested/nested_module.py), pub_deep_module_absolute/_relative (two levels down, nested/deep/deep_module.py), pub_helper_chain_absolute (transitive absolute chain chain_a->chain_b->chain_c), pub_helper_chain_relative (transitive relative chain rel_chain_a->rel_chain_b), pub_mixed_imports (relative sibling + absolute nested in one function). Nested-entry cases register a function that lives in a subpackage (entry_pkg/) with --dir-to-bundle=functions so functions/ is the bundle root: pub_nested_entry_absolute_root (own-dir . sibling + absolute import of the bundle-root package nested.nested_module) and pub_nested_entry_same_level (own-dir . chain .entry_sibling/.entry_deep + the same sibling via its absolute name entry_pkg.entry_sibling). Note: `from ..x` that reaches above the bundle root is intentionally NOT tested -- it is invalid in plain Python ('relative import beyond top-level package') and fails identically at runtime. --dir-to-bundle cases exercise a deep tree (functions/mid/deep/) with shared modules at three levels (shared_root.py at functions/, mid/shared_mid.py, mid/deep/shared_deep.py): pub_default_root (no --dir-to-bundle, root defaults to mid/deep/, sees only .shared_deep beside it, recorded bare), pub_bundle_mid (--dir-to-bundle=functions/mid, imports shared_mid one level up -- works only because the root was widened, recorded deep.pub_bundle_mid), pub_bundle_mid_mixed (--dir-to-bundle=functions/mid, relative .shared_deep + absolute shared_mid), pub_bundle_top (--dir-to-bundle=functions, imports shared_root at the top and mid.shared_mid absolutely, recorded mid.deep.pub_bundle_top). A default-root function reaching above its own folder is intentionally NOT registered here -- it fails at register (proving folderN-and-below scoping) and would abort the oneshot; that negative is covered by the tabsdata-cli unit tests. Regression cases for bugs found in real suites: pub_imports_builtin_type imports an immutable builtin type (from datetime import datetime) alongside a user class -- register once crashed rewriting datetime.__module__ ('cannot set __module__ attribute of immutable type'); installed_name/json.py names the entry file after an installed package (recorded func 'json:pub_entry_named_like_installed') -- runtime once resolved the stdlib json instead of the user file and failed to find the function. Helper modules (side_module.py, nested/nested_module.py, nested/deep/deep_module.py, chain_*.py, rel_chain_*.py, entry_pkg/entry_sibling.py) are imported by the publishers, not registered on their own. All live in one collection `imports` in a single project; every publisher is triggered so runtime import resolution is exercised too. Domain `dev` (system 'dev', no model/data) backs the no-op DataGenSrc connection (../../connections/datagen_in.yaml)."
+  },
+  {
+    "domains": [
+      {
+        "name": "dev",
+        "system": "dev",
+        "model": null,
+        "data": null
       }
-    }
-  ],
-  "functions": [
-    {
-      "collection": "imports",
-      "functionpath": "functions/pub_standalone.py::pub_standalone"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/pub_local_function.py::pub_local_function"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/pub_side_module_absolute.py::pub_side_module_absolute"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/pub_side_module_relative.py::pub_side_module_relative"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/pub_nested_module_absolute.py::pub_nested_module_absolute"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/pub_nested_module_relative.py::pub_nested_module_relative"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/pub_deep_module_absolute.py::pub_deep_module_absolute"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/pub_deep_module_relative.py::pub_deep_module_relative"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/pub_helper_chain_absolute.py::pub_helper_chain_absolute"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/pub_helper_chain_relative.py::pub_helper_chain_relative"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/pub_mixed_imports.py::pub_mixed_imports"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/entry_pkg/pub_nested_entry_absolute_root.py::pub_nested_entry_absolute_root",
-      "dir_to_bundle": "functions"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/entry_pkg/pub_nested_entry_same_level.py::pub_nested_entry_same_level",
-      "dir_to_bundle": "functions"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/mid/deep/pub_default_root.py::pub_default_root"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/mid/deep/pub_bundle_mid.py::pub_bundle_mid",
-      "dir_to_bundle": "functions/mid"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/mid/deep/pub_bundle_mid_mixed.py::pub_bundle_mid_mixed",
-      "dir_to_bundle": "functions/mid"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/mid/deep/pub_bundle_top.py::pub_bundle_top",
-      "dir_to_bundle": "functions"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/pub_imports_builtin_type.py::pub_imports_builtin_type"
-    },
-    {
-      "collection": "imports",
-      "functionpath": "functions/installed_name/json.py::pub_entry_named_like_installed"
-    }
-  ],
-  "triggers": [
-    {
-      "collection": "imports",
-      "function": "pub_standalone",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_local_function",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_side_module_absolute",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_side_module_relative",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_nested_module_absolute",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_nested_module_relative",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_deep_module_absolute",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_deep_module_relative",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_helper_chain_absolute",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_helper_chain_relative",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_mixed_imports",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_nested_entry_absolute_root",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_nested_entry_same_level",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_default_root",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_bundle_mid",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_bundle_mid_mixed",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_bundle_top",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_imports_builtin_type",
-      "detached": true
-    },
-    {
-      "collection": "imports",
-      "function": "pub_entry_named_like_installed",
-      "detached": true
-    }
-  ]
-}
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "imports",
+        "type": "datagen_in",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "dev"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "imports",
+        "functionpath": "functions/pub_standalone.py::pub_standalone"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/pub_local_function.py::pub_local_function"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/pub_side_module_absolute.py::pub_side_module_absolute"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/pub_side_module_relative.py::pub_side_module_relative"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/pub_nested_module_absolute.py::pub_nested_module_absolute"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/pub_nested_module_relative.py::pub_nested_module_relative"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/pub_deep_module_absolute.py::pub_deep_module_absolute"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/pub_deep_module_relative.py::pub_deep_module_relative"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/pub_helper_chain_absolute.py::pub_helper_chain_absolute"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/pub_helper_chain_relative.py::pub_helper_chain_relative"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/pub_mixed_imports.py::pub_mixed_imports"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/entry_pkg/pub_nested_entry_absolute_root.py::pub_nested_entry_absolute_root",
+        "dir_to_bundle": "functions"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/entry_pkg/pub_nested_entry_same_level.py::pub_nested_entry_same_level",
+        "dir_to_bundle": "functions"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/mid/deep/pub_default_root.py::pub_default_root"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/mid/deep/pub_bundle_mid.py::pub_bundle_mid",
+        "dir_to_bundle": "functions/mid"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/mid/deep/pub_bundle_mid_mixed.py::pub_bundle_mid_mixed",
+        "dir_to_bundle": "functions/mid"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/mid/deep/pub_bundle_top.py::pub_bundle_top",
+        "dir_to_bundle": "functions"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/pub_imports_builtin_type.py::pub_imports_builtin_type"
+      },
+      {
+        "collection": "imports",
+        "functionpath": "functions/installed_name/json.py::pub_entry_named_like_installed"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "imports",
+        "function": "pub_standalone",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_local_function",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_side_module_absolute",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_side_module_relative",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_nested_module_absolute",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_nested_module_relative",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_deep_module_absolute",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_deep_module_relative",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_helper_chain_absolute",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_helper_chain_relative",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_mixed_imports",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_nested_entry_absolute_root",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_nested_entry_same_level",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_default_root",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_bundle_mid",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_bundle_mid_mixed",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_bundle_top",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_imports_builtin_type",
+        "detached": true
+      },
+      {
+        "collection": "imports",
+        "function": "pub_entry_named_like_installed",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

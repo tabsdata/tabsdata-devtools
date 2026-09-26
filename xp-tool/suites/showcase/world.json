@@ -1,29 +1,115 @@
-{
-  "_comment": "SHOWCASE suite 'world' — a small end-to-end pipeline over the classic world sample (countries/cities/languages). INGEST: world_src reads the three world tables from a Postgres source (domain world_pg, seeded with model=world). MARTS: world_marts is a connection-less @transformer collection (group 'marts') enriching/filtering into cities_enriched, official_languages and large_cities with the Tabsdata TableFrame API (join/filter/select/sort — row-preserving; no polars). SERVE: world_out writes each mart to a local parquet file (domain out, system fs). Only the publisher is triggered; transformers and sinks fire reactively by @NEW table dependency. WAREHOUSE SINK: world_snowflake mirrors the same three marts into Snowflake (SnowflakeDest, domain snow, one @subscriber per mart), alongside the local-file sink. Functions in functions/world.py.",
-  "domains": [
-    { "name": "world_pg", "system": "postgres", "model": "world", "data": "xs" },
-    { "name": "out", "system": "fs" },
-    { "name": "snow", "system": "snowflake" }
-  ],
-  "collections": [
-    { "name": "world_src", "type": "postgres_sql_in", "connection_template": "connection-file:connections/postgres_sql_in.yaml", "group": "sources", "domains": { "D0": "world_pg" } },
-    { "name": "world_marts", "type": "transform", "group": "marts" },
-    { "name": "world_out", "type": "local_file_out", "connection_template": "connection-file:connections/local_file_out.yaml", "group": "destinations", "domains": { "D0": "out" } },
-    { "name": "world_snowflake", "type": "snowflake_bulk_out", "connection_template": "connection-file:connections/snowflake_bulk_out.yaml", "group": "destinations", "domains": { "D0": "snow" } }
-  ],
-  "functions": [
-    { "collection": "world_src", "functionpath": "functions/world.py::pub_world" },
-    { "collection": "world_marts", "functionpath": "functions/world.py::tfr_cities_enriched" },
-    { "collection": "world_marts", "functionpath": "functions/world.py::tfr_official_languages" },
-    { "collection": "world_marts", "functionpath": "functions/world.py::tfr_large_cities" },
-    { "collection": "world_out", "functionpath": "functions/world.py::sink_cities_enriched" },
-    { "collection": "world_out", "functionpath": "functions/world.py::sink_official_languages" },
-    { "collection": "world_out", "functionpath": "functions/world.py::sink_large_cities" },
-    { "collection": "world_snowflake", "functionpath": "functions/world.py::snow_cities_enriched" },
-    { "collection": "world_snowflake", "functionpath": "functions/world.py::snow_official_languages" },
-    { "collection": "world_snowflake", "functionpath": "functions/world.py::snow_large_cities" }
-  ],
-  "triggers": [
-    { "collection": "world_src", "function": "pub_world", "detached": true }
-  ]
-}
+[
+  {
+    "_comment": "SHOWCASE suite 'world' — a small end-to-end pipeline over the classic world sample (countries/cities/languages). INGEST: world_src reads the three world tables from a Postgres source (domain world_pg, seeded with model=world). MARTS: world_marts is a connection-less @transformer collection (group 'marts') enriching/filtering into cities_enriched, official_languages and large_cities with the Tabsdata TableFrame API (join/filter/select/sort — row-preserving; no polars). SERVE: world_out writes each mart to a local parquet file (domain out, system fs). Only the publisher is triggered; transformers and sinks fire reactively by @NEW table dependency. WAREHOUSE SINK: world_snowflake mirrors the same three marts into Snowflake (SnowflakeDest, domain snow, one @subscriber per mart), alongside the local-file sink. Functions in functions/world.py."
+  },
+  {
+    "domains": [
+      {
+        "name": "world_pg",
+        "system": "postgres",
+        "model": "world",
+        "data": "xs"
+      },
+      {
+        "name": "out",
+        "system": "fs"
+      },
+      {
+        "name": "snow",
+        "system": "snowflake"
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "world_src",
+        "type": "postgres_sql_in",
+        "connection_template": "connection-file:connections/postgres_sql_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "world_pg"
+        }
+      },
+      {
+        "name": "world_marts",
+        "type": "transform",
+        "group": "marts"
+      },
+      {
+        "name": "world_out",
+        "type": "local_file_out",
+        "connection_template": "connection-file:connections/local_file_out.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "out"
+        }
+      },
+      {
+        "name": "world_snowflake",
+        "type": "snowflake_bulk_out",
+        "connection_template": "connection-file:connections/snowflake_bulk_out.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "snow"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "world_src",
+        "functionpath": "functions/world.py::pub_world"
+      },
+      {
+        "collection": "world_marts",
+        "functionpath": "functions/world.py::tfr_cities_enriched"
+      },
+      {
+        "collection": "world_marts",
+        "functionpath": "functions/world.py::tfr_official_languages"
+      },
+      {
+        "collection": "world_marts",
+        "functionpath": "functions/world.py::tfr_large_cities"
+      },
+      {
+        "collection": "world_out",
+        "functionpath": "functions/world.py::sink_cities_enriched"
+      },
+      {
+        "collection": "world_out",
+        "functionpath": "functions/world.py::sink_official_languages"
+      },
+      {
+        "collection": "world_out",
+        "functionpath": "functions/world.py::sink_large_cities"
+      },
+      {
+        "collection": "world_snowflake",
+        "functionpath": "functions/world.py::snow_cities_enriched"
+      },
+      {
+        "collection": "world_snowflake",
+        "functionpath": "functions/world.py::snow_official_languages"
+      },
+      {
+        "collection": "world_snowflake",
+        "functionpath": "functions/world.py::snow_large_cities"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "world_src",
+        "function": "pub_world",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

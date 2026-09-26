@@ -76,8 +76,8 @@ prints the `tdd tdk`/`tdd domain` lines.
 ## Suite stages
 
 A suite is an ordered **list of stages**, each an object holding one of `domains`,
-`collections`, `functions`, `triggers`, `monitor` (`true`) or `live`, with an optional `_comment`
-(an object holding only one is a comment). Kinds repeat, in any order the dependencies allow:
+`collections`, `functions`, `triggers`, `monitor` (`true`) or `live`, plus `_`-prefixed
+annotations (`_comment`, `_copyright`; an object holding only those is a comment). Kinds repeat, in any order the dependencies allow:
 
 ```
 [
@@ -105,8 +105,9 @@ A suite is an ordered **list of stages**, each an object holding one of `domains
   Stage numbers in messages count every entry of the list, comments included: the number a
   reader counts to in the file.
 - **The older single object still reads**, as the stages it always ran: domains, collections,
-  functions, triggers, monitor, and live then monitor when it has a live script. The 121
-  built-in suites stay in it -- they mirror tabsdata-xp, and each reads as exactly what it ran.
+  functions, triggers, monitor, and live then monitor when it has a live script. The built-in
+  suites are all in the list form, converted to exactly the stages they ran (empty kinds
+  dropped); `examples/gen_examples.py` writes its 49 in it too.
 - **The phase verbs take every stage of their kind** (`create-domains` all domains stages,
   `live-domains` all live stages as one script); `bench` runs the phases in lockstep across its
   lanes and ignores the order. A suite dir under `run-suite` or one-shot is one lane per

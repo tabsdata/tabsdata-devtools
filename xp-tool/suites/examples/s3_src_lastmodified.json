@@ -1,54 +1,67 @@
-{
-  "_copyright": "Copyright 2026 Tabsdata Inc.",
-  "_comment": "EXAMPLE · S3 source / incremental — `initial_last_modified`, the file source's watermark: the first run imports every matched file at or after the cutoff, then the cutoff ADVANCES so later runs import only what is newer (persisted on the function's trx state, so the decorator value is only the SEED and editing it does not rewind). Three publishers over the same wildcard: read_since_cutoff (past cutoff -> incremental), read_future_cutoff (future cutoff -> never matches, the empty-slot no-op where concat returns None and NO version is published — versus returning an empty frame, which publishes a real empty version and does trigger downstream), read_every_run (no cutoff -> full reload). RUN IT TWICE to see the point: `tdx-domain modify-data --domain <instance>_s3_world_xs --entity city --ops Insert --sets 5` stages a new timestamped file, then run-project again. One function per file under functions/s3_src_lastmodified/. Run: `tdx-xp oneshot --suite examples/s3_src_lastmodified --keep`.",
-  "domains": [
-    {
-      "name": "s3_world_xs",
-      "system": "s3",
-      "model": "world",
-      "data": "xs"
-    }
-  ],
-  "collections": [
-    {
-      "name": "files",
-      "type": "s3_file_in",
-      "group": "sources",
-      "connection_template": "connection-file:connections/s3_file_in.yaml",
-      "domains": {
-        "D0": "s3_world_xs"
+[
+  {
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "EXAMPLE · S3 source / incremental — `initial_last_modified`, the file source's watermark: the first run imports every matched file at or after the cutoff, then the cutoff ADVANCES so later runs import only what is newer (persisted on the function's trx state, so the decorator value is only the SEED and editing it does not rewind). Three publishers over the same wildcard: read_since_cutoff (past cutoff -> incremental), read_future_cutoff (future cutoff -> never matches, the empty-slot no-op where concat returns None and NO version is published — versus returning an empty frame, which publishes a real empty version and does trigger downstream), read_every_run (no cutoff -> full reload). RUN IT TWICE to see the point: `tdx-domain modify-data --domain <instance>_s3_world_xs --entity city --ops Insert --sets 5` stages a new timestamped file, then run-project again. One function per file under functions/s3_src_lastmodified/. Run: `tdx-xp oneshot --suite examples/s3_src_lastmodified --keep`."
+  },
+  {
+    "domains": [
+      {
+        "name": "s3_world_xs",
+        "system": "s3",
+        "model": "world",
+        "data": "xs"
       }
-    }
-  ],
-  "functions": [
-    {
-      "collection": "files",
-      "functionpath": "functions/s3_src_lastmodified/read_since_cutoff.py::read_since_cutoff"
-    },
-    {
-      "collection": "files",
-      "functionpath": "functions/s3_src_lastmodified/read_future_cutoff.py::read_future_cutoff"
-    },
-    {
-      "collection": "files",
-      "functionpath": "functions/s3_src_lastmodified/read_every_run.py::read_every_run"
-    }
-  ],
-  "triggers": [
-    {
-      "collection": "files",
-      "function": "read_since_cutoff",
-      "detached": true
-    },
-    {
-      "collection": "files",
-      "function": "read_future_cutoff",
-      "detached": true
-    },
-    {
-      "collection": "files",
-      "function": "read_every_run",
-      "detached": true
-    }
-  ]
-}
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "files",
+        "type": "s3_file_in",
+        "group": "sources",
+        "connection_template": "connection-file:connections/s3_file_in.yaml",
+        "domains": {
+          "D0": "s3_world_xs"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "files",
+        "functionpath": "functions/s3_src_lastmodified/read_since_cutoff.py::read_since_cutoff"
+      },
+      {
+        "collection": "files",
+        "functionpath": "functions/s3_src_lastmodified/read_future_cutoff.py::read_future_cutoff"
+      },
+      {
+        "collection": "files",
+        "functionpath": "functions/s3_src_lastmodified/read_every_run.py::read_every_run"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "files",
+        "function": "read_since_cutoff",
+        "detached": true
+      },
+      {
+        "collection": "files",
+        "function": "read_future_cutoff",
+        "detached": true
+      },
+      {
+        "collection": "files",
+        "function": "read_every_run",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

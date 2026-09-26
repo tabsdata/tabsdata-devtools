@@ -1,58 +1,148 @@
-{
-  "_comment": "CAPABILITY suite for the MySQL connector, via `--type connectors/mysql.json`. Functions in functions/caps_mysql.py. SOURCE (`mysql_in`, reads existing mysql_world_xs seed): base, _inc (watermark, LIMIT 10 — re-run to walk), _none (WHERE 1=0), _multiquery (2 queries, transactional=False). DEST (`mysql_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate) on distinct tables cap_append/cap_replace; re-run to observe. No schema evolution. Domains: dev (datagen), mysql_world_xs (source), mysql (dest). SRC METADATA: mysql_meta_keep and mysql_meta_drop (mysql_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection mysql_meta (group ops) asserts that side: mysql_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, mysql_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing).",
-  "domains": [
-    { "name": "dev", "system": "dev" },
-    { "name": "mysql_world_xs", "system": "mysql", "model": "world", "data": "xs" },
-    { "name": "mysql", "system": "mysql" }
-  ],
-  "collections": [
-    {
-      "name": "caps_input",
-      "type": "datagen_in",
-      "connection_template": "connection-file:connections/datagen_in.yaml",
-      "group": "sources",
-      "domains": { "D0": "dev" }
-    },
-    {
-      "name": "mysql_in",
-      "type": "mysql_sql_in",
-      "connection_template": "connection-file:connections/mysql_sql_in.yaml",
-      "group": "sources",
-      "domains": { "D0": "mysql_world_xs" }
-    },
-    {
-      "name": "mysql_out",
-      "type": "mysql_sql_out",
-      "connection_template": "connection-file:connections/mysql_sql_out.yaml",
-      "group": "destinations",
-      "domains": { "D0": "mysql" }
-    },
-    {
-      "name": "mysql_meta",
-      "type": "transform",
-      "group": "ops"
-    }
-  ],
-  "functions": [
-    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_rows" },
-    { "collection": "mysql_in", "functionpath": "functions/caps_mysql.py::mysql_in" },
-    { "collection": "mysql_in", "functionpath": "functions/caps_mysql.py::mysql_in_inc" },
-    { "collection": "mysql_in", "functionpath": "functions/caps_mysql.py::mysql_in_none" },
-    { "collection": "mysql_in", "functionpath": "functions/caps_mysql.py::mysql_in_multiquery" },
-    { "collection": "mysql_out", "functionpath": "functions/caps_mysql.py::mysql_out_append" },
-    { "collection": "mysql_out", "functionpath": "functions/caps_mysql.py::mysql_out_replace" },
-    { "collection": "mysql_out", "functionpath": "functions/caps_mysql.py::mysql_out_none" },
-    { "collection": "mysql_in", "functionpath": "functions/caps_mysql.py::mysql_meta_keep" },
-    { "collection": "mysql_in", "functionpath": "functions/caps_mysql.py::mysql_meta_drop" },
-    { "collection": "mysql_meta", "functionpath": "functions/caps_mysql.py::mysql_meta_keep_check" },
-    { "collection": "mysql_meta", "functionpath": "functions/caps_mysql.py::mysql_meta_drop_check" }
-  ],
-  "triggers": [
-    { "collection": "caps_input", "function": "caps_rows", "detached": true },
-    { "collection": "mysql_in", "function": "mysql_in", "detached": true },
-    { "collection": "mysql_in", "function": "mysql_in_inc", "detached": true },
-    { "collection": "mysql_in", "function": "mysql_in_multiquery", "detached": true },
-    { "collection": "mysql_in", "function": "mysql_meta_keep", "detached": true },
-    { "collection": "mysql_in", "function": "mysql_meta_drop", "detached": true }
-  ]
-}
+[
+  {
+    "_comment": "CAPABILITY suite for the MySQL connector, via `--type connectors/mysql.json`. Functions in functions/caps_mysql.py. SOURCE (`mysql_in`, reads existing mysql_world_xs seed): base, _inc (watermark, LIMIT 10 — re-run to walk), _none (WHERE 1=0), _multiquery (2 queries, transactional=False). DEST (`mysql_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate) on distinct tables cap_append/cap_replace; re-run to observe. No schema evolution. Domains: dev (datagen), mysql_world_xs (source), mysql (dest). SRC METADATA: mysql_meta_keep and mysql_meta_drop (mysql_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection mysql_meta (group ops) asserts that side: mysql_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, mysql_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing)."
+  },
+  {
+    "domains": [
+      {
+        "name": "dev",
+        "system": "dev"
+      },
+      {
+        "name": "mysql_world_xs",
+        "system": "mysql",
+        "model": "world",
+        "data": "xs"
+      },
+      {
+        "name": "mysql",
+        "system": "mysql"
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "caps_input",
+        "type": "datagen_in",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "dev"
+        }
+      },
+      {
+        "name": "mysql_in",
+        "type": "mysql_sql_in",
+        "connection_template": "connection-file:connections/mysql_sql_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "mysql_world_xs"
+        }
+      },
+      {
+        "name": "mysql_out",
+        "type": "mysql_sql_out",
+        "connection_template": "connection-file:connections/mysql_sql_out.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "mysql"
+        }
+      },
+      {
+        "name": "mysql_meta",
+        "type": "transform",
+        "group": "ops"
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_datagen.py::caps_rows"
+      },
+      {
+        "collection": "mysql_in",
+        "functionpath": "functions/caps_mysql.py::mysql_in"
+      },
+      {
+        "collection": "mysql_in",
+        "functionpath": "functions/caps_mysql.py::mysql_in_inc"
+      },
+      {
+        "collection": "mysql_in",
+        "functionpath": "functions/caps_mysql.py::mysql_in_none"
+      },
+      {
+        "collection": "mysql_in",
+        "functionpath": "functions/caps_mysql.py::mysql_in_multiquery"
+      },
+      {
+        "collection": "mysql_out",
+        "functionpath": "functions/caps_mysql.py::mysql_out_append"
+      },
+      {
+        "collection": "mysql_out",
+        "functionpath": "functions/caps_mysql.py::mysql_out_replace"
+      },
+      {
+        "collection": "mysql_out",
+        "functionpath": "functions/caps_mysql.py::mysql_out_none"
+      },
+      {
+        "collection": "mysql_in",
+        "functionpath": "functions/caps_mysql.py::mysql_meta_keep"
+      },
+      {
+        "collection": "mysql_in",
+        "functionpath": "functions/caps_mysql.py::mysql_meta_drop"
+      },
+      {
+        "collection": "mysql_meta",
+        "functionpath": "functions/caps_mysql.py::mysql_meta_keep_check"
+      },
+      {
+        "collection": "mysql_meta",
+        "functionpath": "functions/caps_mysql.py::mysql_meta_drop_check"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "caps_input",
+        "function": "caps_rows",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in",
+        "function": "mysql_in",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in",
+        "function": "mysql_in_inc",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in",
+        "function": "mysql_in_multiquery",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in",
+        "function": "mysql_meta_keep",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in",
+        "function": "mysql_meta_drop",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

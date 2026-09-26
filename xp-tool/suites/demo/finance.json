@@ -1,31 +1,120 @@
-{
-  "_copyright": "Copyright 2026 Tabsdata Inc.",
-  "_comment": "DEMO suite 'finance' — subscription billing over the finance sample held in MySQL (a CDC-enabled server), served to S3. DOMAINS: finance (system mysqlcdc, model finance, data l = `tdx-domain create-data --size 1000`, ~100k subscriptions) and s3 (system s3, no model — the serving bucket prefix). INGEST, two paths over the SAME domain: finance_src is a batch snapshot (@publisher, MySQLSrc, six transactional queries LIMIT 100 each — plans, prices, customers, payment methods, subscriptions, subscription events — SCHEDULED by trigger_by=CronTrigger every 5 minutes at minute 2 UTC, offset from airportdb's minute 0; the suite's manual trigger coexists with it for the first batch) and finance_cdc is a change stream (@stream_publisher, MySQLCdcStreamSrc tailing customer_subscriptions + customer_subscription_events; registering it STARTS it, so it has no trigger; its collection uses connections/mysql_cdc_712.yaml — a server_id of its own, because MySQL admits one replica per id). MARTS: finance_marts is a connection-less @transformer collection (group 'marts') building subscriptions_enriched, active_subscriptions, churned_subscriptions and subscription_timeline with the Tabsdata TableFrame API only (row-preserving; no polars). SERVE: finance_s3 writes each mart to a parquet object under finance/, and each CDC flush to finance/changes/${EXEC_PLAN_TS}/. Only the snapshot publisher is triggered; the marts cascade by @NEW and the change sinks fire per flush. Drive the stream with `tdx-domain modify-data --domain <instance>_finance --entity customer_subscriptions --ops Mix --sets 5`. Functions in functions/finance.py. Run: `tdx-xp oneshot --suite demo/finance --keep`.",
-  "domains": [
-    { "name": "finance", "system": "mysqlcdc", "model": "finance", "data": "l" },
-    { "name": "s3", "system": "s3" }
-  ],
-  "collections": [
-    { "name": "finance_src", "type": "mysql_sql_in", "connection_template": "connection-file:connections/mysql_sql_in.yaml", "group": "sources", "domains": { "D0": "finance" } },
-    { "name": "finance_cdc", "type": "mysql_cdc", "connection_template": "connection-file:connections/mysql_cdc_712.yaml", "group": "sources", "domains": { "D0": "finance" } },
-    { "name": "finance_marts", "type": "transform", "group": "marts" },
-    { "name": "finance_s3", "type": "s3_file_out", "connection_template": "connection-file:connections/s3_file_out.yaml", "group": "destinations", "domains": { "D0": "s3" } }
-  ],
-  "functions": [
-    { "collection": "finance_src", "functionpath": "functions/finance.py::pub_finance" },
-    { "collection": "finance_cdc", "functionpath": "functions/finance.py::stream_finance_changes" },
-    { "collection": "finance_marts", "functionpath": "functions/finance.py::tfr_subscriptions_enriched" },
-    { "collection": "finance_marts", "functionpath": "functions/finance.py::tfr_active_subscriptions" },
-    { "collection": "finance_marts", "functionpath": "functions/finance.py::tfr_churned_subscriptions" },
-    { "collection": "finance_marts", "functionpath": "functions/finance.py::tfr_subscription_timeline" },
-    { "collection": "finance_s3", "functionpath": "functions/finance.py::sink_subscriptions_enriched" },
-    { "collection": "finance_s3", "functionpath": "functions/finance.py::sink_active_subscriptions" },
-    { "collection": "finance_s3", "functionpath": "functions/finance.py::sink_churned_subscriptions" },
-    { "collection": "finance_s3", "functionpath": "functions/finance.py::sink_subscription_timeline" },
-    { "collection": "finance_s3", "functionpath": "functions/finance.py::sink_subscription_changes" },
-    { "collection": "finance_s3", "functionpath": "functions/finance.py::sink_subscription_event_changes" }
-  ],
-  "triggers": [
-    { "collection": "finance_src", "function": "pub_finance", "detached": true }
-  ]
-}
+[
+  {
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "DEMO suite 'finance' — subscription billing over the finance sample held in MySQL (a CDC-enabled server), served to S3. DOMAINS: finance (system mysqlcdc, model finance, data l = `tdx-domain create-data --size 1000`, ~100k subscriptions) and s3 (system s3, no model — the serving bucket prefix). INGEST, two paths over the SAME domain: finance_src is a batch snapshot (@publisher, MySQLSrc, six transactional queries LIMIT 100 each — plans, prices, customers, payment methods, subscriptions, subscription events — SCHEDULED by trigger_by=CronTrigger every 5 minutes at minute 2 UTC, offset from airportdb's minute 0; the suite's manual trigger coexists with it for the first batch) and finance_cdc is a change stream (@stream_publisher, MySQLCdcStreamSrc tailing customer_subscriptions + customer_subscription_events; registering it STARTS it, so it has no trigger; its collection uses connections/mysql_cdc_712.yaml — a server_id of its own, because MySQL admits one replica per id). MARTS: finance_marts is a connection-less @transformer collection (group 'marts') building subscriptions_enriched, active_subscriptions, churned_subscriptions and subscription_timeline with the Tabsdata TableFrame API only (row-preserving; no polars). SERVE: finance_s3 writes each mart to a parquet object under finance/, and each CDC flush to finance/changes/${EXEC_PLAN_TS}/. Only the snapshot publisher is triggered; the marts cascade by @NEW and the change sinks fire per flush. Drive the stream with `tdx-domain modify-data --domain <instance>_finance --entity customer_subscriptions --ops Mix --sets 5`. Functions in functions/finance.py. Run: `tdx-xp oneshot --suite demo/finance --keep`."
+  },
+  {
+    "domains": [
+      {
+        "name": "finance",
+        "system": "mysqlcdc",
+        "model": "finance",
+        "data": "l"
+      },
+      {
+        "name": "s3",
+        "system": "s3"
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "finance_src",
+        "type": "mysql_sql_in",
+        "connection_template": "connection-file:connections/mysql_sql_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "finance"
+        }
+      },
+      {
+        "name": "finance_cdc",
+        "type": "mysql_cdc",
+        "connection_template": "connection-file:connections/mysql_cdc_712.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "finance"
+        }
+      },
+      {
+        "name": "finance_marts",
+        "type": "transform",
+        "group": "marts"
+      },
+      {
+        "name": "finance_s3",
+        "type": "s3_file_out",
+        "connection_template": "connection-file:connections/s3_file_out.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "s3"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "finance_src",
+        "functionpath": "functions/finance.py::pub_finance"
+      },
+      {
+        "collection": "finance_cdc",
+        "functionpath": "functions/finance.py::stream_finance_changes"
+      },
+      {
+        "collection": "finance_marts",
+        "functionpath": "functions/finance.py::tfr_subscriptions_enriched"
+      },
+      {
+        "collection": "finance_marts",
+        "functionpath": "functions/finance.py::tfr_active_subscriptions"
+      },
+      {
+        "collection": "finance_marts",
+        "functionpath": "functions/finance.py::tfr_churned_subscriptions"
+      },
+      {
+        "collection": "finance_marts",
+        "functionpath": "functions/finance.py::tfr_subscription_timeline"
+      },
+      {
+        "collection": "finance_s3",
+        "functionpath": "functions/finance.py::sink_subscriptions_enriched"
+      },
+      {
+        "collection": "finance_s3",
+        "functionpath": "functions/finance.py::sink_active_subscriptions"
+      },
+      {
+        "collection": "finance_s3",
+        "functionpath": "functions/finance.py::sink_churned_subscriptions"
+      },
+      {
+        "collection": "finance_s3",
+        "functionpath": "functions/finance.py::sink_subscription_timeline"
+      },
+      {
+        "collection": "finance_s3",
+        "functionpath": "functions/finance.py::sink_subscription_changes"
+      },
+      {
+        "collection": "finance_s3",
+        "functionpath": "functions/finance.py::sink_subscription_event_changes"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "finance_src",
+        "function": "pub_finance",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

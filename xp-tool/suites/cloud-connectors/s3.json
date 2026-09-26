@@ -1,44 +1,185 @@
-{
-  "_comment": "CAPABILITY suite for the S3 file connector (all data formats + selection modes), via `--type connectors/s3.json`. Functions in functions/caps_s3.py. `s3_out` writers (from datagen caps_input/cap_rows) write CSV/JSON/AVRO/PARQUET (+CSV format_cfg) to the `s3` bucket root; `s3_rt` readers read each back (PHASE 2 — trigger after writers commit); `s3_in` exercises glob/since/multi/none over the seeded world parquet in `s3_world_xs`. Domains: dev (datagen), s3 (round-trip write+read), s3_world_xs (seed). SRC METADATA: s3_meta_keep and s3_meta_drop (s3_in) read the same staged country parquet with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection s3_meta (group ops) asserts that side: s3_meta_keep_check that the `@td.file.path` metadata column is there plus exactly the expected data columns, s3_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing).",
-  "domains": [
-    { "name": "dev", "system": "dev" },
-    { "name": "s3", "system": "s3" },
-    { "name": "s3_world_xs", "system": "s3", "model": "world", "data": "xs" }
-  ],
-  "collections": [
-    { "name": "caps_input", "type": "datagen_in", "connection_template": "connection-file:connections/datagen_in.yaml", "group": "sources", "domains": { "D0": "dev" } },
-    { "name": "s3_out", "type": "s3_file_out", "connection_template": "connection-file:connections/s3_file_out.yaml", "group": "destinations", "domains": { "D0": "s3" } },
-    { "name": "s3_rt", "type": "s3_file_in", "connection_template": "connection-file:connections/s3_file_in.yaml", "group": "sources", "domains": { "D0": "s3" } },
-    { "name": "s3_in", "type": "s3_file_in", "connection_template": "connection-file:connections/s3_file_in.yaml", "group": "sources", "domains": { "D0": "s3_world_xs" } },
-    { "name": "s3_meta", "type": "transform", "group": "ops" }
-  ],
-  "functions": [
-    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_rows" },
-    { "collection": "s3_out", "functionpath": "functions/caps_s3.py::s3_out_csv" },
-    { "collection": "s3_out", "functionpath": "functions/caps_s3.py::s3_out_json" },
-    { "collection": "s3_out", "functionpath": "functions/caps_s3.py::s3_out_avro" },
-    { "collection": "s3_out", "functionpath": "functions/caps_s3.py::s3_out_parquet" },
-    { "collection": "s3_out", "functionpath": "functions/caps_s3.py::s3_out_csvopts" },
-    { "collection": "s3_out", "functionpath": "functions/caps_s3.py::s3_out_none" },
-    { "collection": "s3_rt", "functionpath": "functions/caps_s3.py::s3_rt_csv" },
-    { "collection": "s3_rt", "functionpath": "functions/caps_s3.py::s3_rt_json" },
-    { "collection": "s3_rt", "functionpath": "functions/caps_s3.py::s3_rt_avro" },
-    { "collection": "s3_rt", "functionpath": "functions/caps_s3.py::s3_rt_parquet" },
-    { "collection": "s3_in", "functionpath": "functions/caps_s3.py::s3_in_glob" },
-    { "collection": "s3_in", "functionpath": "functions/caps_s3.py::s3_in_since" },
-    { "collection": "s3_in", "functionpath": "functions/caps_s3.py::s3_in_multi" },
-    { "collection": "s3_in", "functionpath": "functions/caps_s3.py::s3_in_none" },
-    { "collection": "s3_in", "functionpath": "functions/caps_s3.py::s3_meta_keep" },
-    { "collection": "s3_in", "functionpath": "functions/caps_s3.py::s3_meta_drop" },
-    { "collection": "s3_meta", "functionpath": "functions/caps_s3.py::s3_meta_keep_check" },
-    { "collection": "s3_meta", "functionpath": "functions/caps_s3.py::s3_meta_drop_check" }
-  ],
-  "triggers": [
-    { "collection": "caps_input", "function": "caps_rows", "detached": true },
-    { "collection": "s3_in", "function": "s3_in_glob", "detached": true },
-    { "collection": "s3_in", "function": "s3_in_since", "detached": true },
-    { "collection": "s3_in", "function": "s3_in_multi", "detached": true },
-    { "collection": "s3_in", "function": "s3_meta_keep", "detached": true },
-    { "collection": "s3_in", "function": "s3_meta_drop", "detached": true }
-  ]
-}
+[
+  {
+    "_comment": "CAPABILITY suite for the S3 file connector (all data formats + selection modes), via `--type connectors/s3.json`. Functions in functions/caps_s3.py. `s3_out` writers (from datagen caps_input/cap_rows) write CSV/JSON/AVRO/PARQUET (+CSV format_cfg) to the `s3` bucket root; `s3_rt` readers read each back (PHASE 2 — trigger after writers commit); `s3_in` exercises glob/since/multi/none over the seeded world parquet in `s3_world_xs`. Domains: dev (datagen), s3 (round-trip write+read), s3_world_xs (seed). SRC METADATA: s3_meta_keep and s3_meta_drop (s3_in) read the same staged country parquet with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection s3_meta (group ops) asserts that side: s3_meta_keep_check that the `@td.file.path` metadata column is there plus exactly the expected data columns, s3_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing)."
+  },
+  {
+    "domains": [
+      {
+        "name": "dev",
+        "system": "dev"
+      },
+      {
+        "name": "s3",
+        "system": "s3"
+      },
+      {
+        "name": "s3_world_xs",
+        "system": "s3",
+        "model": "world",
+        "data": "xs"
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "caps_input",
+        "type": "datagen_in",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "dev"
+        }
+      },
+      {
+        "name": "s3_out",
+        "type": "s3_file_out",
+        "connection_template": "connection-file:connections/s3_file_out.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "s3"
+        }
+      },
+      {
+        "name": "s3_rt",
+        "type": "s3_file_in",
+        "connection_template": "connection-file:connections/s3_file_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "s3"
+        }
+      },
+      {
+        "name": "s3_in",
+        "type": "s3_file_in",
+        "connection_template": "connection-file:connections/s3_file_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "s3_world_xs"
+        }
+      },
+      {
+        "name": "s3_meta",
+        "type": "transform",
+        "group": "ops"
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_datagen.py::caps_rows"
+      },
+      {
+        "collection": "s3_out",
+        "functionpath": "functions/caps_s3.py::s3_out_csv"
+      },
+      {
+        "collection": "s3_out",
+        "functionpath": "functions/caps_s3.py::s3_out_json"
+      },
+      {
+        "collection": "s3_out",
+        "functionpath": "functions/caps_s3.py::s3_out_avro"
+      },
+      {
+        "collection": "s3_out",
+        "functionpath": "functions/caps_s3.py::s3_out_parquet"
+      },
+      {
+        "collection": "s3_out",
+        "functionpath": "functions/caps_s3.py::s3_out_csvopts"
+      },
+      {
+        "collection": "s3_out",
+        "functionpath": "functions/caps_s3.py::s3_out_none"
+      },
+      {
+        "collection": "s3_rt",
+        "functionpath": "functions/caps_s3.py::s3_rt_csv"
+      },
+      {
+        "collection": "s3_rt",
+        "functionpath": "functions/caps_s3.py::s3_rt_json"
+      },
+      {
+        "collection": "s3_rt",
+        "functionpath": "functions/caps_s3.py::s3_rt_avro"
+      },
+      {
+        "collection": "s3_rt",
+        "functionpath": "functions/caps_s3.py::s3_rt_parquet"
+      },
+      {
+        "collection": "s3_in",
+        "functionpath": "functions/caps_s3.py::s3_in_glob"
+      },
+      {
+        "collection": "s3_in",
+        "functionpath": "functions/caps_s3.py::s3_in_since"
+      },
+      {
+        "collection": "s3_in",
+        "functionpath": "functions/caps_s3.py::s3_in_multi"
+      },
+      {
+        "collection": "s3_in",
+        "functionpath": "functions/caps_s3.py::s3_in_none"
+      },
+      {
+        "collection": "s3_in",
+        "functionpath": "functions/caps_s3.py::s3_meta_keep"
+      },
+      {
+        "collection": "s3_in",
+        "functionpath": "functions/caps_s3.py::s3_meta_drop"
+      },
+      {
+        "collection": "s3_meta",
+        "functionpath": "functions/caps_s3.py::s3_meta_keep_check"
+      },
+      {
+        "collection": "s3_meta",
+        "functionpath": "functions/caps_s3.py::s3_meta_drop_check"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "caps_input",
+        "function": "caps_rows",
+        "detached": true
+      },
+      {
+        "collection": "s3_in",
+        "function": "s3_in_glob",
+        "detached": true
+      },
+      {
+        "collection": "s3_in",
+        "function": "s3_in_since",
+        "detached": true
+      },
+      {
+        "collection": "s3_in",
+        "function": "s3_in_multi",
+        "detached": true
+      },
+      {
+        "collection": "s3_in",
+        "function": "s3_meta_keep",
+        "detached": true
+      },
+      {
+        "collection": "s3_in",
+        "function": "s3_meta_drop",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

@@ -18,7 +18,8 @@ A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
   waits, repeated nested scripts), blocking or side by side; its background
   entries keep running through the stages after it (see ``live``).
 
-A stage may carry a ``_comment``, and an object holding only one is a comment.
+A stage may carry ``_``-prefixed annotations (``_comment``, ``_copyright``), and
+an object holding only those is a comment.
 Kinds may repeat, in any order the dependencies allow (a collection after the
 domains it names, a function after its collection). The older form -- one
 object with a list per kind -- still reads, as the stages it always ran:
@@ -388,9 +389,11 @@ def stages_of(doc, definition: pathlib.Path) -> list[dict]:
     for i, element in enumerate(doc, 1):
         if not isinstance(element, dict):
             state.die(f"suite {definition}: stage {i} is not a JSON object")
-        keys = [k for k in element if k != "_comment"]
-        if not keys and "_comment" in element:
-            continue  # a comment
+        # `_`-prefixed keys annotate (`_comment`, `_copyright`); an object
+        # holding only those is a comment.
+        keys = [k for k in element if not k.startswith("_")]
+        if not keys:
+            continue
         if len(keys) != 1 or keys[0] not in STAGE_KINDS:
             state.die(
                 f"suite {definition}: stage {i} must hold exactly one of "

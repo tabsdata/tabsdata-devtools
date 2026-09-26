@@ -1,83 +1,96 @@
-{
-  "_copyright": "Copyright 2026 Tabsdata Inc.",
-  "_comment": "EXAMPLE · TABLEFRAME OPERATIONS — the transforms a @transformer is made of, over three seeded tables (customers, a customers_previous snapshot, orders) so joins and diffs have something real to work on. USE THE TABLEFRAME API, NOT POLARS: a TableFrame carries the framework's system columns alongside the data and the TableFrame operations maintain them; _to_polars_lf() loses that bookkeeping, so it belongs at the edges only. ROW-PRESERVING (select / filter / join / sort / rename / with_columns / head) vs RESHAPING (group_by().agg(), which builds new rows) is the distinction that matters at a SINK — aggregate freely mid-pipeline, keep the last hop before a destination row-preserving. FOUR FAMILIES, one function per file: JOIN (join_inner, join_left — customer 5 has no orders — join_composite_key, plus the country_right collision and the fan-out a too-narrow key causes); DIFF (there is no .diff() — a row-level difference IS a join: how=\"anti\" for rows with NO match gives arrived/left, how=\"semi\" for rows WITH one gives the intersection, and neither adds the right side's columns nor can fan out); PROJECTION (project_columns for select/rename/sort — project early, it is the cheapest optimisation there is — and project_derived for with_columns/filter/lit); AGGREGATION (agg_by_country for the reductions and aliases, agg_top_customers for the real shape: aggregate, join back to a dimension for labels, sort, head(N) — in that order, so the join runs on the reduced frame), plus union_and_dedupe for concat vertical-vs-diagonal and unique(subset=...). Input refs show the @NEW / @HEAD split: @NEW on the driving table, @HEAD on the lookup. Dev-only: this suite needs no external backend. Run: `tdx-xp oneshot --suite examples/tableframe_ops`.",
-  "domains": [
-    {
-      "name": "dev",
-      "system": "dev"
-    }
-  ],
-  "collections": [
-    {
-      "name": "src",
-      "type": "datagen_in",
-      "group": "sources",
-      "connection_template": "connection-file:connections/datagen_in.yaml",
-      "domains": {
-        "D0": "dev"
+[
+  {
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "EXAMPLE · TABLEFRAME OPERATIONS — the transforms a @transformer is made of, over three seeded tables (customers, a customers_previous snapshot, orders) so joins and diffs have something real to work on. USE THE TABLEFRAME API, NOT POLARS: a TableFrame carries the framework's system columns alongside the data and the TableFrame operations maintain them; _to_polars_lf() loses that bookkeeping, so it belongs at the edges only. ROW-PRESERVING (select / filter / join / sort / rename / with_columns / head) vs RESHAPING (group_by().agg(), which builds new rows) is the distinction that matters at a SINK — aggregate freely mid-pipeline, keep the last hop before a destination row-preserving. FOUR FAMILIES, one function per file: JOIN (join_inner, join_left — customer 5 has no orders — join_composite_key, plus the country_right collision and the fan-out a too-narrow key causes); DIFF (there is no .diff() — a row-level difference IS a join: how=\"anti\" for rows with NO match gives arrived/left, how=\"semi\" for rows WITH one gives the intersection, and neither adds the right side's columns nor can fan out); PROJECTION (project_columns for select/rename/sort — project early, it is the cheapest optimisation there is — and project_derived for with_columns/filter/lit); AGGREGATION (agg_by_country for the reductions and aliases, agg_top_customers for the real shape: aggregate, join back to a dimension for labels, sort, head(N) — in that order, so the join runs on the reduced frame), plus union_and_dedupe for concat vertical-vs-diagonal and unique(subset=...). Input refs show the @NEW / @HEAD split: @NEW on the driving table, @HEAD on the lookup. Dev-only: this suite needs no external backend. Run: `tdx-xp oneshot --suite examples/tableframe_ops`."
+  },
+  {
+    "domains": [
+      {
+        "name": "dev",
+        "system": "dev"
       }
-    },
-    {
-      "name": "ops",
-      "type": "transform",
-      "group": "ops"
-    }
-  ],
-  "functions": [
-    {
-      "collection": "src",
-      "functionpath": "functions/tableframe_ops/supporting_generate_tables.py::generate_tables"
-    },
-    {
-      "collection": "ops",
-      "functionpath": "functions/tableframe_ops/join_inner.py::join_inner"
-    },
-    {
-      "collection": "ops",
-      "functionpath": "functions/tableframe_ops/join_left.py::join_left"
-    },
-    {
-      "collection": "ops",
-      "functionpath": "functions/tableframe_ops/join_composite_key.py::join_composite_key"
-    },
-    {
-      "collection": "ops",
-      "functionpath": "functions/tableframe_ops/diff_added.py::diff_added"
-    },
-    {
-      "collection": "ops",
-      "functionpath": "functions/tableframe_ops/diff_removed.py::diff_removed"
-    },
-    {
-      "collection": "ops",
-      "functionpath": "functions/tableframe_ops/diff_kept.py::diff_kept"
-    },
-    {
-      "collection": "ops",
-      "functionpath": "functions/tableframe_ops/project_columns.py::project_columns"
-    },
-    {
-      "collection": "ops",
-      "functionpath": "functions/tableframe_ops/project_derived.py::project_derived"
-    },
-    {
-      "collection": "ops",
-      "functionpath": "functions/tableframe_ops/agg_by_country.py::agg_by_country"
-    },
-    {
-      "collection": "ops",
-      "functionpath": "functions/tableframe_ops/agg_top_customers.py::agg_top_customers"
-    },
-    {
-      "collection": "ops",
-      "functionpath": "functions/tableframe_ops/union_and_dedupe.py::union_and_dedupe"
-    }
-  ],
-  "triggers": [
-    {
-      "collection": "src",
-      "function": "generate_tables",
-      "detached": true
-    }
-  ]
-}
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "src",
+        "type": "datagen_in",
+        "group": "sources",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "domains": {
+          "D0": "dev"
+        }
+      },
+      {
+        "name": "ops",
+        "type": "transform",
+        "group": "ops"
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "src",
+        "functionpath": "functions/tableframe_ops/supporting_generate_tables.py::generate_tables"
+      },
+      {
+        "collection": "ops",
+        "functionpath": "functions/tableframe_ops/join_inner.py::join_inner"
+      },
+      {
+        "collection": "ops",
+        "functionpath": "functions/tableframe_ops/join_left.py::join_left"
+      },
+      {
+        "collection": "ops",
+        "functionpath": "functions/tableframe_ops/join_composite_key.py::join_composite_key"
+      },
+      {
+        "collection": "ops",
+        "functionpath": "functions/tableframe_ops/diff_added.py::diff_added"
+      },
+      {
+        "collection": "ops",
+        "functionpath": "functions/tableframe_ops/diff_removed.py::diff_removed"
+      },
+      {
+        "collection": "ops",
+        "functionpath": "functions/tableframe_ops/diff_kept.py::diff_kept"
+      },
+      {
+        "collection": "ops",
+        "functionpath": "functions/tableframe_ops/project_columns.py::project_columns"
+      },
+      {
+        "collection": "ops",
+        "functionpath": "functions/tableframe_ops/project_derived.py::project_derived"
+      },
+      {
+        "collection": "ops",
+        "functionpath": "functions/tableframe_ops/agg_by_country.py::agg_by_country"
+      },
+      {
+        "collection": "ops",
+        "functionpath": "functions/tableframe_ops/agg_top_customers.py::agg_top_customers"
+      },
+      {
+        "collection": "ops",
+        "functionpath": "functions/tableframe_ops/union_and_dedupe.py::union_and_dedupe"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "src",
+        "function": "generate_tables",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

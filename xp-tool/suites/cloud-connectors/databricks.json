@@ -1,39 +1,160 @@
-{
-  "_comment": "CAPABILITY suite for Databricks (SQL src modes + bulk dest full matrix incl. schema evolution `update`), via `--type connectors/databricks.json`. Functions in functions/caps_databricks.py. SOURCE (databricks_in, reads seeded databricks_world_xs): base/_inc(LIMIT 10)/_none. DEST (databricks_out, input from datagen): append/replace on cap_append/cap_replace; SCHEMA EVOLUTION two-phase (evolve_v1 creates cap_evolve, then trigger caps_evo_v2 -> evolve_v2 appends wide with schema_evolution=update/mergeSchema). NOTE the dest needs the staging Volume from the connection to already exist. Domains: dev, databricks_world_xs (source), databricks (dest). SRC METADATA: databricks_meta_keep and databricks_meta_drop (databricks_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection databricks_meta (group ops) asserts that side: databricks_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, databricks_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing).",
-  "domains": [
-    { "name": "dev", "system": "dev" },
-    { "name": "databricks_world_xs", "system": "databricks", "model": "world", "data": "xs" },
-    { "name": "databricks", "system": "databricks" }
-  ],
-  "collections": [
-    { "name": "caps_input", "type": "datagen_in", "connection_template": "connection-file:connections/datagen_in.yaml", "group": "sources", "domains": { "D0": "dev" } },
-    { "name": "databricks_in", "type": "databricks_bulk_in", "connection_template": "connection-file:connections/databricks_bulk_in.yaml", "group": "sources", "domains": { "D0": "databricks_world_xs" } },
-    { "name": "databricks_out", "type": "databricks_bulk_out", "connection_template": "connection-file:connections/databricks_bulk_out.yaml", "group": "destinations", "domains": { "D0": "databricks" } },
-    { "name": "databricks_meta", "type": "transform", "group": "ops" }
-  ],
-  "functions": [
-    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_rows" },
-    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_evo_v1" },
-    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_evo_v2" },
-    { "collection": "databricks_in", "functionpath": "functions/caps_databricks.py::databricks_in" },
-    { "collection": "databricks_in", "functionpath": "functions/caps_databricks.py::databricks_in_inc" },
-    { "collection": "databricks_in", "functionpath": "functions/caps_databricks.py::databricks_in_none" },
-    { "collection": "databricks_out", "functionpath": "functions/caps_databricks.py::databricks_out_append" },
-    { "collection": "databricks_out", "functionpath": "functions/caps_databricks.py::databricks_out_replace" },
-    { "collection": "databricks_out", "functionpath": "functions/caps_databricks.py::databricks_out_none" },
-    { "collection": "databricks_out", "functionpath": "functions/caps_databricks.py::databricks_evolve_v1" },
-    { "collection": "databricks_out", "functionpath": "functions/caps_databricks.py::databricks_evolve_v2" },
-    { "collection": "databricks_in", "functionpath": "functions/caps_databricks.py::databricks_meta_keep" },
-    { "collection": "databricks_in", "functionpath": "functions/caps_databricks.py::databricks_meta_drop" },
-    { "collection": "databricks_meta", "functionpath": "functions/caps_databricks.py::databricks_meta_keep_check" },
-    { "collection": "databricks_meta", "functionpath": "functions/caps_databricks.py::databricks_meta_drop_check" }
-  ],
-  "triggers": [
-    { "collection": "caps_input", "function": "caps_rows", "detached": true },
-    { "collection": "caps_input", "function": "caps_evo_v1", "detached": true },
-    { "collection": "databricks_in", "function": "databricks_in", "detached": true },
-    { "collection": "databricks_in", "function": "databricks_in_inc", "detached": true },
-    { "collection": "databricks_in", "function": "databricks_meta_keep", "detached": true },
-    { "collection": "databricks_in", "function": "databricks_meta_drop", "detached": true }
-  ]
-}
+[
+  {
+    "_comment": "CAPABILITY suite for Databricks (SQL src modes + bulk dest full matrix incl. schema evolution `update`), via `--type connectors/databricks.json`. Functions in functions/caps_databricks.py. SOURCE (databricks_in, reads seeded databricks_world_xs): base/_inc(LIMIT 10)/_none. DEST (databricks_out, input from datagen): append/replace on cap_append/cap_replace; SCHEMA EVOLUTION two-phase (evolve_v1 creates cap_evolve, then trigger caps_evo_v2 -> evolve_v2 appends wide with schema_evolution=update/mergeSchema). NOTE the dest needs the staging Volume from the connection to already exist. Domains: dev, databricks_world_xs (source), databricks (dest). SRC METADATA: databricks_meta_keep and databricks_meta_drop (databricks_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection databricks_meta (group ops) asserts that side: databricks_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, databricks_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing)."
+  },
+  {
+    "domains": [
+      {
+        "name": "dev",
+        "system": "dev"
+      },
+      {
+        "name": "databricks_world_xs",
+        "system": "databricks",
+        "model": "world",
+        "data": "xs"
+      },
+      {
+        "name": "databricks",
+        "system": "databricks"
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "caps_input",
+        "type": "datagen_in",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "dev"
+        }
+      },
+      {
+        "name": "databricks_in",
+        "type": "databricks_bulk_in",
+        "connection_template": "connection-file:connections/databricks_bulk_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "databricks_world_xs"
+        }
+      },
+      {
+        "name": "databricks_out",
+        "type": "databricks_bulk_out",
+        "connection_template": "connection-file:connections/databricks_bulk_out.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "databricks"
+        }
+      },
+      {
+        "name": "databricks_meta",
+        "type": "transform",
+        "group": "ops"
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_datagen.py::caps_rows"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_datagen.py::caps_evo_v1"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_datagen.py::caps_evo_v2"
+      },
+      {
+        "collection": "databricks_in",
+        "functionpath": "functions/caps_databricks.py::databricks_in"
+      },
+      {
+        "collection": "databricks_in",
+        "functionpath": "functions/caps_databricks.py::databricks_in_inc"
+      },
+      {
+        "collection": "databricks_in",
+        "functionpath": "functions/caps_databricks.py::databricks_in_none"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_out_append"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_out_replace"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_out_none"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_evolve_v1"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_evolve_v2"
+      },
+      {
+        "collection": "databricks_in",
+        "functionpath": "functions/caps_databricks.py::databricks_meta_keep"
+      },
+      {
+        "collection": "databricks_in",
+        "functionpath": "functions/caps_databricks.py::databricks_meta_drop"
+      },
+      {
+        "collection": "databricks_meta",
+        "functionpath": "functions/caps_databricks.py::databricks_meta_keep_check"
+      },
+      {
+        "collection": "databricks_meta",
+        "functionpath": "functions/caps_databricks.py::databricks_meta_drop_check"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "caps_input",
+        "function": "caps_rows",
+        "detached": true
+      },
+      {
+        "collection": "caps_input",
+        "function": "caps_evo_v1",
+        "detached": true
+      },
+      {
+        "collection": "databricks_in",
+        "function": "databricks_in",
+        "detached": true
+      },
+      {
+        "collection": "databricks_in",
+        "function": "databricks_in_inc",
+        "detached": true
+      },
+      {
+        "collection": "databricks_in",
+        "function": "databricks_meta_keep",
+        "detached": true
+      },
+      {
+        "collection": "databricks_in",
+        "function": "databricks_meta_drop",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

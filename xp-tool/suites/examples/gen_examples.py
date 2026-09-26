@@ -3472,6 +3472,20 @@ def build_names() -> list[str]:
     return sorted(names)
 
 
+def as_stages(doc: dict) -> list:
+    """The descriptor as xp reads it: an ordered list of stages -- the
+    annotations first, then domains, collections, functions, triggers (each
+    only when it has entries) and a monitor. Built here as one object because
+    the builders fill it section by section."""
+    notes = {k: v for k, v in doc.items() if k.startswith("_")}
+    stages = [notes] if notes else []
+    for kind in ("domains", "collections", "functions", "triggers"):
+        if doc.get(kind):
+            stages.append({kind: doc[kind]})
+    stages.append({"monitor": True})
+    return stages
+
+
 def main() -> int:
     if "--list" in sys.argv[1:]:
         names = build_names()
@@ -3489,7 +3503,8 @@ def main() -> int:
     suites = build()
     for name, doc in sorted(suites.items()):
         (SUITE_DIR / f"{name}.json").write_text(
-            json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            json.dumps(as_stages(doc), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
         )
     print(f"wrote {len(suites)} suite(s) + their functions/ dirs under {SUITE_DIR}")
     print(f"hand-written and untouched: {', '.join(sorted(HANDWRITTEN))}")

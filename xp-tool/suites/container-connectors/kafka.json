@@ -1,17 +1,65 @@
-{
-  "_comment": "CAPABILITY suite for the Kafka stream source against a REDPANDA domain, via `--type connectors/kafka.json`. Functions in functions/caps_kafka.py. Kafka is SOURCE-ONLY (the connector registers a stream source, no destination). The domain supplies the broker list (meta KAFKA_BROKERS) AND the data: a redpanda domain is a Kafka topic namespace whose data plane produces a model's rows as JSON, ONE MESSAGE PER ROW, to `<prefix>.<entity>` (one topic per entity, auto-created on produce). With the `employees` model at xs, `create-domains` seeds <prefix>.employees (100 messages), <prefix>.departments (9) and the derived .dept_emp/.dept_manager/.titles/.salaries (not consumed). PER-RUN TOPIC PREFIX: `<prefix>` is the domain's in-system name, which tdx-xp derives per run (`xp_<user>_<ts>_redpanda`); `KafkaStreamSrc.topic` is fixed when the function is written, so caps_kafka.py writes it as the `${D0__DB}` reference tdx-xp interpolates at registration (same for the templates' consumer groups) rather than pinning the domain's `name_in_system`. So CONCURRENT INSTANCES of this suite are fine — each gets its own topics, consumer groups and dead-letter topic. Append more messages with `tdx-domain modify-data --domain <instance>_redpanda --entity employees --ops Insert --sets 20` (redpanda is insert-only for modify-data — a Kafka log only appends — and REJECTS other ops). VARIANTS, one collection each: kafka_in (<prefix>.employees, kafka.messages_rollover=25 -> the 100 seeded messages as 4 batches), kafka_in_dlq (<prefix>.departments, 9 messages, rollover 5 so 5 roll over on count and 4 on flush_interval_mins, plus a dlq_topic — the seeded messages all validate, so produce a violating line by hand to see <prefix>.dead), kafka_in_time (<prefix>.employees again with kafka.time_rollover_seconds=15 — own consumer group, so it sees every message too). ONE COLLECTION PER VARIANT with its OWN template (kafka_topic_in.yaml / _dlq / _time) because each stream joins its connection's consumer group and these topics have a single partition, so two consumers in one group would leave one idle. NO TRIGGERS, and none are needed: REGISTERING a stream publisher STARTS it — the worker comes up seconds after `create-project` and runs until `tdk fn disable`/`fn delete` (no execution plan or transaction; find it with `tdk worker list`). The consumer forces auto.offset.reset=earliest and never commits offsets, so worker-before-seed and seed-before-worker both work and a re-run re-reads the topic. So: `tdx-xp oneshot --suite connectors/kafka --keep`, then watch `tdk trx list --proj <P> --monitor`. NOTE the broker address is the domain's host:port — reachable from a local instance, but a pod would need a routable address instead of localhost.",
-  "domains": [
-    { "name": "redpanda", "system": "redpanda", "model": "employees", "data": "xs" }
-  ],
-  "collections": [
-    { "name": "kafka_in", "type": "kafka_topic_in", "connection_template": "connection-file:connections/kafka_topic_in.yaml", "group": "sources", "domains": { "D0": "redpanda" } },
-    { "name": "kafka_dlq", "type": "kafka_topic_in", "connection_template": "connection-file:connections/kafka_topic_in_dlq.yaml", "group": "sources", "domains": { "D0": "redpanda" } },
-    { "name": "kafka_time", "type": "kafka_topic_in", "connection_template": "connection-file:connections/kafka_topic_in_time.yaml", "group": "sources", "domains": { "D0": "redpanda" } }
-  ],
-  "functions": [
-    { "collection": "kafka_in", "functionpath": "functions/caps_kafka.py::kafka_in" },
-    { "collection": "kafka_dlq", "functionpath": "functions/caps_kafka.py::kafka_in_dlq" },
-    { "collection": "kafka_time", "functionpath": "functions/caps_kafka.py::kafka_in_time" }
-  ],
-  "triggers": []
-}
+[
+  {
+    "_comment": "CAPABILITY suite for the Kafka stream source against a REDPANDA domain, via `--type connectors/kafka.json`. Functions in functions/caps_kafka.py. Kafka is SOURCE-ONLY (the connector registers a stream source, no destination). The domain supplies the broker list (meta KAFKA_BROKERS) AND the data: a redpanda domain is a Kafka topic namespace whose data plane produces a model's rows as JSON, ONE MESSAGE PER ROW, to `<prefix>.<entity>` (one topic per entity, auto-created on produce). With the `employees` model at xs, `create-domains` seeds <prefix>.employees (100 messages), <prefix>.departments (9) and the derived .dept_emp/.dept_manager/.titles/.salaries (not consumed). PER-RUN TOPIC PREFIX: `<prefix>` is the domain's in-system name, which tdx-xp derives per run (`xp_<user>_<ts>_redpanda`); `KafkaStreamSrc.topic` is fixed when the function is written, so caps_kafka.py writes it as the `${D0__DB}` reference tdx-xp interpolates at registration (same for the templates' consumer groups) rather than pinning the domain's `name_in_system`. So CONCURRENT INSTANCES of this suite are fine — each gets its own topics, consumer groups and dead-letter topic. Append more messages with `tdx-domain modify-data --domain <instance>_redpanda --entity employees --ops Insert --sets 20` (redpanda is insert-only for modify-data — a Kafka log only appends — and REJECTS other ops). VARIANTS, one collection each: kafka_in (<prefix>.employees, kafka.messages_rollover=25 -> the 100 seeded messages as 4 batches), kafka_in_dlq (<prefix>.departments, 9 messages, rollover 5 so 5 roll over on count and 4 on flush_interval_mins, plus a dlq_topic — the seeded messages all validate, so produce a violating line by hand to see <prefix>.dead), kafka_in_time (<prefix>.employees again with kafka.time_rollover_seconds=15 — own consumer group, so it sees every message too). ONE COLLECTION PER VARIANT with its OWN template (kafka_topic_in.yaml / _dlq / _time) because each stream joins its connection's consumer group and these topics have a single partition, so two consumers in one group would leave one idle. NO TRIGGERS, and none are needed: REGISTERING a stream publisher STARTS it — the worker comes up seconds after `create-project` and runs until `tdk fn disable`/`fn delete` (no execution plan or transaction; find it with `tdk worker list`). The consumer forces auto.offset.reset=earliest and never commits offsets, so worker-before-seed and seed-before-worker both work and a re-run re-reads the topic. So: `tdx-xp oneshot --suite connectors/kafka --keep`, then watch `tdk trx list --proj <P> --monitor`. NOTE the broker address is the domain's host:port — reachable from a local instance, but a pod would need a routable address instead of localhost."
+  },
+  {
+    "domains": [
+      {
+        "name": "redpanda",
+        "system": "redpanda",
+        "model": "employees",
+        "data": "xs"
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "kafka_in",
+        "type": "kafka_topic_in",
+        "connection_template": "connection-file:connections/kafka_topic_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "redpanda"
+        }
+      },
+      {
+        "name": "kafka_dlq",
+        "type": "kafka_topic_in",
+        "connection_template": "connection-file:connections/kafka_topic_in_dlq.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "redpanda"
+        }
+      },
+      {
+        "name": "kafka_time",
+        "type": "kafka_topic_in",
+        "connection_template": "connection-file:connections/kafka_topic_in_time.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "redpanda"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "kafka_in",
+        "functionpath": "functions/caps_kafka.py::kafka_in"
+      },
+      {
+        "collection": "kafka_dlq",
+        "functionpath": "functions/caps_kafka.py::kafka_in_dlq"
+      },
+      {
+        "collection": "kafka_time",
+        "functionpath": "functions/caps_kafka.py::kafka_in_time"
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

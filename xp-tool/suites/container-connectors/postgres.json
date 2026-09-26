@@ -1,139 +1,152 @@
-{
-  "_comment": "CAPABILITY suite for the PostgreSQL connector, via `--type connectors/postgres.json`. Functions in functions/caps_postgres.py. SOURCE (`postgres_in`, reads existing postgres_world_xs seed): base (3 queries), _inc (watermark paging — re-run to walk 10 rows/trigger), _none (WHERE 1=0), _multiquery (2 queries, transactional=False). DEST (`postgres_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate; row count stays) writing to distinct tables cap_append/cap_replace; re-run `suite.py run` to observe append-grows vs replace-stays. PostgreSQL has no schema evolution. Domains: dev (datagen), postgres_world_xs (source), postgres (dest). SRC METADATA: postgres_meta_keep and postgres_meta_drop (postgres_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection postgres_meta (group ops) asserts that side: postgres_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, postgres_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing).",
-  "domains": [
-    {
-      "name": "dev",
-      "system": "dev",
-      "model": null,
-      "data": null
-    },
-    {
-      "name": "postgres_world_xs",
-      "system": "postgres",
-      "model": "world",
-      "data": "xs"
-    },
-    {
-      "name": "postgres",
-      "system": "postgres",
-      "model": null,
-      "data": null
-    }
-  ],
-  "collections": [
-    {
-      "name": "caps_input",
-      "type": "datagen_in",
-      "connection_template": "connection-file:connections/datagen_in.yaml",
-      "group": "sources",
-      "domains": {
-        "D0": "dev"
+[
+  {
+    "_comment": "CAPABILITY suite for the PostgreSQL connector, via `--type connectors/postgres.json`. Functions in functions/caps_postgres.py. SOURCE (`postgres_in`, reads existing postgres_world_xs seed): base (3 queries), _inc (watermark paging — re-run to walk 10 rows/trigger), _none (WHERE 1=0), _multiquery (2 queries, transactional=False). DEST (`postgres_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate; row count stays) writing to distinct tables cap_append/cap_replace; re-run `suite.py run` to observe append-grows vs replace-stays. PostgreSQL has no schema evolution. Domains: dev (datagen), postgres_world_xs (source), postgres (dest). SRC METADATA: postgres_meta_keep and postgres_meta_drop (postgres_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection postgres_meta (group ops) asserts that side: postgres_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, postgres_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing)."
+  },
+  {
+    "domains": [
+      {
+        "name": "dev",
+        "system": "dev",
+        "model": null,
+        "data": null
+      },
+      {
+        "name": "postgres_world_xs",
+        "system": "postgres",
+        "model": "world",
+        "data": "xs"
+      },
+      {
+        "name": "postgres",
+        "system": "postgres",
+        "model": null,
+        "data": null
       }
-    },
-    {
-      "name": "postgres_in",
-      "type": "postgres_sql_in",
-      "connection_template": "connection-file:connections/postgres_sql_in.yaml",
-      "group": "sources",
-      "domains": {
-        "D0": "postgres_world_xs"
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "caps_input",
+        "type": "datagen_in",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "dev"
+        }
+      },
+      {
+        "name": "postgres_in",
+        "type": "postgres_sql_in",
+        "connection_template": "connection-file:connections/postgres_sql_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "postgres_world_xs"
+        }
+      },
+      {
+        "name": "postgres_out",
+        "type": "postgres_sql_out",
+        "connection_template": "connection-file:connections/postgres_sql_out.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "postgres"
+        }
+      },
+      {
+        "name": "postgres_meta",
+        "type": "transform",
+        "group": "ops"
       }
-    },
-    {
-      "name": "postgres_out",
-      "type": "postgres_sql_out",
-      "connection_template": "connection-file:connections/postgres_sql_out.yaml",
-      "group": "destinations",
-      "domains": {
-        "D0": "postgres"
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_datagen.py::caps_rows"
+      },
+      {
+        "collection": "postgres_in",
+        "functionpath": "functions/caps_postgres.py::postgres_in"
+      },
+      {
+        "collection": "postgres_in",
+        "functionpath": "functions/caps_postgres.py::postgres_in_inc"
+      },
+      {
+        "collection": "postgres_in",
+        "functionpath": "functions/caps_postgres.py::postgres_in_none"
+      },
+      {
+        "collection": "postgres_in",
+        "functionpath": "functions/caps_postgres.py::postgres_in_multiquery"
+      },
+      {
+        "collection": "postgres_out",
+        "functionpath": "functions/caps_postgres.py::postgres_out_append"
+      },
+      {
+        "collection": "postgres_out",
+        "functionpath": "functions/caps_postgres.py::postgres_out_replace"
+      },
+      {
+        "collection": "postgres_out",
+        "functionpath": "functions/caps_postgres.py::postgres_out_none"
+      },
+      {
+        "collection": "postgres_in",
+        "functionpath": "functions/caps_postgres.py::postgres_meta_keep"
+      },
+      {
+        "collection": "postgres_in",
+        "functionpath": "functions/caps_postgres.py::postgres_meta_drop"
+      },
+      {
+        "collection": "postgres_meta",
+        "functionpath": "functions/caps_postgres.py::postgres_meta_keep_check"
+      },
+      {
+        "collection": "postgres_meta",
+        "functionpath": "functions/caps_postgres.py::postgres_meta_drop_check"
       }
-    },
-    {
-      "name": "postgres_meta",
-      "type": "transform",
-      "group": "ops"
-    }
-  ],
-  "functions": [
-    {
-      "collection": "caps_input",
-      "functionpath": "functions/caps_datagen.py::caps_rows"
-    },
-    {
-      "collection": "postgres_in",
-      "functionpath": "functions/caps_postgres.py::postgres_in"
-    },
-    {
-      "collection": "postgres_in",
-      "functionpath": "functions/caps_postgres.py::postgres_in_inc"
-    },
-    {
-      "collection": "postgres_in",
-      "functionpath": "functions/caps_postgres.py::postgres_in_none"
-    },
-    {
-      "collection": "postgres_in",
-      "functionpath": "functions/caps_postgres.py::postgres_in_multiquery"
-    },
-    {
-      "collection": "postgres_out",
-      "functionpath": "functions/caps_postgres.py::postgres_out_append"
-    },
-    {
-      "collection": "postgres_out",
-      "functionpath": "functions/caps_postgres.py::postgres_out_replace"
-    },
-    {
-      "collection": "postgres_out",
-      "functionpath": "functions/caps_postgres.py::postgres_out_none"
-    },
-    {
-      "collection": "postgres_in",
-      "functionpath": "functions/caps_postgres.py::postgres_meta_keep"
-    },
-    {
-      "collection": "postgres_in",
-      "functionpath": "functions/caps_postgres.py::postgres_meta_drop"
-    },
-    {
-      "collection": "postgres_meta",
-      "functionpath": "functions/caps_postgres.py::postgres_meta_keep_check"
-    },
-    {
-      "collection": "postgres_meta",
-      "functionpath": "functions/caps_postgres.py::postgres_meta_drop_check"
-    }
-  ],
-  "triggers": [
-    {
-      "collection": "caps_input",
-      "function": "caps_rows",
-      "detached": true
-    },
-    {
-      "collection": "postgres_in",
-      "function": "postgres_in",
-      "detached": true
-    },
-    {
-      "collection": "postgres_in",
-      "function": "postgres_in_inc",
-      "detached": true
-    },
-    {
-      "collection": "postgres_in",
-      "function": "postgres_in_multiquery",
-      "detached": true
-    },
-    {
-      "collection": "postgres_in",
-      "function": "postgres_meta_keep",
-      "detached": true
-    },
-    {
-      "collection": "postgres_in",
-      "function": "postgres_meta_drop",
-      "detached": true
-    }
-  ]
-}
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "caps_input",
+        "function": "caps_rows",
+        "detached": true
+      },
+      {
+        "collection": "postgres_in",
+        "function": "postgres_in",
+        "detached": true
+      },
+      {
+        "collection": "postgres_in",
+        "function": "postgres_in_inc",
+        "detached": true
+      },
+      {
+        "collection": "postgres_in",
+        "function": "postgres_in_multiquery",
+        "detached": true
+      },
+      {
+        "collection": "postgres_in",
+        "function": "postgres_meta_keep",
+        "detached": true
+      },
+      {
+        "collection": "postgres_in",
+        "function": "postgres_meta_drop",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

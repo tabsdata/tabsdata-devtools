@@ -1,45 +1,173 @@
-{
-  "_comment": "CONSOLIDATED ClickHouse bulk-out suite (same shape as starrocks.json), via `--type connectors/clickhouse.json`. A staging-backend x write-mode matrix: one destination collection per cloud staging (s3/az/gcs), each writing to ITS OWN ClickHouse DB (clickhouse_<cloud>), exercising append + replace + SCHEMA EVOLUTION (iceberg). ClickHouse creates tables on write, so input is the dev datagen `caps_input` (cap_rows for append/replace; cap_evo_v1/v2 for evolution). Functions (cloud-agnostic) in functions/caps_clickhouse.py, registered once per cloud collection. Schema evolution is 2-phase: run caps_evo_v1 (creates cap_evolve narrow in each DB), then trigger caps_evo_v2 (appends wide with iceberg -> adds column). NOTE: ClickHouse s3/gcs staging use the s3() table function and need `GRANT CREATE TEMPORARY TABLE, S3 ON *.*` on the CH user; without it those two stall (Code 497 ACCESS_DENIED). The az variant uses azureBlobStorage() and needs no such grant.",
-  "domains": [
-    { "name": "dev", "system": "dev" },
-    { "name": "clickhouse_s3", "system": "clickhouse" },
-    { "name": "clickhouse_az", "system": "clickhouse" },
-    { "name": "clickhouse_gcs", "system": "clickhouse" },
-    { "name": "s3", "system": "s3" },
-    { "name": "gcs", "system": "gcs" },
-    { "name": "azureblob", "system": "azureblob" }
-  ],
-  "collections": [
-    { "name": "caps_input", "type": "datagen_in", "connection_template": "connection-file:connections/datagen_in.yaml", "group": "sources", "domains": { "D0": "dev" } },
-    { "name": "clickhouse_s3", "type": "clickhouse_bulk_out_s3", "connection_template": "connection-file:connections/clickhouse_bulk_out_s3.yaml", "group": "destinations", "domains": { "D0": "clickhouse_s3", "D1": "s3" } },
-    { "name": "clickhouse_az", "type": "clickhouse_bulk_out_az", "connection_template": "connection-file:connections/clickhouse_bulk_out_az.yaml", "group": "destinations", "domains": { "D0": "clickhouse_az", "D1": "azureblob" } },
-    { "name": "clickhouse_gcs", "type": "clickhouse_bulk_out_gcs", "connection_template": "connection-file:connections/clickhouse_bulk_out_gcs.yaml", "group": "destinations", "domains": { "D0": "clickhouse_gcs", "D1": "gcs" } }
-  ],
-  "functions": [
-    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_rows" },
-    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_evo_v1" },
-    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_evo_v2" },
-
-    { "collection": "clickhouse_s3", "functionpath": "functions/caps_clickhouse.py::clickhouse_out_append" },
-    { "collection": "clickhouse_s3", "functionpath": "functions/caps_clickhouse.py::clickhouse_out_replace" },
-    { "collection": "clickhouse_s3", "functionpath": "functions/caps_clickhouse.py::clickhouse_out_none" },
-    { "collection": "clickhouse_s3", "functionpath": "functions/caps_clickhouse.py::clickhouse_evolve_v1" },
-    { "collection": "clickhouse_s3", "functionpath": "functions/caps_clickhouse.py::clickhouse_evolve_v2" },
-
-    { "collection": "clickhouse_az", "functionpath": "functions/caps_clickhouse.py::clickhouse_out_append" },
-    { "collection": "clickhouse_az", "functionpath": "functions/caps_clickhouse.py::clickhouse_out_replace" },
-    { "collection": "clickhouse_az", "functionpath": "functions/caps_clickhouse.py::clickhouse_out_none" },
-    { "collection": "clickhouse_az", "functionpath": "functions/caps_clickhouse.py::clickhouse_evolve_v1" },
-    { "collection": "clickhouse_az", "functionpath": "functions/caps_clickhouse.py::clickhouse_evolve_v2" },
-
-    { "collection": "clickhouse_gcs", "functionpath": "functions/caps_clickhouse.py::clickhouse_out_append" },
-    { "collection": "clickhouse_gcs", "functionpath": "functions/caps_clickhouse.py::clickhouse_out_replace" },
-    { "collection": "clickhouse_gcs", "functionpath": "functions/caps_clickhouse.py::clickhouse_out_none" },
-    { "collection": "clickhouse_gcs", "functionpath": "functions/caps_clickhouse.py::clickhouse_evolve_v1" },
-    { "collection": "clickhouse_gcs", "functionpath": "functions/caps_clickhouse.py::clickhouse_evolve_v2" }
-  ],
-  "triggers": [
-    { "collection": "caps_input", "function": "caps_rows", "detached": true },
-    { "collection": "caps_input", "function": "caps_evo_v1", "detached": true }
-  ]
-}
+[
+  {
+    "_comment": "CONSOLIDATED ClickHouse bulk-out suite (same shape as starrocks.json), via `--type connectors/clickhouse.json`. A staging-backend x write-mode matrix: one destination collection per cloud staging (s3/az/gcs), each writing to ITS OWN ClickHouse DB (clickhouse_<cloud>), exercising append + replace + SCHEMA EVOLUTION (iceberg). ClickHouse creates tables on write, so input is the dev datagen `caps_input` (cap_rows for append/replace; cap_evo_v1/v2 for evolution). Functions (cloud-agnostic) in functions/caps_clickhouse.py, registered once per cloud collection. Schema evolution is 2-phase: run caps_evo_v1 (creates cap_evolve narrow in each DB), then trigger caps_evo_v2 (appends wide with iceberg -> adds column). NOTE: ClickHouse s3/gcs staging use the s3() table function and need `GRANT CREATE TEMPORARY TABLE, S3 ON *.*` on the CH user; without it those two stall (Code 497 ACCESS_DENIED). The az variant uses azureBlobStorage() and needs no such grant."
+  },
+  {
+    "domains": [
+      {
+        "name": "dev",
+        "system": "dev"
+      },
+      {
+        "name": "clickhouse_s3",
+        "system": "clickhouse"
+      },
+      {
+        "name": "clickhouse_az",
+        "system": "clickhouse"
+      },
+      {
+        "name": "clickhouse_gcs",
+        "system": "clickhouse"
+      },
+      {
+        "name": "s3",
+        "system": "s3"
+      },
+      {
+        "name": "gcs",
+        "system": "gcs"
+      },
+      {
+        "name": "azureblob",
+        "system": "azureblob"
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "caps_input",
+        "type": "datagen_in",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "dev"
+        }
+      },
+      {
+        "name": "clickhouse_s3",
+        "type": "clickhouse_bulk_out_s3",
+        "connection_template": "connection-file:connections/clickhouse_bulk_out_s3.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "clickhouse_s3",
+          "D1": "s3"
+        }
+      },
+      {
+        "name": "clickhouse_az",
+        "type": "clickhouse_bulk_out_az",
+        "connection_template": "connection-file:connections/clickhouse_bulk_out_az.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "clickhouse_az",
+          "D1": "azureblob"
+        }
+      },
+      {
+        "name": "clickhouse_gcs",
+        "type": "clickhouse_bulk_out_gcs",
+        "connection_template": "connection-file:connections/clickhouse_bulk_out_gcs.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "clickhouse_gcs",
+          "D1": "gcs"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_datagen.py::caps_rows"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_datagen.py::caps_evo_v1"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_datagen.py::caps_evo_v2"
+      },
+      {
+        "collection": "clickhouse_s3",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_out_append"
+      },
+      {
+        "collection": "clickhouse_s3",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_out_replace"
+      },
+      {
+        "collection": "clickhouse_s3",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_out_none"
+      },
+      {
+        "collection": "clickhouse_s3",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_evolve_v1"
+      },
+      {
+        "collection": "clickhouse_s3",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_evolve_v2"
+      },
+      {
+        "collection": "clickhouse_az",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_out_append"
+      },
+      {
+        "collection": "clickhouse_az",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_out_replace"
+      },
+      {
+        "collection": "clickhouse_az",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_out_none"
+      },
+      {
+        "collection": "clickhouse_az",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_evolve_v1"
+      },
+      {
+        "collection": "clickhouse_az",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_evolve_v2"
+      },
+      {
+        "collection": "clickhouse_gcs",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_out_append"
+      },
+      {
+        "collection": "clickhouse_gcs",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_out_replace"
+      },
+      {
+        "collection": "clickhouse_gcs",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_out_none"
+      },
+      {
+        "collection": "clickhouse_gcs",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_evolve_v1"
+      },
+      {
+        "collection": "clickhouse_gcs",
+        "functionpath": "functions/caps_clickhouse.py::clickhouse_evolve_v2"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "caps_input",
+        "function": "caps_rows",
+        "detached": true
+      },
+      {
+        "collection": "caps_input",
+        "function": "caps_evo_v1",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

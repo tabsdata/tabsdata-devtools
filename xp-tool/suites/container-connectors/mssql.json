@@ -1,58 +1,148 @@
-{
-  "_comment": "CAPABILITY suite for the SQL Server connector, via `--type connectors/mssql.json`. Functions in functions/caps_mssql.py. SOURCE (`mssql_in`, reads existing mssqlserver_world_xs seed): base, _inc (watermark via OFFSET/FETCH — re-run to walk), _none (WHERE 1=0), _multiquery (2 queries, transactional=False). DEST (`mssql_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate) on distinct tables cap_append/cap_replace; re-run to observe. No schema evolution. Domains: dev (datagen), mssqlserver_world_xs (source), mssqlserver (dest). SRC METADATA: mssql_meta_keep and mssql_meta_drop (mssql_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection mssql_meta (group ops) asserts that side: mssql_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, mssql_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing).",
-  "domains": [
-    { "name": "dev", "system": "dev" },
-    { "name": "mssqlserver_world_xs", "system": "mssqlserver", "model": "world", "data": "xs" },
-    { "name": "mssqlserver", "system": "mssqlserver" }
-  ],
-  "collections": [
-    {
-      "name": "caps_input",
-      "type": "datagen_in",
-      "connection_template": "connection-file:connections/datagen_in.yaml",
-      "group": "sources",
-      "domains": { "D0": "dev" }
-    },
-    {
-      "name": "mssql_in",
-      "type": "mssql_sql_in",
-      "connection_template": "connection-file:connections/mssql_sql_in.yaml",
-      "group": "sources",
-      "domains": { "D0": "mssqlserver_world_xs" }
-    },
-    {
-      "name": "mssql_out",
-      "type": "mssql_sql_out",
-      "connection_template": "connection-file:connections/mssql_sql_out.yaml",
-      "group": "destinations",
-      "domains": { "D0": "mssqlserver" }
-    },
-    {
-      "name": "mssql_meta",
-      "type": "transform",
-      "group": "ops"
-    }
-  ],
-  "functions": [
-    { "collection": "caps_input", "functionpath": "functions/caps_datagen.py::caps_rows" },
-    { "collection": "mssql_in", "functionpath": "functions/caps_mssql.py::mssql_in" },
-    { "collection": "mssql_in", "functionpath": "functions/caps_mssql.py::mssql_in_inc" },
-    { "collection": "mssql_in", "functionpath": "functions/caps_mssql.py::mssql_in_none" },
-    { "collection": "mssql_in", "functionpath": "functions/caps_mssql.py::mssql_in_multiquery" },
-    { "collection": "mssql_out", "functionpath": "functions/caps_mssql.py::mssql_out_append" },
-    { "collection": "mssql_out", "functionpath": "functions/caps_mssql.py::mssql_out_replace" },
-    { "collection": "mssql_out", "functionpath": "functions/caps_mssql.py::mssql_out_none" },
-    { "collection": "mssql_in", "functionpath": "functions/caps_mssql.py::mssql_meta_keep" },
-    { "collection": "mssql_in", "functionpath": "functions/caps_mssql.py::mssql_meta_drop" },
-    { "collection": "mssql_meta", "functionpath": "functions/caps_mssql.py::mssql_meta_keep_check" },
-    { "collection": "mssql_meta", "functionpath": "functions/caps_mssql.py::mssql_meta_drop_check" }
-  ],
-  "triggers": [
-    { "collection": "caps_input", "function": "caps_rows", "detached": true },
-    { "collection": "mssql_in", "function": "mssql_in", "detached": true },
-    { "collection": "mssql_in", "function": "mssql_in_inc", "detached": true },
-    { "collection": "mssql_in", "function": "mssql_in_multiquery", "detached": true },
-    { "collection": "mssql_in", "function": "mssql_meta_keep", "detached": true },
-    { "collection": "mssql_in", "function": "mssql_meta_drop", "detached": true }
-  ]
-}
+[
+  {
+    "_comment": "CAPABILITY suite for the SQL Server connector, via `--type connectors/mssql.json`. Functions in functions/caps_mssql.py. SOURCE (`mssql_in`, reads existing mssqlserver_world_xs seed): base, _inc (watermark via OFFSET/FETCH — re-run to walk), _none (WHERE 1=0), _multiquery (2 queries, transactional=False). DEST (`mssql_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate) on distinct tables cap_append/cap_replace; re-run to observe. No schema evolution. Domains: dev (datagen), mssqlserver_world_xs (source), mssqlserver (dest). SRC METADATA: mssql_meta_keep and mssql_meta_drop (mssql_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection mssql_meta (group ops) asserts that side: mssql_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, mssql_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing)."
+  },
+  {
+    "domains": [
+      {
+        "name": "dev",
+        "system": "dev"
+      },
+      {
+        "name": "mssqlserver_world_xs",
+        "system": "mssqlserver",
+        "model": "world",
+        "data": "xs"
+      },
+      {
+        "name": "mssqlserver",
+        "system": "mssqlserver"
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "caps_input",
+        "type": "datagen_in",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "dev"
+        }
+      },
+      {
+        "name": "mssql_in",
+        "type": "mssql_sql_in",
+        "connection_template": "connection-file:connections/mssql_sql_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "mssqlserver_world_xs"
+        }
+      },
+      {
+        "name": "mssql_out",
+        "type": "mssql_sql_out",
+        "connection_template": "connection-file:connections/mssql_sql_out.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "mssqlserver"
+        }
+      },
+      {
+        "name": "mssql_meta",
+        "type": "transform",
+        "group": "ops"
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_datagen.py::caps_rows"
+      },
+      {
+        "collection": "mssql_in",
+        "functionpath": "functions/caps_mssql.py::mssql_in"
+      },
+      {
+        "collection": "mssql_in",
+        "functionpath": "functions/caps_mssql.py::mssql_in_inc"
+      },
+      {
+        "collection": "mssql_in",
+        "functionpath": "functions/caps_mssql.py::mssql_in_none"
+      },
+      {
+        "collection": "mssql_in",
+        "functionpath": "functions/caps_mssql.py::mssql_in_multiquery"
+      },
+      {
+        "collection": "mssql_out",
+        "functionpath": "functions/caps_mssql.py::mssql_out_append"
+      },
+      {
+        "collection": "mssql_out",
+        "functionpath": "functions/caps_mssql.py::mssql_out_replace"
+      },
+      {
+        "collection": "mssql_out",
+        "functionpath": "functions/caps_mssql.py::mssql_out_none"
+      },
+      {
+        "collection": "mssql_in",
+        "functionpath": "functions/caps_mssql.py::mssql_meta_keep"
+      },
+      {
+        "collection": "mssql_in",
+        "functionpath": "functions/caps_mssql.py::mssql_meta_drop"
+      },
+      {
+        "collection": "mssql_meta",
+        "functionpath": "functions/caps_mssql.py::mssql_meta_keep_check"
+      },
+      {
+        "collection": "mssql_meta",
+        "functionpath": "functions/caps_mssql.py::mssql_meta_drop_check"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "caps_input",
+        "function": "caps_rows",
+        "detached": true
+      },
+      {
+        "collection": "mssql_in",
+        "function": "mssql_in",
+        "detached": true
+      },
+      {
+        "collection": "mssql_in",
+        "function": "mssql_in_inc",
+        "detached": true
+      },
+      {
+        "collection": "mssql_in",
+        "function": "mssql_in_multiquery",
+        "detached": true
+      },
+      {
+        "collection": "mssql_in",
+        "function": "mssql_meta_keep",
+        "detached": true
+      },
+      {
+        "collection": "mssql_in",
+        "function": "mssql_meta_drop",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

@@ -1,46 +1,56 @@
-{
-  "_copyright": "Copyright 2026 Tabsdata Inc.",
-  "_comment": "EXAMPLE · Salesforce REPORT source — reading Analytics reports (TABULAR only; summary/matrix are grouped and unsupported) instead of running SOQL. Unlike `queries`, `reports` takes MANY entries: one output slot and one output table per report (read_many). Five publishers: read_by_id / read_by_name (an entry is a report id or a name; find_report_by breaks the tie, and the emitted @td.salesforce.report_id records the RESOLVED id — plus column_name_strategy, where \"label\" gives display names that change whenever someone edits the report, so prefer the API-name default for anything a pipeline consumes), read_many, read_filtered (server-side (column, operator, value) filters applied BEFORE the download, so they cut transfer; filter_logic combines them by 1-BASED POSITION, which means reordering `filter` changes its meaning), read_recent (last_modified_column + initial_last_modified — ALL-OR-NOTHING, validated at decoration time; a static floor, like the SOQL one). NO TRIGGERS ON PURPOSE: a report is org content the salesforce model does not create, so the suite registers the publishers and fires none — a run stays green on an org with no reports. Put a real report id/name in the constants and trigger one by hand: `tdk fn trigger --proj <project> --coll reports --name read_by_name`. One function per file under functions/salesforce_report/. Run: `tdx-xp oneshot --suite examples/salesforce_report --keep`.",
-  "domains": [
-    {
-      "name": "sf",
-      "system": "salesforce",
-      "model": "salesforce",
-      "data": "xs"
-    }
-  ],
-  "collections": [
-    {
-      "name": "reports",
-      "type": "salesforce_report_in",
-      "group": "sources",
-      "connection_template": "connection-file:connections/salesforce_soql_in.yaml",
-      "domains": {
-        "D0": "sf"
+[
+  {
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "EXAMPLE · Salesforce REPORT source — reading Analytics reports (TABULAR only; summary/matrix are grouped and unsupported) instead of running SOQL. Unlike `queries`, `reports` takes MANY entries: one output slot and one output table per report (read_many). Five publishers: read_by_id / read_by_name (an entry is a report id or a name; find_report_by breaks the tie, and the emitted @td.salesforce.report_id records the RESOLVED id — plus column_name_strategy, where \"label\" gives display names that change whenever someone edits the report, so prefer the API-name default for anything a pipeline consumes), read_many, read_filtered (server-side (column, operator, value) filters applied BEFORE the download, so they cut transfer; filter_logic combines them by 1-BASED POSITION, which means reordering `filter` changes its meaning), read_recent (last_modified_column + initial_last_modified — ALL-OR-NOTHING, validated at decoration time; a static floor, like the SOQL one). NO TRIGGERS ON PURPOSE: a report is org content the salesforce model does not create, so the suite registers the publishers and fires none — a run stays green on an org with no reports. Put a real report id/name in the constants and trigger one by hand: `tdk fn trigger --proj <project> --coll reports --name read_by_name`. One function per file under functions/salesforce_report/. Run: `tdx-xp oneshot --suite examples/salesforce_report --keep`."
+  },
+  {
+    "domains": [
+      {
+        "name": "sf",
+        "system": "salesforce",
+        "model": "salesforce",
+        "data": "xs"
       }
-    }
-  ],
-  "functions": [
-    {
-      "collection": "reports",
-      "functionpath": "functions/salesforce_report/read_by_id.py::read_by_id"
-    },
-    {
-      "collection": "reports",
-      "functionpath": "functions/salesforce_report/read_by_name.py::read_by_name"
-    },
-    {
-      "collection": "reports",
-      "functionpath": "functions/salesforce_report/read_many.py::read_many"
-    },
-    {
-      "collection": "reports",
-      "functionpath": "functions/salesforce_report/read_filtered.py::read_filtered"
-    },
-    {
-      "collection": "reports",
-      "functionpath": "functions/salesforce_report/read_recent.py::read_recent"
-    }
-  ],
-  "triggers": []
-}
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "reports",
+        "type": "salesforce_report_in",
+        "group": "sources",
+        "connection_template": "connection-file:connections/salesforce_soql_in.yaml",
+        "domains": {
+          "D0": "sf"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "reports",
+        "functionpath": "functions/salesforce_report/read_by_id.py::read_by_id"
+      },
+      {
+        "collection": "reports",
+        "functionpath": "functions/salesforce_report/read_by_name.py::read_by_name"
+      },
+      {
+        "collection": "reports",
+        "functionpath": "functions/salesforce_report/read_many.py::read_many"
+      },
+      {
+        "collection": "reports",
+        "functionpath": "functions/salesforce_report/read_filtered.py::read_filtered"
+      },
+      {
+        "collection": "reports",
+        "functionpath": "functions/salesforce_report/read_recent.py::read_recent"
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]

@@ -1,69 +1,82 @@
-{
-  "_copyright": "Copyright 2026 Tabsdata Inc.",
-  "_comment": "EXAMPLE · TRIGGERS — WHEN a function runs, which every other examples suite leaves to its descriptor's `triggers` list (tdk fn trigger, fired by hand). A function carrying `trigger_by` is fired by the RUNTIME instead. THE FOUR ANSWERS: nothing (fired by hand, or reactively when a table read with @NEW gets a version — the default); CronTrigger(mask) on a clock, PUBLISHERS ONLY since a publisher has no upstream table to react to; TablesTrigger(tables) when one of a NAMED set produces a batch — which decouples what a function READS from what it WAKES FOR; AllTablesTrigger() when ANY input lands, the blunt instrument that cannot forget a new input. The mask is a five-field UTC cron expression (minute granularity, no seconds) or a descriptor (@hourly, @daily, ...) — Kubernetes CronJob schedules. Paired with Data(df, chunk_size=N), which emits the NEXT N rows per RUN from a per-flow offset: that is what makes a schedule observable, growing the table by 5 rows a minute until the frame is spent and the slot arrives None. The cursor advances per RUN, so a manual trigger consumes a chunk exactly as a tick does. Five functions: trigger_on_cron (every minute + chunked), trigger_on_cron_descriptor (@hourly, fixed frame — versions grow, row count does not), trigger_manually (no trigger_by, the contrast), trigger_on_named_tables (@transformer), trigger_on_any_table (@subscriber into TrashDest, the dev sink that needs no backend). Dev-only. USE --keep: oneshot tears down as soon as the monitor returns, usually before the first tick. One function per file under functions/triggers_scheduling/. Run: `tdx-xp oneshot --suite examples/triggers_scheduling --keep`.",
-  "domains": [
-    {
-      "name": "dev",
-      "system": "dev"
-    }
-  ],
-  "collections": [
-    {
-      "name": "scheduled",
-      "type": "datagen_in",
-      "group": "sources",
-      "connection_template": "connection-file:connections/datagen_in.yaml",
-      "domains": {
-        "D0": "dev"
+[
+  {
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "EXAMPLE · TRIGGERS — WHEN a function runs, which every other examples suite leaves to its descriptor's `triggers` list (tdk fn trigger, fired by hand). A function carrying `trigger_by` is fired by the RUNTIME instead. THE FOUR ANSWERS: nothing (fired by hand, or reactively when a table read with @NEW gets a version — the default); CronTrigger(mask) on a clock, PUBLISHERS ONLY since a publisher has no upstream table to react to; TablesTrigger(tables) when one of a NAMED set produces a batch — which decouples what a function READS from what it WAKES FOR; AllTablesTrigger() when ANY input lands, the blunt instrument that cannot forget a new input. The mask is a five-field UTC cron expression (minute granularity, no seconds) or a descriptor (@hourly, @daily, ...) — Kubernetes CronJob schedules. Paired with Data(df, chunk_size=N), which emits the NEXT N rows per RUN from a per-flow offset: that is what makes a schedule observable, growing the table by 5 rows a minute until the frame is spent and the slot arrives None. The cursor advances per RUN, so a manual trigger consumes a chunk exactly as a tick does. Five functions: trigger_on_cron (every minute + chunked), trigger_on_cron_descriptor (@hourly, fixed frame — versions grow, row count does not), trigger_manually (no trigger_by, the contrast), trigger_on_named_tables (@transformer), trigger_on_any_table (@subscriber into TrashDest, the dev sink that needs no backend). Dev-only. USE --keep: oneshot tears down as soon as the monitor returns, usually before the first tick. One function per file under functions/triggers_scheduling/. Run: `tdx-xp oneshot --suite examples/triggers_scheduling --keep`."
+  },
+  {
+    "domains": [
+      {
+        "name": "dev",
+        "system": "dev"
       }
-    },
-    {
-      "name": "ops",
-      "type": "transform",
-      "group": "ops"
-    },
-    {
-      "name": "sink",
-      "type": "trash_out",
-      "group": "destinations",
-      "connection_template": "connection-file:connections/trash_out.yaml",
-      "domains": {
-        "D0": "dev"
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "scheduled",
+        "type": "datagen_in",
+        "group": "sources",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "domains": {
+          "D0": "dev"
+        }
+      },
+      {
+        "name": "ops",
+        "type": "transform",
+        "group": "ops"
+      },
+      {
+        "name": "sink",
+        "type": "trash_out",
+        "group": "destinations",
+        "connection_template": "connection-file:connections/trash_out.yaml",
+        "domains": {
+          "D0": "dev"
+        }
       }
-    }
-  ],
-  "functions": [
-    {
-      "collection": "scheduled",
-      "functionpath": "functions/triggers_scheduling/trigger_on_cron.py::trigger_on_cron"
-    },
-    {
-      "collection": "scheduled",
-      "functionpath": "functions/triggers_scheduling/trigger_on_cron_descriptor.py::trigger_on_cron_descriptor"
-    },
-    {
-      "collection": "scheduled",
-      "functionpath": "functions/triggers_scheduling/trigger_manually.py::trigger_manually"
-    },
-    {
-      "collection": "ops",
-      "functionpath": "functions/triggers_scheduling/trigger_on_named_tables.py::trigger_on_named_tables"
-    },
-    {
-      "collection": "sink",
-      "functionpath": "functions/triggers_scheduling/trigger_on_any_table.py::trigger_on_any_table"
-    }
-  ],
-  "triggers": [
-    {
-      "collection": "scheduled",
-      "function": "trigger_manually",
-      "detached": true
-    },
-    {
-      "collection": "scheduled",
-      "function": "trigger_on_cron_descriptor",
-      "detached": true
-    }
-  ]
-}
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "scheduled",
+        "functionpath": "functions/triggers_scheduling/trigger_on_cron.py::trigger_on_cron"
+      },
+      {
+        "collection": "scheduled",
+        "functionpath": "functions/triggers_scheduling/trigger_on_cron_descriptor.py::trigger_on_cron_descriptor"
+      },
+      {
+        "collection": "scheduled",
+        "functionpath": "functions/triggers_scheduling/trigger_manually.py::trigger_manually"
+      },
+      {
+        "collection": "ops",
+        "functionpath": "functions/triggers_scheduling/trigger_on_named_tables.py::trigger_on_named_tables"
+      },
+      {
+        "collection": "sink",
+        "functionpath": "functions/triggers_scheduling/trigger_on_any_table.py::trigger_on_any_table"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "scheduled",
+        "function": "trigger_manually",
+        "detached": true
+      },
+      {
+        "collection": "scheduled",
+        "function": "trigger_on_cron_descriptor",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]
