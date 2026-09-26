@@ -10,16 +10,53 @@ A variant of the plain ``postgres`` system — same image, domain model and DDL
 at start (the base image doesn't ship it), each domain owner gets the
 ``REPLICATION`` attribute, and every model table is set ``REPLICA IDENTITY FULL``
 so UPDATE/DELETE change records carry full before-images.
+
+Each domain also owns a logical replication slot, created with its database and
+named after it (``REPLICATION_SLOT`` in the domain's meta, ``${D0__REPLICATION_SLOT}``
+to a function): the slot a stream publisher over the domain uses, with
+``replication_slot_behavior="reuse"``. A slot name is unique across the whole server,
+not per database, so a name a function chose itself would collide with every other run
+against the same system. Destroying the domain ends whatever still reads the slot and
+drops it before the database -- Postgres never drops a database a slot is on, and the
+reader may well outlive its project. Any other slot on the database is its creator's to
+drop: destroy refuses, naming it, rather than dropping what it did not make.
 """
 
 from __future__ import annotations
+
+import hashlib
+import re
+import time
+from dataclasses import replace
 
 from tabsdata_dev.common.systems import datagen
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec
 from tabsdata_dev.common.systems.sql_runner import run_sql_text
 from tabsdata_dev.common.systems.systems._common import container_info
+from tabsdata_dev.common.systems.systems._common.sql import Admin
 from tabsdata_dev.common.systems.systems.postgres.backend import Postgres
+
+#: The domain meta key holding the domain's own replication slot.
+REPLICATION_SLOT_KEY = "REPLICATION_SLOT"
+_SLOT_MAX = 63  # NAMEDATALEN - 1
+_SLOT_UNSAFE = re.compile(r"[^a-z0-9_]")
+#: How often a drop is retried when the reader reconnects between the
+#: terminate and the drop, and how long to wait between tries.
+_DROP_TRIES = 5
+_DROP_PAUSE = 1.0
+
+
+def replication_slot_of(database: str) -> str:
+    """The slot a domain's database owns: its name lowercased, with anything a slot
+    name may not hold made ``_`` -- slot names are lowercase letters, digits and
+    ``_`` -- and, past 63 characters, cut and suffixed with a hash of the full name
+    so two long names cannot meet."""
+    name = _SLOT_UNSAFE.sub("_", database.lower())
+    if len(name) <= _SLOT_MAX:
+        return name
+    digest = hashlib.sha256(database.encode()).hexdigest()[:12]
+    return f"{name[: _SLOT_MAX - len(digest) - 1]}_{digest}"
 
 
 class Postgrescdc(Postgres):
@@ -62,6 +99,59 @@ class Postgrescdc(Postgres):
                 f"{cp.stderr.strip() or cp.stdout.strip()}"
             )
 
+    def domain_meta(
+        self, sys_meta: dict[str, str], entity_name: str, password: str
+    ) -> dict[str, str]:
+        meta = super().domain_meta(sys_meta, entity_name, password)
+        meta[REPLICATION_SLOT_KEY] = replication_slot_of(meta["DATABASE"])
+        return meta
+
+    def _do_create(self, admin: Admin, db: str, user: str, password: str) -> None:
+        """The database, its owner and then its slot -- a logical slot belongs to
+        one database and is created from a connection to it."""
+        super()._do_create(admin, db, user, password)
+        slot = replication_slot_of(db)
+        print(f">>> CDC: replication slot '{slot}' (wal2json)")
+        self._run_admin(
+            replace(admin, db=db),
+            [f"SELECT pg_create_logical_replication_slot('{slot}', 'wal2json')"],
+        )
+
+    def _do_delete(self, admin: Admin, name: str) -> None:
+        self._drop_domain_slot(admin, name)
+        others = self._query_admin(admin, _slots_on_sql(name))
+        if others:
+            raise TdxError(
+                f"database '{name}' still has replication slot(s) {', '.join(others)}, "
+                "not the domain's own: whoever created them drops them "
+                "(SELECT pg_drop_replication_slot('<slot>')), then destroy again"
+            )
+        super()._do_delete(admin, name)
+
+    def _drop_domain_slot(self, admin: Admin, name: str) -> None:
+        """End whatever reads the domain's slot and drop it. The reader -- a stream
+        publisher whose project is gone -- may reconnect between the two, so a drop
+        refused as active is tried again."""
+        slot = replication_slot_of(name)
+        if slot not in self._query_admin(admin, _slots_on_sql(name, slot)):
+            return
+        print(f">>> CDC: dropping replication slot '{slot}'")
+        for attempt in range(1, _DROP_TRIES + 1):
+            try:
+                self._run_admin(
+                    admin,
+                    [
+                        "SELECT pg_terminate_backend(active_pid) FROM pg_replication_slots "
+                        f"WHERE slot_name = '{slot}' AND active_pid IS NOT NULL",
+                        f"SELECT pg_drop_replication_slot('{slot}')",
+                    ],
+                )
+                return
+            except TdxError:
+                if attempt == _DROP_TRIES:
+                    raise
+                time.sleep(_DROP_PAUSE)
+
     def create_domain_sql(self, db: str, user: str, password: str) -> list[str]:
         # The owner role needs REPLICATION to open a logical-replication connection.
         return super().create_domain_sql(db, user, password) + [
@@ -78,3 +168,12 @@ class Postgrescdc(Postgres):
                 uri,
                 "\n".join(f'ALTER TABLE "{t}" REPLICA IDENTITY FULL;' for t in tables),
             )
+
+
+def _slots_on_sql(database: str, slot: str | None = None) -> str:
+    """The replication slots on `database` (only `slot`, when named)."""
+    only = f" AND slot_name = '{slot}'" if slot else ""
+    return (
+        "SELECT slot_name FROM pg_replication_slots "
+        f"WHERE database = '{database}'{only} ORDER BY slot_name"
+    )

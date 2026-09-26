@@ -69,6 +69,14 @@ for a system exactly when `<slug>/domain/models/<model>/<slug>.ddl` exists, whic
 generic `models`/`create-model`/`create-data`/`modify-data`/`delete-data`/`delete-model` serve
 every dialect.
 
+**A `postgrescdc` domain owns a replication slot**, named after its database (lowercased,
+hashed past 63 characters) and recorded as `REPLICATION_SLOT`: the slot its stream publishers
+use, with `replication_slot_behavior="reuse"`. Slot names are server-wide, so a slot a function
+names for itself collides with every other run on the system. Destroy ends the slot's reader --
+a stream publisher can outlive its project -- and drops it before the database, which Postgres
+will not drop while any slot is on it, `WITH (FORCE)` or not. A slot someone else created is
+theirs to drop: destroy refuses, naming it.
+
 **`ManagedPostgres`** (`_common/managed_postgres.py`) for provider-managed PostgreSQL -- AWS RDS
 (`awspostgres`), GCP Cloud SQL (`gcppostgres`), Azure Flexible Server (`azpostgres`). They differ
 in almost nothing the toolkit cares about: nothing runs locally, so `create` reads the connection

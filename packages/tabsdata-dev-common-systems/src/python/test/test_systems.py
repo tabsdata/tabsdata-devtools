@@ -542,10 +542,13 @@ def test_a_domain_owner_is_given_the_schema_its_tables_go_in():
         finally:
             del backend._run_admin
         # the domain SQL on the maintenance database, then the schema on the new
-        # one -- a database that does not exist yet cannot be connected to
-        assert len(ran) == 2, slug
+        # one -- a database that does not exist yet cannot be connected to --
+        # and, for CDC, the domain's replication slot, also from inside it
+        slot = [("d1", ["SELECT pg_create_logical_replication_slot('d1', 'wal2json')"])]
+        assert len(ran) == 2 + (slug == "postgrescdc"), slug
         assert ran[0][0] != "d1" and 'CREATE DATABASE "d1"' in " ".join(ran[0][1])
         assert ran[1] == ("d1", ['ALTER SCHEMA public OWNER TO "d1"']), slug
+        assert ran[2:] == (slot if slug == "postgrescdc" else []), slug
 
 
 def test_a_published_root_is_fetched_once_and_reaches_every_connection(monkeypatch):
@@ -1684,3 +1687,98 @@ def test_sentinel_data_writes_one_stamped_row_and_create_data_keeps_its_count(
     with pytest.raises(TdxError, match="1 to 255"):
         run(dom_sentinel_data, constants.V_SENTINEL_DATA, key="x" * 256, **live)
     assert len(trail.read_text().splitlines()) == 1 + len(loads)  # failed: nothing
+
+
+def test_a_postgrescdc_domains_slot_is_named_after_its_database():
+    """Slot names are lowercase letters, digits and `_`, at most 63: the
+    database name folded into that, and a long one cut and hashed."""
+    import re
+
+    from tabsdata_dev.common.systems.systems.postgrescdc.backend import (
+        replication_slot_of,
+    )
+
+    db = "xp_tucu_20260926T152121_55821d_postgrescdc_employees_xs"
+    assert replication_slot_of(db) == db.lower()
+    long_a, long_b = "d" * 70 + "_a", "d" * 70 + "_b"
+    for name in (long_a, long_b, "Mixed-Case.db"):
+        assert re.fullmatch(r"[a-z0-9_]{1,63}", replication_slot_of(name)), name
+    assert replication_slot_of(long_a) != replication_slot_of(long_b)
+    assert replication_slot_of("Mixed-Case.db") == "mixed_case_db"
+
+
+def _cdc_backend(monkeypatch, slots: dict[str, list[str]]):
+    """A postgrescdc backend whose admin SQL is recorded, not run; `slots` is the
+    server's pg_replication_slots, database -> slot names."""
+    import re
+
+    from tabsdata_dev.common.systems.systems.postgrescdc.backend import Postgrescdc
+
+    backend = Postgrescdc()
+    ran: list[tuple[str, str]] = []
+
+    def run_admin(admin, statements):
+        for st in statements:
+            ran.append((admin.db, st))
+            m = re.search(r"pg_drop_replication_slot\('([^']+)'\)", st)
+            if m:
+                for names in slots.values():
+                    if m.group(1) in names:
+                        names.remove(m.group(1))
+
+    def query_admin(admin, query):
+        db = re.search(r"database = '([^']+)'", query).group(1)
+        only = re.search(r"slot_name = '([^']+)'", query)
+        names = slots.get(db, [])
+        return [n for n in names if not only or n == only.group(1)]
+
+    monkeypatch.setattr(backend, "_run_admin", run_admin)
+    monkeypatch.setattr(backend, "_query_admin", query_admin)
+    return backend, ran
+
+
+def test_a_postgrescdc_domain_creates_its_slot_and_destroy_drops_it_first(
+    monkeypatch,
+):
+    """Create makes the slot from a connection to the new database, and records
+    it in the meta; destroy ends its reader and drops it before the database,
+    which Postgres would otherwise refuse to drop."""
+    from tabsdata_dev.common.systems.systems._common.sql import Admin
+    from tabsdata_dev.common.systems.systems.postgrescdc.backend import (
+        REPLICATION_SLOT_KEY,
+    )
+
+    admin = Admin(host="h", port="1", user="postgres", password="p", db="postgres")
+    slots: dict[str, list[str]] = {}
+    backend, ran = _cdc_backend(monkeypatch, slots)
+    backend._do_create(admin, "Dom_A", "u", "pw")
+    assert ran[-1] == (
+        "Dom_A",
+        "SELECT pg_create_logical_replication_slot('dom_a', 'wal2json')",
+    )
+    meta = backend.domain_meta({"PORT": "1"}, "Dom_A", "pw")
+    assert meta[REPLICATION_SLOT_KEY] == "dom_a"
+
+    slots["Dom_A"] = ["dom_a"]
+    ran.clear()
+    backend._do_delete(admin, "Dom_A")
+    statements = [st for _, st in ran]
+    terminate = next(i for i, s in enumerate(statements) if "pg_terminate_backend" in s)
+    drop_slot = statements.index("SELECT pg_drop_replication_slot('dom_a')")
+    drop_db = next(i for i, s in enumerate(statements) if s.startswith("DROP DATABASE"))
+    assert terminate < drop_slot < drop_db
+    assert all(db in (None, "postgres") for db, _ in ran)  # from the admin database
+
+
+def test_postgrescdc_destroy_leaves_a_slot_it_did_not_create_to_its_creator(
+    monkeypatch,
+):
+    from tabsdata_dev.common.systems.systems._common.sql import Admin
+
+    admin = Admin(host="h", port="1", user="postgres", password="p", db="postgres")
+    slots = {"dom_a": ["dom_a", "td_cdc_initial_load"]}
+    backend, ran = _cdc_backend(monkeypatch, slots)
+    with pytest.raises(TdxError, match="td_cdc_initial_load, not the domain's own"):
+        backend._do_delete(admin, "dom_a")
+    assert slots["dom_a"] == ["td_cdc_initial_load"]  # its own slot went, not this
+    assert not any(st.startswith("DROP DATABASE") for _, st in ran)
