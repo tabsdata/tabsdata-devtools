@@ -5,7 +5,7 @@
 """caps_postgrescdc_initial_load — the PostgreSQL CDC stream source with ``initial_load``.
 
 A stream publisher over EVERY table of the ``employees`` model (departments,
-employees, dept_emp, dept_manager, titles, salaries), started with
+employees, dept_emp, dept_manager, titles, salaries, and its xp_sentinel), started with
 ``initial_load=True``: the stream first emits a full snapshot of each tracked table --
 its rows as inserts (``@td.cdc.meta.op`` = ``i``), preceded by a LOAD control row per
 table -- and then captures changes from the exact position the snapshot is consistent
@@ -18,14 +18,17 @@ NOT exist yet (each function names its own, and slots are per database, each dom
 being its own). With ``"reuse"`` the load would take its snapshot from a transaction
 of its own and a transaction committing at that moment could be delivered twice.
 
-Two functions, one per suite, alike but for the slot and the sentinel:
+``xp_sentinel`` is the model's sentinel entity: a suite writes keys into it with ``tdd
+domain sentinel-data`` and waits for them to arrive in ``xp_sentinel_changes`` (an xp
+``sentinel`` stage), which is how it knows the changes before a key have flushed.
+
+Two functions, one per suite, identical but for the slot:
 
 - ``postgrescdc_initial_load``      : suite ``postgrescdc_initial_load`` -- the seed is
                                       loaded, then the snapshot is taken over quiet
                                       tables: the load is the whole seed, and no change
-                                      follows it. It also tracks ``xp_sentinel``, whose
-                                      one row (``sentinel-data``, written after the seed)
-                                      arrives with the snapshot.
+                                      follows it; the one sentinel, written after the
+                                      seed, arrives with the snapshot.
 - ``postgrescdc_initial_load_live`` : suite ``postgrescdc_initial_load_live`` -- a live
                                       stage keeps changing the tables (modify-data Mix,
                                       every 30s for ~10 min) from before the project
@@ -35,7 +38,9 @@ Two functions, one per suite, alike but for the slot and the sentinel:
                                       and deletes, ``departments`` updates; a deleted
                                       employee's rows in dept_emp, dept_manager, titles
                                       and salaries go too (ON DELETE CASCADE), so those
-                                      tables see deletes after their load.
+                                      tables see deletes after their load. A second
+                                      sentinel, written once the churn has ended,
+                                      arrives after its last change.
 
 The postgrescdc system runs ``wal_level=logical``, installs wal2json, grants the domain
 owner REPLICATION and sets REPLICA IDENTITY FULL on every model table, so updates and
@@ -84,9 +89,9 @@ _CFG = {
 }
 
 
-def _source(slot: str, tables: list[str]) -> PostgresCdcStreamSrc:
+def _source(slot: str) -> PostgresCdcStreamSrc:
     return PostgresCdcStreamSrc(
-        tables=tables,
+        tables=[*_TABLES, _SENTINEL_TABLE],
         replication_slot=slot,
         replication_slot_behavior="create",
         initial_load=True,
@@ -98,7 +103,7 @@ def _source(slot: str, tables: list[str]) -> PostgresCdcStreamSrc:
 # drops None entries and returns None for an empty list, so it doubles as the "this
 # flush carried nothing for this table" guard.
 @stream_publisher(
-    source=_source("td_cdc_initial_load", [*_TABLES, _SENTINEL_TABLE]),
+    source=_source("td_cdc_initial_load"),
     flush_interval_mins=1,
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )
@@ -131,9 +136,9 @@ def postgrescdc_initial_load(
 
 
 @stream_publisher(
-    source=_source("td_cdc_initial_load_live", _TABLES),
+    source=_source("td_cdc_initial_load_live"),
     flush_interval_mins=1,
-    output_tables=_OUTPUT,
+    output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )
 def postgrescdc_initial_load_live(
     departments: TableFramesSpec,
@@ -142,7 +147,9 @@ def postgrescdc_initial_load_live(
     dept_manager: TableFramesSpec,
     titles: TableFramesSpec,
     salaries: TableFramesSpec,
+    xp_sentinel: TableFramesSpec,
 ) -> tuple[
+    TableFrameSpec,
     TableFrameSpec,
     TableFrameSpec,
     TableFrameSpec,
@@ -157,4 +164,5 @@ def postgrescdc_initial_load_live(
         concat(dept_manager),
         concat(titles),
         concat(salaries),
+        concat(xp_sentinel),
     )

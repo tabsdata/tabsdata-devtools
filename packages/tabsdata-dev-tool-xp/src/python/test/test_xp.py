@@ -1623,3 +1623,15 @@ def test_every_built_in_suite_reads(tmp_path, monkeypatch):
     assert len(files) > 100
     for f in files:
         assert build_instance("i", f).stages, f
+    staged = build_instance(
+        "i", root / "container-connectors" / "postgrescdc_initial_load_live.json"
+    )
+    assert [s.kind for s in staged.stages] == [
+        "domains",
+        "live",
+        "collections",
+        "functions",
+        "live",
+        "sentinel",
+        "monitor",
+    ]
