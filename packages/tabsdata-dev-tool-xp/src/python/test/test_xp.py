@@ -1952,6 +1952,7 @@ def test_every_built_in_suite_reads(tmp_path, monkeypatch):
         "functions",
         "live",
         "sentinel",
+        "execute",
         "monitor",
     ]
 
