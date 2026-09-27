@@ -94,7 +94,7 @@ CATEGORIES: dict[str, tuple[str, list[str]]] = {
         ["tf_expr_agg", "tf_expr_firstlast"],
     ),
     "expr_selection": (
-        "Expr selection/ranking/misc (is_in/is_between/rank/diff, hash/cast/shrink, lit, "
+        "Expr selection/ranking/misc (is_in/is_between/rank/diff, hash/cast, lit, "
         "reinterpret, expr-level filter/slice, and deeper param combos).",
         ["tf_expr_isin_between", "tf_expr_rank_diff", "tf_expr_misc", "tf_lit",
          "tf_expr_reinterpret", "tf_expr_filter_slice", "tf_expr_params"],

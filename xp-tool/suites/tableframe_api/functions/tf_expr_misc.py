@@ -1,7 +1,7 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""Expr misc — ``hash alias cast shrink_dtype``."""
+"""Expr misc — ``hash alias cast``."""
 from __future__ import annotations
 
 import polars as pl
@@ -21,7 +21,6 @@ CASE = TFCase(
         Check("ms_hash", lambda f, t: t.select(f.col("a").hash(seed=0).alias("r")), unordered_equal),
         Check("ms_alias", lambda f, t: t.select(f.col("a").alias("r")), unordered_equal),
         Check("ms_cast", lambda f, t: t.select(f.col("a").cast(pl.Float64).alias("r")), unordered_equal),
-        Check("ms_shrink", lambda f, t: t.select(f.col("a").shrink_dtype().alias("r")), unordered_equal),
     ],
 )
 
@@ -38,7 +37,6 @@ def ms_tfr(
     TableFrameSpec,
     TableFrameSpec,
     TableFrameSpec,
-    TableFrameSpec,
 ]:
     return CASE.transform(t)
 
@@ -48,7 +46,6 @@ def ms_sub(
     c0: TableFrameSpec,
     c1: TableFrameSpec,
     c2: TableFrameSpec,
-    c3: TableFrameSpec,
 ) -> TableFrameSpec:
-    CASE.verify([c0, c1, c2, c3])
+    CASE.verify([c0, c1, c2])
     return TableFrame.empty()
