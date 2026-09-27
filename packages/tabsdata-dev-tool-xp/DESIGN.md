@@ -47,8 +47,9 @@ prints the `tdd tdk`/`tdd domain` lines.
 - Talks to the server only through `tdd tdk` (`proc.tool_argv` -> `tdd-exe`), so xp needs neither
   tdk on its PATH nor tabsdata in its own toolset -- it needs a venv with tabsdata installed,
   the one the launcher picks and names (the last activated, managed by `tdd venv` or not). It
-  provisions through the `tdd domain` calls a suite's domains stages list, and tears down with
-  one `tdd domain destroy --manifest --format json`, parsing the batch events.
+  provisions through `tdd domain create --manifest` (a domain-manifest stage) or the `tdd
+  domain` calls a domains stage lists, and tears down with one `tdd domain destroy --manifest
+  --format json`, parsing the batch events.
 - `--profile NAME` is tdk's `--profile`: which connection the calls use, so two shells on one
   account each keep their own login. Absent, no option is passed and tdk uses its default
   connection. tdk attaches `--profile` to every command, not to the root group -- `tdk --profile
@@ -56,6 +57,19 @@ prints the `tdd tdk`/`tdd domain` lines.
   tdk argv, appends it last, past the verb; no call can miss it or misplace it; the verbs that reach tdk (`create-`/`destroy-`/`run-`/`monitor-project`,
   `run-suite`, `enable-`/`disable-function`, `one-shot`, `bench`) take it and hand it to their fan-out children. The domain verbs never
   reach tdk and do not take it.
+- **A domain-manifest stage is the batch**: `{"domain-manifest": {"emit_ops": FILE?, "domains":
+  [{"name", "system", "model"?, "data"?, "emit"?}]}}` -- an object, not a list, for the setting
+  beside its entries. xp writes the entries as a manifest (`domains-<n>.yaml`: `name`, `sys`,
+  `name-in-system`, `model`, `size`, `emit-ops`) and runs ONE `tdd domain create --manifest`, the
+  toolkit's batch: every domain in parallel, heaviest backend first, chaining create ->
+  create-model -> create-data, one step per domain. `data` is a size label (xs=1, s=10, m=100,
+  l=1000, xl=10000 times ~100 rows). With `emit_ops`, each seeded domain whose `emit` is not
+  false (default true) appends its seed's operations to a file of its own under the work dir --
+  two processes appending to one file with no lock can interleave, and on Windows an append is
+  not atomic at all -- and once the batch is done xp appends those files to `emit_ops` in the
+  order listed, so the trail does not depend on which domain finished first. A failed batch
+  appends nothing. The built-in suites use it; the manifest's key is `emit-ops` because every
+  manifest key mirrors a flag, the suite's `emit_ops` because every suite key is `_`.
 - **A domains stage is `tdd domain` calls**, spelled as a live entry spells one --
   `{"name", "command", "options"}`, run as `tdd domain <command> --domain <instance>_<name>
   <options...>`: a domain's `create` (`--sys SYSTEM`), then what fills it (`create-model --model
@@ -64,12 +78,10 @@ prints the `tdd tdk`/`tdd domain` lines.
   first failure stops the rest at their next call. xp adds `--name-in-system` to a create itself
   (`xp_<user>_<ts>_<tag>_<domain>`, unique per run and stable within one), so a suite may not;
   a domain's first call is its create, and a domain is created once. A domain whose create finds
-  it already in the store is left alone, its other calls with it. Teardown is one `destroy
-  --manifest` over every created domain. Rejected: a domain entry describing the domain
-  (`{name, system, model, data}`) for xp to turn into a manifest -- the old form: a second way to
-  spell what a live entry already spells, and nothing a manifest key did not foresee (an option
-  to create-data, a verb after it) could be said. Lost with it: `tdd domain create --manifest`'s
-  heaviest-first ordering; each call is now one child of its own.
+  it already in the store is left alone, its other calls with it. It says what a manifest
+  cannot -- any option, any data verb after the seed -- at the cost of the batch: each call is a
+  child of its own, not heaviest first. Teardown, for both kinds, is one `destroy --manifest`
+  over every created domain.
 - **The project phase is fanned out except where order is meaning**: project -> groups ->
   collections in parallel -> functions **serial**, because registration order is what the
   dependency graph is built from -> triggers fired in batches gated by `detached` -> the
@@ -89,14 +101,14 @@ prints the `tdd tdk`/`tdd domain` lines.
 
 ## Suite stages
 
-A suite is an ordered **list of stages**, each an object holding one of `domains`,
-`collections`, `functions`, `triggers`, `monitor` (`true`), `live`, `sentinel` or `execute`,
-plus `_`-prefixed annotations (`_comment`, `_copyright`; an object holding only those is a
+A suite is an ordered **list of stages**, each an object holding one of `domain-manifest`,
+`domains`, `collections`, `functions`, `triggers`, `monitor` (`true`), `live`, `sentinel` or
+`execute`, plus `_`-prefixed annotations (`_comment`, `_copyright`; an object holding only those is a
 comment). Kinds repeat, in any order the dependencies allow:
 
 ```
 [
-  {"domains": [...]},
+  {"domain-manifest": {"domains": [...]}},
   {"live": [{"name": "churn", "blocking": false, ...}]},
   {"collections": [...]},
   {"functions": [{"collection": "c", "functionpath": "...", "enabled": false}]},
@@ -108,7 +120,8 @@ comment). Kinds repeat, in any order the dependencies allow:
 ]
 ```
 
-- **`run-suite` runs them in order**, one-shot through it: a domains stage runs its calls, the
+- **`run-suite` runs them in order**, one-shot through it: a domain-manifest stage is one batch,
+  a domains stage runs its calls, the
   project is created before the first
   stage that talks to it, collections in parallel, functions serial, triggers in their gated
   batches, a monitor stage watches until the transactions finish. A live stage's background

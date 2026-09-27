@@ -26,6 +26,7 @@ from importlib.resources import files
 from . import state
 
 SECTIONS = {
+    "domain-manifest",
     "domains",
     "collections",
     "functions",
@@ -233,8 +234,20 @@ def _count(doc, kind: str) -> int:
     object, which list-suites marks)."""
     if not isinstance(doc, list):
         return 0
-    return sum(
-        len(e.get(kind) or [])
-        for e in doc
-        if isinstance(e, dict) and isinstance(e.get(kind), list)
-    )
+    stages = [e for e in doc if isinstance(e, dict)]
+    if kind == "domains":
+        # Domains, not calls: a domain-manifest's entries, and a domains
+        # stage's creates.
+        manifests = [e.get("domain-manifest") for e in stages]
+        calls = [
+            c
+            for e in stages
+            if isinstance(e.get("domains"), list)
+            for c in e["domains"]
+        ]
+        return sum(
+            len(m.get("domains") or []) for m in manifests if isinstance(m, dict)
+        ) + sum(
+            1 for c in calls if isinstance(c, dict) and c.get("command") == "create"
+        )
+    return sum(len(e.get(kind) or []) for e in stages if isinstance(e.get(kind), list))

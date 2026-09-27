@@ -1869,3 +1869,140 @@ def test_every_built_in_suite_reads(tmp_path, monkeypatch):
         "sentinel",
         "monitor",
     ]
+
+
+def _dm(*domains, emit_ops=None):
+    body = {"domains": list(domains)}
+    if emit_ops is not None:
+        body = {"emit_ops": emit_ops, **body}
+    return {"domain-manifest": body}
+
+
+PG = {"name": "pg", "system": "postgres", "model": "world", "data": "s"}
+FS = {"name": "fs", "system": "fs"}
+
+
+def test_a_domain_manifest_stage_reads_its_domains_and_emit_settings(xp_root):
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    doc = [
+        _dm(PG, FS, {**PG, "name": "quiet", "emit": False}, emit_ops="${XP_WORK_DIR}/o")
+    ]
+    inst = build_instance("i", _staged_suite(xp_root, doc))
+    [stage] = inst.stages
+    assert stage.kind == "domain-manifest"
+    assert [(d.name, d.system) for d in inst.domains] == [
+        ("pg", "postgres"),
+        ("fs", "fs"),
+        ("quiet", "postgres"),
+    ]
+    dm = stage.domain_manifest
+    assert dm.emit_ops == "${XP_WORK_DIR}/o" and [d.emit for d in dm.domains] == [
+        True,
+        True,
+        False,
+    ]
+    assert dm.domains[0].size == 10
+
+
+@pytest.mark.parametrize(
+    "doc, why",
+    [
+        ([{"domain-manifest": [PG]}], "domain-manifest takes an object"),
+        ([_dm({**PG, "data": "huge"})], "data 'huge' is not one of"),
+        ([_dm({"name": "x", "system": "fs", "data": "xs"})], "data needs a model"),
+        ([_dm(PG, emit_ops="${XP_WORKDIR}/o")], r"\$\{XP_WORKDIR\} is not a token"),
+        ([_dm({**PG, "name_in_system": "pinned"})], "Extra inputs"),
+        ([_dm(PG), {"domains": calls("pg", "fs")}], "'pg' is created twice"),
+        ([{"domain-manifest": {"domains": []}}], "names no domains"),
+    ],
+)
+def test_a_bad_domain_manifest_is_refused_when_read(xp_root, doc, why):
+    from tabsdata_dev.tool.xp import state
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    with pytest.raises(state.XpError, match=why):
+        build_instance("i", _staged_suite(xp_root, doc))
+
+
+def test_a_domain_manifest_seeds_to_files_of_their_own_then_joins_them_in_order(
+    xp_root, monkeypatch
+):
+    """Only a seeded domain whose emit is not false gets an emit-ops file, each
+    its own (the batch loads them side by side); once the batch is done they
+    are appended to emit_ops in the order listed, whatever order they finished
+    in -- appended, since live calls keep adding to the same trail."""
+    import yaml
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import domains, shell, state, work
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    monkeypatch.setattr(shell, "stored_domains", lambda: set())
+    seen: dict = {}
+
+    def run_manifest(verb, manifest, names, extra):
+        entries = yaml.safe_load(manifest.read_text())
+        seen["entries"] = entries
+        for e in reversed(entries):  # finish in the other order
+            if "emit-ops" in e:
+                pathlib.Path(e["emit-ops"]).write_text(f"{e['name']}\n")
+
+    monkeypatch.setattr(domains, "run_manifest", run_manifest)
+    doc = [
+        _dm(
+            PG,
+            FS,
+            {**PG, "name": "quiet", "emit": False},
+            {**PG, "name": "pg2"},
+            emit_ops="${XP_WORK_DIR}/ops.jsonl",
+        )
+    ]
+    inst = build_instance("i", _staged_suite(xp_root, doc))
+    final = work.work_dir() / "ops.jsonl"
+    final.write_text("earlier\n")
+    domains.create_from_manifest(inst, inst.stages[0].domain_manifest, 1)
+    by = {e["name"]: e for e in seen["entries"]}
+    assert set(by) == {"i_pg", "i_fs", "i_quiet", "i_pg2"}
+    assert "emit-ops" not in by["i_fs"] and "emit-ops" not in by["i_quiet"]
+    assert by["i_pg"]["emit-ops"] != by["i_pg2"]["emit-ops"]  # one file each
+    assert by["i_pg"]["size"] == 10 and by["i_pg"]["name-in-system"].endswith("_pg")
+    assert final.read_text() == "earlier\ni_pg\ni_pg2\n"
+
+
+def test_a_domain_manifest_without_emit_ops_captures_nothing(xp_root, monkeypatch):
+    import yaml
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import domains, shell, state
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    monkeypatch.setattr(shell, "stored_domains", lambda: set())
+    seen: list = []
+    monkeypatch.setattr(
+        domains,
+        "run_manifest",
+        lambda verb, manifest, names, extra: seen.extend(
+            yaml.safe_load(manifest.read_text())
+        ),
+    )
+    inst = build_instance("i", _staged_suite(xp_root, [_dm(PG)]))
+    domains.create_from_manifest(inst, inst.stages[0].domain_manifest, 1)
+    assert [e["name"] for e in seen] == ["i_pg"] and "emit-ops" not in seen[0]
+
+
+def test_list_suites_counts_domains_of_both_stage_kinds():
+    """Domains, not calls: a domain-manifest's entries and a domains stage's
+    creates -- every built-in suite showed domains=0 once they moved to
+    domain-manifest."""
+    from tabsdata_dev.tool.xp import suites
+
+    doc = [
+        _dm(PG, FS),
+        {"domains": calls("x", "fs", "world", 1)},  # 3 calls, one domain
+        {"collections": [{"name": "c", "type": "t", "group": "g"}]},
+    ]
+    assert suites._count(doc, "domains") == 3
+    assert suites._count(doc, "collections") == 1

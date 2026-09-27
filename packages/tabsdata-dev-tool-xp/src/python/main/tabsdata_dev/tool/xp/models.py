@@ -6,6 +6,11 @@
 A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
 (and so by one-shot), each an object holding one of:
 
+* ``domain-manifest`` -- ``{"domains": [{name, system, model?, data?, emit?}],
+  "emit_ops": FILE?}``: domains created through one `tdd domain create
+  --manifest`, in parallel; each seeded domain with ``emit`` (default true)
+  appends its seed's operations to a file of its own, and they are appended to
+  ``emit_ops`` in the listed order once the batch is done;
 * ``domains`` -- `tdd domain` calls, ``{"name", "command", "options"}`` as a
   live domain entry spells one: a domain's ``create`` (``--sys SYSTEM``) and
   then what fills it (``create-model``, ``create-data``, ...), each domain's
@@ -345,7 +350,62 @@ class Execute(BaseModel):
         return self
 
 
+# A domain-manifest entry's `data` size LABEL -> `create-data --size` multiplier
+# (xs=100 rows, s=1k, m=10k, l=100k, xl=1M; --size N loads N x ~100 rows).
+DATA_SIZE_MULT = {"xs": 1, "s": 10, "m": 100, "l": 1000, "xl": 10000}
+
+
+class ManifestDomain(BaseModel):
+    """A domain as a domain-manifest stage describes it: its system and, for a
+    seeded one, the model and the data size to load. ``emit`` (default true)
+    says whether its seed's operations are captured -- when the stage names an
+    ``emit_ops`` file at all."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    system: str
+    model: str | None = None
+    data: str | None = None
+    emit: bool = True
+
+    @model_validator(mode="after")
+    def _a_known_size(self) -> ManifestDomain:
+        if self.data is not None and self.data not in DATA_SIZE_MULT:
+            raise ValueError(
+                f"domain {self.name!r}: data {self.data!r} is not one of "
+                f"{', '.join(DATA_SIZE_MULT)}"
+            )
+        if self.data is not None and not self.model:
+            raise ValueError(f"domain {self.name!r}: data needs a model")
+        return self
+
+    @property
+    def size(self) -> int:
+        return DATA_SIZE_MULT[self.data or "xs"]
+
+
+class DomainManifest(BaseModel):
+    """A domain-manifest stage: its domains, created through one `tdd domain
+    create --manifest` -- the toolkit's batch, every domain in parallel,
+    heaviest backend first, chaining create -> create-model -> create-data --
+    and ``emit_ops``, the file the seeds' operations end up in."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    domains: list[ManifestDomain]
+    emit_ops: str | None = None
+
+    @model_validator(mode="after")
+    def _known_tokens(self) -> DomainManifest:
+        _refuse_unknown_tokens(self.emit_ops or "", "domain-manifest emit_ops")
+        if not self.domains:
+            raise ValueError("domain-manifest names no domains")
+        return self
+
+
 STAGE_KINDS = (
+    "domain-manifest",
     "domains",
     "collections",
     "functions",
@@ -366,6 +426,8 @@ class Stage(BaseModel):
     # message names is the one a reader counts to in the file.
     at: int = 0
     domains: list[DomainCall] = []
+    # The JSON key is `domain-manifest`; see stages_of.
+    domain_manifest: DomainManifest | None = None
     collections: list[Collection] = []
     functions: list[Function] = []
     triggers: list[Trigger] = []
@@ -425,6 +487,8 @@ class Instance(BaseModel):
                         f"stage {i}: live entry {name!r} names domain {dom!r}, created by a later stage"
                     )
             later_domains -= {d.name for d in stage.domains}
+            if stage.domain_manifest is not None:
+                later_domains -= {d.name for d in stage.domain_manifest.domains}
             later_colls -= {c.name for c in stage.collections}
         return self
 
@@ -474,6 +538,12 @@ class Instance(BaseModel):
         runs on it there; a call on a domain no create names is a typo."""
         created: set[str] = set()
         for stage in self.stages:
+            for d in stage.domain_manifest.domains if stage.domain_manifest else []:
+                if d.name in created:
+                    raise ValueError(
+                        f"stage {stage.at}: domain {d.name!r} is created twice"
+                    )
+                created.add(d.name)
             for call in stage.domains:
                 if call.command == "create":
                     if call.name in created:
@@ -546,7 +616,7 @@ def build_instance(name: str, definition: pathlib.Path) -> Instance:
             suite_file=str(definition),
             source_dir=str(source_dir),
             base_dir=str(suites.base_dir(source_dir)),
-            domains=_created(every("domains")),
+            domains=_created(stages),
             collections=every("collections"),
             functions=every("functions"),
             triggers=every("triggers"),
@@ -557,18 +627,24 @@ def build_instance(name: str, definition: pathlib.Path) -> Instance:
         state.die(f"suite {definition} is not a valid definition: {exc}")
 
 
-def _created(calls: list) -> list[Domain]:
-    """The suite's domains: one per ``create`` call, named and on the system its
-    ``--sys`` says. A malformed call is left to the stage's own validation."""
+def _created(stages: list[dict]) -> list[Domain]:
+    """The suite's domains, in stage order: every domain-manifest entry, and one
+    per ``create`` call, named and on the system its ``--sys`` says. A malformed
+    entry is left to its stage's own validation."""
     out: list[Domain] = []
-    for raw in calls:
-        if not isinstance(raw, dict) or raw.get("command") != "create":
-            continue
-        try:
-            call = DomainCall(**raw)
-        except ValidationError:
-            continue
-        out.append(Domain(name=call.name, system=call.option("--sys") or ""))
+    for stage in stages:
+        manifest = stage.get("domain_manifest")
+        for raw in manifest.get("domains", []) if isinstance(manifest, dict) else []:
+            if isinstance(raw, dict) and raw.get("name") and raw.get("system"):
+                out.append(Domain(name=raw["name"], system=raw["system"]))
+        for raw in stage.get("domains", []):
+            if not isinstance(raw, dict) or raw.get("command") != "create":
+                continue
+            try:
+                call = DomainCall(**raw)
+            except ValidationError:
+                continue
+            out.append(Domain(name=call.name, system=call.option("--sys") or ""))
     return out
 
 
@@ -605,6 +681,14 @@ def stages_of(doc, definition: pathlib.Path) -> list[dict]:
             if value not in (True, {}):
                 state.die(f"suite {definition}: stage {i}: monitor takes true")
             stages.append({"kind": kind, "at": i})
+        elif kind == "domain-manifest":
+            # An object, not a list: its domains beside a setting of its own.
+            if not isinstance(value, dict):
+                state.die(
+                    f"suite {definition}: stage {i}: domain-manifest takes an object "
+                    '({"domains": [...], "emit_ops": FILE})'
+                )
+            stages.append({"kind": kind, "at": i, "domain_manifest": value})
         elif not isinstance(value, list):
             state.die(f"suite {definition}: stage {i}: {kind} takes a list")
         else:

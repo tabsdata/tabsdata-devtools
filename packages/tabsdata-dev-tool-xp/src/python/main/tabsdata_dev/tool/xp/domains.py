@@ -230,7 +230,80 @@ def cmd_create_domains(args) -> None:
             return
         inst = pointers.load_instance(args.instance)
         require_crypto_key()
-        create_domains(inst, [c for s in inst.stages for c in s.domains])
+        for s in inst.stages:  # every domain stage of either kind, in order
+            if s.domain_manifest is not None:
+                create_from_manifest(inst, s.domain_manifest, s.at)
+            elif s.domains:
+                create_domains(inst, s.domains)
+
+
+def manifest_entry(inst, d, run_ts: str, emit_file: pathlib.Path | None) -> dict:
+    """The `tdd domain create --manifest` entry for one domain-manifest domain:
+    `name`, `sys`, `name-in-system`, plus `model`/`size` for a seeded one and
+    the `emit-ops` file its create-data appends to."""
+    entry: dict = {
+        "name": inst.domain_full(d.name),
+        "sys": d.system,
+        "name-in-system": name_in_system(inst, d.name, run_ts),
+    }
+    if d.model:
+        entry["model"] = d.model
+        entry["size"] = d.size
+        if emit_file is not None:
+            entry["emit-ops"] = str(emit_file)
+    return entry
+
+
+def create_from_manifest(inst, dm, at: int, project: str | None = None) -> None:
+    """A domain-manifest stage: its domains through ONE `tdd domain create
+    --manifest` -- every domain in parallel, heaviest backend first, one step
+    per domain -- leaving those already in the store alone.
+
+    With ``emit_ops``, each seeded domain whose ``emit`` is not false appends
+    its seed's operations to a file of its own under the work dir -- domains
+    load side by side, and two processes appending to one file with no lock
+    can interleave (and on Windows an append is not even atomic). Once the
+    batch is done they are appended to ``emit_ops`` in the order listed, so the
+    trail is the same whichever domain finished first. A failed batch appends
+    nothing; the per-domain files stay behind to look at."""
+    from .reporter import RUN_TS
+
+    rep().plan(len(dm.domains))
+    stored = shell.stored_domains()
+    todo = []
+    for d in dm.domains:
+        full = inst.domain_full(d.name)
+        if full in stored:
+            with rep().step("create-domain", full) as step:
+                step["note"] = "exists"
+        else:
+            todo.append(d)
+    if not todo:
+        return
+    emit_dir = work.work_dir() / f"domain-manifest-{at}" if dm.emit_ops else None
+    emits: list[pathlib.Path] = []
+    entries = []
+    for d in todo:
+        emit_file = None
+        if emit_dir is not None and d.model and d.emit:
+            emit_file = emit_dir / f"{d.name}.ops.jsonl"
+            emits.append(emit_file)
+        entries.append(manifest_entry(inst, d, RUN_TS, emit_file))
+    if emit_dir is not None:
+        emit_dir.mkdir(parents=True, exist_ok=True)
+    path = write_manifest(f"domains-{at}.yaml", entries)
+    run_manifest("create", path, [e["name"] for e in entries], ["--fail-fast"])
+    if dm.emit_ops and not state.run.dry_run:
+        final = pathlib.Path(work.expand(dm.emit_ops, project))
+        final.parent.mkdir(parents=True, exist_ok=True)
+        with final.open("ab") as out:
+            for f in emits:
+                if f.is_file():
+                    out.write(f.read_bytes())
+        rep().log(
+            f"appended {len(emits)} seed trail(s) to {final}",
+            "\n".join(map(str, emits)),
+        )
 
 
 def _action(command: str) -> str:

@@ -91,7 +91,11 @@ def cmd_run_suite(args) -> None:
                 if stage.kind in _PROJECT_STAGES and not made:
                     project.ensure_project(inst, args.project)
                     made = True
-                if stage.kind == "domains":
+                if stage.kind == "domain-manifest":
+                    domains.create_from_manifest(
+                        inst, stage.domain_manifest, i, args.project
+                    )
+                elif stage.kind == "domains":
                     domains.create_domains(inst, stage.domains, args.project)
                 elif stage.kind == "collections":
                     project.create_collections(inst, args.project, stage.collections)
