@@ -42,7 +42,7 @@ dependencies are declared as ranges; each toolset's lock pins them.
   leaves the previous file rather than half of one. The `config` action itself
   (`--show`/`--default`/`--create [--force]`) is built here from the command's options, which is
   why no command implements one -- and `common.sh` renders the same document for the shell half.
-- `proc` -- `run()` refuses a binary that is neither pinned by the toolset nor declared in the
+- `proc` -- `run()` (and `popen()`, for a child that is streamed) refuses a binary that is neither pinned by the toolset nor declared in the
   tool's `bin-reqs.txt` (`UndeclaredRequirement`; skipped when `_TDD_TOOL` is unset so tests
   import freely); `tool_argv()`/`run_tool()` reach a sibling tool through `tdd-exe`, never an import.
 - `batch` -- parallel child runs on the event model, heaviest first, bounded by `TDD_PARALLELISM`

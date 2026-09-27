@@ -63,6 +63,17 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
     and named in bin-reqs.txt. Anything else is an undeclared
     dependency on whatever happens to be installed.
     """
+    _check(argv)
+    return subprocess.run(argv, **kwargs)
+
+
+def popen(argv: list[str], **kwargs) -> subprocess.Popen:
+    """`run`'s check, for a child the caller streams rather than waits for."""
+    _check(argv)
+    return subprocess.Popen(argv, **kwargs)
+
+
+def _check(argv: list[str]) -> None:
     binary = pathlib.Path(argv[0]).name
     if os.environ.get("_TDD_TOOL"):
         bin_dir = _toolset_bin()
@@ -79,7 +90,6 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
                 f"tabsdata-dev-tool-{tool}/bin-reqs.txt, or if it is there already, "
                 f"the install predates it: run `tdd-install --dir {dir_}`"
             )
-    return subprocess.run(argv, **kwargs)
 
 
 def tool_argv(name: str, *args: str) -> list[str]:

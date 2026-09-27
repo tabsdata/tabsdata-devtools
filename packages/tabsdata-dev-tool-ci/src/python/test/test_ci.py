@@ -5,8 +5,10 @@
 """`tdd ci download` against a fake `gh` on PATH: a Python script that answers
 the three calls the tool makes from a JSON file and logs every call."""
 
+import io
 import json
 import sys
+import zlib
 
 import pytest
 
@@ -24,23 +26,34 @@ if args[:2] == ["run", "list"]:
         wf = args[args.index("-w") + 1]
         runs = [r for r in runs if r["workflowName"] == wf]
     print(json.dumps(runs))
+elif args[0] == "api" and args[1].endswith("/zip"):
+    # repos/O/R/actions/artifacts/<id>/zip: the artifact, zipped, on stdout
+    import io, tarfile, zipfile
+    art_id = int(args[1].split("/")[-2])
+    name = next(a["name"] for a in state["artifacts"] if a["id"] == art_id)
+    if name in state.get("broken", []):
+        sys.exit("error downloading " + name)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        if name.startswith("packed"):
+            # every packed artifact ships the same archive name, as each
+            # assembly of a release run ships tabsdata-assembly-devpi.tar.gz;
+            # the tar has no top-level dir
+            tar = io.BytesIO()
+            with tarfile.open(fileobj=tar, mode="w:gz") as tf:
+                for member in (name + ".whl", "logs/" + name + ".log"):
+                    data = name.encode()
+                    info = tarfile.TarInfo(member); info.size = len(data)
+                    tf.addfile(info, io.BytesIO(data))
+            zf.writestr("bundle.tar.gz", tar.getvalue())
+        elif name.startswith("clash"):
+            zf.writestr("shared.txt", name)
+        else:
+            zf.writestr(name + ".txt", name)
+    sys.stdout.buffer.write(buf.getvalue())
 elif args[0] == "api":
     for a in state["artifacts"]:
         print(json.dumps(a))
-elif args[:2] == ["run", "download"]:
-    name = args[args.index("-n") + 1]
-    if name in state.get("broken", []):
-        sys.exit("error downloading " + name)
-    d = pathlib.Path(args[args.index("-D") + 1])
-    d.mkdir(parents=True)
-    if name.startswith("packed"):
-        import io, tarfile
-        with tarfile.open(d / (name + ".tar.gz"), "w:gz") as tf:
-            data = name.encode()
-            info = tarfile.TarInfo("inner/content.txt"); info.size = len(data)
-            tf.addfile(info, io.BytesIO(data))
-    else:
-        (d / "content.txt").write_text(name)
 else:
     sys.exit("unexpected: " + " ".join(args))
 """
@@ -87,10 +100,15 @@ RUNS = [
 
 
 def _art(name, expired=False, size=2048):
-    return {"name": name, "size_in_bytes": size, "expired": expired}
+    return {
+        "id": zlib.crc32(name.encode()),
+        "name": name,
+        "size_in_bytes": size,
+        "expired": expired,
+    }
 
 
-def test_downloads_every_live_artifact_into_its_own_folder(
+def test_extracts_every_live_artifact_straight_into_the_dir(
     gh, tmp_path, monkeypatch, capsys
 ):
     gh(RUNS, [_art("wheels"), _art("logs"), _art("old", expired=True)])
@@ -102,8 +120,9 @@ def test_downloads_every_live_artifact_into_its_own_folder(
     assert ok["event"] == "ok" and ok["run_id"] == 111
     assert sorted(ok["artifacts"]) == ["logs", "wheels"] and ok["expired"] == ["old"]
     for name in ("wheels", "logs"):
-        assert (tmp_path / name / "content.txt").read_text() == name
-    assert not (tmp_path / "old").exists()
+        assert (tmp_path / f"{name}.txt").read_text() == name
+        assert not (tmp_path / name).exists()  # no folder per artifact
+    assert not (tmp_path / "old.txt").exists()
     calls = gh.calls()
     assert calls[0][:4] == ["run", "list", "-R", ci.DEFAULT_REPO]
     assert calls[1][:2] == [
@@ -111,9 +130,14 @@ def test_downloads_every_live_artifact_into_its_own_folder(
         f"repos/{ci.DEFAULT_REPO}/actions/runs/111/artifacts",
     ]
     assert "--paginate" in calls[1]
-    downloads = [c for c in calls if c[:2] == ["run", "download"]]
-    assert {c[c.index("-n") + 1] for c in downloads} == {"wheels", "logs"}
-    assert all(c[2] == "111" for c in downloads)
+    downloads = [c[1] for c in calls if c[0] == "api" and c[1].endswith("/zip")]
+    assert sorted(downloads) == sorted(
+        f"repos/{ci.DEFAULT_REPO}/actions/artifacts/{_art(n)['id']}/zip"
+        for n in ("wheels", "logs")
+    )
+    done = [e for e in events if e["message"].startswith("wheels: downloaded")]
+    assert done and done[0]["bytes"] > 0
+    assert not list(tmp_path.glob(".*"))  # no zip, no staging dir left behind
 
 
 def test_an_ambiguous_number_needs_the_workflow(gh, tmp_path, monkeypatch, capsys):
@@ -143,8 +167,8 @@ def test_an_ambiguous_number_needs_the_workflow(gh, tmp_path, monkeypatch, capsy
         capsys,
     )
     assert code == 0 and events[-1]["run_id"] == 333
-    assert (tmp_path / "out" / "a" / "content.txt").exists()
-    assert gh.calls()[-1][4] == "o/r"
+    assert (tmp_path / "out" / "a.txt").exists()
+    assert any("repos/o/r/" in " ".join(c) for c in gh.calls())
 
 
 def test_a_missing_run_is_an_error(gh, monkeypatch, capsys):
@@ -171,7 +195,8 @@ def test_one_failure_does_not_stop_the_others(gh, tmp_path, monkeypatch, capsys)
         "a4",
     ]
     assert "1 of 5 artifact(s) failed: a2" in err["message"]
-    assert (tmp_path / "a4" / "content.txt").exists()
+    assert (tmp_path / "a4.txt").exists()
+    assert not (tmp_path / "a2.txt").exists()
 
 
 def test_bad_options_are_refused_before_gh_runs(gh, monkeypatch, capsys):
@@ -195,31 +220,67 @@ def test_sizes_read_well():
     assert ci._size(5 * 1024**3) == "5.0 GiB"
 
 
-def test_unzip_unpacks_what_each_artifact_holds(gh, tmp_path, monkeypatch, capsys):
-    gh(RUNS, [_art("packed-logs"), _art("plain")])
+def test_expand_expands_twice_into_the_dir(gh, tmp_path, monkeypatch, capsys):
+    """The artifact is a zip holding a tar.gz: the zip is extracted, the tar
+    expanded, and the dir is left with the tar's contents. Both artifacts ship
+    an archive of the same name; each is expanded apart, so neither clobbers
+    the other before it is opened."""
+    gh(RUNS, [_art("packed-mac"), _art("packed-linux"), _art("plain")])
     code, events = _run(
-        ["download", "--action", "7", "--dir", "out", "--unzip", "--format", "json"],
+        ["download", "--action", "7", "--dir", "out", "--expand", "--format", "json"],
         monkeypatch,
         capsys,
     )
     assert code == 0
-    folder = tmp_path / "out" / "packed-logs"
-    assert (folder / "inner" / "content.txt").read_text() == "packed-logs"
-    assert not (folder / "packed-logs.tar.gz").exists()
-    assert (tmp_path / "out" / "plain" / "content.txt").exists()
-    assert any(e.get("unpacked") == ["packed-logs.tar.gz"] for e in events)
+    out = tmp_path / "out"
+    for name in ("packed-mac", "packed-linux"):
+        assert (out / f"{name}.whl").read_text() == name
+        assert (out / "logs" / f"{name}.log").read_text() == name
+    assert (out / "plain.txt").exists()
+    assert not (out / "bundle.tar.gz").exists()
+    assert sorted(p.name for p in out.iterdir()) == [
+        "logs",
+        "packed-linux.whl",
+        "packed-mac.whl",
+        "plain.txt",
+    ]
+    assert any(e.get("expanded") == "bundle.tar.gz" for e in events)
+    assert any(e["message"] == "packed-mac: expanding bundle.tar.gz" for e in events)
 
 
-def test_without_unzip_archives_stay_packed(gh, tmp_path, monkeypatch, capsys):
+def test_without_expand_the_archive_is_left_as_the_zip_held_it(
+    gh, tmp_path, monkeypatch, capsys
+):
     gh(RUNS, [_art("packed-logs")])
     code, _ = _run(
         ["download", "--action", "7", "--format", "json"], monkeypatch, capsys
     )
     assert code == 0
-    assert (tmp_path / "packed-logs" / "packed-logs.tar.gz").exists()
+    assert (tmp_path / "bundle.tar.gz").exists()
 
 
-def test_unpack_all_handles_zip_and_gz_and_refuses_escapes(tmp_path):
+def test_two_artifacts_with_the_same_file_do_not_overwrite(
+    gh, tmp_path, monkeypatch, capsys
+):
+    """Two artifacts holding the same file (as the assemblies of a release run
+    each hold the same tar.gz, left unexpanded): the second is refused, naming
+    the first, rather than silently winning."""
+    gh(RUNS, [_art("clash-a"), _art("clash-b")])
+    code, events = _run(
+        ["download", "--action", "7", "--parallel", "1", "--format", "json"],
+        monkeypatch,
+        capsys,
+    )
+    assert code == 1
+    err = events[-1]
+    assert err["downloaded"] == ["clash-a"] and err["failed"] == ["clash-b"]
+    warn = [e for e in events if e["event"] == "warn"][0]["message"]
+    assert "shared.txt already came from artifact clash-a" in warn
+    assert (tmp_path / "shared.txt").read_text() == "clash-a"
+    assert not list(tmp_path.glob(".*"))
+
+
+def test_expand_all_handles_zip_and_gz_and_refuses_escapes(tmp_path):
     import gzip
     import zipfile
 
@@ -228,7 +289,7 @@ def test_unpack_all_handles_zip_and_gz_and_refuses_escapes(tmp_path):
     with gzip.open(tmp_path / "log.txt.gz", "wb") as f:
         f.write(b"log")
     (tmp_path / "keep.txt").write_text("k")
-    assert ci.unpack_all(tmp_path) == ["log.txt.gz", "r.zip"]
+    assert ci.expand_all(tmp_path) == ["log.txt.gz", "r.zip"]
     assert (tmp_path / "report" / "a.txt").read_text() == "a"
     assert (tmp_path / "log.txt").read_text() == "log"
     assert (tmp_path / "keep.txt").exists()
@@ -237,6 +298,52 @@ def test_unpack_all_handles_zip_and_gz_and_refuses_escapes(tmp_path):
     bad.mkdir()
     with zipfile.ZipFile(bad / "evil.zip", "w") as zf:
         zf.writestr("../escaped.txt", "x")
-    with pytest.raises(zipfile.BadZipFile, match="escapes"):
-        ci.unpack_all(bad)
+    with pytest.raises(zipfile.BadZipFile, match="would land outside"):
+        ci.expand_all(bad)
     assert not (tmp_path / "escaped.txt").exists()
+
+
+def test_progress_says_how_far_each_piece_has_got():
+    """What the ticker prints every TICK_SECS: one line per piece in flight."""
+    from tabsdata_dev.common.core import render
+
+    buf = io.StringIO()
+    progress = ci.Progress(render.Renderer("ci", fmt="json", out=buf))
+    key = progress.start("wheels", "downloading", 4 * 1024**2)
+    progress.add(key, 1024**2)
+    polled = progress.start("logs", "expanding logs.tar.gz", 1000, poll=lambda: 500)
+    progress.report()
+    lines = [json.loads(x) for x in buf.getvalue().splitlines()]
+    assert lines[0]["message"].startswith("wheels: downloading 25% (1.0 MiB of 4.0 MiB")
+    assert (lines[0]["done"], lines[0]["total"]) == (1024**2, 4 * 1024**2)
+    assert lines[1]["message"].startswith("logs: expanding logs.tar.gz 50%")
+    progress.finish(key)
+    progress.finish(polled)
+    buf.truncate(0)
+    buf.seek(0)
+    progress.report()
+    assert buf.getvalue() == ""  # nothing in flight, nothing said
+
+
+def test_the_ticker_reports_while_a_download_runs(gh, tmp_path, monkeypatch):
+    """A tick shorter than the download: progress lines arrive before it ends."""
+    from tabsdata_dev.common.core import render
+
+    gh(RUNS, [_art("wheels")])
+    buf = io.StringIO()
+    out = render.Renderer("ci", fmt="json", out=buf)
+    slow = ci.fetch
+
+    def fetch(repo, a, dest, progress, **kw):
+        import time
+
+        key = progress.start(a.name, "waiting", 10)
+        time.sleep(0.3)
+        progress.finish(key)
+        slow(repo, a, dest, progress, **kw)
+
+    monkeypatch.setattr(ci, "fetch", fetch)
+    art = ci.Artifact(_art("wheels")["id"], "wheels", 2048, False)
+    assert ci.download("o/r", [art], tmp_path, 1, out, tick=0.05) == []
+    phases = [json.loads(x).get("phase") for x in buf.getvalue().splitlines()]
+    assert "waiting" in phases

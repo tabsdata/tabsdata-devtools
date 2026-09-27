@@ -113,12 +113,9 @@ def test_run_refuses_an_undeclared_binary(monkeypatch, tmp_path):
     monkeypatch.setenv("_TDD_TOOL", "demo-exe1")
     proc._declared.cache_clear()
     proc._toolset_bin.cache_clear()
-    try:
-        proc.run(["jq", "."])
-    except proc.UndeclaredRequirement as exc:
-        assert "bin-reqs.txt" in str(exc)
-        return
-    raise AssertionError("expected UndeclaredRequirement")
+    for launch in (proc.run, proc.popen):
+        with pytest.raises(proc.UndeclaredRequirement, match="bin-reqs.txt"):
+            launch(["jq", "."])
 
 
 def test_run_maps_sys_exit_and_interrupt_to_the_model(tmp_path, monkeypatch, capsys):
