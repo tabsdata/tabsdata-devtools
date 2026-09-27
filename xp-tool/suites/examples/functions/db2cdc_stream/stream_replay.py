@@ -33,9 +33,12 @@ WHAT `tables` MEANS HERE
     `tables` NAMES THE CD TABLES, NOT THE SOURCE TABLES. Db2 SQL Replication
     captures changes into shadow change-data tables that the ASN capture
     program (`asncap`) populates in the background, so what the stream reads is
-    `ASN.TD_T__EMPLOYEES`, not `EMPLOYEES`; the ingester resolves the source
-    back through `ASN.IBMSNAP_REGISTER`. Db2 also folds unquoted identifiers to
-    uppercase, which is why the names are written that way.
+    the CD table of `EMPLOYEES`, not `EMPLOYEES`; the ingester resolves the
+    source back through `ASN.IBMSNAP_REGISTER`. The CD tables are the domain's
+    own -- `ASN.TD_<tag of its schema>__<TABLE>` -- and it records the prefix
+    as `CD_TABLE_PREFIX`, which xp puts in for `${D0__CD_TABLE_PREFIX}` when it
+    registers the function. Db2 also folds unquoted identifiers to uppercase,
+    which is why the names are written that way.
 
 THE CURSOR: CAPTURE-TABLE WATERMARK
     There is no slot and no replica id — each tracked CD table has its own
@@ -43,28 +46,17 @@ THE CURSOR: CAPTURE-TABLE WATERMARK
     REGISTRATION per captured table, and that is where the operational
     weight of this connector sits.
 
-    ONE DB2CDC DOMAIN AT A TIME, PER MODEL. A registration's change-data
-    table is named `ASN.TD_T__<TABLE>` with NO domain qualifier, so two
-    domains carrying the same model want the same CD table names and the
-    second one's `create-domains` fails before it starts:
+    EACH DOMAIN HAS ITS OWN CD TABLES, named after its schema, so any number
+    of db2cdc domains carrying the same model share a system -- this suite
+    and `container-connectors/db2cdc` can be up together.
 
-        ASN1705E The change data "table", "ASN.TD_T__DEPARTMENTS"
-                 already exists in the server.
-        DB21005E An error occurred while accessing the file
-                 "TD_ASN_REGISTER_DEPARTMENTS".
-
-    So THIS SUITE AND `connectors/db2cdc` CANNOT BE UP AT THE SAME TIME, and
-    a whole-directory run (`--suite examples`) is fine only if no other
-    db2cdc domain is standing. Check with `tdx-domain list | grep db2cdc`
-    and destroy the other one first.
-
-    DESTROYING IS ENOUGH, THOUGH — `Db2Cdc.destroy_domain` deregisters every
+    A DESTROY CLEANS UP -- `Db2Cdc.destroy_domain` deregisters every
     table it finds in `ASN.IBMSNAP_REGISTER` under the domain's schema before
     dropping that schema (CAPSTOP, delete the REGISTER and PRUNCNTL rows,
-    drop the `LM_TD_T__<T>` trigger, drop the CD table, clear DATA CAPTURE).
-    That is why a destroy takes minutes rather than a second, and why two
-    create/destroy cycles now run back to back. If you tear a domain down
-    some other way, expect the orphans and the ASN1705E above.
+    drop the `LM_TD_<tag>__<T>` trigger, drop the CD table, clear DATA
+    CAPTURE). That is why a destroy takes minutes rather than a second. A
+    domain torn down some other way leaves its registrations behind, holding
+    names only a domain of the same schema would want.
 
 WHAT EVERY EMITTED ROW CARRIES
     Change METADATA under `@td.cdc.meta.*`:
@@ -120,7 +112,7 @@ from tabsdatak.tableframe.functions import concat
 
 @stream_publisher(
     source=Db2CdcStreamSrc(
-        tables=["ASN.TD_T__EMPLOYEES", "ASN.TD_T__DEPARTMENTS"],
+        tables=["${D0__CD_TABLE_PREFIX}EMPLOYEES", "${D0__CD_TABLE_PREFIX}DEPARTMENTS"],
         start_from="head",
         columns_format="columns",
         flatten_columns=True,

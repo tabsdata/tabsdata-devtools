@@ -3173,14 +3173,18 @@ CDC = {
         "type": "db2_cdc",
         "system": "db2cdc",
         "label": "Db2",
-        "tables": '["ASN.TD_T__EMPLOYEES", "ASN.TD_T__DEPARTMENTS"]',
+        "tables": '["${D0__CD_TABLE_PREFIX}EMPLOYEES", "${D0__CD_TABLE_PREFIX}DEPARTMENTS"]',
         "tables_note": (
             "`tables` NAMES THE CD TABLES, NOT THE SOURCE TABLES. Db2 SQL Replication\n"
             "    captures changes into shadow change-data tables that the ASN capture\n"
             "    program (`asncap`) populates in the background, so what the stream reads\n"
-            "    is `ASN.TD_T__EMPLOYEES`, not `EMPLOYEES`; the ingester resolves the\n"
-            "    source back through `ASN.IBMSNAP_REGISTER`. Db2 also folds unquoted\n"
-            "    identifiers to uppercase, which is why the names are written that way."
+            "    is the CD table of `EMPLOYEES`, not `EMPLOYEES`; the ingester resolves\n"
+            "    the source back through `ASN.IBMSNAP_REGISTER`. The CD tables are the\n"
+            "    domain's own -- `ASN.TD_<tag of its schema>__<TABLE>` -- and it records\n"
+            "    the prefix as `CD_TABLE_PREFIX`, which xp puts in for\n"
+            "    `${D0__CD_TABLE_PREFIX}` when it registers the function. Db2 also folds\n"
+            "    unquoted identifiers to uppercase, which is why the names are written\n"
+            "    that way."
         ),
         "cursor": "capture-table watermark",
         "cursor_note": (
@@ -3188,25 +3192,16 @@ CDC = {
             "    watermark, and the stream drains them. What Db2 has instead is a\n"
             "    REGISTRATION per captured table, and that is where the operational\n"
             "    weight of this connector sits.\n\n"
-            "    ONE DB2CDC DOMAIN AT A TIME, PER MODEL. A registration's change-data\n"
-            "    table is named `ASN.TD_T__<TABLE>` with NO domain qualifier, so two\n"
-            "    domains carrying the same model want the same CD table names and the\n"
-            "    second one's `create-domains` fails before it starts:\n\n"
-            "        ASN1705E The change data \"table\", \"ASN.TD_T__DEPARTMENTS\"\n"
-            "                 already exists in the server.\n"
-            "        DB21005E An error occurred while accessing the file\n"
-            "                 \"TD_ASN_REGISTER_DEPARTMENTS\".\n\n"
-            "    So THIS SUITE AND `connectors/db2cdc` CANNOT BE UP AT THE SAME TIME, and\n"
-            "    a whole-directory run (`--suite examples`) is fine only if no other\n"
-            "    db2cdc domain is standing. Check with `tdx-domain list | grep db2cdc`\n"
-            "    and destroy the other one first.\n\n"
-            "    DESTROYING IS ENOUGH, THOUGH — `Db2Cdc.destroy_domain` deregisters every\n"
+            "    EACH DOMAIN HAS ITS OWN CD TABLES, named after its schema, so any number\n"
+            "    of db2cdc domains carrying the same model share a system -- this suite\n"
+            "    and `container-connectors/db2cdc` can be up together.\n\n"
+            "    A DESTROY CLEANS UP -- `Db2Cdc.destroy_domain` deregisters every\n"
             "    table it finds in `ASN.IBMSNAP_REGISTER` under the domain's schema before\n"
             "    dropping that schema (CAPSTOP, delete the REGISTER and PRUNCNTL rows,\n"
-            "    drop the `LM_TD_T__<T>` trigger, drop the CD table, clear DATA CAPTURE).\n"
-            "    That is why a destroy takes minutes rather than a second, and why two\n"
-            "    create/destroy cycles now run back to back. If you tear a domain down\n"
-            "    some other way, expect the orphans and the ASN1705E above."
+            "    drop the `LM_TD_<tag>__<T>` trigger, drop the CD table, clear DATA\n"
+            "    CAPTURE). That is why a destroy takes minutes rather than a second. A\n"
+            "    domain torn down some other way leaves its registrations behind, holding\n"
+            "    names only a domain of the same schema would want."
         ),
         "head_note": (
             "replays each tracked CD table from its origin — so, like MySQL and unlike\n"
@@ -3368,12 +3363,9 @@ def {name}(
 ''')
 
     extra_comment = (
-        "PREREQUISITE: a Db2 registration's CD table is named ASN.TD_T__<TABLE> with NO "
-        "domain qualifier, so only ONE db2cdc domain per model can exist at a time — this "
-        "suite and connectors/db2cdc cannot both be up, and a second one fails its "
-        "create-domains with ASN1705E. `tdx-domain list | grep db2cdc` shows what is "
-        "holding the names; destroying that domain is enough, since Db2Cdc.destroy_domain "
-        "deregisters before dropping the schema (which is why it takes minutes). "
+        "The CD tables are the domain's own (named after its schema; the functions take "
+        "the prefix as ${D0__CD_TABLE_PREFIX}), so db2cdc domains of one model share a "
+        "system. "
         if key == "db2" else ""
     )
     doc = suite_json(

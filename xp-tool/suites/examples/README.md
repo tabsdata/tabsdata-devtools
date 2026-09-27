@@ -179,26 +179,17 @@ example onto another connector.
 `druid` has no example: there is no connection template for it in `connections/`.
 It is shape-identical to `<c>_dest_modes`.
 
-### The one suite that cannot share a backend
+### db2cdc: each domain its own CD tables
 
-`db2cdc_stream` is the exception to "every suite runs on its own". A Db2
-registration's change-data table is `ASN.TD_T__<TABLE>` with **no domain
-qualifier**, so only ONE db2cdc domain per model can exist at a time — this suite
-and `connectors/db2cdc` cannot both be up, and a whole-directory
-`--suite examples` run fails that lane if another db2cdc domain is standing:
+A Db2 registration's change-data table lives in the one shared `ASN` schema, so the
+db2cdc system names it after the domain: `ASN.TD_<tag of the schema>__<TABLE>`. The
+domain records the prefix as `CD_TABLE_PREFIX`, and `db2cdc_stream`'s functions name
+their tables `${D0__CD_TABLE_PREFIX}EMPLOYEES`, which xp fills in when it registers
+them. Any number of db2cdc domains of one model share a system -- this suite and
+`container-connectors/db2cdc` can be up together.
 
-```
-ASN1705E The change data "table", "ASN.TD_T__DEPARTMENTS" already exists in the server.
-```
-
-```bash
-tdx-domain list | grep db2cdc     # what is holding the names
-```
-
-Destroying that domain is enough: `Db2Cdc.destroy_domain` deregisters every table
-under the domain's schema before dropping it, which is why a db2cdc teardown
-takes minutes rather than a second. Tear one down some other way and the
-registrations survive to block the next create.
+`Db2Cdc.destroy_domain` deregisters every table under the domain's schema before
+dropping it, which is why a db2cdc teardown takes minutes rather than a second.
 
 ## Adding an example
 

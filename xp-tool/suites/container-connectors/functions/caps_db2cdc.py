@@ -15,13 +15,11 @@ per transaction).
 
 ``tables`` lists the CD TABLES, not the source tables — the ingester resolves the
 source through ``ASN.IBMSNAP_REGISTER``. The db2cdc system registers every model table
-at DDL-install time and stages it as ``ASN.TD_T__<TABLE>`` (uppercased, since Db2 folds
-unquoted identifiers), which is why the names below are fixed rather than derived from
-the domain: the ASN schema is shared, only the source schema is per-domain.
-
-CAVEAT (system-level): because the staging name is ``TD_T__<TABLE>`` with no domain
-qualifier, TWO db2cdc domains carrying the SAME model collide on the CD table. Run one
-db2cdc domain at a time.
+at DDL-install time and stages it as ``ASN.TD_<tag>__<TABLE>`` (uppercased, since Db2
+folds unquoted identifiers), <tag> taken from the domain's schema: the ASN schema is
+shared, so the CD tables carry the domain in their name, and any number of db2cdc domains
+of one model share a system. The domain records the prefix as ``CD_TABLE_PREFIX``, which
+xp puts in for ``${D0__CD_TABLE_PREFIX}`` below when it registers the function.
 
 The suite tracks the ``employees`` model's two mutable tables (``employees`` supports
 INSERT/UPDATE/DELETE, ``departments`` UPDATE), so ``tdx-domain modify-data`` on the
@@ -59,9 +57,9 @@ from tabsdatak.api import TableFrameSpec, TableFramesSpec, stream_publisher
 from tabsdatak.conn.db2 import Db2CdcStreamSrc
 from tabsdatak.tableframe.functions import concat
 
-# CD (staging) tables, not the source tables: ASN schema + the TD_T__ prefix the
-# db2cdc system uses, uppercased the way Db2 stores unquoted identifiers.
-_TABLES = ["ASN.TD_T__EMPLOYEES", "ASN.TD_T__DEPARTMENTS"]
+# CD (staging) tables, not the source tables: the D0 domain's own prefix
+# (ASN.TD_<tag>__), uppercased the way Db2 stores unquoted identifiers.
+_TABLES = ["${D0__CD_TABLE_PREFIX}EMPLOYEES", "${D0__CD_TABLE_PREFIX}DEPARTMENTS"]
 
 # Small thresholds so a handful of `modify-data` changes flush promptly instead of
 # sitting in the buffer; poll every second so the loop reacts quickly. `fetch_size`
