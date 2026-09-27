@@ -91,16 +91,17 @@ def test_reqs_reports_every_declaration(capsys):
     assert events[-1]["event"] in ("ok", "error")
     assert (code == 0) == (events[-1]["event"] == "ok")
     assert any(e["event"] == "info" and e.get("binary") == "jq" for e in events)
+    main_mod.main(["--format", "json", "--reqs", "--summary"])
+    events = _events(capsys)
     binaries = [e["binary"] for e in events if "binary" in e]
-    assert (
-        len(binaries) == len(set(binaries)) == events[-1].get("checked", len(binaries))
-    )
+    assert binaries == sorted(set(binaries))  # each once
 
 
-def test_reqs_lists_each_binary_once_with_who_needs_it(monkeypatch, capsys):
-    """One line per binary, not per command declaring it: `[ok]` or
-    `[missing]`, no command named in the message, the commands in
-    `needed_by`; the shell family decides which half's list counts."""
+def test_reqs_summary_lists_each_binary_once_with_who_needs_it(monkeypatch, capsys):
+    """`--reqs` reports per command; `--reqs --summary` one line per binary,
+    not per command declaring it: `[ok]` or `[missing]`, no command named in
+    the message, the commands in `needed_by`; the shell family decides which
+    half's list counts."""
     from tabsdata_dev.tdd import catalog as catalog_mod
     from tabsdata_dev.tdd import reqs
 
@@ -115,6 +116,16 @@ def test_reqs_lists_each_binary_once_with_who_needs_it(monkeypatch, capsys):
     monkeypatch.setattr(catalog_mod, "shipped", lambda: catalog)
     monkeypatch.setenv(reqs.FAMILY_ENV, "unix")
     assert main_mod.main(["--format", "json", "--reqs"]) == 1
+    per_command = [
+        e["message"].split(" -> ")[0] for e in _events(capsys) if "binary" in e
+    ]
+    assert per_command == [
+        "a: [ok] sh",
+        "a: [missing] surely-not-a-binary-xyz",
+        "b: [ok] sh",
+        "s (shell): [ok] sh",
+    ]
+    assert main_mod.main(["--format", "json", "--reqs", "--summary"]) == 1
     events = _events(capsys)
     lines = [e for e in events if "binary" in e]
     assert [(e["event"], e["message"].split(" ")[0]) for e in lines] == [
@@ -131,13 +142,17 @@ def test_reqs_lists_each_binary_once_with_who_needs_it(monkeypatch, capsys):
         "1 of 2 required binaries missing: surely-not-a-binary-xyz"
     )
 
-    assert main_mod.main(["--format", "json", "--reqs", "b"]) == 0
+    assert main_mod.main(["--format", "json", "--reqs", "b", "--summary"]) == 0
     events = _events(capsys)
     assert [e["message"].split(" -> ")[0] for e in events[:-1]] == ["[ok] sh"]
     assert events[-1]["message"] == "all 1 required binaries present"
 
-    assert main_mod.main(["--format", "json", "--reqs", "c"]) == 0
+    assert main_mod.main(["--format", "json", "--reqs", "--summary", "c"]) == 0
     assert _events(capsys)[-1]["message"] == "c: no external requirements"
+
+    for bad in (["--sumary"], ["a", "b"]):
+        assert main_mod.main(["--format", "json", "--reqs", *bad]) == 1
+        assert "--reqs takes [--summary] [TOOL]" in _events(capsys)[-1]["message"]
 
 
 def test_tdd_install_help_and_usage_errors():

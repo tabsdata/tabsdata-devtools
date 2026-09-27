@@ -5,7 +5,7 @@
 """tdd-exe -- one entry point for every tabsdata dev tool.
 
     tdd [--dir TDD_PATH] <word> [args...]
-    tdd [--dir TDD_PATH] --reqs [TOOL]
+    tdd [--dir TDD_PATH] --reqs [--summary] [TOOL]
     tdd-exe [--dir TDD_PATH] --porcelain
     tdd-exe [--dir TDD_PATH] --defaults <command> [args...]
 
@@ -49,7 +49,9 @@ options:
                     how tdd-exe itself reports (default view); builtins also
                     accept it after the word
   --verbose, -v     show debug events too
-  --reqs [TOOL]     report external binaries; exit 1 if any missing
+  --reqs [TOOL]     report external binaries, per command; exit 1 if any missing
+  --reqs --summary [TOOL]
+                    the same, one line per binary however many commands need it
   --version, -V     the VERSION stamped into TDD_PATH, else the shipped one
   --porcelain       machine-readable `name|kind|summary` lines: what the `tdd`
                     shell function merges into `tdd help`
@@ -461,7 +463,13 @@ def _run(argv: list[str]) -> int:
         found = version_mod.current(dir_)
         return out.ok(f"tdd {found}", version=found)
     if opts["reqs"]:
-        return reqs_mod.check(rest[0] if rest else None, out)
+        summary = "--summary" in rest
+        words = [w for w in rest if w != "--summary"]
+        flags = [w for w in words if w.startswith("-")]
+        if flags or len(words) > 1:
+            what = flags[0] if flags else " ".join(words)
+            return out.error(f"--reqs takes [--summary] [TOOL], not {what!r}")
+        return reqs_mod.check(words[0] if words else None, out, summary=summary)
     # Plumbing for the tdd shell function: plain lines, never events.
     if opts["porcelain"]:
         return _porcelain(dir_, opts["all"])

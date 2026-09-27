@@ -121,7 +121,9 @@ def missing(binaries: list[str]) -> list[str]:
     return out
 
 
-def check(tool: str | None, out: render.Renderer) -> int:
+def check(tool: str | None, out: render.Renderer, *, summary: bool = False) -> int:
+    """Every declared binary, resolved: per command (who needs what), or with
+    `summary` one line per binary (what the machine must provide)."""
     catalog = catalog_mod.shipped()
     out.debug(f"catalog: {catalog_mod.shipped_path()}")
     # Both halves declare binaries the same way; the shell ones are marked so
@@ -140,6 +142,50 @@ def check(tool: str | None, out: render.Renderer) -> int:
 
     family = shell_family()
     out.debug(f"shell family: {family}")
+    if summary:
+        return _summary(selected, tool, family, out)
+    missing: list[str] = []
+    checked = 0
+    for name, (entry, label) in sorted(selected.items()):
+        reqs = entry_reqs(entry, family)
+        if not reqs:
+            out.info(f"{name}{label}: no external requirements", command_name=name)
+            continue
+        for binary in reqs:
+            found, note = resolve(binary)
+            checked += 1
+            if found:
+                out.info(
+                    f"{name}{label}: [ok] {binary} -> {found}"
+                    + (f" ({note})" if note else ""),
+                    command_name=name,
+                    binary=binary,
+                    path=found,
+                    **({"via": note} if note else {}),
+                )
+            else:
+                missing.append(f"{name}: {binary}" + (f" ({note})" if note else ""))
+                out.warn(
+                    f"{name}{label}: [missing] {binary}"
+                    + (f" ({note})" if note else ""),
+                    command_name=name,
+                    binary=binary,
+                    **({"why": note} if note else {}),
+                )
+    if missing:
+        return out.error(
+            f"{len(missing)} required binaries missing: {', '.join(missing)}",
+            missing=missing,
+        )
+    return out.ok(f"all {checked} required binaries present", checked=checked)
+
+
+def _summary(
+    selected: dict[str, tuple[dict, str]],
+    tool: str | None,
+    family: str,
+    out: render.Renderer,
+) -> int:
     # One line per binary, however many commands declare it: the question is
     # what the machine has to provide, and jq needed by four commands is one
     # jq to install. Who needs it travels in the JSON fields (`needed_by`).
