@@ -363,7 +363,6 @@ def fetch(
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir()
     part = dest / f".{a.name}.zip.part"
-    progress.say("info", f"{a.name}: downloading {_size(a.size)}", artifact=a.name)
     key = progress.start(a.name, "downloading", a.size)
     finished = False
     try:
@@ -497,7 +496,6 @@ def expand_all(
         if kind is None:
             continue
         phase = f"expanding {path.name}"
-        progress.say("info", f"{artifact}: {phase}", artifact=artifact)
         if kind == "zip":
             with zipfile.ZipFile(path) as zf:
                 _extract_zip(zf, folder, progress, artifact, phase)

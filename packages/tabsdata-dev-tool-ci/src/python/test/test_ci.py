@@ -250,7 +250,9 @@ def test_expand_expands_twice_into_the_dir(gh, tmp_path, monkeypatch, capsys):
         "plain.txt",
     ]
     assert any(e.get("expanded") == "bundle.tar.gz" for e in events)
-    assert any(e["message"] == "packed-mac: expanding bundle.tar.gz" for e in events)
+    # a phase in progress is a progress line, not an event of its own
+    assert not any("expanding" in e["message"] for e in events)
+    assert not any(": downloading" in e["message"] for e in events)
 
 
 def test_without_expand_the_archive_is_left_as_the_zip_held_it(

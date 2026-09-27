@@ -33,9 +33,9 @@ tar's contents. The repo defaults to `tabsdata/tabsdata-ee`.
   into PATH and the zip and the staging dir removed.
 - **Progress.** Nothing is silent for more than a moment. Each lookup says what it is looking for
   before it starts and what it found (the run's id; how many artifacts, how big), since paging
-  through a thousand runs takes seconds. Each artifact says when it starts, how long its
-  download took and at what rate, and each archive `--expand` opens. In between, one line per
-  piece in flight -- `NAME: downloading 45% (110.2 MiB of 241.9 MiB, 4.4 MiB/s)`, then
+  through a thousand runs takes seconds. Each artifact says how long its download took and at what
+  rate, and each archive `--expand` opened, once done -- no line announces a start. What is
+  still under way is only a progress line, one per piece in flight -- `NAME: downloading 45% (110.2 MiB of 241.9 MiB, 4.4 MiB/s)`, then
   `extracting`, then `expanding X.tar.gz`: on a terminal a status block redrawn in place twice a
   second (`Renderer.live`), elsewhere (a pipe, a log, JSON) info events every 5s. Downloads and extraction count the bytes written; a tar or gz reports
   how far into the compressed file its reader is. In JSON each line carries `artifact`,
