@@ -2,7 +2,7 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""pt -- run parquet-tools, which the xp toolset pins.
+"""pqt -- run parquet-tools, which the xp toolset pins.
 
 parquet-tools caps pandas below 3, which is why it lives in `deps-xp` and not
 in `systems`; xp's check scripts already read table versions with it, so this
@@ -15,7 +15,7 @@ import sys
 
 from tabsdata_dev.common.core import launcher
 
-NAME = "pt"
+NAME = "pqt"
 PROGRAM = "parquet-tools"
 
 

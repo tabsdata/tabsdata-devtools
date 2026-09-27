@@ -58,7 +58,7 @@ dependencies are declared as ranges; each toolset's lock pins them.
   `DIR/<bin>/CMD`); any other by path. The venv's directories go first on `PATH`, `<bin>` asked
   of the venv (`bin/`, or `Scripts\` and `.exe` for one built on Windows); refuses when the
   program is not in that venv. mexe and apidoc pick their venv with the same `select`.
-  `launcher.run_program` is the same pass-through for a program with no venv to find (`pt`,
+  `launcher.run_program` is the same pass-through for a program with no venv to find (`pqt`,
   `jq`): pinned, it is looked for in the tool's own scripts dir only; external, on PATH with
   that dir left out, where the launcher's entry point sits under what may be the program's name.
 - `secrets` / `secrets_1p` (1Password through the `op` CLI: every field of a vault as

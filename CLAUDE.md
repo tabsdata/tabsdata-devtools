@@ -40,7 +40,7 @@ Packages, all `tabsdata-dev-*` under the `tabsdata_dev` namespace: `-tdd` (stdli
 `-shell` (shell files as data), `-common-*` (shared code, third-party ranges), `-deps-*`
 (pins; its name is the toolset), `-tool-*` (one tool; exactly one `-deps-*`), `-toolset-*`
 (**generated**, committed `uv.lock`). Tools: `system`, `domain`, `domain-sf` (hidden), `xp`,
-`gsx` (disabled), `tdk`, `tdkserver`, `km`, `pt` (parquet-tools), `jq`, `pycache`, `mexe` (shell commands across `--dirs`), `smoke` (the end-to-end scripts: `tdd smoke
+`gsx` (disabled), `tdk`, `tdkserver`, `km`, `pqt` (parquet-tools), `jq`, `pycache`, `mexe` (shell commands across `--dirs`), `smoke` (the end-to-end scripts: `tdd smoke
 run --script NAME ...`, or exported with `tdd smoke export-scripts --dir DIR`), `apidoc` (tdx-apidocgen's
 port: `tdd apidoc generate --out FILE`, its bundled spec exported with `tdd apidoc export-spec
 --dir DIR`); shell: `venv`,

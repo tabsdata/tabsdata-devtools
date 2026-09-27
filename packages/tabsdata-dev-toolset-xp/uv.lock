@@ -698,8 +698,8 @@ requires-dist = [
 ]
 
 [[package]]
-name = "tabsdata-dev-tool-pt"
-source = { editable = "../tabsdata-dev-tool-pt" }
+name = "tabsdata-dev-tool-pqt"
+source = { editable = "../tabsdata-dev-tool-pqt" }
 dependencies = [
     { name = "tabsdata-dev-common-core" },
     { name = "tabsdata-dev-deps-xp" },
@@ -731,14 +731,14 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "tabsdata-dev-deps-xp" },
-    { name = "tabsdata-dev-tool-pt" },
+    { name = "tabsdata-dev-tool-pqt" },
     { name = "tabsdata-dev-tool-xp" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "tabsdata-dev-deps-xp", editable = "../tabsdata-dev-deps-xp" },
-    { name = "tabsdata-dev-tool-pt", editable = "../tabsdata-dev-tool-pt" },
+    { name = "tabsdata-dev-tool-pqt", editable = "../tabsdata-dev-tool-pqt" },
     { name = "tabsdata-dev-tool-xp", editable = "../tabsdata-dev-tool-xp" },
 ]
 

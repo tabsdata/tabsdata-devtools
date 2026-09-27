@@ -5,7 +5,7 @@
 import pathlib
 import sys
 
-from tabsdata_dev.tool import pt
+from tabsdata_dev.tool import pqt
 
 
 def _fake_venv(tmp_path, monkeypatch, script: str) -> pathlib.Path:
@@ -23,15 +23,15 @@ def _fake_venv(tmp_path, monkeypatch, script: str) -> pathlib.Path:
 
 def test_every_argument_reaches_parquet_tools(tmp_path, monkeypatch, capfd):
     _fake_venv(
-        tmp_path, monkeypatch, '#!/bin/sh\necho "pt got: $*"\n[ "$1" != fail ]\n'
+        tmp_path, monkeypatch, '#!/bin/sh\necho "pqt got: $*"\n[ "$1" != fail ]\n'
     )
-    monkeypatch.setattr("sys.argv", ["pt", "show", "--help", "--format", "json"])
-    assert pt.main() == 0
-    assert "pt got: show --help --format json" in capfd.readouterr().out
-    monkeypatch.setattr("sys.argv", ["pt", "fail"])
-    assert pt.main() == 1
+    monkeypatch.setattr("sys.argv", ["pqt", "show", "--help", "--format", "json"])
+    assert pqt.main() == 0
+    assert "pqt got: show --help --format json" in capfd.readouterr().out
+    monkeypatch.setattr("sys.argv", ["pqt", "fail"])
+    assert pqt.main() == 1
     out, err = capfd.readouterr()
-    assert "pt got: fail" in out and "parquet-tools exited with status 1" in err
+    assert "pqt got: fail" in out and "parquet-tools exited with status 1" in err
 
 
 def test_parquet_tools_is_the_toolsets_not_the_paths(tmp_path, monkeypatch, capsys):
@@ -44,14 +44,14 @@ def test_parquet_tools_is_the_toolsets_not_the_paths(tmp_path, monkeypatch, caps
     empty.mkdir(parents=True)
     monkeypatch.setattr(sys, "executable", str(empty / "python"))
     monkeypatch.setenv("PATH", str(elsewhere))
-    monkeypatch.setattr("sys.argv", ["pt"])
-    assert pt.main() == 1
+    monkeypatch.setattr("sys.argv", ["pqt"])
+    assert pqt.main() == 1
     assert "parquet-tools is not installed" in capsys.readouterr().err
 
 
 def test_the_toolset_really_has_parquet_tools(monkeypatch, capfd):
     """The pin in deps-xp is what provides it: run the real one."""
     monkeypatch.delenv("_TDD_TOOL", raising=False)
-    monkeypatch.setattr("sys.argv", ["pt", "--help"])
-    assert pt.main() == 0
+    monkeypatch.setattr("sys.argv", ["pqt", "--help"])
+    assert pqt.main() == 0
     assert "csv" in capfd.readouterr().out

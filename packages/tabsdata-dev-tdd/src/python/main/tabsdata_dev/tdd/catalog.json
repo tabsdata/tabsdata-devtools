@@ -1,5 +1,5 @@
 {
-  "fingerprint": "4cf32f8c1b64b39b",
+  "fingerprint": "5698807e38ef24e6",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
@@ -34,7 +34,7 @@
     "xp": [
       "tabsdata-dev-common-core",
       "tabsdata-dev-deps-xp",
-      "tabsdata-dev-tool-pt",
+      "tabsdata-dev-tool-pqt",
       "tabsdata-dev-tool-xp"
     ]
   },
@@ -173,13 +173,13 @@
       "summary": "run shell commands in several directories, in parallel or serial (one after the other)",
       "toolset": "launchers"
     },
-    "pt": {
+    "pqt": {
       "commons": [
         "tabsdata-dev-common-core"
       ],
       "hidden": false,
       "launcher": true,
-      "package": "tabsdata-dev-tool-pt",
+      "package": "tabsdata-dev-tool-pqt",
       "reqs": [],
       "summary": "run parquet-tools (show, csv, inspect a parquet file) from the xp toolset",
       "toolset": "xp"

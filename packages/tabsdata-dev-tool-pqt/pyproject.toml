@@ -3,14 +3,14 @@
 #
 
 [project]
-name = "tabsdata-dev-tool-pt"
+name = "tabsdata-dev-tool-pqt"
 dynamic = ["version"]
 description = "run parquet-tools (show, csv, inspect a parquet file) from the xp toolset"
 requires-python = ">=3.11"
 dependencies = ["tabsdata-dev-deps-xp", "tabsdata-dev-common-core"]
 
 [project.scripts]
-pt = "tabsdata_dev.tool.pt:main"
+pqt = "tabsdata_dev.tool.pqt:main"
 
 [tool.tdd]
 # every argument is the program's, so there are no options to configure
