@@ -198,7 +198,7 @@ _tdd_help() {
     _tdd_rows="$(_tdd_help_rows)"
     if [ "$_TDD_FORMAT" = json ]; then
         _tdd_ok "$(printf '%s\n' "$_tdd_rows" | grep -c .) commands" \
-            "\"tdd_dir\":\"$(_tdd_json_str "$TDD_DIR")\",\"options\":[\"--dir\",\"--format\",\"--verbose\",\"--help\",\"--version\",\"--reqs\"],\"commands\":$(_tdd_rows_json "$_tdd_rows")"
+            "\"tdd_dir\":\"$(_tdd_json_str "$TDD_DIR")\",\"options\":[\"--dir\",\"--format\",\"--verbose\",\"--help\",\"--version\",\"--reqs\",\"-x\"],\"commands\":$(_tdd_rows_json "$_tdd_rows")"
     else
         # Laid out and painted by `_tdd_help_text`, the engine every command's
         # help goes through -- which is what keeps the front door from looking
@@ -213,7 +213,7 @@ _tdd_help() {
         # pipe and would paint nothing. Every command's help prints this way.
         _tdd_help_text <<HELP
 usage: tdd [--help] [--verbose] [--format {json,view}] [--dir TDD_PATH] [--version]
-           [--reqs [TOOL]]
+           [--reqs [TOOL]] [-x]
            SUBCOMMAND ...
        tdd --help full
 
@@ -229,7 +229,8 @@ options:
   --version, -V  the version stamped into that dir
   --reqs [TOOL]  report the external binaries every tool needs; exit 1 if one is missing
   --help full  this listing, and then the help of every command after it
-  (--dir, --format and --verbose come before the command word)
+  -x  list the hidden tools too: a name starting with _ is plumbing, left out by default
+  (--dir, --format, --verbose and -x come before the command word)
 
 TDD_DIR=$TDD_DIR
 HELP
@@ -276,7 +277,8 @@ _tdd_help_rows() {
             [ -n "$_n" ] || continue
             printf '%s\t*\t%s\tshell\n' "$_n" "$_s"
         done
-        tdd-exe --porcelain 2>/dev/null | while IFS='|' read -r _n _k _s; do
+        # shellcheck disable=SC2086
+        tdd-exe --porcelain ${_TDD_ALL:+-x} 2>/dev/null | while IFS='|' read -r _n _k _s; do
             [ -n "$_n" ] && printf '%s\t \t%s\t%s\n' "$_n" "$_s" "$_k"
         done
     } | sort -f
@@ -404,8 +406,14 @@ tdd() {
     # command that runs, appended after its word, so `tdd --format json venv
     # list` and `tdd venv list --format json` are the same request.
     _tdd_pass=""
+    # -x: list the hidden tools too (tdd's own, never passed on).
+    _TDD_ALL=""
     while [ $# -gt 0 ]; do
         case "$1" in
+            -x)
+                _TDD_ALL=1
+                shift
+                ;;
             --dir)
                 # One token, not "--dir $2": zsh does not word-split an
                 # unquoted parameter, so the two-word form reached tdd-exe as

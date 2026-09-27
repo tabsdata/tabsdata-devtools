@@ -53,6 +53,8 @@ options:
   --version, -V     the VERSION stamped into TDD_PATH, else the shipped one
   --porcelain       machine-readable `name|kind|summary` lines: what the `tdd`
                     shell function merges into `tdd help`
+  -x                list the hidden tools too: those whose name starts with `_`
+                    (plumbing, by convention) and those marked hidden
   --defaults <command> [args...]
                     merge the [options] of TDD_PATH/<command>.toml into the args
                     and print the result one per line (first line: the tables
@@ -76,6 +78,7 @@ def _split(argv: list[str]) -> tuple[dict, list[str]]:
         "dir": None,
         "reqs": False,
         "porcelain": False,
+        "all": False,
         "defaults": False,
         "format": "view",
         "verbose": False,
@@ -107,6 +110,9 @@ def _split(argv: list[str]) -> tuple[dict, list[str]]:
             i += 1
         elif arg == "--porcelain":
             opts["porcelain"] = True
+            i += 1
+        elif arg == "-x":
+            opts["all"] = True
             i += 1
         elif arg == "--defaults":
             opts["defaults"] = True
@@ -209,20 +215,28 @@ def _renderer(command: str, fmt: str, verbose: bool) -> render.Renderer:
     return render.Renderer(command, fmt=fmt, verbose=verbose)
 
 
-def _listed(catalog: dict) -> list[tuple[str, dict]]:
-    """Tools worth showing in `tdd help`: every one that is not hidden.
+def is_hidden(name: str, entry: dict) -> bool:
+    """Left out of the listing: a tool whose name starts with ``_`` -- plumbing
+    by convention, the name alone says so -- or one marked
+    ``[tool.tdd] hidden = true``."""
+    return name.startswith("_") or bool(entry.get("hidden", False))
+
+
+def _listed(catalog: dict, everything: bool = False) -> list[tuple[str, dict]]:
+    """Tools worth showing in `tdd help`: every one that is not hidden, and
+    with `everything` (`tdd -x`) the hidden ones too.
 
     Hiding is a listing concern only -- a hidden tool still dispatches, tests
-    and reports reqs like any other, so nothing else consults the flag.
+    and reports reqs like any other, so nothing else consults it.
     """
     return sorted(
         (name, entry)
         for name, entry in catalog["tools"].items()
-        if not entry.get("hidden", False)
+        if everything or not is_hidden(name, entry)
     )
 
 
-def _porcelain(dir_: pathlib.Path) -> int:
+def _porcelain(dir_: pathlib.Path, everything: bool = False) -> int:
     """Machine-readable `name|kind|summary`, one per line.
 
     This is what the `tdd` shell function reads to merge its own sourced
@@ -236,7 +250,7 @@ def _porcelain(dir_: pathlib.Path) -> int:
         catalog = catalog_mod.installed(dir_)
     except catalog_mod.NotInitialized:
         catalog = catalog_mod.shipped()
-    for name, entry in _listed(catalog):
+    for name, entry in _listed(catalog, everything):
         print(f"{name}|{entry['toolset']}|{entry['summary']}")
     return 0
 
@@ -450,7 +464,7 @@ def _run(argv: list[str]) -> int:
         return reqs_mod.check(rest[0] if rest else None, out)
     # Plumbing for the tdd shell function: plain lines, never events.
     if opts["porcelain"]:
-        return _porcelain(dir_)
+        return _porcelain(dir_, opts["all"])
     if opts["defaults"]:
         return _defaults(dir_, rest)
     if opts.get("defaults_doc"):

@@ -77,7 +77,9 @@ holds the user's system and domain descriptors.
     `-tdd` force-includes it; `tdd-install` stamps `<tdd_dir>/VERSION`.
 11. **`[tool.tdd] hidden|launcher|disabled = true` are explicit markers**: hidden is a listing
     concern only (the tool still dispatches); a launcher owns no options, so it has no config
-    file; disabled comments the tool out -- the generator treats the package as absent.
+    file; disabled comments the tool out -- the generator treats the package as absent. A tool
+    whose name starts with `_` is plumbing by convention and hidden without the marker; `tdd -x`
+    lists every hidden tool.
 12. **A `-deps-*` may pin its interpreter** with `[tool.tdd] python = "3.12"`.
 13. **Generic code goes in `common-core`, family code in a `common-<family>`.**
 14. **Variables**: `TDD_*` public (`TDD_DIR`, `TDD_PARALLELISM`), `_TDD_*` private

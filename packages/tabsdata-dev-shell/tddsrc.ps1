@@ -229,7 +229,7 @@ function _tdd_help {
     if ($global:_TDD_FORMAT -eq 'json') {
         _tdd_ok "$($rows.Count) commands" ([ordered]@{
                 tdd_dir  = $env:TDD_DIR
-                options  = @('--dir', '--format', '--verbose', '--help', '--version', '--reqs')
+                options  = @('--dir', '--format', '--verbose', '--help', '--version', '--reqs', '-x')
                 commands = @($rows | ForEach-Object {
                         [ordered]@{ name = $_.Name; shell = $_.Shell; summary = $_.Summary; kind = $_.Kind }
                     })
@@ -247,7 +247,7 @@ function _tdd_help {
         }) -join "`n"
     _tdd_help_text @"
 usage: tdd [--help] [--verbose] [--format {json,view}] [--dir TDD_PATH] [--version]
-           [--reqs [TOOL]]
+           [--reqs [TOOL]] [-x]
            SUBCOMMAND ...
        tdd --help full
 
@@ -263,7 +263,8 @@ options:
   --version, -V  the version stamped into that dir
   --reqs [TOOL]  report the external binaries every tool needs; exit 1 if one is missing
   --help full  this listing, and then the help of every command after it
-  (--dir, --format and --verbose come before the command word)
+  -x  list the hidden tools too: a name starting with _ is plumbing, left out by default
+  (--dir, --format, --verbose and -x come before the command word)
 
 TDD_DIR=$($env:TDD_DIR)
 "@
@@ -306,7 +307,10 @@ function _tdd_help_rows {
                 Name = $entry.Name; Shell = $true; Summary = $entry.Summary; Kind = 'shell'
             })
     }
-    $porcelain = & { tdd-exe --porcelain 2>$null }
+    # @(...) keeps it an array: an `if` returning one element hands back the
+    # element itself, and a string does not splat as an argument list.
+    $all = @(if ($global:_TDD_ALL) { '-x' })
+    $porcelain = & { tdd-exe --porcelain @all 2>$null }
     foreach ($line in @($porcelain)) {
         if (-not $line) { continue }
         $parts = $line -split '\|', 3
@@ -447,10 +451,15 @@ function tdd {
     # command that runs, appended after its word, so `tdd --format json venv
     # list` and `tdd venv list --format json` are the same request.
     $pass = @()
+    # -x: list the hidden tools too (tdd's own, never passed on).
+    $global:_TDD_ALL = $false
     $i = 0
     while ($i -lt $argv.Count) {
         $a = $argv[$i]
-        if ($a -eq '--dir') {
+        if ($a -eq '-x') {
+            $global:_TDD_ALL = $true
+            $i += 1
+        } elseif ($a -eq '--dir') {
             $env:TDD_DIR = $argv[$i + 1]
             $dirArgs = @("--dir=$($argv[$i + 1])")
             $i += 2

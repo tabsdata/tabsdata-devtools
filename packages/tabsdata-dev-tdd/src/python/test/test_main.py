@@ -213,3 +213,26 @@ def test_a_shim_counts_only_when_its_manager_wires_it(tmp_path, monkeypatch):
     assert reqs.shim_manager(str(launcher)) is None
     # a plain binary needs no manager
     assert reqs.resolve("pyenv") == (str(pyenv), "")
+
+
+def test_a_tool_named_with_an_underscore_is_listed_only_with_x():
+    """`_name` is plumbing by convention -- hidden without a marker, as a
+    `hidden = true` tool is; `tdd -x` lists both. Hiding is the listing's
+    alone: nothing else looks at it."""
+    from tabsdata_dev.tdd import __main__ as main
+
+    catalog = {
+        "tools": {
+            "xp": {"toolset": "xp"},
+            "_venv": {"toolset": "launchers"},
+            "domain-sf": {"toolset": "salesforce", "hidden": True},
+        }
+    }
+    assert [n for n, _ in main._listed(catalog)] == ["xp"]
+    assert [n for n, _ in main._listed(catalog, everything=True)] == [
+        "_venv",
+        "domain-sf",
+        "xp",
+    ]
+    opts, rest = main._split(["-x", "--porcelain"])
+    assert opts["all"] and opts["porcelain"] and rest == []
