@@ -40,10 +40,11 @@ import csv
 import json
 import os
 import re
-import subprocess
 import sys
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+
+from tdd import TddError, tdd  # put on the path by `tdd _xp-execute`
 
 LOAD_TX = "initial-load"
 
@@ -68,18 +69,6 @@ _IN_ORDER = r"""sort_by([.tx != "initial-load", (if .tx == "initial-load" then 0
 
 
 # ---------------------------------------------------------------- tools ----
-
-
-def tdd(*args: str, out: Path | None = None) -> str:
-    """One `tdd` command -- `tdd-exe`, the executable behind the `tdd` shell
-    function -- its stdout returned, or written to `out`. A failure ends the
-    check with what the command said."""
-    r = subprocess.run(["tdd-exe", *args], capture_output=True, text=True)
-    if r.returncode != 0:
-        sys.exit(f"tdd {' '.join(args)} exited {r.returncode}:\n{r.stderr or r.stdout}")
-    if out is not None:
-        out.write_text(r.stdout, encoding="utf-8")
-    return r.stdout
 
 
 def get_table_versions(proj: str, coll: str, table: str) -> list[str]:
@@ -195,7 +184,11 @@ def matches(exp: dict, got: dict) -> str | None:
 def replay(ops: list[dict]) -> dict[str, list[tuple]]:
     """The rows `ops` leave in each table, as sorted normalized tuples. A row is
     known by the columns updates and deletes name it by; a table only ever
-    inserted into is known by the whole row."""
+    inserted into is known by the whole row. A delete cascades as the database
+    does and the trail does not say: every other table's rows that carry the
+    deleted key's columns with its values go too (a foreign key is named as the
+    key it references) -- the snapshot of a stream started under changes has
+    had those deletes."""
     keys: dict[str, list[str]] = {}
     for o in ops:
         if "key" in o:
@@ -211,6 +204,13 @@ def replay(ops: list[dict]) -> dict[str, list[tuple]]:
             pk = tuple(norm(o["key"][c]) for c in cols)
             if o["op"] == "delete":
                 t.pop(pk, None)
+                key = {c: norm(v) for c, v in o["key"].items()}
+                for entity, rows in state.items():
+                    if entity == o["entity"]:
+                        continue
+                    for rpk, r in list(rows.items()):
+                        if all(c in r and norm(r[c]) == v for c, v in key.items()):
+                            del rows[rpk]
             elif pk in t:
                 t[pk].update(o["set"])
     return {e: sorted(tuple((c, norm(v)) for c, v in sorted(r.items())) for r in t.values()) for e, t in state.items()}
@@ -323,4 +323,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except TddError as exc:  # a tool that failed ends the check with what it said
+        sys.exit(str(exc))
