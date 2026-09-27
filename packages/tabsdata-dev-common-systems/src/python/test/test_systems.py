@@ -1090,12 +1090,13 @@ def test_destroying_a_domain_leaves_the_shared_marker_alone():
 def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
     tmp_path, monkeypatch
 ):
-    """A CD table is ASN.TD_T__<TABLE>, nothing of the domain in it, so a
-    registration another domain holds owns the name. asnclp's own refusal comes
-    one table in, after the schema is installed, and names a table and no cause.
-    The claim runs first, for all tables: an owner whose source table is gone is
-    an orphan and is reclaimed; a live owner is refused by its schema and by the
-    store's name for it, with the command that frees it."""
+    """A CD table is the domain's own (ASN.TD_<tag of the schema>__<TABLE>), so
+    what can hold one is a leftover: this domain's earlier install, or a
+    registration left under this schema's name. asnclp's own refusal comes one
+    table in, after the schema is installed, and names a table and no cause.
+    The claim runs first, for all tables: a holder whose source table is gone
+    is an orphan and is reclaimed; a live one is refused by its schema and by
+    the store's name for it, with the command that frees it."""
     import pytest
 
     from tabsdata_dev.common.systems import descriptor, store
@@ -1117,12 +1118,24 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
     (dom / "stray").write_text("not a descriptor\n")
 
     b = Db2Cdc()
+    P = b.staging_prefix("XP_NEW")  # this domain's CD table prefix
     calls: list[tuple] = []
     owners: dict[str, str] = {}  # CD table -> schema holding it (IBMSNAP_REGISTER)
     existing: set[str] = set()  # SCHEMA.TABLE in syscat: source and CD tables
 
     def scalar(container, sql):
         s = " ".join(sql.split())
+        if "min(cd_table)" in s:  # the CD table a registration records
+            sch = s.split("source_owner = '")[1].split("'")[0]
+            tab = s.split("source_table = '")[1].split("'")[0]
+            return next(
+                (
+                    cd
+                    for cd, o in owners.items()
+                    if o == sch and cd.endswith("__" + tab)
+                ),
+                "",
+            )
         if "ibmsnap_register where cd_owner" in s:
             cd = s.split("cd_table = '")[1].split("'")[0]
             return owners.get(cd, "")
@@ -1166,12 +1179,12 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
 
     # a live domain holds them: refused by name before anything is registered
     calls.clear()
-    owners.update({"TD_T__DEPARTMENTS": "XP_OLD", "TD_T__EMPLOYEES": "XP_OLD"})
+    owners.update({P + "DEPARTMENTS": "XP_OLD", P + "EMPLOYEES": "XP_OLD"})
     existing.update({"XP_OLD.DEPARTMENTS", "XP_OLD.EMPLOYEES"})
     with pytest.raises(TdxError) as caught:
         b.after_install_schema({}, "employees")
     msg = str(caught.value)
-    assert "ASN.TD_T__DEPARTMENTS" in msg and "ASN.TD_T__EMPLOYEES" in msg
+    assert f"ASN.{P}DEPARTMENTS" in msg and f"ASN.{P}EMPLOYEES" in msg
     assert "schema XP_OLD -- domain 'old_kept'" in msg and "tdd_db2cdc" in msg
     assert "tdd domain destroy --domain old_kept" in msg
     assert calls == []
@@ -1190,14 +1203,14 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
         in s
         for s in sqls
     )
-    assert any("drop trigger ASN.LM_TD_T__EMPLOYEES" in s for s in sqls)
-    assert any("drop table ASN.TD_T__DEPARTMENTS" in s for s in sqls)
+    assert any(f"drop trigger ASN.LM_{P}EMPLOYEES" in s for s in sqls)
+    assert any(f"drop table ASN.{P}DEPARTMENTS" in s for s in sqls)
     assert not any("data capture none" in s for s in sqls), "no source table to alter"
 
     # a live owner this store has no descriptor for: refused, and says so
     calls.clear()
-    owners.pop("TD_T__EMPLOYEES")
-    owners["TD_T__DEPARTMENTS"] = "XP_GHOST"
+    owners.pop(P + "EMPLOYEES")
+    owners[P + "DEPARTMENTS"] = "XP_GHOST"
     existing.add("XP_GHOST.DEPARTMENTS")
     with pytest.raises(TdxError) as caught:
         b.after_install_schema({}, "employees")
@@ -1211,12 +1224,12 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
     calls.clear()
     owners.clear()
     existing.clear()
-    existing.add("ASN.TD_T__EMPLOYEES")
+    existing.add("ASN." + P + "EMPLOYEES")
     b.after_install_schema({}, "employees")
     sqls = [c[1] for c in calls if c[0] == "sql"]
-    assert "drop trigger ASN.LM_TD_T__EMPLOYEES" in sqls
-    assert "drop table ASN.TD_T__EMPLOYEES" in sqls
-    assert "ASN.TD_T__EMPLOYEES" not in existing
+    assert f"drop trigger ASN.LM_{P}EMPLOYEES" in sqls
+    assert f"drop table ASN.{P}EMPLOYEES" in sqls
+    assert "ASN." + P + "EMPLOYEES" not in existing
     assert [c for c in calls if c[0] == "register"] == [
         ("register", "XP_NEW", "DEPARTMENTS"),
         ("register", "XP_NEW", "EMPLOYEES"),
@@ -1225,9 +1238,9 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
 
     # and a drop that does not take is an error by name, never a silent orphan
     calls.clear()
-    existing.add("ASN.TD_T__EMPLOYEES")
-    stuck.add("TD_T__EMPLOYEES")
-    with pytest.raises(TdxError, match="ASN.TD_T__EMPLOYEES could not be dropped"):
+    existing.add("ASN." + P + "EMPLOYEES")
+    stuck.add(P + "EMPLOYEES")
+    with pytest.raises(TdxError, match=f"ASN.{P}EMPLOYEES could not be dropped"):
         b.after_install_schema({}, "employees")
     assert not [c for c in calls if c[0] == "register"]
 
@@ -1237,14 +1250,14 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
     calls.clear()
     stuck.clear()
     existing.clear()
-    owners.update({"TD_T__DEPARTMENTS": "XP_NEW", "TD_T__EMPLOYEES": "XP_NEW"})
+    owners.update({P + "DEPARTMENTS": "XP_NEW", P + "EMPLOYEES": "XP_NEW"})
     b.after_install_schema({}, "employees")
     kinds = [c[0] for c in calls]
     assert kinds.count("capstop") == 2 and kinds.count("register") == 2
     assert kinds.index("register") > max(
         i for i, k in enumerate(kinds) if k == "capstop"
     )
-    assert "drop table ASN.TD_T__EMPLOYEES" in [c[1] for c in calls if c[0] == "sql"]
+    assert f"drop table ASN.{P}EMPLOYEES" in [c[1] for c in calls if c[0] == "sql"]
 
 
 def test_db2cdc_deregisters_before_a_forced_recreate_drops_the_tables(monkeypatch):
@@ -1802,3 +1815,46 @@ def test_a_manifest_entrys_emit_ops_goes_to_its_create_data_step():
         constants.DOM_TOOL, {**entry, "emit-ops": None}, force=False
     )
     assert constants.OPT_EMIT_OPS not in plain
+
+
+def test_db2cdc_cd_tables_are_each_domains_own_and_recorded_in_its_meta():
+    """Two domains of one model on one system no longer meet on a CD table:
+    each is named by its schema, and the domain says which prefix is its own
+    for a function to name its tables by (${D0__CD_TABLE_PREFIX}EMPLOYEES)."""
+    import re
+
+    from tabsdata_dev.common.systems.systems.db2cdc.backend import (
+        CD_TABLE_PREFIX_KEY,
+        Db2Cdc,
+    )
+
+    b = Db2Cdc()
+    a, c = b.cd_table("XP_A", "employees"), b.cd_table("XP_B", "employees")
+    assert a != c and a.endswith("__EMPLOYEES") and a.startswith("ASN.TD_")
+    assert re.fullmatch(r"ASN\.TD_[0-9A-F]{8}__EMPLOYEES", a)
+    assert b.cd_table("xp_a", "EMPLOYEES") == a  # Db2 folds names to upper case
+    meta = b.domain_meta({"PORT": "1"}, "d1", "pw")
+    assert meta[CD_TABLE_PREFIX_KEY] + "EMPLOYEES" == b.cd_table(
+        b._schema(meta["DB"]), "EMPLOYEES"
+    )
+
+
+def test_db2cdc_removes_the_cd_table_its_registration_records(monkeypatch):
+    """A registration made under the old shared naming (ASN.TD_T__<TABLE>) is
+    removed by the name IBMSNAP_REGISTER records for it, not by today's."""
+    from tabsdata_dev.common.systems.systems.db2cdc.backend import Db2Cdc
+
+    b = Db2Cdc()
+    sqls: list[str] = []
+    monkeypatch.setattr(
+        b,
+        "_clp_scalar",
+        lambda c, sql: "TD_T__EMPLOYEES" if "min(cd_table)" in sql else "0",
+    )
+    monkeypatch.setattr(
+        b, "_clp", lambda c, sql, ignore_failure=False: sqls.append(sql)
+    )
+    monkeypatch.setattr(b, "_send_capstop", lambda c, s, t: None)
+    b._remove_registration("tdd_db2cdc", "XP_OLD", "EMPLOYEES")
+    assert "drop table ASN.TD_T__EMPLOYEES" in sqls
+    assert "drop trigger ASN.LM_TD_T__EMPLOYEES" in sqls
