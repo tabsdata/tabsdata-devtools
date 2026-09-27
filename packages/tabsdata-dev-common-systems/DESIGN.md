@@ -74,8 +74,11 @@ hashed past 63 characters) and recorded as `REPLICATION_SLOT`: the slot its stre
 use, with `replication_slot_behavior="reuse"`. Slot names are server-wide, so a slot a function
 names for itself collides with every other run on the system. Destroy ends the slot's reader --
 a stream publisher can outlive its project -- and drops it before the database, which Postgres
-will not drop while any slot is on it, `WITH (FORCE)` or not. A slot someone else created is
-theirs to drop: destroy refuses, naming it.
+will not drop while any slot is on it, `WITH (FORCE)` or not. Every other slot on the database
+goes too, a stream's own (`replication_slot_behavior="create"`) included: a logical slot
+belongs to one database, and nothing can read it once that is gone. Rejected: leaving such a
+slot to its creator -- no suite has a step to drop one, so every teardown left the database
+and its slots behind.
 
 **`ManagedPostgres`** (`_common/managed_postgres.py`) for provider-managed PostgreSQL -- AWS RDS
 (`awspostgres`), GCP Cloud SQL (`gcppostgres`), Azure Flexible Server (`azpostgres`). They differ

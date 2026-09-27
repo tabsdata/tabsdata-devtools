@@ -18,8 +18,9 @@ to a function): the slot a stream publisher over the domain uses, with
 not per database, so a name a function chose itself would collide with every other run
 against the same system. Destroying the domain ends whatever still reads the slot and
 drops it before the database -- Postgres never drops a database a slot is on, and the
-reader may well outlive its project. Any other slot on the database is its creator's to
-drop: destroy refuses, naming it, rather than dropping what it did not make.
+reader may well outlive its project. So does every other slot on the database, such as
+one a stream created for itself (``replication_slot_behavior="create"``): a logical slot
+belongs to one database and nothing else can read it, so it goes with the domain.
 """
 
 from __future__ import annotations
@@ -118,23 +119,19 @@ class Postgrescdc(Postgres):
         )
 
     def _do_delete(self, admin: Admin, name: str) -> None:
-        self._drop_domain_slot(admin, name)
-        others = self._query_admin(admin, _slots_on_sql(name))
-        if others:
-            raise TdxError(
-                f"database '{name}' still has replication slot(s) {', '.join(others)}, "
-                "not the domain's own: whoever created them drops them "
-                "(SELECT pg_drop_replication_slot('<slot>')), then destroy again"
-            )
+        """Every replication slot on the database, then the database. A logical
+        slot belongs to one database and is of no use without it -- nothing
+        else can read it -- so whoever made it, it goes with the domain: the
+        domain's own, and those a stream created for itself
+        (``replication_slot_behavior="create"``)."""
+        for slot in self._query_admin(admin, _slots_on_sql(name)):
+            self._drop_slot(admin, slot)
         super()._do_delete(admin, name)
 
-    def _drop_domain_slot(self, admin: Admin, name: str) -> None:
-        """End whatever reads the domain's slot and drop it. The reader -- a stream
+    def _drop_slot(self, admin: Admin, slot: str) -> None:
+        """End whatever reads `slot` and drop it. The reader -- a stream
         publisher whose project is gone -- may reconnect between the two, so a drop
         refused as active is tried again."""
-        slot = replication_slot_of(name)
-        if slot not in self._query_admin(admin, _slots_on_sql(name, slot)):
-            return
         print(f">>> CDC: dropping replication slot '{slot}'")
         for attempt in range(1, _DROP_TRIES + 1):
             try:
@@ -170,10 +167,9 @@ class Postgrescdc(Postgres):
             )
 
 
-def _slots_on_sql(database: str, slot: str | None = None) -> str:
-    """The replication slots on `database` (only `slot`, when named)."""
-    only = f" AND slot_name = '{slot}'" if slot else ""
+def _slots_on_sql(database: str) -> str:
+    """The replication slots on `database`."""
     return (
         "SELECT slot_name FROM pg_replication_slots "
-        f"WHERE database = '{database}'{only} ORDER BY slot_name"
+        f"WHERE database = '{database}' ORDER BY slot_name"
     )

@@ -1783,18 +1783,29 @@ def test_a_postgrescdc_domain_creates_its_slot_and_destroy_drops_it_first(
     assert all(db in (None, "postgres") for db, _ in ran)  # from the admin database
 
 
-def test_postgrescdc_destroy_leaves_a_slot_it_did_not_create_to_its_creator(
-    monkeypatch,
-):
+def test_postgrescdc_destroy_drops_every_slot_on_the_database_first(monkeypatch):
+    """A slot a stream created for itself goes with the domain, like its own:
+    a logical slot belongs to one database, and Postgres would not drop the
+    database while any is on it. Each reader is ended before its drop; a slot
+    on another database is not touched."""
     from tabsdata_dev.common.systems.systems._common.sql import Admin
 
     admin = Admin(host="h", port="1", user="postgres", password="p", db="postgres")
-    slots = {"dom_a": ["dom_a", "td_cdc_initial_load"]}
+    slots = {"dom_a": ["dom_a", "td_cdc_initial_load"], "dom_b": ["dom_b"]}
     backend, ran = _cdc_backend(monkeypatch, slots)
-    with pytest.raises(TdxError, match="td_cdc_initial_load, not the domain's own"):
-        backend._do_delete(admin, "dom_a")
-    assert slots["dom_a"] == ["td_cdc_initial_load"]  # its own slot went, not this
-    assert not any(st.startswith("DROP DATABASE") for _, st in ran)
+    backend._do_delete(admin, "dom_a")
+    assert slots == {"dom_a": [], "dom_b": ["dom_b"]}
+    statements = [st for _, st in ran]
+    drops = [i for i, st in enumerate(statements) if "pg_drop_replication_slot" in st]
+    ends = [i for i, st in enumerate(statements) if "pg_terminate_backend" in st]
+    drop_db = next(
+        i for i, st in enumerate(statements) if st.startswith("DROP DATABASE")
+    )
+    assert (
+        len(drops) == 2
+        and all(e < d for e, d in zip(ends, drops))
+        and max(drops) < drop_db
+    )
 
 
 def test_a_manifest_entrys_emit_ops_goes_to_its_create_data_step():
