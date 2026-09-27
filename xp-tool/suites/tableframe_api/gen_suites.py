@@ -7,18 +7,19 @@ The suite is a set of pub->tfr->sub test files under ``functions/`` (see
 ``functions/_harness.py``); this script is the single source of truth for how
 those files are grouped into runnable suites. For each category it imports the
 listed ``functions/tf_*.py`` modules, discovers their PublisherInfo /
-TransformerInfo / SubscriberInfo objects, and writes ``<category>.json`` with the
-three fixed collections (tf_src / tf_ops / tf_sink), the discovered functions,
-and a detached trigger per publisher.
+TransformerInfo / SubscriberInfo objects, and writes ``<category>.json`` -- a
+list of stages, as xp reads a suite: the comment, the dev domain, the three
+fixed collections (tf_src / tf_ops / tf_sink), the discovered functions, a
+detached trigger per publisher and a monitor.
 
-There is no union ``suite.json``: run the whole suite with a bare
-``tdx-xp <cmd> --suite tableframe_api`` (which unions every ``*.json`` in the
-dir), or one category with ``--suite tableframe_api/<category>``.
+There is no union ``suite.json``: run every category with a bare
+``tdd xp one-shot --suite tableframe_api`` (a directory is one lane per
+``*.json`` in it), or one with ``--suite tableframe_api/<category>``.
 
 Adding a test: drop ``functions/tf_<op>.py`` (validate it with ``validate.py``),
 add its stem to the right category in CATEGORIES below, and re-run:
 
-    python suites/tableframe_api/gen_suites.py
+    python xp-tool/suites/tableframe_api/gen_suites.py
 
 Run it with a Python that can import ``tabsdatak`` (the EE build).
 """
@@ -167,8 +168,22 @@ def build(comment: str, stems: list[str]) -> dict:
     }
 
 
+def as_stages(doc: dict) -> list:
+    """The suite as xp reads it: an ordered list of stages -- the ``_``
+    annotations, then domains, collections, functions and triggers (each only
+    when it has entries) and a monitor. Built as one object because that is how
+    the sections are gathered; the order is what the stages are."""
+    notes = {k: v for k, v in doc.items() if k.startswith("_")}
+    stages = [notes] if notes else []
+    for kind in ("domains", "collections", "functions", "triggers"):
+        if doc.get(kind):
+            stages.append({kind: doc[kind]})
+    stages.append({"monitor": True})
+    return stages
+
+
 def write(path: Path, obj: dict) -> None:
-    path.write_text(json.dumps(obj, indent=2) + "\n")
+    path.write_text(json.dumps(as_stages(obj), indent=2, ensure_ascii=False) + "\n")
     print(f"wrote {path.relative_to(SUITE)}  ({len(obj['functions'])} fns, {len(obj['triggers'])} triggers)")
 
 
@@ -179,4 +194,4 @@ for cat, (comment, stems) in CATEGORIES.items():
     total_fns += len(obj["functions"])
     total_trigs += len(obj["triggers"])
 print(f"\n{len(CATEGORIES)} categories, {total_fns} functions, {total_trigs} triggers "
-      f"(run all with: tdx-xp <cmd> --suite tableframe_api)")
+      f"(run all with: tdd xp one-shot --suite tableframe_api)")
