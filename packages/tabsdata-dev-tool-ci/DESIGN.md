@@ -19,19 +19,25 @@ tar's contents. The repo defaults to `tabsdata/tabsdata-ee`.
 
 ## How it works
 
-- A shell script's three steps, in Python: `gh run list --json` finds the run's id from its
-  number (the API addresses runs by id; `gh` has no filter by number, so the latest 1000 runs
-  are searched, and a number two workflows share is refused with both named until `--workflow`
-  picks one); `gh api .../runs/<id>/artifacts --paginate --jq` lists the artifacts, one JSON
-  line each, filtered here rather than in jq so expired ones can be reported, not silently
-  dropped; then each artifact on a bounded thread pool (`common.core.parallel`): `gh api
+- A shell script's three steps, in Python. The run's id from its number: the API addresses runs
+  by id and has no filter by number, so `gh api .../actions/runs?per_page=100&page=N` is paged
+  newest first and the search stops at the first page holding the number (at most 1000 runs).
+  `gh run list --limit 1000` fetched all ten pages every time -- twenty-odd seconds of silence
+  for a run from this morning. Two runs #N on that page (two workflows) are refused with both
+  named until `--workflow` (a workflow's name or file name) picks one; otherwise the newest wins
+  and its workflow is named. Then `gh api .../runs/<id>/artifacts --paginate --jq` lists the
+  artifacts, one JSON line each, filtered here rather than in jq so expired ones can be
+  reported, not silently dropped; then each artifact on a bounded thread pool (`common.core.parallel`): `gh api
   .../artifacts/<id>/zip` streamed into `PATH/.<name>.zip.part` (`proc.popen`), extracted into
   `PATH/.<name>.staging`, its archives expanded there with `--expand`, then its files moved
   into PATH and the zip and the staging dir removed.
-- **Progress.** Each artifact says when it starts, how long its download took and at what rate,
-  and each archive `--expand` opens; in between, every 5s, one line per piece in flight --
-  `NAME: downloading 45% (110.2 MiB of 241.9 MiB, 4.4 MiB/s)`, then `extracting`, then
-  `expanding X.tar.gz`. Downloads and extraction count the bytes written; a tar or gz reports
+- **Progress.** Nothing is silent for more than a moment. Each lookup says what it is looking for
+  before it starts and what it found (the run's id; how many artifacts, how big), since paging
+  through a thousand runs takes seconds. Each artifact says when it starts, how long its
+  download took and at what rate, and each archive `--expand` opens. In between, one line per
+  piece in flight -- `NAME: downloading 45% (110.2 MiB of 241.9 MiB, 4.4 MiB/s)`, then
+  `extracting`, then `expanding X.tar.gz`: on a terminal a status block redrawn in place twice a
+  second (`Renderer.live`), elsewhere (a pipe, a log, JSON) info events every 5s. Downloads and extraction count the bytes written; a tar or gz reports
   how far into the compressed file its reader is. In JSON each line carries `artifact`,
   `phase`, `done`, `total`. All events go out under one lock, so parallel lines never mix.
 

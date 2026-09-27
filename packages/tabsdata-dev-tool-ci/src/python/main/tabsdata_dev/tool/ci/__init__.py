@@ -43,9 +43,10 @@ DESCRIPTION = "GitHub Actions runs: download a run's artifacts, in parallel"
 DOWNLOAD = "download"
 DEFAULT_REPO = "tabsdata/tabsdata-ee"
 DEFAULT_PARALLEL = 8
-#: How many of the latest runs a run number is looked for among; `gh run list`
-#: has no filter by number.
+#: How many of the latest runs a run number is looked for among, a page at a
+#: time; the runs API has no filter by number.
 RUN_WINDOW = 1000
+RUN_PAGE = 100
 
 
 @dataclass(frozen=True)
@@ -74,29 +75,60 @@ def _gh(*args: str) -> str:
 
 
 # ------------------------------------------------------------------ lookups
-def find_run(repo: str, number: int, workflow: str | None) -> Run:
-    """Run #`number` of `repo`, among its latest RUN_WINDOW runs."""
-    argv = ["run", "list", "-R", repo, "--limit", str(RUN_WINDOW)]
-    if workflow:
-        argv += ["-w", workflow]
-    argv += ["--json", "number,databaseId,workflowName"]
-    runs = [
-        Run(r["databaseId"], r["number"], r.get("workflowName", ""))
-        for r in json.loads(_gh(*argv) or "[]")
-        if r["number"] == number
-    ]
+def find_run(
+    repo: str,
+    number: int,
+    workflow: str | None,
+    on_page: Callable[[int], None] | None = None,
+) -> Run:
+    """Run #`number` of `repo`, among its latest RUN_WINDOW runs.
+
+    The runs API has no filter by number, so it is paged through newest
+    first, RUN_PAGE at a time, and the search stops at the first page that
+    holds the number: a run someone has in hand is recent, and `gh run list
+    --limit 1000` fetched all ten pages every time, twenty-odd seconds. Two
+    workflows can each have a run #N; the ones on that page are refused as
+    ambiguous, and otherwise the newest wins and its workflow is named.
+    `workflow` matches a run's workflow name or file name. `on_page` hears
+    how many runs have been searched after each page."""
+    searched = 0
+    for page in range(1, RUN_WINDOW // RUN_PAGE + 1):
+        text = _gh(
+            "api",
+            f"repos/{repo}/actions/runs?per_page={RUN_PAGE}&page={page}",
+            "--jq",
+            ".workflow_runs[] | {id, run_number, name, path}",
+        )
+        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+        searched += len(rows)
+        if on_page is not None:
+            on_page(searched)
+        runs = [
+            Run(int(r["id"]), int(r["run_number"]), r.get("name") or "")
+            for r in rows
+            if r["run_number"] == number and _is_workflow(r, workflow)
+        ]
+        if len(runs) > 1:
+            which = ", ".join(f"{r.workflow!r} (id {r.id})" for r in runs)
+            raise ToolError(
+                f"run #{number} is ambiguous in {repo}: {which} -- pass --workflow"
+            )
+        if runs:
+            return runs[0]
+        if len(rows) < RUN_PAGE:
+            break  # the repository has no more runs
     scope = f" of workflow {workflow!r}" if workflow else ""
-    if not runs:
-        raise ToolError(
-            f"run #{number}{scope} not found in {repo} "
-            f"(looked among the latest {RUN_WINDOW} runs)"
-        )
-    if len(runs) > 1:
-        which = ", ".join(f"{r.workflow!r} (id {r.id})" for r in runs)
-        raise ToolError(
-            f"run #{number} is ambiguous in {repo}: {which} -- pass --workflow"
-        )
-    return runs[0]
+    raise ToolError(
+        f"run #{number}{scope} not found in {repo} "
+        f"(looked among the latest {searched} runs)"
+    )
+
+
+def _is_workflow(run: dict, workflow: str | None) -> bool:
+    if not workflow:
+        return True
+    path = run.get("path") or ""
+    return workflow in (run.get("name"), path, path.rsplit("/", 1)[-1])
 
 
 def list_artifacts(repo: str, run_id: int) -> list[Artifact]:
@@ -122,22 +154,30 @@ def list_artifacts(repo: str, run_id: int) -> list[Artifact]:
 
 
 # ------------------------------------------------------------------ progress
-#: Seconds between progress lines while anything is in flight.
+#: Seconds between progress lines while anything is in flight: printed as
+#: events where the output scrolls (a pipe, a log, JSON), redrawn in place on
+#: a terminal, where it can be often.
 TICK_SECS = 5.0
+LIVE_TICK_SECS = 0.5
 CHUNK = 1 << 20
 
 
 class Progress:
-    """The work in flight, and every TICK_SECS a line for each piece saying
-    how far it has got -- a 250 MiB artifact takes a minute to fetch and
-    another to expand, and a command that says nothing for that long reads
-    as hung. Each piece is a phase of one artifact (downloading, extracting,
-    expanding X) with a byte total, advanced by `add` or read from `poll`.
-    Every event the download emits goes through `say`, under the one lock,
-    so the workers' lines and the ticker's never interleave."""
+    """The work in flight, and a line for each piece saying how far it has
+    got -- a 250 MiB artifact takes a minute to fetch and another to expand,
+    and a command that says nothing for that long reads as hung. On a
+    terminal the lines are a status block the renderer redraws in place every
+    LIVE_TICK_SECS (`Renderer.live`); anywhere else they are info events every
+    TICK_SECS. Each piece is a phase of one artifact (downloading,
+    extracting, expanding X) with a byte total, advanced by `add` or read
+    from `poll`. Every event the download emits goes through `say`, under the
+    one lock, so the workers' lines and the ticker's never interleave."""
 
-    def __init__(self, out: render.Renderer, tick: float = TICK_SECS) -> None:
+    def __init__(self, out: render.Renderer, tick: float | None = None) -> None:
         self.out = out
+        self.in_place = out.can_live()
+        if tick is None:
+            tick = LIVE_TICK_SECS if self.in_place else TICK_SECS
         self.tick = tick
         self.lock = threading.Lock()
         self._tasks: dict[int, _Task] = {}
@@ -154,6 +194,8 @@ class Progress:
         self._stop.set()
         if self._thread is not None:
             self._thread.join()
+        with self.lock:
+            self.out.live([])
 
     def say(self, kind: str, message: str, **fields: object) -> None:
         with self.lock:
@@ -187,21 +229,35 @@ class Progress:
             self.report()
 
     def report(self) -> None:
-        """One line per piece in flight -- what the ticker prints."""
+        """One line per piece in flight -- what the ticker shows."""
         with self.lock:
+            lines = []
             for t in self._tasks.values():
                 done = t.current()
                 pct = min(100, 100 * done // t.total) if t.total else 0
                 took = time.monotonic() - t.started
                 rate = f", {_size(int(done / took))}/s" if took > 0 else ""
-                self.out.info(
+                line = (
                     f"{t.artifact}: {t.phase} {pct}% "
-                    f"({_size(done)} of {_size(t.total)}{rate})",
-                    artifact=t.artifact,
-                    phase=t.phase,
-                    done=done,
-                    total=t.total,
+                    f"({_size(done)} of {_size(t.total)}{rate})"
                 )
+                if self.in_place:
+                    # Numbers first: a line wider than the terminal is cut at
+                    # its end, and artifact names are long.
+                    lines.append(
+                        f"{pct:>3}% {_size(done):>9} of {_size(t.total):<9}"
+                        f"{rate[2:]:>12}  {t.phase}  {t.artifact}"
+                    )
+                else:
+                    self.out.info(
+                        line,
+                        artifact=t.artifact,
+                        phase=t.phase,
+                        done=done,
+                        total=t.total,
+                    )
+            if self.in_place:
+                self.out.live(lines)
 
 
 @dataclass
@@ -231,7 +287,7 @@ def download(
     out: render.Renderer,
     *,
     expand: bool = False,
-    tick: float = TICK_SECS,
+    tick: float | None = None,
 ) -> list[tuple[str, str]]:
     """Each artifact extracted into `dest`, `workers` at a time, the archives
     it holds expanded too when `expand`. Every one is tried; returns the
@@ -491,18 +547,38 @@ def body(args: argparse.Namespace, out: render.Renderer) -> int:
         raise ToolError("--parallel must be at least 1")
     if "/" not in args.repo.strip("/"):
         raise ToolError(f"--repo must be ORG/REPO, got {args.repo!r}")
-    run = find_run(args.repo, args.action, args.workflow)
+    # Both lookups take seconds -- the first pages through a thousand runs --
+    # so each says what it is doing before it starts.
+    scope = f" of workflow {args.workflow!r}" if args.workflow else ""
     out.info(
-        f"run #{run.number} ({run.workflow}) is id {run.id}",
+        f"looking for the id of run #{args.action}{scope} in {args.repo} "
+        f"(among its latest {RUN_WINDOW} runs)"
+    )
+    run = find_run(
+        args.repo,
+        args.action,
+        args.workflow,
+        on_page=lambda n: out.live([f"searched {n} runs for #{args.action}"]),
+    )
+    out.live([])
+    out.info(
+        f"found run #{run.number} ({run.workflow}): id {run.id}",
         run_number=run.number,
         run_id=run.id,
         workflow=run.workflow,
     )
+    out.info(f"looking for the artifacts of run #{run.number} (id {run.id})")
     every = list_artifacts(args.repo, run.id)
+    live = [a for a in every if not a.expired]
+    out.info(
+        f"found {len(live)} artifact(s) to download, "
+        f"{_size(sum(a.size for a in live))} in all",
+        artifacts=[a.name for a in live],
+        bytes=sum(a.size for a in live),
+    )
     expired = [a.name for a in every if a.expired]
     if expired:
         out.warn(f"{len(expired)} expired artifact(s) skipped: {', '.join(expired)}")
-    live = [a for a in every if not a.expired]
     dest = pathlib.Path(args.dir)
     if not live:
         raise ToolError(f"run #{run.number} has no artifacts to download")

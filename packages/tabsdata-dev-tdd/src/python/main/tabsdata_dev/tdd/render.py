@@ -8,7 +8,9 @@ Every line a command prints is an Event: which command, what kind (ok, error,
 warn, info, debug), a message, and optional fields. The Renderer turns events
 into either JSON Lines or terminal text, colours them by kind when the target
 stream is a terminal, hides debug unless --verbose, and writes the failure log
-an error requires. Commands never print; they call the renderer.
+an error requires. Commands never print; they call the renderer. On a terminal
+it can also keep a status block redrawn in place below the events (`live`),
+for progress that would otherwise scroll a line per tick.
 
 This file exists twice, byte for byte: here for the tools, and as
 tabsdata_dev.tdd.render for tdd-exe, which is standard-library only and cannot
@@ -23,6 +25,7 @@ import json
 import os
 import re
 import pathlib
+import shutil
 import sys
 from typing import Any, TextIO
 
@@ -174,10 +177,62 @@ class Renderer:
         self.verbose = verbose
         self.out = out or sys.stdout
         self.err = err or sys.stderr
+        # The status block `live` keeps at the bottom of stderr, as drawn.
+        self._live: list[str] = []
+
+    def can_live(self) -> bool:
+        """Whether `live` redraws in place: the view format, stderr a terminal."""
+        return self.fmt == "view" and _isatty(self.err)
+
+    def live(self, lines: list[str]) -> None:
+        """Redraw the status block -- one line per thing in progress -- in
+        place of the last one; an empty list removes it. Events print above
+        it, and the outcome (ok, error) removes it for good. Each line is cut
+        to the terminal's width: a line that wrapped would take two rows, and
+        the next redraw would climb one too few. Nothing is written where it
+        cannot redraw (JSON, a pipe, a log): report progress as events there,
+        which is what `can_live` is for."""
+        if not self.can_live():
+            return
+        self._erase()
+        width = max(20, shutil.get_terminal_size((80, 24)).columns - 1)
+        self._live = [
+            line if len(line) <= width else line[: width - 1] + "\u2026"
+            for line in lines
+        ]
+        self._draw()
+
+    def _erase(self) -> None:
+        # Up to the block's first row, column 1 (CPL), then clear to the end
+        # of the screen (ED): the rows are gone and the cursor is where the
+        # block began.
+        if self._live:
+            self.err.write(f"\033[{len(self._live)}F\033[J")
+            self.err.flush()
+
+    def _draw(self) -> None:
+        for line in self._live:
+            self.err.write(line + "\n")
+        self.err.flush()
 
     def emit(self, event: Event) -> None:
         if event.kind == "debug" and not self.verbose:
             return
+        if self._live:
+            # The event goes above the block: erase it, print, draw it again
+            # below -- unless the event is the outcome, after which there is
+            # nothing left in progress to show.
+            self._erase()
+            if event.kind in ("ok", "error"):
+                self._live = []
+            try:
+                self._print(event)
+            finally:
+                self._draw()
+            return
+        self._print(event)
+
+    def _print(self, event: Event) -> None:
         if self.fmt == "json":
             stream = self.out
             text = event.as_json()

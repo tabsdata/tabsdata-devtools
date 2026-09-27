@@ -20,12 +20,14 @@ state = json.loads(pathlib.Path(os.environ["FAKE_GH_STATE"]).read_text())
 with open(os.environ["FAKE_GH_LOG"], "a") as log:
     log.write(json.dumps(sys.argv[1:]) + "\\n")
 args = sys.argv[1:]
-if args[:2] == ["run", "list"]:
-    runs = state["runs"]
-    if "-w" in args:
-        wf = args[args.index("-w") + 1]
-        runs = [r for r in runs if r["workflowName"] == wf]
-    print(json.dumps(runs))
+if args[0] == "api" and "/actions/runs?" in args[1]:
+    # repos/O/R/actions/runs?per_page=P&page=N, newest first, as the jq wants
+    query = dict(kv.split("=") for kv in args[1].split("?")[1].split("&"))
+    size, page = int(query["per_page"]), int(query["page"])
+    for r in state["runs"][(page - 1) * size : page * size]:
+        print(json.dumps({{"id": r["databaseId"], "run_number": r["number"],
+                          "name": r["workflowName"],
+                          "path": ".github/workflows/" + r["workflowName"] + ".yml"}}))
 elif args[0] == "api" and args[1].endswith("/zip"):
     # repos/O/R/actions/artifacts/<id>/zip: the artifact, zipped, on stdout
     import io, tarfile, zipfile
@@ -124,7 +126,10 @@ def test_extracts_every_live_artifact_straight_into_the_dir(
         assert not (tmp_path / name).exists()  # no folder per artifact
     assert not (tmp_path / "old.txt").exists()
     calls = gh.calls()
-    assert calls[0][:4] == ["run", "list", "-R", ci.DEFAULT_REPO]
+    assert calls[0][:2] == [
+        "api",
+        f"repos/{ci.DEFAULT_REPO}/actions/runs?per_page=100&page=1",
+    ]
     assert calls[1][:2] == [
         "api",
         f"repos/{ci.DEFAULT_REPO}/actions/runs/111/artifacts",
@@ -347,3 +352,58 @@ def test_the_ticker_reports_while_a_download_runs(gh, tmp_path, monkeypatch):
     assert ci.download("o/r", [art], tmp_path, 1, out, tick=0.05) == []
     phases = [json.loads(x).get("phase") for x in buf.getvalue().splitlines()]
     assert "waiting" in phases
+
+
+class _Tty(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def test_on_a_terminal_progress_is_redrawn_in_place(monkeypatch):
+    """A terminal gets the status block, not a scrolling info line per tick."""
+    from tabsdata_dev.common.core import render
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    err = _Tty()
+    out = render.Renderer("ci", out=_Tty(), err=err)
+    with ci.Progress(out, tick=3600) as progress:
+        assert progress.in_place
+        key = progress.start("wheels", "downloading", 100)
+        progress.add(key, 40)
+        progress.report()
+        first = err.getvalue().splitlines()[0]
+        assert first.startswith(" 40%      40 B of 100 B") and first.endswith(
+            "  downloading  wheels"
+        )
+        progress.say("info", "wheels: downloaded")
+        progress.finish(key)
+        progress.report()
+    text = err.getvalue()
+    assert "\033[1F\033[Jwheels: downloaded\n" in text
+    assert text.endswith("\033[1F\033[J")  # the block is gone at the end
+
+
+def test_the_run_search_pages_and_stops_at_the_first_page_that_has_it(
+    gh, monkeypatch, capsys
+):
+    """Newest first, a page at a time, no further than the page with the run;
+    `--workflow` matches a workflow's file name as well as its name."""
+    runs = [
+        {"number": 900 - i, "databaseId": 10_000 + i, "workflowName": "build"}
+        for i in range(250)
+    ]
+    gh(runs, [_art("x")])
+    code, events = _run(
+        ["download", "--action", "760", "--format", "json"], monkeypatch, capsys
+    )
+    assert code == 0 and events[-1]["run_id"] == 10_140
+    pages = [c[1] for c in gh.calls() if "/actions/runs?" in c[1]]
+    assert pages == [
+        f"repos/{ci.DEFAULT_REPO}/actions/runs?per_page=100&page=1",
+        f"repos/{ci.DEFAULT_REPO}/actions/runs?per_page=100&page=2",
+    ]
+    assert ci.find_run("o/r", 899, "build.yml").id == 10_001
+    seen = []
+    with pytest.raises(ci.ToolError, match="latest 250 runs"):
+        ci.find_run("o/r", 1, None, on_page=seen.append)
+    assert seen == [100, 200, 250]

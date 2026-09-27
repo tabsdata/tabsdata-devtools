@@ -15,7 +15,11 @@ dependencies are declared as ranges; each toolset's lock pins them.
   Commands never print; they hand the renderer events, and help is coloured by structure
   (headings bold, terms cyan) on both halves. A message that paints its own pieces instead of
   taking one colour by kind -- `config --show` -- takes them from `render.PAINTS` and is printed
-  as it is. `render.py` exists **twice, byte for byte** -- here
+  as it is. On a terminal the renderer also keeps a status block redrawn in place below the
+  events (`live(lines)`, `can_live()`): events print above it, the outcome removes it, each line
+  is cut to the terminal's width so a redraw never climbs one row short; in JSON or a pipe it
+  writes nothing, and the command reports progress as events there. `render.py` exists
+  **twice, byte for byte** -- here
   for the tools and as `tabsdata_dev.tdd.render` for `tdd-exe`, which is standard-library only and
   cannot import this package; a test in `-tdd` fails when the two diverge.
 - `config` -- `<tdd_dir>/<command>.toml`, every command's own file: `[options]` defaults merged

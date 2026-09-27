@@ -817,3 +817,44 @@ def test_confirm_takes_yes_from_the_flag_or_the_keyboard_and_nowhere_else(monkey
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True, raising=False)
     with pytest.raises(ToolError, match="no terminal to ask on"):
         cli.confirm(render.Renderer("probe", fmt="json"), "go?", assume_yes=False)
+
+
+class _Tty(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def test_live_block_redraws_in_place_below_the_events(monkeypatch):
+    """On a terminal the status block is erased and redrawn around every
+    event, cut to the terminal's width, and the outcome removes it."""
+    import os
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr(
+        render.shutil, "get_terminal_size", lambda *_: os.terminal_size((21, 24))
+    )
+    out, err = _Tty(), _Tty()
+    r = render.Renderer("demo", out=out, err=err)
+    assert r.can_live()
+    r.live(["a: 10%", "b: a line far too long for it"])
+    assert err.getvalue() == "a: 10%\nb: a line far too l…\n"
+    r.info("step")
+    assert err.getvalue().endswith("\033[2F\033[Jstep\na: 10%\nb: a line far too l…\n")
+    r.live(["a: 20%"])
+    assert err.getvalue().endswith("\033[2F\033[Ja: 20%\n")
+    r.ok("done")
+    assert err.getvalue().endswith("\033[1F\033[J") and out.getvalue() == "done\n"
+    r.info("after")
+    assert err.getvalue().endswith("\033[1F\033[Jafter\n")  # no block to redraw
+
+
+def test_live_writes_nothing_off_a_terminal():
+    import io
+
+    for fmt, err in (("view", io.StringIO()), ("json", _Tty())):
+        out = io.StringIO()
+        r = render.Renderer("demo", fmt=fmt, out=out, err=err)
+        assert not r.can_live()
+        r.live(["a: 10%"])
+        r.live([])
+        assert err.getvalue() == "" and out.getvalue() == ""
