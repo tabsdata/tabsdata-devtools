@@ -71,7 +71,7 @@ _CFG = {
     "tabsdata.cdc.trigger.max_secs": 10,
     "tabsdata.cdc.poll_interval_seconds": 1,
     "db2.cdc.blocking_timeout_seconds": 5,
-    "db2.cdc.fetch_size": 500,
+    "tabsdata.cdc.fetch_size": 500,
 }
 
 
