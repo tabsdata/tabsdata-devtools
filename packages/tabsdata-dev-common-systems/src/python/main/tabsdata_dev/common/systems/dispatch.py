@@ -1228,7 +1228,9 @@ _COMMON = {
 # Batch create / destroy (operate across the whole store, not one slug)
 # ======================================================================
 
-_MANIFEST_KEYS = {"name", "type", "sys", "model", "size"}
+# `emit-ops` belongs to the create-data step, not to create: every other key
+# not listed here is a create flag.
+_MANIFEST_KEYS = {"name", "type", "sys", "model", "size", "emit-ops"}
 
 
 def _entry_option_argv(entry: dict) -> list[str]:
@@ -1307,6 +1309,11 @@ def _entry_steps(
                 name,
                 constants.OPT_SIZE,
                 str(entry["size"]),
+                *(
+                    [constants.OPT_EMIT_OPS, str(entry["emit-ops"])]
+                    if entry.get("emit-ops")
+                    else []
+                ),
                 *d,
                 *f,
             ]

@@ -5,9 +5,10 @@
 """YAML manifests for batch tdd system / tdd domain create + destroy.
 
 A manifest is a YAML **list** of entries. A SYSTEM entry is
-``{name, type, <create flags>}``; a DOMAIN entry is ``{name, sys, model?, size?}``
-(its keys mirror the ``tdd domain create`` + ``create-model`` + ``create-data
---size`` invocations that reproduce it). The domain entity prefix is deliberately NOT
+``{name, type, <create flags>}``; a DOMAIN entry is ``{name, sys, model?, size?,
+emit-ops?}`` (its keys mirror the ``tdd domain create`` + ``create-model`` +
+``create-data --size [--emit-ops FILE]`` invocations that reproduce it; ``emit-ops``
+appends the load's operations to FILE, for a caller that checks them later). The domain entity prefix is deliberately NOT
 recorded, so a domain manifest replays under each run's own ``d_<user>_<build>_``
 prefix. Object-store / warehouse / service systems read their connection config
 from the environment at create (and bake it into the descriptor), so a system

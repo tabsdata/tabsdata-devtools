@@ -32,7 +32,9 @@ manifests so a test suite gets the same data on every backend.
   manifest (`--sync` reconciles the store to it) and on `destroy/status`. Targets run in parallel
   in their own `tdd-exe` children, heaviest first, bounded by `$TDD_PARALLELISM`, and their
   events are re-emitted by the parent; `--fail-fast` stops at the first failure and
-  `--report FILE` writes a JSON run record. This is how `xp` provisions.
+  `--report FILE` writes a JSON run record. This is how `xp` provisions. A domain entry's
+  `emit-ops: FILE` goes to its create-data step (`--emit-ops FILE`), not to create: the seed's
+  operations appended for a caller to check.
 - **The model and its data come off as they went on.** `delete-data` empties the model's
   entities and keeps them -- the domain is left as `create-model` leaves it, so `create-data`
   follows without `--force` -- and it is the schema dropped and installed again, not a `DELETE`

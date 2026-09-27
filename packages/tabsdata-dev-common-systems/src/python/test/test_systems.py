@@ -1782,3 +1782,23 @@ def test_postgrescdc_destroy_leaves_a_slot_it_did_not_create_to_its_creator(
         backend._do_delete(admin, "dom_a")
     assert slots["dom_a"] == ["td_cdc_initial_load"]  # its own slot went, not this
     assert not any(st.startswith("DROP DATABASE") for _, st in ran)
+
+
+def test_a_manifest_entrys_emit_ops_goes_to_its_create_data_step():
+    """`emit-ops` is create-data's, not a create flag: the one key the entry
+    passes to a later step rather than to `create`."""
+    entry = {
+        "name": "d1",
+        "sys": "pg",
+        "model": "world",
+        "size": 1,
+        "emit-ops": "/w/ops.jsonl",
+    }
+    create, model, data = dispatch._entry_steps(constants.DOM_TOOL, entry, force=False)
+    assert constants.OPT_EMIT_OPS not in create and "--emit-ops" not in model
+    assert data[:5] == [constants.V_CREATE_DATA, "--domain", "d1", "--size", "1"]
+    assert data[5:7] == [constants.OPT_EMIT_OPS, "/w/ops.jsonl"]
+    *_, plain = dispatch._entry_steps(
+        constants.DOM_TOOL, {**entry, "emit-ops": None}, force=False
+    )
+    assert constants.OPT_EMIT_OPS not in plain
