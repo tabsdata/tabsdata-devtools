@@ -1,10 +1,11 @@
 {
-  "fingerprint": "ca5679c39e7961fa",
+  "fingerprint": "7240200c880fb804",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
       "tabsdata-dev-deps-launchers",
       "tabsdata-dev-tool-apidoc",
+      "tabsdata-dev-tool-ci",
       "tabsdata-dev-tool-jq",
       "tabsdata-dev-tool-km",
       "tabsdata-dev-tool-mexe",
@@ -136,6 +137,19 @@
       "package": "tabsdata-dev-tool-apidoc",
       "reqs": [],
       "summary": "a Python package's public API as structured JSON (or Markdown descriptions), read statically with griffe",
+      "toolset": "launchers"
+    },
+    "ci": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "hidden": false,
+      "launcher": false,
+      "package": "tabsdata-dev-tool-ci",
+      "reqs": [
+        "gh"
+      ],
+      "summary": "GitHub Actions runs: download a run's artifacts, in parallel",
       "toolset": "launchers"
     },
     "domain": {
