@@ -19,7 +19,15 @@ A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
   entries keep running through the stages after it (see ``live``);
 * ``sentinel`` -- latches: each holds until a key shows up in some version of
   a project table (``tdd domain sentinel-data`` wrote it at the source), or
-  fails when its ``time_out`` runs out.
+  fails when its ``time_out`` runs out;
+* ``execute`` -- python scripts in the suite dir (``scripts/``), run in order,
+  each passing when it exits 0: checks a run makes of what it produced.
+  ``continue_on_fail`` lets the suite go on past a failed one, still failing
+  the run at its end.
+
+``${XP_WORK_DIR}`` / ``${XP_PROJECT}`` in a domain's ``emit_ops``, a live
+domain entry's options or an execute entry's params name the run's working
+dir and project (see ``work``).
 
 A duration -- a live ``sleep``, a sentinel's ``time_out`` -- is
 ``"<VALUE><UNIT>"`` with unit ``s``, ``m`` or ``h`` (``"90s"``, ``"2m"``,
@@ -46,7 +54,7 @@ from pydantic import (
     model_validator,
 )
 
-from . import state, suites
+from . import state, suites, work
 
 CONN_FILE_SCHEME = "connection-file:"
 
@@ -73,6 +81,24 @@ class Domain(BaseModel):
     # has no per-run uniqueness, so two instances of the suite share backend
     # objects and the second one's create fails on the first one's.
     name_in_system: str | None = None
+    # A file the seed's create-data appends its operations to (`--emit-ops`),
+    # typically under ${XP_WORK_DIR}, for a script to check later.
+    emit_ops: str | None = None
+
+    @model_validator(mode="after")
+    def _known_tokens(self) -> Domain:
+        _refuse_unknown_tokens(self.emit_ops or "", f"domain {self.name!r}: emit_ops")
+        return self
+
+
+def _refuse_unknown_tokens(text: str, where: str) -> None:
+    bad = work.unknown(text)
+    if bad:
+        raise ValueError(
+            f"{where}: ${{{bad[0]}}} is not a token (known: "
+            + ", ".join(f"${{{t}}}" for t in work.TOKENS)
+            + ")"
+        )
 
 
 class Collection(BaseModel):
@@ -139,6 +165,8 @@ class LiveDomain(BaseModel):
         reserved = sorted({o.split("=", 1)[0] for o in self.options} & LIVE_RESERVED)
         if reserved:
             raise ValueError(f"live options set by xp itself: {', '.join(reserved)}")
+        for o in self.options:
+            _refuse_unknown_tokens(o, f"live {self.command} on {self.name!r}")
         return self
 
     def has_option(self, flag: str) -> bool:
@@ -261,6 +289,37 @@ class Sentinel(BaseModel):
         return seconds_of(self.time_out, "time_out")
 
 
+class Execute(BaseModel):
+    """A check script: ``py_script`` (a path in the suite dir, by convention
+    under ``scripts/``) run with xp's own python and ``params`` as its argv.
+    Exit 0 passes; anything else fails the step, and the run -- at once, or,
+    with ``continue_on_fail``, once the suite's stages have all run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    py_script: str
+    params: list[str] = []
+    continue_on_fail: bool = False
+
+    @model_validator(mode="after")
+    def _a_script_in_the_suite(self) -> Execute:
+        if not _LIVE_NAME.match(self.name):
+            raise ValueError(
+                f"execute name {self.name!r}: a letter, then letters, digits, '_' or '-'"
+            )
+        script = pathlib.PurePosixPath(self.py_script)
+        if script.is_absolute() or ".." in script.parts or script.suffix != ".py":
+            raise ValueError(
+                f"execute {self.name!r}: py_script {self.py_script!r} must be a .py "
+                "path inside the suite dir (e.g. scripts/check.py)"
+            )
+        self.params = [str(p) for p in self.params]
+        for p in self.params:
+            _refuse_unknown_tokens(p, f"execute {self.name!r}")
+        return self
+
+
 STAGE_KINDS = (
     "domains",
     "collections",
@@ -269,6 +328,7 @@ STAGE_KINDS = (
     "monitor",
     "live",
     "sentinel",
+    "execute",
 )
 
 
@@ -286,6 +346,7 @@ class Stage(BaseModel):
     triggers: list[Trigger] = []
     live: list[LiveEntry] = []
     sentinel: list[Sentinel] = []
+    execute: list[Execute] = []
 
 
 class Instance(BaseModel):
@@ -380,6 +441,24 @@ class Instance(BaseModel):
                 visible[e.name] = e.kind
 
         walk(self.live, {})
+        return self
+
+    @model_validator(mode="after")
+    def _scripts_are_there(self) -> Instance:
+        """Execute names unique across the suite, and each script present in
+        the suite dir -- a missing one is found when the suite is read, not
+        after the stages before it have run."""
+        seen: set[str] = set()
+        for stage in self.stages:
+            for e in stage.execute:
+                if e.name in seen:
+                    raise ValueError(f"execute name {e.name!r} is used twice")
+                seen.add(e.name)
+                if not (pathlib.Path(self.source_dir) / e.py_script).is_file():
+                    raise ValueError(
+                        f"stage {stage.at}: execute {e.name!r}: no script "
+                        f"{e.py_script!r} in {self.source_dir}"
+                    )
         return self
 
     def domain(self, name: str) -> Domain:

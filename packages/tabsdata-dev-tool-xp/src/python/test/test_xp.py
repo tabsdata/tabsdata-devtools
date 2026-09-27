@@ -1588,6 +1588,167 @@ def test_run_suite_dry_run_shows_the_sentinel_after_the_stages_before_it(
     assert any("until 'k' is in one, at most 90s" in ln for ln in lines)
 
 
+def _script(xp_root, body: str, name: str = "check.py") -> str:
+    path = xp_root / "suites" / "staged" / "scripts" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
+    return f"scripts/{name}"
+
+
+def test_the_work_dir_tokens_expand_at_use_and_unknown_ones_are_refused(xp_root):
+    """${XP_WORK_DIR} is the run's <scratch>/work, made on first use;
+    ${XP_PROJECT} needs a project; any other ${XP_*} is a typo, refused when
+    the suite is read."""
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import state, work
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    expanded = work.expand("${XP_WORK_DIR}/ops.jsonl")
+    assert expanded == f"{work.work_dir()}/ops.jsonl" and work.work_dir().is_dir()
+    assert work.expand("p=${XP_PROJECT}", "proj") == "p=proj"
+    with pytest.raises(state.XpError, match=r"\$\{XP_PROJECT\} has no value here"):
+        work.expand("${XP_PROJECT}")
+    doc = [
+        {
+            "domains": [
+                {
+                    "name": "d",
+                    "system": "fs",
+                    "model": "world",
+                    "emit_ops": "${XP_WORKDIR}/x",
+                }
+            ]
+        }
+    ]
+    with pytest.raises(state.XpError, match=r"\$\{XP_WORKDIR\} is not a token"):
+        build_instance("i", _staged_suite(xp_root, doc))
+
+
+def test_a_domains_emit_ops_reaches_its_manifest_entry_expanded(xp_root):
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import domains, state, work
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    doc = [
+        {
+            "domains": [
+                {
+                    "name": "d",
+                    "system": "fs",
+                    "model": "world",
+                    "emit_ops": "${XP_WORK_DIR}/ops.jsonl",
+                }
+            ]
+        }
+    ]
+    inst = build_instance("i", _staged_suite(xp_root, doc))
+    entry = domains.domain_entry(inst, inst.domains[0], "ts")
+    assert entry["emit-ops"] == f"{work.work_dir()}/ops.jsonl"
+
+
+@pytest.mark.parametrize(
+    "entry, why",
+    [
+        (
+            {"name": "x", "py_script": "/abs/check.py"},
+            "must be a .py path inside the suite",
+        ),
+        (
+            {"name": "x", "py_script": "../check.py"},
+            "must be a .py path inside the suite",
+        ),
+        (
+            {"name": "x", "py_script": "scripts/missing.py"},
+            "no script 'scripts/missing.py'",
+        ),
+        ({"name": "x", "py_script": "scripts/check.py", "retries": 2}, "Extra inputs"),
+        (
+            {"name": "x", "py_script": "scripts/check.py", "params": ["${XP_NOPE}"]},
+            r"\$\{XP_NOPE\} is not a token",
+        ),
+    ],
+)
+def test_a_bad_execute_entry_is_refused_when_read(xp_root, entry, why):
+    from tabsdata_dev.tool.xp import state
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    _script(xp_root, "import sys; sys.exit(0)\n")
+    with pytest.raises(state.XpError, match=why):
+        build_instance("i", _staged_suite(xp_root, [{"execute": [entry]}]))
+
+
+def _execute_suite(xp_root, entries):
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import state
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    return build_instance("i", _staged_suite(xp_root, [{"execute": entries}]))
+
+
+def test_an_execute_script_gets_its_params_env_and_path(xp_root, monkeypatch):
+    """Run with xp's python from the suite dir, params expanded, the run's
+    names in its environment and xp's venv first on its PATH."""
+    import sys
+
+    from tabsdata_dev.tool.xp import execute, work
+
+    monkeypatch.setenv("TDD_DIR", str(xp_root.parent / "tdd"))
+    out = xp_root / "seen.json"
+    _script(
+        xp_root,
+        "import json, os, sys\n"
+        f"json.dump({{'argv': sys.argv[1:], 'cwd': os.getcwd(), "
+        "'env': {k: os.environ[k] for k in ('XP_WORK_DIR', 'XP_PROJECT', 'XP_INSTANCE')}, "
+        f"'path0': os.environ['PATH'].split(os.pathsep)[0]}}, open({str(out)!r}, 'w'))\n",
+    )
+    inst = _execute_suite(
+        xp_root,
+        [
+            {
+                "name": "c",
+                "py_script": "scripts/check.py",
+                "params": ["${XP_WORK_DIR}/ops.jsonl", "${XP_PROJECT}"],
+            }
+        ],
+    )
+    assert execute.run_scripts(inst, "proj", inst.stages[0].execute) == 0
+    seen = json.loads(out.read_text())
+    assert seen["argv"] == [f"{work.work_dir()}/ops.jsonl", "proj"]
+    assert (
+        pathlib.Path(seen["cwd"]).resolve() == pathlib.Path(inst.source_dir).resolve()
+    )
+    assert seen["env"] == {
+        "XP_WORK_DIR": str(work.work_dir()),
+        "XP_PROJECT": "proj",
+        "XP_INSTANCE": "i",
+    }
+    assert seen["path0"] == str(pathlib.Path(sys.executable).parent)
+
+
+def test_a_failed_script_stops_the_run_unless_it_continues_on_fail(
+    xp_root, monkeypatch
+):
+    from tabsdata_dev.tool.xp import execute, state
+
+    monkeypatch.setenv("TDD_DIR", str(xp_root.parent / "tdd"))
+    _script(xp_root, "print('row 3 differs'); raise SystemExit(1)\n", "bad.py")
+    _script(xp_root, "raise SystemExit(0)\n", "good.py")
+    bad = {"name": "bad", "py_script": "scripts/bad.py"}
+    good = {"name": "good", "py_script": "scripts/good.py"}
+
+    inst = _execute_suite(xp_root, [{**bad, "continue_on_fail": True}, good])
+    assert execute.run_scripts(inst, "p", inst.stages[0].execute) == 1  # deferred
+    steps = [(s["path"], s["ok"]) for s in state.run.reporter.steps]
+    assert steps[-2:] == [("bad", False), ("good", True)]  # the next one still ran
+
+    inst = _execute_suite(xp_root, [bad, good])
+    with pytest.raises(state.XpError, match="(?s)execute 'bad' failed.*row 3 differs"):
+        execute.run_scripts(inst, "p", inst.stages[0].execute)
+
+
 def test_enable_and_disable_a_registered_function(xp_root, capsys):
     from tabsdata_dev.tool.xp import pointers
 

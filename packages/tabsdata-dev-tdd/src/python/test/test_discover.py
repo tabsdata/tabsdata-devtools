@@ -30,7 +30,7 @@ def test_bin_reqs_rejects_a_path(tmp_path):
 def test_discover_real_repo():
     found = discover.discover(paths.repo_root())
     assert found["tools"]["km"]["toolset"] == "launchers"
-    assert found["tools"]["xp"]["toolset"] == "systems"
+    assert found["tools"]["xp"]["toolset"] == "xp"  # its own: deps-xp
     # commented out with `[tool.tdd] disabled = true`: the package is in the
     # tree and the generator does not see it
     assert "gsx" not in found["tools"]

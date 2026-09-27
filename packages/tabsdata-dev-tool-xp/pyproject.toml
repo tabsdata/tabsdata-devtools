@@ -6,9 +6,9 @@ name = "tabsdata-dev-tool-xp"
 dynamic = ["version"]
 description = "run tabsdata example suites: instances, domains, projects, triggers, one-shot and bench"
 requires-python = ">=3.11"
-# pydantic + pyyaml come from the systems bundle, whose toolset also holds the
-# `domain` tool this one drives; tdk is reached through `tdd tdk`, never imported.
-dependencies = ["tabsdata-dev-deps-systems", "tabsdata-dev-common-core"]
+# Its own toolset: `domain` and tdk are reached through `tdd`, never imported, so
+# xp shares no resolution with them (deps-xp says why that matters).
+dependencies = ["tabsdata-dev-deps-xp", "tabsdata-dev-common-core"]
 
 [project.scripts]
 xp = "tabsdata_dev.tool.xp:main"
@@ -38,4 +38,4 @@ testpaths = ["src/python/test"]
 
 [tool.uv.sources]
 tabsdata-dev-common-core = { path = "../tabsdata-dev-common-core", editable = true }
-tabsdata-dev-deps-systems = { path = "../tabsdata-dev-deps-systems", editable = true }
+tabsdata-dev-deps-xp = { path = "../tabsdata-dev-deps-xp", editable = true }

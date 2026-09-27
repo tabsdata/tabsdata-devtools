@@ -1300,20 +1300,6 @@ requires-dist = [
 ]
 
 [[package]]
-name = "tabsdata-dev-tool-xp"
-source = { editable = "../tabsdata-dev-tool-xp" }
-dependencies = [
-    { name = "tabsdata-dev-common-core" },
-    { name = "tabsdata-dev-deps-systems" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "tabsdata-dev-common-core", editable = "../tabsdata-dev-common-core" },
-    { name = "tabsdata-dev-deps-systems", editable = "../tabsdata-dev-deps-systems" },
-]
-
-[[package]]
 name = "tabsdata-dev-toolset-systems"
 version = "0.1.0"
 source = { virtual = "." }
@@ -1321,7 +1307,6 @@ dependencies = [
     { name = "tabsdata-dev-deps-systems" },
     { name = "tabsdata-dev-tool-domain" },
     { name = "tabsdata-dev-tool-system" },
-    { name = "tabsdata-dev-tool-xp" },
 ]
 
 [package.metadata]
@@ -1329,7 +1314,6 @@ requires-dist = [
     { name = "tabsdata-dev-deps-systems", editable = "../tabsdata-dev-deps-systems" },
     { name = "tabsdata-dev-tool-domain", editable = "../tabsdata-dev-tool-domain" },
     { name = "tabsdata-dev-tool-system", editable = "../tabsdata-dev-tool-system" },
-    { name = "tabsdata-dev-tool-xp", editable = "../tabsdata-dev-tool-xp" },
 ]
 
 [[package]]

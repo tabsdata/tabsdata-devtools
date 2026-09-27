@@ -12,9 +12,12 @@ prints the `tdd tdk`/`tdd domain` lines.
 
 ## Shape
 
-- Toolset `systems`; depends on `deps-systems` (pydantic, pyyaml), `common-core`. Modules:
-  `state`, `reporter`, `models`, `suites`, `pointers`, `shell`, `conn`, `lanes`, `domains`,
-  `project`, `live`, `cycle`.
+- Toolset `xp`, its own; depends on `deps-xp` (pydantic, pyyaml, parquet-tools), `common-core`.
+  Modules: `state`, `reporter`, `models`, `suites`, `pointers`, `shell`, `conn`, `lanes`,
+  `domains`, `project`, `live`, `work`, `execute`, `cycle`. xp reaches `domain` and tdk through
+  `tdd` and imports neither, so it shares no resolution with them: `parquet-tools`, for the
+  suites' check scripts (which run on xp's python), caps pandas below 3, and that stays in this
+  toolset instead of deciding every database driver's in `systems`, where xp lived before.
 - The tabsdata-xp `suites/` and `connections/` trees are **carried by** the package and are the
   default. They live at `<repo>/xp-tool/` (excluded from ruff), where they are read and edited,
   and a wheel build copies them in beside the module (`force-include`); an editable install
@@ -76,8 +79,9 @@ prints the `tdd tdk`/`tdd domain` lines.
 ## Suite stages
 
 A suite is an ordered **list of stages**, each an object holding one of `domains`,
-`collections`, `functions`, `triggers`, `monitor` (`true`), `live` or `sentinel`, plus `_`-prefixed
-annotations (`_comment`, `_copyright`; an object holding only those is a comment). Kinds repeat, in any order the dependencies allow:
+`collections`, `functions`, `triggers`, `monitor` (`true`), `live`, `sentinel` or `execute`,
+plus `_`-prefixed annotations (`_comment`, `_copyright`; an object holding only those is a
+comment). Kinds repeat, in any order the dependencies allow:
 
 ```
 [
@@ -131,6 +135,27 @@ annotations (`_comment`, `_copyright`; an object holding only those is a comment
   `m` or `h` (`"90s"`, `"2m"`, `"1.5h"`), and nothing else: a bare number is refused when the
   suite is read, since nothing in it says what it counts. `sleep` was `sleep_secs`, a number of
   seconds; the one suite using it was converted.
+- **A run has a working dir**, `<scratch>/work`, made on first use and kept with the scratch dir.
+  A suite names it `${XP_WORK_DIR}` -- in a domain's `emit_ops`, a live domain entry's options, an
+  execute entry's params -- and the run's project `${XP_PROJECT}`; they are replaced when the
+  value is used (the dir is a run's; a suite is read before any run), and any other `${XP_*}` is
+  refused when the suite is read. A domain's `"emit_ops": FILE` becomes its manifest entry's
+  `emit-ops`, so the seed's create-data appends its operations to FILE (`--emit-ops`), as the
+  live data commands do with `--emit-ops` in their options: one trail of every operation a run
+  applied, for a script to check against what came out the other end.
+- **An execute stage runs check scripts**: `{"execute": [{"name", "py_script", "params": [...],
+  "continue_on_fail": false}]}`. `py_script` is a `.py` in the suite dir (by convention
+  `scripts/`), checked for when the suite is read, and run from the suite dir with xp's python
+  and `params` as its argv; exit 0 passes. It gets `XP_WORK_DIR`, `XP_PROJECT`, `XP_INSTANCE`,
+  `XP_SUITE_DIR` and a PATH led by xp's venv (`parquet-tools`) and the dispatcher's (`tdd-exe`:
+  `tdd` is a shell function, so a script calls `tdd-exe tdk ...`). Its output is in run.log, its
+  last lines the step's error. A failure stops the run; `continue_on_fail` lets the stages after
+  it run and fails the run at the end -- a check that fails is never a green run. Rejected: a
+  script that passes by printing, or a result file -- an exit code is what every tool already
+  speaks. `container-connectors/scripts/verify_cdc_ops.py` is the first: the CDC stream's
+  output against the trail, the snapshot as the state the operations before it leave, and the
+  changes after it one by one in the same source transactions (cascaded deletes allowed beside
+  them).
 - **`"enabled": false`** on a function registers it with `tdk fn register --disabled`: a stream
   publisher does not start until `enable-function --project P --collection C --function F`
   (tdk's `fn enable`); `disable-function` stops one. A group project is refused -- its lanes'
@@ -186,8 +211,9 @@ its end waits for what still runs, so nothing outlives the loop that started it,
   skips every live stage. A monitor stage sees what has started when it begins: a stream that
   buffers its changes needs the live stage before it to end with a `sleep` long enough for the
   last flush -- or, better, a sentinel stage waiting for a key written after the last change.
-  `live-domains --instance I` runs every live stage as one script, over a group's lanes too; `bench` does not run it -- its phases are timings, and a script's pauses would be
-  what they measured.
+  `live-domains --instance I` runs every live stage as one script, over a group's lanes too;
+  `bench` does not run it -- its phases are timings, and a script's pauses would be what they
+  measured.
 
 ## Suites, lanes and pointers
 

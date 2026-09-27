@@ -49,7 +49,7 @@ from concurrent.futures import Future
 
 from tabsdata_dev.common.core import proc
 
-from . import domains, lanes, pointers, shell, state
+from . import domains, lanes, pointers, shell, state, work
 from .models import Instance, LiveDomain, LiveEntry
 from .reporter import rep, reporting
 
@@ -65,7 +65,7 @@ def count(entries: list[LiveEntry]) -> int:
     return total
 
 
-def argv_of(inst: Instance, d: LiveDomain) -> list[str]:
+def argv_of(inst: Instance, d: LiveDomain, project: str | None = None) -> list[str]:
     """`tdd domain <command> --domain <instance>_<name> <options...>`, the
     suite domain's model and size filled in where the entry left them out."""
     extra: list[str] = []
@@ -78,8 +78,9 @@ def argv_of(inst: Instance, d: LiveDomain) -> list[str]:
         extra = ["--model", spec.model]
     if d.command == "create-data" and not d.has_option("--size") and spec.model:
         extra = ["--size", str(domains.size_multiplier(spec.data or "xs"))]
+    options = [work.expand(o, project) for o in d.options]
     return proc.tool_argv(
-        "domain", d.command, "--domain", inst.domain_full(d.name), *d.options, *extra
+        "domain", d.command, "--domain", inst.domain_full(d.name), *options, *extra
     )
 
 
@@ -105,7 +106,9 @@ class _Run:
     """What every thread of one script shares: the stop flag and the first
     failure, which is the run's."""
 
-    def __init__(self) -> None:
+    def __init__(self, project: str | None = None) -> None:
+        # The project the run is for, for ${XP_PROJECT} in an entry's options.
+        self.project = project
         self.stop = threading.Event()
         self.first: BaseException | None = None
         self._lock = threading.Lock()
@@ -216,7 +219,7 @@ def _run_entry(
 ) -> None:
     if e.domain is not None:
         d = e.domain
-        _call(argv_of(inst, d), d.command, inst.domain_full(d.name), label)
+        _call(argv_of(inst, d, run.project), d.command, inst.domain_full(d.name), label)
         return
     for i in range(1, e.passes + 1):
         if run.stop.is_set():
@@ -239,9 +242,9 @@ class Session:
     waits for everything still running; `abort` stops it all when a stage
     fails; either raises the first live failure."""
 
-    def __init__(self, inst: Instance) -> None:
+    def __init__(self, inst: Instance, project: str | None = None) -> None:
         self.inst = inst
-        self._run = _Run()
+        self._run = _Run(project)
         self._top = _Scope(None)
 
     def stage(self, entries: list[LiveEntry]) -> None:

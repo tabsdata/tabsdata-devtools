@@ -1,5 +1,5 @@
 {
-  "fingerprint": "6c19c13e9ea6f40c",
+  "fingerprint": "ef4ff46567491d3d",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
@@ -28,7 +28,11 @@
       "tabsdata-dev-common-systems",
       "tabsdata-dev-deps-systems",
       "tabsdata-dev-tool-domain",
-      "tabsdata-dev-tool-system",
+      "tabsdata-dev-tool-system"
+    ],
+    "xp": [
+      "tabsdata-dev-common-core",
+      "tabsdata-dev-deps-xp",
       "tabsdata-dev-tool-xp"
     ]
   },
@@ -256,13 +260,14 @@
       "package": "tabsdata-dev-tool-xp",
       "reqs": [],
       "summary": "run tabsdata example suites: instances, domains, projects, triggers, one-shot and bench",
-      "toolset": "systems"
+      "toolset": "xp"
     }
   },
   "toolsets": [
     "launchers",
     "pypi",
     "salesforce",
-    "systems"
+    "systems",
+    "xp"
   ]
 }

@@ -22,7 +22,7 @@ import yaml
 
 from tabsdata_dev.common.core import proc
 
-from . import lanes, pointers, shell, state
+from . import lanes, pointers, shell, state, work
 from .reporter import rep, reporting, scratch
 
 # A suite domain's `data` size LABEL -> `create-data --size` multiplier
@@ -66,7 +66,8 @@ def name_in_system(inst, d, run_ts: str) -> str:
 
 def domain_entry(inst, d, run_ts: str) -> dict:
     """The manifest entry for one suite domain: `name`, `sys`, `name-in-system`
-    (the manifest keys `tdd domain create --manifest` takes), plus `model`/`size`."""
+    (the manifest keys `tdd domain create --manifest` takes), plus `model`/`size`
+    and the `emit-ops` file its create-data appends to."""
     entry = {
         "name": inst.domain_full(d.name),
         "sys": d.system,
@@ -75,6 +76,8 @@ def domain_entry(inst, d, run_ts: str) -> dict:
     if d.model:
         entry["model"] = d.model
         entry["size"] = size_multiplier(d.data or "xs")
+        if d.emit_ops:
+            entry["emit-ops"] = work.expand(d.emit_ops)
     return entry
 
 

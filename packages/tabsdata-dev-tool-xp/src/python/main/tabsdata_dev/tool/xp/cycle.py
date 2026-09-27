@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 from tabsdata_dev.common.core import batch as core_batch
 
-from . import domains, lanes, live, pointers, project, shell, state, suites
+from . import domains, execute, lanes, live, pointers, project, shell, state, suites
 from .models import build_instance
 from .project import ns
 from .reporter import rep, reporting, scratch
@@ -76,11 +76,14 @@ def cmd_run_suite(args) -> None:
             return
         inst = pointers.load_instance(args.instance)
         domains.require_crypto_key()
-        if any(s.kind in _PROJECT_STAGES for s in inst.stages):
+        # A check script reads the project through tdk, so it needs the login
+        # too -- but not the project made on its account.
+        if any(s.kind in (*_PROJECT_STAGES, "execute") for s in inst.stages):
             shell.require_login()
         pointers.write_project(args.project, args.instance)
-        session = live.Session(inst)
+        session = live.Session(inst, args.project)
         made = False
+        deferred = 0  # scripts that failed with continue_on_fail
         try:
             for stage in inst.stages:
                 i = stage.at
@@ -100,6 +103,8 @@ def cmd_run_suite(args) -> None:
                     project.watch(args.project)
                 elif stage.kind == "sentinel":
                     project.wait_sentinels(args.project, stage.sentinel)
+                elif stage.kind == "execute":
+                    deferred += execute.run_scripts(inst, args.project, stage.execute)
                 elif no_live:
                     rep().note(f"stage {i}: live skipped (--no-live)")
                 else:
@@ -108,6 +113,11 @@ def cmd_run_suite(args) -> None:
             session.abort(exc)
             raise
         session.finish()
+        if deferred:
+            state.die(
+                f"{deferred} check script(s) failed (continue_on_fail let the "
+                "suite run on) -- see the execute steps above"
+            )
 
 
 def cmd_one_shot(args) -> None:

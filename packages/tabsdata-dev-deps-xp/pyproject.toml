@@ -1,0 +1,39 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# The xp toolset, kept apart from `systems` on purpose. xp reaches `domain` and
+# `tdk` through `tdd` and imports neither, so it needs none of the dialects and
+# drivers `deps-systems` pins -- and what it does need, parquet-tools for the
+# suites' check scripts, caps pandas below 3, which must not decide the
+# resolution of every database driver in the shop.
+[project]
+name = "tabsdata-dev-deps-xp"
+dynamic = ["version"]
+description = "pins for the xp toolset: suite models, YAML manifests, parquet reading for check scripts"
+requires-python = ">=3.11"
+dependencies = [
+    "pytest==9.1.1",
+    # The suite definition.
+    "pydantic==2.13.5",
+    # The domain manifests xp writes for `tdd domain create --manifest`.
+    "pyyaml==6.0.3",
+    # A suite's execute scripts run on xp's python and read the table versions
+    # they download with its `csv` subcommand.
+    "parquet-tools==0.2.16",
+]
+
+[tool.hatch.version]
+path = "../../VERSION"
+pattern = '^(?P<version>\S+)'
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src/python/main/tabsdata_dev"]
+sources = ["src/python/main"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/python/test"]
