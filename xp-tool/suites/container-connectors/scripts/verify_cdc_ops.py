@@ -11,24 +11,27 @@ were applied. COLLECTION holds the stream publisher's output, one
 ``<entity>_changes`` table per source table. The project is ``$XP_PROJECT``;
 every file this makes goes under ``$XP_WORK_DIR/cdc/``, left there to read.
 
-For each table: ``tdd-exe tdk table versions`` lists its versions, and each
-version that changed data is downloaded (``tdk table download``) and turned into
-CSV (``parquet-tools csv``) -- a version whose data did not change repeats the
-one before it, so reading it would count its rows twice. Each table's rows become
-``<table>.ops.jsonl``; all tables' together, in order, ``actual.jsonl``.
+The work is files through tools, each step one function (see ``main``):
 
-The stream's output is two things. The initial load is a snapshot: the tables'
-STATE when the stream started, every row an insert, in no order worth keeping.
-Everything after it is changes, grouped by source transaction and ordered by
-the position in it. So the last N transactions of OPS_FILE, N being how many
-source transactions the stream delivered, pair with those one to one: each of the
-trail's operations must appear in its source transaction, in order -- operation,
-table, key and values. A source transaction may carry more than the trail says,
-but only deletes: the rows an ON DELETE CASCADE took with the one the trail
-deleted, which the database did and no command asked for. They are counted and
-listed, not refused. The transactions before those N, replayed, must leave
-exactly the snapshot's rows in each table. Exit 0 when both hold, 1 with what
-differs otherwise.
+    get_table_versions  tdd tdk table versions   the versions that changed data
+    get_table_data      tdd tdk table download   one parquet per version
+    convert_parquet_to_json  tdd pqt csv         one JSON line per row
+    to_ops              tdd jq                   rows -> the trail's shape, in order
+    concat                                       files -> one file
+
+A version whose data did not change repeats the one before it, so only the
+versions that changed are read. The stream's output is two things. The initial
+load is a snapshot: the tables' STATE when the stream started, every row an
+insert, in no order worth keeping. Everything after it is changes, grouped by
+source transaction and ordered by the position in it. So the last N transactions
+of OPS_FILE, N being how many source transactions the stream delivered, pair
+with those one to one: each of the trail's operations must appear in its source
+transaction, in order -- operation, table, key and values. A source transaction
+may carry more than the trail says, but only deletes: the rows an ON DELETE
+CASCADE took with the one the trail deleted, which the database did and no
+command asked for. They are counted and listed, not refused. The transactions
+before those N, replayed, must leave exactly the snapshot's rows in each table.
+Exit 0 when both hold, 1 with what differs otherwise.
 """
 
 from __future__ import annotations
@@ -42,20 +45,110 @@ import sys
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-OLD = "@td.cdc.data.col.old."
-OP = "@td.cdc.meta.op"
-TX = "@td.cdc.meta.tx"
-SQ = "@td.cdc.meta.sq"
 LOAD_TX = "initial-load"
-_WHEN = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?)?$")
+
+# A stream row -> the trail's shape: `op` and `entity`, the source `tx` and `sq`,
+# `row` (the new values, the user's columns only) and `old` (the before-image).
+# A delete carries the row it removed in the data columns and leaves the
+# before-image empty: the row is its before-image. LOAD rows only mark where a
+# table's load begins, and go.
+_TO_OPS = r"""
+  select(.["@td.cdc.meta.op"] != "l")
+  | . as $r
+  | ($r | with_entries(select(.key | (startswith("@td.") or startswith("$td.")) | not))) as $new
+  | ($r | with_entries(select(.key | startswith("@td.cdc.data.col.old."))
+                       | .key |= ltrimstr("@td.cdc.data.col.old."))) as $old
+  | {"i": "insert", "u": "update", "d": "delete"}[$r["@td.cdc.meta.op"]] as $op
+  | {op: $op, entity: $entity, tx: $r["@td.cdc.meta.tx"], sq: ($r["@td.cdc.meta.sq"] | tonumber),
+     row: $new,
+     old: (if $op == "delete" and ($old | [.[]] | all(. == "")) then $new else $old end)}
+"""
+# The snapshot first, then the changes by source transaction and position.
+_IN_ORDER = r"""sort_by([.tx != "initial-load", (if .tx == "initial-load" then 0 else (.tx | tonumber) end), .sq]) | .[]"""
 
 
-def run(*argv: str) -> str:
-    """One command, its stdout; a failure ends the check with what it said."""
-    r = subprocess.run(argv, capture_output=True, text=True)
+# ---------------------------------------------------------------- tools ----
+
+
+def tdd(*args: str, out: Path | None = None) -> str:
+    """One `tdd` command -- `tdd-exe`, the executable behind the `tdd` shell
+    function -- its stdout returned, or written to `out`. A failure ends the
+    check with what the command said."""
+    r = subprocess.run(["tdd-exe", *args], capture_output=True, text=True)
     if r.returncode != 0:
-        sys.exit(f"{' '.join(argv)} exited {r.returncode}:\n{r.stderr or r.stdout}")
+        sys.exit(f"tdd {' '.join(args)} exited {r.returncode}:\n{r.stderr or r.stdout}")
+    if out is not None:
+        out.write_text(r.stdout, encoding="utf-8")
     return r.stdout
+
+
+def get_table_versions(proj: str, coll: str, table: str) -> list[str]:
+    """The ids of `table`'s versions that changed data, oldest first."""
+    versions = json.loads(
+        tdd("tdk", "table", "versions", "--proj", proj, "--coll", coll, "--name", table,
+            "--max-result", "0", "--format", "json")
+    )
+    changed = sorted((v for v in versions if v.get("data_changed")), key=lambda v: v.get("created_at") or 0)
+    return [v["id"] for v in changed]
+
+
+def get_table_data(proj: str, coll: str, table: str, versions: list[str], work: Path) -> list[Path]:
+    """Each version downloaded as a parquet file, in version order."""
+    files = []
+    for n, version in enumerate(versions):
+        f = work / f"{table}.{n:03d}.{version}.parquet"
+        tdd("tdk", "table", "download", "--proj", proj, "--coll", coll, "--name", table,
+            "--version", version, "--file", str(f))
+        files.append(f)
+    return files
+
+
+def convert_parquet_to_json(files: list[Path]) -> list[Path]:
+    """Each parquet file as JSON lines, one per row, every value a string (an
+    empty one for null). pqt prints CSV and jq reads no CSV, so the CSV is
+    parsed here -- quoting and all -- rather than split by hand."""
+    out = []
+    for f in files:
+        text = tdd("pqt", "csv", str(f))
+        dest = f.with_suffix(".jsonl")
+        dest.write_text("".join(json.dumps(row) + "\n" for row in csv.DictReader(text.splitlines())), encoding="utf-8")
+        out.append(dest)
+    return out
+
+
+def to_ops(file: Path, entity: str) -> Path:
+    """A table's rows as operations in the trail's shape, snapshot first and
+    then the changes in order (jq)."""
+    dest = file.with_name(f"{entity}_changes.ops.jsonl")
+    ops = tdd("jq", "-c", "--arg", "entity", entity, _TO_OPS, str(file))
+    return _jq_sorted(ops, dest)
+
+
+def concat(files: list[Path], dest: Path) -> Path:
+    """`files` one after another, as one file."""
+    dest.write_text("".join(f.read_text(encoding="utf-8") for f in files), encoding="utf-8")
+    return dest
+
+
+def in_order(file: Path, dest: Path) -> Path:
+    """`file`'s operations, from every table, interleaved in stream order (jq)."""
+    return _jq_sorted(file.read_text(encoding="utf-8"), dest)
+
+
+def _jq_sorted(jsonl: str, dest: Path) -> Path:
+    staged = dest.with_suffix(".unsorted.jsonl")
+    staged.write_text(jsonl, encoding="utf-8")
+    tdd("jq", "-c", "-s", _IN_ORDER, str(staged), out=dest)
+    return dest
+
+
+def read_jsonl(file: Path) -> list[dict]:
+    return [json.loads(line) for line in file.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+# ------------------------------------------------------------ comparing ----
+
+_WHEN = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?)?$")
 
 
 def norm(v) -> str | None:
@@ -81,45 +174,6 @@ def norm(v) -> str | None:
     except InvalidOperation:
         return s
     return str(int(d)) if d == d.to_integral_value() else str(d.normalize())
-
-
-def stream_rows(project: str, coll: str, table: str, out: Path) -> list[dict]:
-    """Every row the stream wrote to `table`, version by version, oldest first."""
-    where = ["--proj", project, "--coll", coll, "--name", table]
-    versions = json.loads(
-        run("tdd-exe", "tdk", "table", "versions", *where, "--max-result", "0", "--format", "json")
-    )
-    changed = [v for v in versions if v.get("data_changed")]
-    changed.sort(key=lambda v: v.get("created_at") or 0)
-    rows: list[dict] = []
-    for n, v in enumerate(changed):
-        stem = out / f"{table}.{n:03d}.{v['id']}"
-        run("tdd-exe", "tdk", "table", "download", *where, "--version", v["id"], "--file", f"{stem}.parquet")
-        text = run("parquet-tools", "csv", f"{stem}.parquet")
-        Path(f"{stem}.csv").write_text(text, encoding="utf-8")
-        rows += list(csv.DictReader(text.splitlines()))
-    return rows
-
-
-def as_op(entity: str, row: dict) -> dict:
-    """A stream row in the trail's shape: ``op``, ``entity``, then ``row`` (the
-    new values) and ``old`` (the before-image), plus the source tx and seq."""
-    # `@td.` is the connector's metadata, `$td.` the system's own columns.
-    new = {k: v for k, v in row.items() if not k.startswith(("@td.", "$td."))}
-    old = {k[len(OLD) :]: v for k, v in row.items() if k.startswith(OLD)}
-    op = {"i": "insert", "u": "update", "d": "delete"}.get(row.get(OP, ""), row.get(OP))
-    if op == "delete" and not any(old.values()):
-        # A delete carries the row it removed in the data columns and leaves the
-        # before-image empty: the row is its before-image.
-        old = new
-    return {
-        "op": op,
-        "entity": entity,
-        "tx": row.get(TX),
-        "sq": int(row.get(SQ) or 0),
-        "row": new,
-        "old": old,
-    }
 
 
 def matches(exp: dict, got: dict) -> str | None:
@@ -162,31 +216,13 @@ def replay(ops: list[dict]) -> dict[str, list[tuple]]:
     return {e: sorted(tuple((c, norm(v)) for c, v in sorted(r.items())) for r in t.values()) for e, t in state.items()}
 
 
-def main() -> int:
-    if len(sys.argv) != 3:
-        sys.exit(__doc__.strip().splitlines()[2])
-    ops_file, coll = Path(sys.argv[1]), sys.argv[2]
-    project = os.environ["XP_PROJECT"]
-    out = Path(os.environ["XP_WORK_DIR"]) / "cdc"
-    out.mkdir(parents=True, exist_ok=True)
-
-    trail = [json.loads(line) for line in ops_file.read_text(encoding="utf-8").splitlines() if line.strip()]
-    trail = [o for o in trail if not o.get("dry_run")]
-    entities = list(dict.fromkeys(o["entity"] for o in trail))
-
-    snapshot: dict[str, list[dict]] = {}
-    changes: list[dict] = []
-    for entity in entities:
-        table = f"{entity}_changes"
-        stream = [as_op(entity, r) for r in stream_rows(project, coll, table, out)]
-        stream = [s for s in stream if s["op"] in ("insert", "update", "delete")]  # LOAD rows are markers
-        (out / f"{table}.ops.jsonl").write_text("".join(json.dumps(s) + "\n" for s in stream), encoding="utf-8")
-        snapshot[entity] = [s["row"] for s in stream if s["tx"] == LOAD_TX]
-        changes += [s for s in stream if s["tx"] != LOAD_TX]
-    changes.sort(key=lambda s: (int(s["tx"]), s["sq"]))
-    (out / "actual.jsonl").write_text("".join(json.dumps(s) + "\n" for s in changes), encoding="utf-8")
-
+def compare(trail: list[dict], stream: list[dict]) -> tuple[list[str], list[str], str]:
+    """(problems, cascaded deletes, summary) of the stream against the trail."""
     problems: list[str] = []
+    entities = list(dict.fromkeys(o["entity"] for o in trail))
+    snapshot = [s for s in stream if s["tx"] == LOAD_TX]
+    changes = [s for s in stream if s["tx"] != LOAD_TX]
+
     # The trail's transactions: one run of one verb numbers its own from 0.
     trail_txns: dict[tuple, list[dict]] = {}
     for o in trail:
@@ -197,8 +233,7 @@ def main() -> int:
     exp_groups, got_groups = list(trail_txns.values()), list(source_txns.values())
     if len(got_groups) > len(exp_groups):
         problems.append(
-            f"the stream delivered {len(got_groups)} source transactions, the trail has only "
-            f"{len(exp_groups)}"
+            f"the stream delivered {len(got_groups)} source transactions, the trail has only {len(exp_groups)}"
         )
     split = max(0, len(exp_groups) - len(got_groups))
     before = [o for g in exp_groups[:split] for o in g]
@@ -206,9 +241,11 @@ def main() -> int:
     # The snapshot: the trail up to the split, replayed, is each table's state.
     want = replay(before)
     for entity in entities:
-        cols = {c for r in [o["row"] for o in trail if o["entity"] == entity and o["op"] == "insert"][:1] for c in r}
+        inserted = next((o["row"] for o in trail if o["entity"] == entity and o["op"] == "insert"), {})
         got = sorted(
-            tuple((c, norm(v)) for c, v in sorted(r.items()) if c in cols) for r in snapshot.get(entity, [])
+            tuple((c, norm(v)) for c, v in sorted(s["row"].items()) if c in inserted)
+            for s in snapshot
+            if s["entity"] == entity
         )
         if got != want.get(entity, []):
             problems.append(
@@ -226,10 +263,7 @@ def main() -> int:
             exp = exp_ops[i] if i < len(exp_ops) else None
             if exp is not None and matches(exp, got) is None:
                 i += 1
-            elif exp is not None and got["op"] != "delete" and (exp["op"], exp["entity"]) == (
-                got["op"],
-                got["entity"],
-            ):
+            elif exp is not None and got["op"] != "delete" and (exp["op"], exp["entity"]) == (got["op"], got["entity"]):
                 # The operation the trail expected, with the wrong values: said
                 # once, and the pairing moves on rather than failing every one after.
                 problems.append(f"{what}: {matches(exp, got)}")
@@ -237,7 +271,7 @@ def main() -> int:
             elif got["op"] == "delete":
                 cascaded.append(f"{what}: delete on {got['entity']} {got['old']}")
             else:
-                why = matches(exp_ops[i], got) if i < len(exp_ops) else "nothing more was expected"
+                why = matches(exp, got) if exp is not None else "nothing more was expected"
                 problems.append(f"{what}: unexpected {got['op']} on {got['entity']}: {why}")
         for exp in exp_ops[i:]:
             problems.append(f"{what}: {exp['op']} on {exp['entity']} never arrived")
@@ -247,18 +281,44 @@ def main() -> int:
         f"{len(trail) - len(before)} as {len(got_groups)} source transaction(s) of changes "
         f"({len(cascaded)} cascaded delete(s) beside them), over {len(entities)} table(s)"
     )
-    (out / "report.txt").write_text(
-        summary
-        + "\n"
-        + "".join(f"  {p}\n" for p in problems)
-        + "".join(f"  cascaded: {c}\n" for c in cascaded),
+    return problems, cascaded, summary
+
+
+# ----------------------------------------------------------------- main ----
+
+
+def main() -> int:
+    if len(sys.argv) != 3:
+        sys.exit(__doc__.strip().splitlines()[2])
+    trail_file, coll = Path(sys.argv[1]), sys.argv[2]
+    proj = os.environ["XP_PROJECT"]
+    work = Path(os.environ["XP_WORK_DIR"]) / "cdc"
+    work.mkdir(parents=True, exist_ok=True)
+
+    trail = [o for o in read_jsonl(trail_file) if not o.get("dry_run")]
+    entities = list(dict.fromkeys(o["entity"] for o in trail))
+
+    # The stream's output: every changed version of every table, as operations.
+    per_table = []
+    for entity in entities:
+        table = f"{entity}_changes"
+        versions = get_table_versions(proj, coll, table)
+        parquets = get_table_data(proj, coll, table, versions, work)
+        rows = concat(convert_parquet_to_json(parquets), work / f"{table}.rows.jsonl")
+        per_table.append(to_ops(rows, entity))
+    stream = in_order(concat(per_table, work / "all.ops.jsonl"), work / "actual.jsonl")
+
+    problems, cascaded, summary = compare(trail, read_jsonl(stream))
+
+    (work / "report.txt").write_text(
+        summary + "\n" + "".join(f"  {p}\n" for p in problems) + "".join(f"  cascaded: {c}\n" for c in cascaded),
         encoding="utf-8",
     )
     print(summary)
     for p in problems[:20]:
         print(f"  {p}")
     if len(problems) > 20:
-        print(f"  ... {len(problems) - 20} more in {out / 'report.txt'}")
+        print(f"  ... {len(problems) - 20} more in {work / 'report.txt'}")
     return 1 if problems else 0
 
 
