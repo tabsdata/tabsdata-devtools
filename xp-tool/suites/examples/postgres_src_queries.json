@@ -4,32 +4,16 @@
     "_comment": "EXAMPLE · PostgreSQL source / queries — what a SQL publisher runs. Unlike a file source, a SQL source is SINGLE mode: one frame per query slot, never a list, and query i feeds parameter i and lands in output_tables[i]. Five publishers over a postgres domain seeded with the world model: read_one_query, read_many_queries (three queries in ONE session, so the three tables cannot disagree — the reason to group related reads), read_without_transaction (transactional=False: a connection and an autocommit per query, no cross-query consistency), read_with_type_hints (schema_overrides: one {column: DataType} entry per query, None to leave one inferred), read_no_rows (the slot is None -> publish NO version, versus publishing an empty one). Also note table names are unique per COLLECTION, which is why read_one_query's output is `country_only`. One function per file under functions/postgres_src_queries/. Run: `tdx-xp oneshot --suite examples/postgres_src_queries`."
   },
   {
-    "domains": [
-      {
-        "name": "postgres_world_xs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "postgres"
-        ]
-      },
-      {
-        "name": "postgres_world_xs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "world"
-        ]
-      },
-      {
-        "name": "postgres_world_xs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "postgres_world_xs",
+          "system": "postgres",
+          "model": "world",
+          "data": "xs"
+        }
+      ]
+    }
   },
   {
     "collections": [

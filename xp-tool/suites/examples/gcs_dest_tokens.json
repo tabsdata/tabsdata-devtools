@@ -4,24 +4,18 @@
     "_comment": "EXAMPLE · GCS destination / path tokens — writing one file PER RUN instead of overwriting the same one. A destination path is a fixed string, so three substitution tokens are allowed anywhere in it and replaced at write time: ${TRX_ID} (the transaction — finest grain, one file per write), ${EXEC_PLAN_ID} (the whole plan a trigger started — several sinks in one run share it, so it GROUPS their outputs) and ${EXEC_PLAN_TS} (the plan timestamp — sorts chronologically, which the opaque ids do not). Anything else in ${...} is rejected when the descriptor is built; tokens are DESTINATION-only. Five sinks: write_per_transaction (token in the filename), write_per_plan (token as a directory, two files landing together), write_per_timestamp, write_archive (both — chronological AND unique), write_latest (no token: one always-current file, the deliberate contrast). Token-written files are exactly what a wildcard + initial_last_modified source consumes, and they GROW since nothing prunes them. RUN IT TWICE. One function per file under functions/gcs_dest_tokens/. Run: `tdx-xp oneshot --suite examples/gcs_dest_tokens --keep`."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "gcs_out",
-        "command": "create",
-        "options": [
-          "--sys",
-          "gcs"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "gcs_out",
+          "system": "gcs"
+        }
+      ]
+    }
   },
   {
     "collections": [

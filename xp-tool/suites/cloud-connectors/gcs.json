@@ -3,48 +3,24 @@
     "_comment": "CAPABILITY suite for the S3 file connector (all data formats + selection modes), via `--type connectors/gcs.json`. Functions in functions/caps_gcs.py. `gcs_out` writers (from datagen caps_input/cap_rows) write CSV/JSON/AVRO/PARQUET (+CSV format_cfg) to the `gcs` bucket root; `gcs_rt` readers read each back (PHASE 2 — trigger after writers commit); `gcs_in` exercises glob/since/multi/none over the seeded world parquet in `gcs_world_xs`. Domains: dev (datagen), gcs (round-trip write+read), gcs_world_xs (seed). SRC METADATA: gcs_meta_keep and gcs_meta_drop (gcs_in) read the same staged country parquet with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection gcs_meta (group ops) asserts that side: gcs_meta_keep_check that the `@td.file.path` metadata column is there plus exactly the expected data columns, gcs_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing)."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "gcs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "gcs"
-        ]
-      },
-      {
-        "name": "gcs_world_xs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "gcs"
-        ]
-      },
-      {
-        "name": "gcs_world_xs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "world"
-        ]
-      },
-      {
-        "name": "gcs_world_xs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "gcs",
+          "system": "gcs"
+        },
+        {
+          "name": "gcs_world_xs",
+          "system": "gcs",
+          "model": "world",
+          "data": "xs"
+        }
+      ]
+    }
   },
   {
     "collections": [

@@ -3,48 +3,24 @@
     "_comment": "SHOWCASE suite 'employees' — HR analytics over the employees sample. INGEST: employees_src reads emp_departments/emp_employees/emp_dept_emp/emp_salaries parquet from a local-file source (domain emp_fs, system fs seeded with model=employees; ARRAY mode -> slot[0]). MARTS: employees_marts is a connection-less @transformer collection (group 'marts') building dept_roster and high_earners via the Tabsdata TableFrame API (join/filter/select/sort — row-preserving; no polars). SERVE: employees_out writes each mart to a local parquet file (domain out, system fs). Only the publisher is triggered; the rest cascade by @NEW. WAREHOUSE SINK: employees_bigquery mirrors the same two marts into BigQuery (BigQueryDest, domain bq, staged via GCS; target names backtick-quoted), alongside the local-file sink. Functions in functions/employees.py."
   },
   {
-    "domains": [
-      {
-        "name": "emp_fs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "fs"
-        ]
-      },
-      {
-        "name": "emp_fs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "employees"
-        ]
-      },
-      {
-        "name": "emp_fs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      },
-      {
-        "name": "out",
-        "command": "create",
-        "options": [
-          "--sys",
-          "fs"
-        ]
-      },
-      {
-        "name": "bq",
-        "command": "create",
-        "options": [
-          "--sys",
-          "bigquery"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "emp_fs",
+          "system": "fs",
+          "model": "employees",
+          "data": "xs"
+        },
+        {
+          "name": "out",
+          "system": "fs"
+        },
+        {
+          "name": "bq",
+          "system": "bigquery"
+        }
+      ]
+    }
   },
   {
     "collections": [

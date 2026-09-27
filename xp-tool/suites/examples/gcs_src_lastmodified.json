@@ -4,32 +4,16 @@
     "_comment": "EXAMPLE · GCS source / incremental — `initial_last_modified`, the file source's watermark: the first run imports every matched file at or after the cutoff, then the cutoff ADVANCES so later runs import only what is newer (persisted on the function's trx state, so the decorator value is only the SEED and editing it does not rewind). Three publishers over the same wildcard: read_since_cutoff (past cutoff -> incremental), read_future_cutoff (future cutoff -> never matches, the empty-slot no-op where concat returns None and NO version is published — versus returning an empty frame, which publishes a real empty version and does trigger downstream), read_every_run (no cutoff -> full reload). RUN IT TWICE to see the point: `tdx-domain modify-data --domain <instance>_gcs_world_xs --entity city --ops Insert --sets 5` stages a new timestamped file, then run-project again. One function per file under functions/gcs_src_lastmodified/. Run: `tdx-xp oneshot --suite examples/gcs_src_lastmodified --keep`."
   },
   {
-    "domains": [
-      {
-        "name": "gcs_world_xs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "gcs"
-        ]
-      },
-      {
-        "name": "gcs_world_xs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "world"
-        ]
-      },
-      {
-        "name": "gcs_world_xs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "gcs_world_xs",
+          "system": "gcs",
+          "model": "world",
+          "data": "xs"
+        }
+      ]
+    }
   },
   {
     "collections": [

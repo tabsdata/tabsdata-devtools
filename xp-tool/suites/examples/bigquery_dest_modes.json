@@ -4,24 +4,18 @@
     "_comment": "EXAMPLE · BigQuery destination / write modes. The shape is the SQL-destination one (one write slot per `tables` entry, append vs replace, a returned None skipping the write without truncating, types decided only when the table is created). What a BULK destination adds is a STAGING HOP — the frame is written to a staging area and the warehouse ingests it, which is why these load fast and why they have a prerequisite a plain database does not. Four sinks: write_append, write_replace, write_two_tables, write_nothing. One function per file under functions/bigquery_dest_modes/. Run: `tdx-xp oneshot --suite examples/bigquery_dest_modes --keep`."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "bigquery_out",
-        "command": "create",
-        "options": [
-          "--sys",
-          "bigquery"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "bigquery_out",
+          "system": "bigquery"
+        }
+      ]
+    }
   },
   {
     "collections": [

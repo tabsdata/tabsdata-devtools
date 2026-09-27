@@ -3,24 +3,18 @@
     "_comment": "CAPABILITY suite for Snowflake bulk dest (create/append/replace; no schema evolution), via `--type connectors/snowflake.json`. Functions in functions/caps_snowflake.py; input from dev datagen caps_input/cap_rows. append->cap_append (grows on re-run), replace->cap_replace (stays 3). Domains: dev (datagen), snowflake (dest)."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "snowflake",
-        "command": "create",
-        "options": [
-          "--sys",
-          "snowflake"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "snowflake",
+          "system": "snowflake"
+        }
+      ]
+    }
   },
   {
     "collections": [

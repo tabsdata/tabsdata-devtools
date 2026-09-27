@@ -4,32 +4,16 @@
     "_comment": "EXAMPLE · Kafka source with a SCHEMA REGISTRY. Registry mode is a property of the CONNECTION (connections/kafka_topic_in_registry.yaml sets schema_registry), not of the source — the @stream_publisher here is byte-identical to the registry-less Avro one in examples/kafka_src. What changes is the wire: a registry message is [0x00][4-byte schema id][payload], the consumer fetches THAT schema version to decode it, and old messages keep decoding after the producer evolves. A PLAIN message on a registry topic fails to deserialize — including everything `rpk topic produce` and the redpanda data plane write — so this suite consumes a topic of its own that only a registry-aware producer writes to, with a DLQ, which is exactly how you catch a producer that is not registry-aware. `schema` stays REQUIRED: it is cross-checked against the registry's resolved schema, so drift is caught at decode time. The two registry kinds (Confluent url/credentials/configs; AWS Glue region_name/registry_name/schema_name/credentials) are plain nested mappings with no kind/apiVersion/type envelope; the redpanda domain exports SCHEMA_REGISTRY_URL, interpolated PLAIN because an endpoint is a name, not a credential. Nothing produces to the topic here, so the run is green and the stream waits; the functions file has a confluent_kafka snippet that produces a readable message. NO TRIGGERS AND NONE NEEDED. One function per file under functions/kafka_registry/. Run: `tdx-xp oneshot --suite examples/kafka_registry --keep`."
   },
   {
-    "domains": [
-      {
-        "name": "redpanda",
-        "command": "create",
-        "options": [
-          "--sys",
-          "redpanda"
-        ]
-      },
-      {
-        "name": "redpanda",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "employees"
-        ]
-      },
-      {
-        "name": "redpanda",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "redpanda",
+          "system": "redpanda",
+          "model": "employees",
+          "data": "xs"
+        }
+      ]
+    }
   },
   {
     "collections": [

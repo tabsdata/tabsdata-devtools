@@ -3,48 +3,28 @@
     "_comment": "CAPABILITY suite for the PostgreSQL connector, via `--type connectors/postgres.json`. Functions in functions/caps_postgres.py. SOURCE (`postgres_in`, reads existing postgres_world_xs seed): base (3 queries), _inc (watermark paging — re-run to walk 10 rows/trigger), _none (WHERE 1=0), _multiquery (2 queries, transactional=False). DEST (`postgres_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate; row count stays) writing to distinct tables cap_append/cap_replace; re-run `suite.py run` to observe append-grows vs replace-stays. PostgreSQL has no schema evolution. Domains: dev (datagen), postgres_world_xs (source), postgres (dest). SRC METADATA: postgres_meta_keep and postgres_meta_drop (postgres_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection postgres_meta (group ops) asserts that side: postgres_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, postgres_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing)."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "postgres_world_xs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "postgres"
-        ]
-      },
-      {
-        "name": "postgres_world_xs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "world"
-        ]
-      },
-      {
-        "name": "postgres_world_xs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      },
-      {
-        "name": "postgres",
-        "command": "create",
-        "options": [
-          "--sys",
-          "postgres"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev",
+          "model": null,
+          "data": null
+        },
+        {
+          "name": "postgres_world_xs",
+          "system": "postgres",
+          "model": "world",
+          "data": "xs"
+        },
+        {
+          "name": "postgres",
+          "system": "postgres",
+          "model": null,
+          "data": null
+        }
+      ]
+    }
   },
   {
     "collections": [

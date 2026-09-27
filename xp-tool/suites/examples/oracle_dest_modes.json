@@ -4,24 +4,18 @@
     "_comment": "EXAMPLE · Oracle destination / write modes. `tables` declares one WRITE SLOT per entry, fed by input_tables in the same order. if_table_exists is the one decision: \"append\" (default) inserts and the table grows across runs, \"replace\" truncates then inserts so the count stays put — and NEITHER is an upsert (no key matching, no merge). Both CREATE the table when it is missing, which is also the only moment column types are decided: writing into an existing table uses that table's types. transactional=True (default) makes a multi-table write all-or-nothing; False commits per table. A returned None skips the write and does NOT truncate, so 'no data this run' never destroys what is there. Five sinks: write_append, write_replace, write_two_tables, write_without_transaction (+ dest_cfg chunk size), write_nothing. RE-RUN to watch customers_append grow while customers_replace stays at three rows. One function per file under functions/oracle_dest_modes/. Run: `tdx-xp oneshot --suite examples/oracle_dest_modes --keep`."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "oracle_out",
-        "command": "create",
-        "options": [
-          "--sys",
-          "oracle"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "oracle_out",
+          "system": "oracle"
+        }
+      ]
+    }
   },
   {
     "collections": [

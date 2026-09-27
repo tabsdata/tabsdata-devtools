@@ -3,48 +3,24 @@
     "_comment": "SHOWCASE suite 'world' — a small end-to-end pipeline over the classic world sample (countries/cities/languages). INGEST: world_src reads the three world tables from a Postgres source (domain world_pg, seeded with model=world). MARTS: world_marts is a connection-less @transformer collection (group 'marts') enriching/filtering into cities_enriched, official_languages and large_cities with the Tabsdata TableFrame API (join/filter/select/sort — row-preserving; no polars). SERVE: world_out writes each mart to a local parquet file (domain out, system fs). Only the publisher is triggered; transformers and sinks fire reactively by @NEW table dependency. WAREHOUSE SINK: world_snowflake mirrors the same three marts into Snowflake (SnowflakeDest, domain snow, one @subscriber per mart), alongside the local-file sink. Functions in functions/world.py."
   },
   {
-    "domains": [
-      {
-        "name": "world_pg",
-        "command": "create",
-        "options": [
-          "--sys",
-          "postgres"
-        ]
-      },
-      {
-        "name": "world_pg",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "world"
-        ]
-      },
-      {
-        "name": "world_pg",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      },
-      {
-        "name": "out",
-        "command": "create",
-        "options": [
-          "--sys",
-          "fs"
-        ]
-      },
-      {
-        "name": "snow",
-        "command": "create",
-        "options": [
-          "--sys",
-          "snowflake"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "world_pg",
+          "system": "postgres",
+          "model": "world",
+          "data": "xs"
+        },
+        {
+          "name": "out",
+          "system": "fs"
+        },
+        {
+          "name": "snow",
+          "system": "snowflake"
+        }
+      ]
+    }
   },
   {
     "collections": [

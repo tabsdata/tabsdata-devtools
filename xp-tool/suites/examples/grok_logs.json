@@ -4,24 +4,18 @@
     "_comment": "EXAMPLE · TableFrame.grok — turning one unstructured text column into typed columns, on a log file. frame.grok(expr, pattern, schema): expr is the column (or any Expr resolving to one string column), pattern is a logstash-style grok pattern (%{INT}, %{WORD}, %{NOTSPACE}, %{DATA}, %{GREEDYDATA}, %{LOGLEVEL}, %{TIMESTAMP_ISO8601}, ...), schema maps each capture to a ColumnDefinition(column_name, dtype) — dict order is column order. FOUR THINGS WORTH KNOWING: anchor the pattern (^...$), since a pattern is a SEARCH and unanchored %{INT} matches digits inside a timestamp; %{WORD} stops at the first non-word char, %{DATA} is non-greedy and stops at the next literal, %{GREEDYDATA} takes the rest; THE SCHEMA IS THE CAST (every capture arrives as text, the dtype converts it, the name renames it, and captures you do not list are not kept); and a NON-MATCHING row is not an error — it comes back all-null, which makes grok usable on a real log but also means a wrong pattern looks like an empty column rather than a failure, so check for nulls. grok APPENDS columns and keeps the source, so it is row-preserving. The suite stages its own four-line app log (three well-formed, one that matches nothing), writes it as a headerless one-column CSV — which IS a text file — reads it back with SrcFileFormat.LOG (one row per line: `file` + `message`) and groks it four ways: parse_fields (the core split), parse_metrics (Int64 casts), parse_renamed (capture -> different column name, via an Expr), parse_errors (a narrow pattern, so non-ERROR rows are null). Landing raw lines and parsing downstream means a pattern fix never requires a re-ingest. generate_log_lines is a `detached: false` GATE so the file exists before read_log fires; the transformers react to @NEW. One function per file under functions/grok_logs/. Run: `tdx-xp oneshot --suite examples/grok_logs --keep`."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "fs_logs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "fs"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "fs_logs",
+          "system": "fs"
+        }
+      ]
+    }
   },
   {
     "collections": [

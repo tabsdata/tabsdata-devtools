@@ -3,48 +3,24 @@
     "_comment": "CAPABILITY suite for the SQL Server connector, via `--type connectors/mssql.json`. Functions in functions/caps_mssql.py. SOURCE (`mssql_in`, reads existing mssqlserver_world_xs seed): base, _inc (watermark via OFFSET/FETCH — re-run to walk), _none (WHERE 1=0), _multiquery (2 queries, transactional=False). DEST (`mssql_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate) on distinct tables cap_append/cap_replace; re-run to observe. No schema evolution. Domains: dev (datagen), mssqlserver_world_xs (source), mssqlserver (dest). SRC METADATA: mssql_meta_keep and mssql_meta_drop (mssql_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection mssql_meta (group ops) asserts that side: mssql_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, mssql_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing)."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "mssqlserver_world_xs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "mssqlserver"
-        ]
-      },
-      {
-        "name": "mssqlserver_world_xs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "world"
-        ]
-      },
-      {
-        "name": "mssqlserver_world_xs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      },
-      {
-        "name": "mssqlserver",
-        "command": "create",
-        "options": [
-          "--sys",
-          "mssqlserver"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "mssqlserver_world_xs",
+          "system": "mssqlserver",
+          "model": "world",
+          "data": "xs"
+        },
+        {
+          "name": "mssqlserver",
+          "system": "mssqlserver"
+        }
+      ]
+    }
   },
   {
     "collections": [

@@ -3,16 +3,16 @@
     "_comment": "Test"
   },
   {
-    "domains": [
-      {
-        "name": "d_dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "d_dev",
+          "system": "dev",
+          "model": null,
+          "data": null
+        }
+      ]
+    }
   },
   {
     "collections": [

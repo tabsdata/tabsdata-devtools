@@ -3,24 +3,18 @@
     "_comment": "CAPABILITY suite for MongoDB dest (append/replace collection + upsert-by-id), via `--type connectors/mongodb.json`. Functions in functions/caps_mongodb.py; input from dev datagen caps_input/cap_rows (code = natural key). append->cap_append grows; replace->cap_replace drops each run; upsert->cap_upsert (id=code, update_existing) stays 3 on re-run. Domains: dev (datagen), mongodb (dest)."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "mongodb",
-        "command": "create",
-        "options": [
-          "--sys",
-          "mongodb"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "mongodb",
+          "system": "mongodb"
+        }
+      ]
+    }
   },
   {
     "collections": [

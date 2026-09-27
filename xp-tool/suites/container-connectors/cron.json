@@ -3,16 +3,14 @@
     "_comment": "CAPABILITY suite for the TRIGGER family (`trigger_by`), via `--type connectors/cron.json`. Functions in functions/caps_cron.py. Every other suite here fires its functions manually; these carry their own trigger, so the RUNTIME fires them, driven by the dev DataGenSrc so no external system is involved (DataGenSrc in, TrashDest out — the `dev` domain is the only one). PUBLISHERS (`cron_src`, @publisher + CronTrigger): cron_pub_min `* * * * *` over Data(chunk_size=5) -> +5 rows a minute, walking 20 rows in four ticks, then publishes nothing once the frame is spent; cron_pub_2min `*/2 * * * *` over a fixed 3-row frame -> versions grow, row count stays 3; cron_pub_hourly `@hourly` -> covers the DESCRIPTOR mask form (@yearly/@annually/@monthly/@weekly/@daily/@midnight/@hourly), too slow for a test window so it is the one the suite triggers manually. DOWNSTREAM (the two trigger kinds a publisher cannot use): cron_tfr_tables, a connection-less @transformer with TablesTrigger([cron_src/cron_chunk]) that fires when the every-minute publisher lands a batch (row-preserving select); cron_sub_all, a @subscriber with AllTablesTrigger() into TrashDest. Masks are Kubernetes CronJob schedules: five UNIX fields, UTC, MINUTE granularity (no seconds field). USE --keep: `oneshot` without it tears the project down as soon as the monitor returns, which can be before the first tick — `tdx-xp oneshot --suite connectors/cron --keep`, then watch with `tdk trx list --proj <P> --monitor` and `tdk table list --proj <P> --coll cron_src` as the schedule works. A trigger_by function can also be run by hand; the chunk cursor advances per RUN whoever fired it. Stop a schedule with `tdk fn disable`."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        }
+      ]
+    }
   },
   {
     "collections": [

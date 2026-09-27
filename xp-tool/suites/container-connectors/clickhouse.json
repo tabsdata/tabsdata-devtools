@@ -3,64 +3,38 @@
     "_comment": "CONSOLIDATED ClickHouse bulk-out suite (same shape as starrocks.json), via `--type connectors/clickhouse.json`. A staging-backend x write-mode matrix: one destination collection per cloud staging (s3/az/gcs), each writing to ITS OWN ClickHouse DB (clickhouse_<cloud>), exercising append + replace + SCHEMA EVOLUTION (iceberg). ClickHouse creates tables on write, so input is the dev datagen `caps_input` (cap_rows for append/replace; cap_evo_v1/v2 for evolution). Functions (cloud-agnostic) in functions/caps_clickhouse.py, registered once per cloud collection. Schema evolution is 2-phase: run caps_evo_v1 (creates cap_evolve narrow in each DB), then trigger caps_evo_v2 (appends wide with iceberg -> adds column). NOTE: ClickHouse s3/gcs staging use the s3() table function and need `GRANT CREATE TEMPORARY TABLE, S3 ON *.*` on the CH user; without it those two stall (Code 497 ACCESS_DENIED). The az variant uses azureBlobStorage() and needs no such grant."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "clickhouse_s3",
-        "command": "create",
-        "options": [
-          "--sys",
-          "clickhouse"
-        ]
-      },
-      {
-        "name": "clickhouse_az",
-        "command": "create",
-        "options": [
-          "--sys",
-          "clickhouse"
-        ]
-      },
-      {
-        "name": "clickhouse_gcs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "clickhouse"
-        ]
-      },
-      {
-        "name": "s3",
-        "command": "create",
-        "options": [
-          "--sys",
-          "s3"
-        ]
-      },
-      {
-        "name": "gcs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "gcs"
-        ]
-      },
-      {
-        "name": "azureblob",
-        "command": "create",
-        "options": [
-          "--sys",
-          "azureblob"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "clickhouse_s3",
+          "system": "clickhouse"
+        },
+        {
+          "name": "clickhouse_az",
+          "system": "clickhouse"
+        },
+        {
+          "name": "clickhouse_gcs",
+          "system": "clickhouse"
+        },
+        {
+          "name": "s3",
+          "system": "s3"
+        },
+        {
+          "name": "gcs",
+          "system": "gcs"
+        },
+        {
+          "name": "azureblob",
+          "system": "azureblob"
+        }
+      ]
+    }
   },
   {
     "collections": [

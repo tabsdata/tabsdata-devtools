@@ -3,48 +3,28 @@
     "_comment": "CAPABILITY suite for the PostgreSQL connector, via `--type connectors/db2.json`. Functions in functions/caps_db2.py. SOURCE (`db2_in`, reads existing db2_world_xs seed): base (3 queries), _inc (watermark paging — re-run to walk 10 rows/trigger), _none (WHERE 1=0), _multiquery (2 queries, transactional=False). DEST (`db2_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate; row count stays) writing to distinct tables cap_append/cap_replace; re-run `suite.py run` to observe append-grows vs replace-stays. PostgreSQL has no schema evolution. Domains: dev (datagen), db2_world_xs (source), db2 (dest). SRC METADATA: db2_meta_keep and db2_meta_drop (db2_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection db2_meta (group ops) asserts that side: db2_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, db2_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing)."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "db2_world_xs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "db2"
-        ]
-      },
-      {
-        "name": "db2_world_xs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "world"
-        ]
-      },
-      {
-        "name": "db2_world_xs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      },
-      {
-        "name": "db2",
-        "command": "create",
-        "options": [
-          "--sys",
-          "db2"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev",
+          "model": null,
+          "data": null
+        },
+        {
+          "name": "db2_world_xs",
+          "system": "db2",
+          "model": "world",
+          "data": "xs"
+        },
+        {
+          "name": "db2",
+          "system": "db2",
+          "model": null,
+          "data": null
+        }
+      ]
+    }
   },
   {
     "collections": [

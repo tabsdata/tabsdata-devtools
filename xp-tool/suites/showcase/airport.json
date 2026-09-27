@@ -3,48 +3,24 @@
     "_comment": "SHOWCASE suite 'airport' — airline operations over the airportdb sample. INGEST: airport_src reads ap_flight/ap_booking/ap_passenger/ap_airline parquet from a local-file source (domain ap_fs, system fs seeded with model=airportdb; file sources are ARRAY mode -> slot[0]). MARTS: airport_marts is a connection-less @transformer collection (group 'marts') enriching/filtering into bookings_enriched, high_value_bookings and flight_roster via the Tabsdata TableFrame API (join/filter/select/sort — row-preserving; no polars). SERVE: airport_out writes each mart to a local parquet file (domain out, system fs). Only the publisher is triggered; the rest cascade by @NEW. WAREHOUSE SINK: airport_databricks mirrors the same three marts into Databricks (DatabricksDest, domain dbx, staged via its Unity Catalog Volume, one @subscriber per mart), alongside the local-file sink. Functions in functions/airport.py."
   },
   {
-    "domains": [
-      {
-        "name": "ap_fs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "fs"
-        ]
-      },
-      {
-        "name": "ap_fs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "airportdb"
-        ]
-      },
-      {
-        "name": "ap_fs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      },
-      {
-        "name": "out",
-        "command": "create",
-        "options": [
-          "--sys",
-          "fs"
-        ]
-      },
-      {
-        "name": "dbx",
-        "command": "create",
-        "options": [
-          "--sys",
-          "databricks"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "ap_fs",
+          "system": "fs",
+          "model": "airportdb",
+          "data": "xs"
+        },
+        {
+          "name": "out",
+          "system": "fs"
+        },
+        {
+          "name": "dbx",
+          "system": "databricks"
+        }
+      ]
+    }
   },
   {
     "collections": [

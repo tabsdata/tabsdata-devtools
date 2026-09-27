@@ -99,7 +99,9 @@ def sections(definition: Path) -> dict[str, list]:
     out: dict[str, list] = {}
     for stage in json.loads(definition.read_text(encoding="utf-8")):
         for kind, value in stage.items():
-            if not kind.startswith("_") and isinstance(value, list):
+            if kind == "domain-manifest" and isinstance(value, dict):
+                out.setdefault(kind, []).extend(value.get("domains", []))
+            elif not kind.startswith("_") and isinstance(value, list):
                 out.setdefault(kind, []).extend(value)
     return out
 
@@ -109,8 +111,11 @@ def check_wiring(definition: Path) -> list[str]:
     doc = sections(definition)
     problems: list[str] = []
 
-    # A domains stage is `tdd domain` calls; a domain is declared by its create.
-    domains = {d["name"] for d in doc.get("domains", []) if d.get("command") == "create"}
+    # A domain is declared by a domain-manifest entry, or by a create call in a
+    # domains stage (`tdd domain` calls).
+    domains = {d["name"] for d in doc.get("domain-manifest", [])} | {
+        d["name"] for d in doc.get("domains", []) if d.get("command") == "create"
+    }
     collections = {c["name"]: c for c in doc.get("collections", [])}
 
     for name, c in collections.items():

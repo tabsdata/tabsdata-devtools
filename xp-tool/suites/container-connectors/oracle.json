@@ -3,48 +3,28 @@
     "_comment": "CAPABILITY suite for the PostgreSQL connector, via `--type connectors/oracle.json`. Functions in functions/caps_oracle.py. SOURCE (`oracle_in`, reads existing oracle_world_xs seed): base (3 queries), _inc (watermark paging — re-run to walk 10 rows/trigger), _none (WHERE 1=0), _multiquery (2 queries, transactional=False). DEST (`oracle_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate; row count stays) writing to distinct tables cap_append/cap_replace; re-run `suite.py run` to observe append-grows vs replace-stays. PostgreSQL has no schema evolution. Domains: dev (datagen), oracle_world_xs (source), oracle (dest). SRC METADATA: oracle_meta_keep and oracle_meta_drop (oracle_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection oracle_meta (group ops) asserts that side: oracle_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, oracle_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing)."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "oracle_world_xs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "oracle"
-        ]
-      },
-      {
-        "name": "oracle_world_xs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "world"
-        ]
-      },
-      {
-        "name": "oracle_world_xs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      },
-      {
-        "name": "oracle",
-        "command": "create",
-        "options": [
-          "--sys",
-          "oracle"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev",
+          "model": null,
+          "data": null
+        },
+        {
+          "name": "oracle_world_xs",
+          "system": "oracle",
+          "model": "world",
+          "data": "xs"
+        },
+        {
+          "name": "oracle",
+          "system": "oracle",
+          "model": null,
+          "data": null
+        }
+      ]
+    }
   },
   {
     "collections": [

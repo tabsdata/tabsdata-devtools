@@ -4,24 +4,18 @@
     "_comment": "EXAMPLE · BigQuery destination / SCHEMA EVOLUTION — what happens when the frame no longer matches the table. A target is created from a NARROW frame (sku, name) and then appended to with a WIDER one (sku, name, price, category), twice: with evolution ALLOWED (schema_evolution=\"update\", which sets the load job's schema-update options, adding the columns as NULLABLE) the new columns are added and the earlier rows read back NULL there; with it REFUSED (\"strict\") the write would fail, so write_wider_conformed CONFORMS the frame with a .select() — the real answer at a strict boundary, and what keeps this suite green (delete the select and re-run to see the refusal). THE VALUES AND DEFAULTS DIFFER PER CONNECTOR (Databricks/BigQuery \"update\" by default, ClickHouse/StarRocks \"strict\"; Snowflake and the plain databases have no such field), and on BigQuery the default is \"update\" — so every sink here spells the value out. Evolution is ADDITIVE ONLY: a dropped, renamed or retyped column is a migration, not evolution. v1 uses `replace` so the example is repeatable and v2 uses `append` so there is something to evolve; ordering comes from TWO supporting publishers with the narrow trigger declared `detached: false` as a GATE. One function per file under functions/bigquery_dest_evolution/. Run: `tdx-xp oneshot --suite examples/bigquery_dest_evolution --keep`."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "bigquery_out",
-        "command": "create",
-        "options": [
-          "--sys",
-          "bigquery"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "bigquery_out",
+          "system": "bigquery"
+        }
+      ]
+    }
   },
   {
     "collections": [

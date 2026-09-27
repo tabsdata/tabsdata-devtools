@@ -4,48 +4,24 @@
     "_comment": "EXAMPLE · StarRocks destination / write modes — the destination that CANNOT CREATE ITS TARGET. The connector only issues TRUNCATE (replace) plus INSERT INTO <t> (<cols>) SELECT * FROM FILES(...), so the targets must already exist and the frames must match their DDL: this suite writes world-shaped rows into the `city` and `country` tables the world model seeded in the backing domain. The Primary Key model then decides which mode goes where — city.id is AUTO_INCREMENT and the frame omits it, so append gets FRESH keys and the count GROWS; country's key is `code`, so appending the same codes would upsert in place, which is why replace targets that one (and truncates the 239 seeded countries away). write_nothing shows a returned None staging nothing and NOT truncating. schema_evolution=\"iceberg\" is deliberately NOT exercised: the INSERT ... SELECT FROM FILES path does not pre-ALTER the target, so a widened frame fails on column count rather than evolving. Staging is via S3 here; the _gcs and _az templates are the same connector with a different staging store. One function per file under functions/starrocks_dest_modes/. Run: `tdx-xp oneshot --suite examples/starrocks_dest_modes --keep`."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "starrocks_world_xs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "starrocks"
-        ]
-      },
-      {
-        "name": "starrocks_world_xs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "world"
-        ]
-      },
-      {
-        "name": "starrocks_world_xs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      },
-      {
-        "name": "stage_store",
-        "command": "create",
-        "options": [
-          "--sys",
-          "s3"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "starrocks_world_xs",
+          "system": "starrocks",
+          "model": "world",
+          "data": "xs"
+        },
+        {
+          "name": "stage_store",
+          "system": "s3"
+        }
+      ]
+    }
   },
   {
     "collections": [

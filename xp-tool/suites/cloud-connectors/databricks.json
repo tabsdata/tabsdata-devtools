@@ -3,48 +3,24 @@
     "_comment": "CAPABILITY suite for Databricks (SQL src modes + bulk dest full matrix incl. schema evolution `update`), via `--type connectors/databricks.json`. Functions in functions/caps_databricks.py. SOURCE (databricks_in, reads seeded databricks_world_xs): base/_inc(LIMIT 10)/_none. DEST (databricks_out, input from datagen): append/replace on cap_append/cap_replace; SCHEMA EVOLUTION two-phase (evolve_v1 creates cap_evolve, then trigger caps_evo_v2 -> evolve_v2 appends wide with schema_evolution=update/mergeSchema). NOTE the dest needs the staging Volume from the connection to already exist. Domains: dev, databricks_world_xs (source), databricks (dest). SRC METADATA: databricks_meta_keep and databricks_meta_drop (databricks_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection databricks_meta (group ops) asserts that side: databricks_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, databricks_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing)."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "databricks_world_xs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "databricks"
-        ]
-      },
-      {
-        "name": "databricks_world_xs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "world"
-        ]
-      },
-      {
-        "name": "databricks_world_xs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      },
-      {
-        "name": "databricks",
-        "command": "create",
-        "options": [
-          "--sys",
-          "databricks"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "databricks_world_xs",
+          "system": "databricks",
+          "model": "world",
+          "data": "xs"
+        },
+        {
+          "name": "databricks",
+          "system": "databricks"
+        }
+      ]
+    }
   },
   {
     "collections": [

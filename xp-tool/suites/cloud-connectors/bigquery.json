@@ -3,24 +3,18 @@
     "_comment": "CAPABILITY suite for BigQuery bulk dest (full matrix incl. schema evolution `update`), via `--type connectors/bigquery.json`. Functions in functions/caps_bigquery.py; input from dev datagen caps_input. Targets are backtick-quoted (resolve project.dataset.table from the conn). append/replace on cap_append/cap_replace. SCHEMA EVOLUTION two-phase: run caps_evo_v1 -> bigquery_evolve_v1 creates cap_evolve (narrow); THEN trigger caps_evo_v2 -> bigquery_evolve_v2 appends wide with schema_evolution=update (ALLOW_FIELD_ADDITION). caps_evo_v2 not auto-triggered. Domains: dev, bigquery."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "bigquery",
-        "command": "create",
-        "options": [
-          "--sys",
-          "bigquery"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "bigquery",
+          "system": "bigquery"
+        }
+      ]
+    }
   },
   {
     "collections": [

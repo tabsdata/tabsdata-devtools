@@ -1861,7 +1861,7 @@ def test_every_built_in_suite_reads(tmp_path, monkeypatch):
         "i", root / "container-connectors" / "postgrescdc_initial_load_live.json"
     )
     assert [s.kind for s in staged.stages] == [
-        "domains",
+        "domain-manifest",
         "live",
         "collections",
         "functions",

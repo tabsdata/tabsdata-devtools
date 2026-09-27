@@ -4,40 +4,20 @@
     "_comment": "DEMO suite 'airportdb' — airline operations over the airportdb sample held in PostgreSQL, served to S3. DOMAINS: airportdb (system postgres, model airportdb, data l = `tdx-domain create-data --size 1000`, ~100k bookings) and s3 (system s3, no model — the serving bucket prefix). INGEST: airport_src reads flight/booking/passenger/airline/airport/airport_geo with one transactional PostgresSrc publisher (six queries, LIMIT 100 each, one consistent snapshot), SCHEDULED by trigger_by=CronTrigger every 5 minutes at minute 0 (UTC) — the suite's manual trigger coexists with it for the first batch. MARTS: airport_marts is a connection-less @transformer collection (group 'marts') building bookings_enriched, high_value_bookings, flight_roster and airport_directory with the Tabsdata TableFrame API only (join/filter/select/sort/rename — row-preserving; no polars). SERVE: airport_s3 writes each mart to a parquet object under airportdb/ in the s3 domain. Only the publisher is triggered; the rest cascade by @NEW. Functions in functions/airportdb.py. Run: `tdx-xp oneshot --suite demo/airportdb`."
   },
   {
-    "domains": [
-      {
-        "name": "airportdb",
-        "command": "create",
-        "options": [
-          "--sys",
-          "postgres"
-        ]
-      },
-      {
-        "name": "airportdb",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "airportdb"
-        ]
-      },
-      {
-        "name": "airportdb",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1000"
-        ]
-      },
-      {
-        "name": "s3",
-        "command": "create",
-        "options": [
-          "--sys",
-          "s3"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "airportdb",
+          "system": "postgres",
+          "model": "airportdb",
+          "data": "l"
+        },
+        {
+          "name": "s3",
+          "system": "s3"
+        }
+      ]
+    }
   },
   {
     "collections": [

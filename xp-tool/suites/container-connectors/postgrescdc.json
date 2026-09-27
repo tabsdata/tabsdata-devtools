@@ -3,32 +3,16 @@
     "_comment": "CAPABILITY suite for the PostgreSQL CDC stream source, via `--type connectors/postgrescdc.json`. Functions in functions/caps_postgrescdc.py. Four @stream_publisher variants over logical decoding (wal2json) on the seeded postgrescdc_employees_xs domain, each tracking the employees model's two MUTABLE tables (employees: insert/update/delete, departments: update) -> 2 slots, 2 output tables (emp_changes / dept_changes) per collection: base (tail + flattened tabular rows), _head (start_from=head; logical decoding cannot reach past slot creation, so unlike MySQL/Db2 this does NOT replay the create-data seed), _struct (columns_format=struct, flatten_columns=False), _map (columns_format=map, new values still inlined). ONE COLLECTION PER VARIANT (one connection each, all from the same template — Postgres has no server_id analogue), and each variant declares its OWN replication slot with behavior=create: the domain pre-creates none, and a slot admits a single active consumer, so per-variant slots let all four run at once. An abandoned slot PINS WAL — drop it with `SELECT pg_drop_replication_slot('td_cdc_<variant>')`. NO TRIGGERS, and none are needed: REGISTERING a stream publisher STARTS it — the worker comes up seconds after `create-project` and runs until you `tdk fn disable`/`fn delete` it (a stream worker has no execution plan or transaction; find it with `tdk worker list`). To exercise: (1) `tdx-xp oneshot --suite connectors/postgrescdc --keep` (or create-project), (2) generate changes with `tdx-domain modify-data --domain <instance>_postgrescdc_employees_xs --ops Mix --sets 5` (Insert|Update|Delete|Mix), (3) watch batches land with `tdk trx list --proj <P> --monitor` and the workers with `tdk worker list`. `oneshot` WITHOUT --keep tears the project down again, which also stops the streams. The system already sets wal_level=logical, installs wal2json, grants the owner REPLICATION and sets REPLICA IDENTITY FULL, so update/delete records carry full before-images."
   },
   {
-    "domains": [
-      {
-        "name": "postgrescdc_employees_xs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "postgrescdc"
-        ]
-      },
-      {
-        "name": "postgrescdc_employees_xs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "employees"
-        ]
-      },
-      {
-        "name": "postgrescdc_employees_xs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "postgrescdc_employees_xs",
+          "system": "postgrescdc",
+          "model": "employees",
+          "data": "xs"
+        }
+      ]
+    }
   },
   {
     "collections": [

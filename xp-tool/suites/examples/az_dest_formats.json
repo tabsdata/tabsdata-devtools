@@ -4,24 +4,18 @@
     "_comment": "EXAMPLE · Azure Blob destination / formats — what a @subscriber writes. `paths` declares one WRITE SLOT per entry, fed by input_tables in the same order, one returned frame each; a destination path names ONE file (no wildcards); a returned None writes NOTHING — no empty file, and the previous file is left alone. Seven sinks over the same seeded table so only the format differs: write_parquet (AUTO from the extension — exact types, nothing to configure), write_avro, write_json (a text format; tz-aware timestamps are normalised to UTC ISO-8601, where parquet/avro keep the column's zone), write_csv (defaults — note a null becomes an EMPTY FIELD), write_csv_dialect (writer format_cfg: separator, null_value, date_format, float_precision, quote_style — side-typed, so a reader key here fails at decoration time), write_two_files, write_nothing. One function per file under functions/az_dest_formats/. Run: `tdx-xp oneshot --suite examples/az_dest_formats --keep`."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "azureblob_out",
-        "command": "create",
-        "options": [
-          "--sys",
-          "azureblob"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "azureblob_out",
+          "system": "azureblob"
+        }
+      ]
+    }
   },
   {
     "collections": [

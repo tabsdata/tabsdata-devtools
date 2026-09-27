@@ -3,40 +3,26 @@
     "_comment": "SHOWCASE suite 'retail' — a self-contained synthetic pipeline landing in the cloud. INGEST: retail_src generates small customers/orders frames in-process via the dev DataGenSrc (no external system to seed; domain dev). MARTS: retail_marts is a connection-less @transformer collection (group 'marts') enriching/filtering into orders_enriched and paid_orders via the Tabsdata TableFrame API (join/filter/select/sort — row-preserving; no polars, DataGenSrc's literal pl.DataFrame inputs are the only polars use). SERVE: retail_out writes each mart to S3 as parquet (domain s3out, system s3). Only the publisher is triggered; the rest cascade by @NEW. WAREHOUSE SINK: retail_clickhouse mirrors the same two marts into ClickHouse (ClickHouseDest, domain ch, staged through the S3 bucket of the ch_stage domain D1), alongside the S3 sink. Functions in functions/retail.py."
   },
   {
-    "domains": [
-      {
-        "name": "dev",
-        "command": "create",
-        "options": [
-          "--sys",
-          "dev"
-        ]
-      },
-      {
-        "name": "s3out",
-        "command": "create",
-        "options": [
-          "--sys",
-          "s3"
-        ]
-      },
-      {
-        "name": "ch",
-        "command": "create",
-        "options": [
-          "--sys",
-          "clickhouse"
-        ]
-      },
-      {
-        "name": "ch_stage",
-        "command": "create",
-        "options": [
-          "--sys",
-          "s3"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "dev",
+          "system": "dev"
+        },
+        {
+          "name": "s3out",
+          "system": "s3"
+        },
+        {
+          "name": "ch",
+          "system": "clickhouse"
+        },
+        {
+          "name": "ch_stage",
+          "system": "s3"
+        }
+      ]
+    }
   },
   {
     "collections": [

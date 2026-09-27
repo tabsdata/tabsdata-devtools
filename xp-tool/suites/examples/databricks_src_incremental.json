@@ -4,32 +4,16 @@
     "_comment": "EXAMPLE · Databricks source / incremental — a parameterised query with a persisted watermark. THE THREE PIECES: bind the cursor as `:name` (a typed statement parameter, never string interpolation); seed it with initial_values (FIRST RUN ONLY — every run reads ctx.get_attr first and falls back, so editing the seed does not rewind); advance it with ctx.set_attr from the batch you just published, reading the new value with max_for() (the top-ranking row's columns as a dict; several columns = a composite cursor). THE NO-RESULTS RULE is read_always_empty: when the slot is None leave the watermark ALONE and return None — a `set_attr(wm, 0)` fallback in that branch is the classic bug that re-ingests everything every time the source goes quiet. Four publishers: read_watermark_by_id (one page per run — RUN IT REPEATEDLY), read_composite_watermark, read_several_binds (a bind as a re-tunable knob, not only a cursor), read_always_empty. Dialect: `LIMIT 10`. One function per file under functions/databricks_src_incremental/. Run: `tdx-xp oneshot --suite examples/databricks_src_incremental --keep`, then run-project again."
   },
   {
-    "domains": [
-      {
-        "name": "databricks_world_xs",
-        "command": "create",
-        "options": [
-          "--sys",
-          "databricks"
-        ]
-      },
-      {
-        "name": "databricks_world_xs",
-        "command": "create-model",
-        "options": [
-          "--model",
-          "world"
-        ]
-      },
-      {
-        "name": "databricks_world_xs",
-        "command": "create-data",
-        "options": [
-          "--size",
-          "1"
-        ]
-      }
-    ]
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "databricks_world_xs",
+          "system": "databricks",
+          "model": "world",
+          "data": "xs"
+        }
+      ]
+    }
   },
   {
     "collections": [
