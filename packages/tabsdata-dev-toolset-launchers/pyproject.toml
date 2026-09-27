@@ -12,6 +12,7 @@ requires-python = ">=3.11"
 dependencies = [
     "tabsdata-dev-deps-launchers",
     "tabsdata-dev-tool-apidoc",
+    "tabsdata-dev-tool-ci",
     "tabsdata-dev-tool-jq",
     "tabsdata-dev-tool-km",
     "tabsdata-dev-tool-mexe",
@@ -25,6 +26,7 @@ dependencies = [
 [tool.uv.sources]
 tabsdata-dev-deps-launchers = { path = "../tabsdata-dev-deps-launchers", editable = true }
 tabsdata-dev-tool-apidoc = { path = "../tabsdata-dev-tool-apidoc", editable = true }
+tabsdata-dev-tool-ci = { path = "../tabsdata-dev-tool-ci", editable = true }
 tabsdata-dev-tool-jq = { path = "../tabsdata-dev-tool-jq", editable = true }
 tabsdata-dev-tool-km = { path = "../tabsdata-dev-tool-km", editable = true }
 tabsdata-dev-tool-mexe = { path = "../tabsdata-dev-tool-mexe", editable = true }
