@@ -11,10 +11,12 @@ description = "toolset xp: materialized environment"
 requires-python = ">=3.11"
 dependencies = [
     "tabsdata-dev-deps-xp",
+    "tabsdata-dev-tool-pt",
     "tabsdata-dev-tool-xp",
 ]
 
 [tool.uv.sources]
 tabsdata-dev-deps-xp = { path = "../tabsdata-dev-deps-xp", editable = true }
+tabsdata-dev-tool-pt = { path = "../tabsdata-dev-tool-pt", editable = true }
 tabsdata-dev-tool-xp = { path = "../tabsdata-dev-tool-xp", editable = true }
 tabsdata-dev-common-core = { path = "../tabsdata-dev-common-core", editable = true }

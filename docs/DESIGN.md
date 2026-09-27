@@ -35,7 +35,7 @@ tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
 `--dir` defaults to `$TDD_DIR`, then `~/.tdd`; everything after the word reaches the command
 verbatim; `--format`/`--verbose` before the word also travel on to it. Commands: `venv`,
 `tdd-env`, `env` (shell, marked `*` in `tdd help`), `system`, `domain`,
-`xp`, `gsx`, `pycache`, `mexe`, `apidoc`, `tdk`, `tdkserver`, `km` (Python).
+`xp`, `gsx`, `pycache`, `mexe`, `apidoc`, `tdk`, `tdkserver`, `km`, `pt`, `jq` (Python).
 `tdd help` merges both halves from `tdd-exe --porcelain` and the shell registry.
 
 **Command config**: `<tdd_dir>/<command>.toml`, one file per command, holding both what the
@@ -160,6 +160,7 @@ the tree and the generator blind to it.
 | [`tdk`](../packages/tabsdata-dev-tool-tdk/DESIGN.md), [`tdkserver`](../packages/tabsdata-dev-tool-tdkserver/DESIGN.md), [`km`](../packages/tabsdata-dev-tool-km/DESIGN.md) | launchers into the `tdd venv` |
 | [`smoke`](../packages/tabsdata-dev-tool-smoke/DESIGN.md) | the end-to-end smoke scripts, carried as data: run one, or export them to edit |
 | [`pycache`](../packages/tabsdata-dev-tool-pycache/DESIGN.md) | purge the uv and pip caches by package prefix |
+| [`pt`](../packages/tabsdata-dev-tool-pt/DESIGN.md), [`jq`](../packages/tabsdata-dev-tool-jq/DESIGN.md) | parquet-tools (pinned by `xp`) and the machine's jq, passed through |
 | [`mexe`](../packages/tabsdata-dev-tool-mexe/DESIGN.md) | the same shell commands in several directories, in parallel or serial (one after the other), inside the active managed venv |
 | [`apidoc`](../packages/tabsdata-dev-tool-apidoc/DESIGN.md) | a package's public API as structured JSON, read statically with griffe (tdx-apidocgen's port; the spec in its [README](../packages/tabsdata-dev-tool-apidoc/README.md)) |
 | [`venv`](../packages/tabsdata-dev-shell/scripts/unix/venv.design.md), [`env`](../packages/tabsdata-dev-shell/scripts/unix/env.design.md), [`tdd-env`](../packages/tabsdata-dev-shell/scripts/unix/tdd-env.design.md) | the shell commands, each written in both families |

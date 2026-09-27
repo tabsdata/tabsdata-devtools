@@ -1,0 +1,36 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+[project]
+name = "tabsdata-dev-tool-jq"
+dynamic = ["version"]
+description = "run jq, the JSON processor installed on the machine"
+requires-python = ">=3.11"
+dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
+
+[project.scripts]
+jq = "tabsdata_dev.tool.jq:main"
+
+[tool.tdd]
+# every argument is the program's, so there are no options to configure
+launcher = true
+
+[tool.hatch.version]
+path = "../../VERSION"
+pattern = '^(?P<version>\S+)'
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src/python/main/tabsdata_dev"]
+sources = ["src/python/main"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/python/test"]
+
+[tool.uv.sources]
+tabsdata-dev-common-core = { path = "../tabsdata-dev-common-core", editable = true }
+tabsdata-dev-deps-launchers = { path = "../tabsdata-dev-deps-launchers", editable = true }

@@ -16,6 +16,11 @@ command behaves unexpectedly. A launcher has no options of its own: every argume
 deliberate exception to docs/command-cli-guidelines.md. Only what happens
 before the program runs -- no venv, or the program missing from it -- is ours,
 and is reported as one error event the guidelines' way.
+
+`run_program` is the same contract for a program that is not tabsdata's --
+parquet-tools, jq -- found where it is installed once for everyone: pinned by
+the tool's own toolset, or on the machine and declared in bin-reqs.txt. No
+venv is looked for, so nothing is said before the program runs.
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from __future__ import annotations
 import argparse
 import os
 import pathlib
+import shutil
 import sys
 
 from . import cli, datadir, managedvenv, proc, render
@@ -79,6 +85,63 @@ def run(cmd: str, description: str, argv: list[str] | None = None) -> int:
 
     # The parser sees no arguments: they are all the program's.
     return cli.run(cmd, description, body, argv=[])
+
+
+def run_program(
+    cmd: str,
+    program: str,
+    description: str,
+    *,
+    pinned: bool,
+    argv: list[str] | None = None,
+) -> int:
+    """`tdd <cmd> ARGS` runs `<program> ARGS` and hands its output and status
+    straight back. `pinned`: the tool's toolset provides the program, so it is
+    looked for in this venv's scripts dir only; otherwise it is the machine's,
+    looked for on PATH with that dir left out -- it is where the launcher's
+    own entry point sits, and a program called like its launcher (`jq`) would
+    find the launcher and run it forever."""
+    args_ = list(sys.argv[1:] if argv is None else argv)
+
+    def body(_: argparse.Namespace, out: render.Renderer) -> int:
+        exe = _find(program, pinned=pinned)
+        if exe is None:
+            where = "this toolset" if pinned else "PATH"
+            return out.error(f"{program} is not installed: not found on {where}")
+        try:
+            done = proc.run([exe, *args_])
+        except KeyboardInterrupt:
+            out.warn(f"{program} interrupted")
+            return 1
+        if done.returncode != 0:
+            return out.error(
+                f"{program} exited with status {done.returncode}",
+                status=done.returncode,
+            )
+        return 0
+
+    return cli.run(cmd, description, body, argv=[])
+
+
+def _find(program: str, *, pinned: bool) -> str | None:
+    # The interpreter's own dir is the venv's scripts dir: bin/, or Scripts\
+    # on Windows, where which() also supplies the .exe.
+    own = pathlib.Path(sys.executable).parent
+    if pinned:
+        return shutil.which(program, path=str(own))
+    dirs = [
+        d
+        for d in os.environ.get("PATH", "").split(os.pathsep)
+        if d and not _same_dir(pathlib.Path(d), own)
+    ]
+    return shutil.which(program, path=os.pathsep.join(dirs))
+
+
+def _same_dir(a: pathlib.Path, b: pathlib.Path) -> bool:
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return False
 
 
 def _is_tdds_own(path: pathlib.Path) -> bool:
