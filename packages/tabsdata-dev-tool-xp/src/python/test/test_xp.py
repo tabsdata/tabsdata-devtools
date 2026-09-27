@@ -1753,20 +1753,37 @@ def _execute_suite(xp_root, entries):
     return build_instance("i", _staged_suite(xp_root, [{"execute": entries}]))
 
 
-def test_an_execute_script_gets_its_params_env_and_path(xp_root, monkeypatch):
-    """Run with xp's python from the suite dir, params expanded, the run's
-    names in its environment and xp's venv first on its PATH."""
+@pytest.fixture
+def launcher(monkeypatch, xp_root):
+    """`tdd-exe` stood in for: `_xp-execute SCRIPT ARGS` runs the script on this
+    python, as the launcher does; every other tool is not expected here."""
     import sys
 
-    from tabsdata_dev.tool.xp import execute, work
+    from tabsdata_dev.tool.xp import execute
 
     monkeypatch.setenv("TDD_DIR", str(xp_root.parent / "tdd"))
+
+    def tool_argv(name, *args):
+        if name == "_xp-execute":
+            return [sys.executable, *args]
+        return ["/fake/tdd/bin/tdd-exe", name, *args]
+
+    monkeypatch.setattr(execute.proc, "tool_argv", tool_argv)
+    return execute
+
+
+def test_an_execute_script_gets_its_params_env_and_path(xp_root, launcher):
+    """Run by `tdd _xp-execute` from the suite dir, params expanded, the run's
+    names in its environment and tdd-exe first on its PATH."""
+    from tabsdata_dev.tool.xp import work
+
     out = xp_root / "seen.json"
     _script(
         xp_root,
         "import json, os, sys\n"
         f"json.dump({{'argv': sys.argv[1:], 'cwd': os.getcwd(), "
         "'env': {k: os.environ[k] for k in ('XP_WORK_DIR', 'XP_PROJECT', 'XP_INSTANCE')}, "
+        "'venv': os.environ.get('_TDD_XP_EXECUTE_VENV'), "
         f"'path0': os.environ['PATH'].split(os.pathsep)[0]}}, open({str(out)!r}, 'w'))\n",
     )
     inst = _execute_suite(
@@ -1779,7 +1796,7 @@ def test_an_execute_script_gets_its_params_env_and_path(xp_root, monkeypatch):
             }
         ],
     )
-    assert execute.run_scripts(inst, "proj", inst.stages[0].execute) == 0
+    assert launcher.run_scripts(inst, "proj", inst.stages[0].execute) == 0
     seen = json.loads(out.read_text())
     assert seen["argv"] == [f"{work.work_dir()}/ops.jsonl", "proj"]
     assert (
@@ -1790,28 +1807,96 @@ def test_an_execute_script_gets_its_params_env_and_path(xp_root, monkeypatch):
         "XP_PROJECT": "proj",
         "XP_INSTANCE": "i",
     }
-    assert seen["path0"] == str(pathlib.Path(sys.executable).parent)
+    assert seen["path0"] == "/fake/tdd/bin" and seen["venv"] is None
 
 
-def test_a_failed_script_stops_the_run_unless_it_continues_on_fail(
-    xp_root, monkeypatch
-):
-    from tabsdata_dev.tool.xp import execute, state
+def test_a_failed_script_stops_the_run_unless_it_continues_on_fail(xp_root, launcher):
+    from tabsdata_dev.tool.xp import state
 
-    monkeypatch.setenv("TDD_DIR", str(xp_root.parent / "tdd"))
     _script(xp_root, "print('row 3 differs'); raise SystemExit(1)\n", "bad.py")
     _script(xp_root, "raise SystemExit(0)\n", "good.py")
     bad = {"name": "bad", "py_script": "scripts/bad.py"}
     good = {"name": "good", "py_script": "scripts/good.py"}
 
     inst = _execute_suite(xp_root, [{**bad, "continue_on_fail": True}, good])
-    assert execute.run_scripts(inst, "p", inst.stages[0].execute) == 1  # deferred
+    assert launcher.run_scripts(inst, "p", inst.stages[0].execute) == 1  # deferred
     steps = [(s["path"], s["ok"]) for s in state.run.reporter.steps]
     assert steps[-2:] == [("bad", False), ("good", True)]  # the next one still ran
 
     inst = _execute_suite(xp_root, [bad, good])
     with pytest.raises(state.XpError, match="(?s)execute 'bad' failed.*row 3 differs"):
-        execute.run_scripts(inst, "p", inst.stages[0].execute)
+        launcher.run_scripts(inst, "p", inst.stages[0].execute)
+
+
+def test_requirements_get_a_one_off_venv_deleted_whether_the_script_passes_or_not(
+    xp_root, launcher, monkeypatch
+):
+    """The venv is made, named to the launcher in _TDD_XP_EXECUTE_VENV, and
+    deleted after the step -- also when the script fails. Its name starts
+    tdd-xp-execute-, what a clean-up after a killed run looks for."""
+    from tabsdata_dev.tool.xp import state
+
+    made, deleted = [], []
+
+    def one_off_venv(inst, e):
+        name = launcher.venv_name(inst, e)
+        made.append((name, [r.spec for r in e.requirements]))
+        return name, xp_root / "venvs" / name
+
+    monkeypatch.setattr(launcher, "one_off_venv", one_off_venv)
+    monkeypatch.setattr(launcher, "delete_venv", deleted.append)
+    out = xp_root / "venv.txt"
+    _script(
+        xp_root,
+        f"import os, sys; open({str(out)!r}, 'w').write(os.environ['_TDD_XP_EXECUTE_VENV']); "
+        "sys.exit(int(sys.argv[1]))\n",
+    )
+    entry = {
+        "name": "needs",
+        "py_script": "scripts/check.py",
+        "requirements": [{"name": "polars", "version": "1.44.1"}, {"name": "rich"}],
+    }
+    for status, passed in (("0", True), ("1", False)):
+        inst = _execute_suite(
+            xp_root, [{**entry, "params": [status], "continue_on_fail": True}]
+        )
+        assert launcher.run_scripts(inst, "p", inst.stages[0].execute) == (
+            0 if passed else 1
+        )
+    assert [m[1] for m in made] == [["polars==1.44.1", "rich"]] * 2
+    assert deleted == [m[0] for m in made]  # both, the failed one too
+    assert all(m[0].startswith("tdd-xp-execute-") for m in made)
+    assert out.read_text().endswith(made[-1][0])
+
+    # a venv that cannot be made fails the step, and nothing is left to delete
+    deleted.clear()
+
+    def cannot(inst, e):
+        raise state.XpError("one-off venv x failed: no uv")
+
+    monkeypatch.setattr(launcher, "one_off_venv", cannot)
+    inst = _execute_suite(xp_root, [entry])
+    with pytest.raises(state.XpError, match="no uv"):
+        launcher.run_scripts(inst, "p", inst.stages[0].execute)
+    assert deleted == []
+
+
+@pytest.mark.parametrize(
+    "req, why",
+    [
+        ({"name": "polars", "version": ">=1"}, "is an exact version"),
+        ({"name": "bad name"}, "is not a package name"),
+        ({"name": "polars", "pin": "1"}, "Extra inputs"),
+    ],
+)
+def test_a_bad_requirement_is_refused_when_read(xp_root, req, why):
+    from tabsdata_dev.tool.xp import state
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    _script(xp_root, "pass\n")
+    entry = {"name": "x", "py_script": "scripts/check.py", "requirements": [req]}
+    with pytest.raises(state.XpError, match=why):
+        build_instance("i", _staged_suite(xp_root, [{"execute": [entry]}]))
 
 
 def test_enable_and_disable_a_registered_function(xp_root, capsys):

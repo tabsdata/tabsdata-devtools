@@ -319,17 +319,50 @@ class Sentinel(BaseModel):
         return seconds_of(self.time_out, "time_out")
 
 
+_REQUIREMENT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9._,-]+\])?$")
+
+
+class Requirement(BaseModel):
+    """A library an execute script needs: ``name`` (a PyPI name, extras
+    allowed), ``version`` an exact pin, or absent for the latest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    version: str | None = None
+
+    @model_validator(mode="after")
+    def _a_name_and_a_pin(self) -> Requirement:
+        if not _REQUIREMENT_NAME.match(self.name):
+            raise ValueError(f"requirement {self.name!r} is not a package name")
+        if self.version is not None and not re.fullmatch(
+            r"[A-Za-z0-9.+!_-]+", self.version
+        ):
+            raise ValueError(
+                f"requirement {self.name!r}: version {self.version!r} is an exact version, "
+                "e.g. 1.44.1 (not a specifier)"
+            )
+        return self
+
+    @property
+    def spec(self) -> str:
+        return f"{self.name}=={self.version}" if self.version else self.name
+
+
 class Execute(BaseModel):
     """A check script: ``py_script`` (a path in the suite dir, by convention
-    under ``scripts/``) run with xp's own python and ``params`` as its argv.
-    Exit 0 passes; anything else fails the step, and the run -- at once, or,
-    with ``continue_on_fail``, once the suite's stages have all run."""
+    under ``scripts/``) run by ``tdd _xp-execute`` -- a bare venv of its own,
+    the ``tdd`` module in reach -- with ``params`` as its argv. With
+    ``requirements`` it runs in a one-off venv holding them instead. Exit 0
+    passes; anything else fails the step, and the run -- at once, or, with
+    ``continue_on_fail``, once the suite's stages have all run."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: str
     py_script: str
     params: list[str] = []
+    requirements: list[Requirement] = []
     continue_on_fail: bool = False
 
     @model_validator(mode="after")

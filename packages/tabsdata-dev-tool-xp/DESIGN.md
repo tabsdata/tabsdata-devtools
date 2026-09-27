@@ -167,18 +167,23 @@ comment). Kinds repeat, in any order the dependencies allow:
   every data call, the seed's create-data included, is one trail of every operation a run
   applied, for a script to check against what came out the other end.
 - **An execute stage runs check scripts**: `{"execute": [{"name", "py_script", "params": [...],
-  "continue_on_fail": false}]}`. `py_script` is a `.py` in the suite dir (by convention
-  `scripts/`), checked for when the suite is read, and run from the suite dir with xp's python
-  and `params` as its argv; exit 0 passes. It gets `XP_WORK_DIR`, `XP_PROJECT`, `XP_INSTANCE`,
-  `XP_SUITE_DIR` and a PATH led by xp's venv (`parquet-tools`) and the dispatcher's (`tdd-exe`:
-  `tdd` is a shell function, so a script calls `tdd-exe tdk ...`). Its output is in run.log, its
-  last lines the step's error. A failure stops the run; `continue_on_fail` lets the stages after
-  it run and fails the run at the end -- a check that fails is never a green run. Rejected: a
-  script that passes by printing, or a result file -- an exit code is what every tool already
-  speaks. `container-connectors/scripts/verify_cdc_ops.py` is the first: the CDC stream's
-  output against the trail, the snapshot as the state the operations before it leave, and the
-  changes after it one by one in the same source transactions (cascaded deletes allowed beside
-  them).
+  "requirements": [{"name", "version"?}], "continue_on_fail": false}]}`. `py_script` is a `.py`
+  in the suite dir (by convention `scripts/`), checked for when the suite is read, and run from
+  the suite dir by `tdd _xp-execute` (its own bare toolset, built by tdd-install) with `params` as
+  its argv; exit 0 passes. The one thing that venv gives a script is the `tdd` module -- `from
+  tdd import tdd`, every tool one call away (`tdd("tdk", ...)`, `tdd("pqt", ...)`) -- so xp's own
+  pins are not the scripts' (they were, run on xp's python). An entry with `requirements` (a
+  version is an exact pin) runs in a one-off venv instead: `tdd _venv create --type uv` as
+  `tdd-xp-execute-<run>-<entry>`, filled with `uv pip install`, deleted after the step whether
+  the script passed or not; the prefix finds what a killed run left (`tdd venv list`). The
+  script gets `XP_WORK_DIR`, `XP_PROJECT`, `XP_INSTANCE`, `XP_SUITE_DIR` and `tdd-exe` on its
+  PATH. Its output is in run.log, its last lines the step's error. A failure stops the run;
+  `continue_on_fail` lets the stages after it run and fails the run at the end -- a check that
+  fails is never a green run. Rejected: a script that passes by printing, or a result file -- an
+  exit code is what every tool already speaks. `container-connectors/scripts/verify_cdc_ops.py`
+  is the first: the CDC stream's output against the trail, the snapshot as the state the
+  operations before it leave, and the changes after it one by one in the same source
+  transactions (cascaded deletes allowed beside them).
 - **`"enabled": false`** on a function registers it with `tdk fn register --disabled`: a stream
   publisher does not start until `enable-function --project P --collection C --function F`
   (tdk's `fn enable`); `disable-function` stops one. A group project is refused -- its lanes'
