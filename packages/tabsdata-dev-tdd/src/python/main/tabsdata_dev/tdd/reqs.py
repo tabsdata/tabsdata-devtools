@@ -140,37 +140,41 @@ def check(tool: str | None, out: render.Renderer) -> int:
 
     family = shell_family()
     out.debug(f"shell family: {family}")
-    missing: list[str] = []
-    checked = 0
+    # One line per binary, however many commands declare it: the question is
+    # what the machine has to provide, and jq needed by four commands is one
+    # jq to install. Who needs it travels in the JSON fields (`needed_by`).
+    needed_by: dict[str, list[str]] = {}
     for name, (entry, label) in sorted(selected.items()):
-        reqs = entry_reqs(entry, family)
-        if not reqs:
-            out.info(f"{name}{label}: no external requirements", command_name=name)
-            continue
-        for binary in reqs:
-            found, note = resolve(binary)
-            checked += 1
-            if found:
-                out.info(
-                    f"{name}{label}: [ok] {binary} -> {found}"
-                    + (f" ({note})" if note else ""),
-                    command_name=name,
-                    binary=binary,
-                    path=found,
-                    **({"via": note} if note else {}),
-                )
-            else:
-                missing.append(f"{name}: {binary}" + (f" ({note})" if note else ""))
-                out.warn(
-                    f"{name}{label}: [missing] {binary}"
-                    + (f" ({note})" if note else ""),
-                    command_name=name,
-                    binary=binary,
-                    **({"why": note} if note else {}),
-                )
+        for binary in entry_reqs(entry, family):
+            needed_by.setdefault(binary, []).append(f"{name}{label}")
+    if not needed_by:
+        what = tool if tool is not None else "anything"
+        return out.ok(f"{what}: no external requirements", checked=0)
+    missing: list[str] = []
+    for binary in sorted(needed_by):
+        found, note = resolve(binary)
+        via = f" ({note})" if note else ""
+        if found:
+            out.info(
+                f"[ok] {binary} -> {found}{via}",
+                binary=binary,
+                path=found,
+                needed_by=needed_by[binary],
+                **({"via": note} if note else {}),
+            )
+        else:
+            missing.append(f"{binary}{via}")
+            out.warn(
+                f"[missing] {binary}{via}",
+                binary=binary,
+                needed_by=needed_by[binary],
+                **({"why": note} if note else {}),
+            )
+    checked = len(needed_by)
     if missing:
         return out.error(
-            f"{len(missing)} required binaries missing: {', '.join(missing)}",
+            f"{len(missing)} of {checked} required binaries missing: "
+            f"{', '.join(missing)}",
             missing=missing,
         )
     return out.ok(f"all {checked} required binaries present", checked=checked)

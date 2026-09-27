@@ -91,6 +91,53 @@ def test_reqs_reports_every_declaration(capsys):
     assert events[-1]["event"] in ("ok", "error")
     assert (code == 0) == (events[-1]["event"] == "ok")
     assert any(e["event"] == "info" and e.get("binary") == "jq" for e in events)
+    binaries = [e["binary"] for e in events if "binary" in e]
+    assert (
+        len(binaries) == len(set(binaries)) == events[-1].get("checked", len(binaries))
+    )
+
+
+def test_reqs_lists_each_binary_once_with_who_needs_it(monkeypatch, capsys):
+    """One line per binary, not per command declaring it: `[ok]` or
+    `[missing]`, no command named in the message, the commands in
+    `needed_by`; the shell family decides which half's list counts."""
+    from tabsdata_dev.tdd import catalog as catalog_mod
+    from tabsdata_dev.tdd import reqs
+
+    catalog = {
+        "tools": {
+            "a": {"reqs": ["sh", "surely-not-a-binary-xyz"]},
+            "b": {"reqs": ["sh"]},
+            "c": {"reqs": []},
+        },
+        "shell": {"s": {"reqs": {"unix": ["sh"], "powershell": ["pwsh-only-xyz"]}}},
+    }
+    monkeypatch.setattr(catalog_mod, "shipped", lambda: catalog)
+    monkeypatch.setenv(reqs.FAMILY_ENV, "unix")
+    assert main_mod.main(["--format", "json", "--reqs"]) == 1
+    events = _events(capsys)
+    lines = [e for e in events if "binary" in e]
+    assert [(e["event"], e["message"].split(" ")[0]) for e in lines] == [
+        ("info", "[ok]"),
+        ("warn", "[missing]"),
+    ]
+    assert lines[0]["binary"] == "sh" and lines[0]["needed_by"] == [
+        "a",
+        "b",
+        "s (shell)",
+    ]
+    assert lines[1]["message"] == "[missing] surely-not-a-binary-xyz"
+    assert events[-1]["message"] == (
+        "1 of 2 required binaries missing: surely-not-a-binary-xyz"
+    )
+
+    assert main_mod.main(["--format", "json", "--reqs", "b"]) == 0
+    events = _events(capsys)
+    assert [e["message"].split(" -> ")[0] for e in events[:-1]] == ["[ok] sh"]
+    assert events[-1]["message"] == "all 1 required binaries present"
+
+    assert main_mod.main(["--format", "json", "--reqs", "c"]) == 0
+    assert _events(capsys)[-1]["message"] == "c: no external requirements"
 
 
 def test_tdd_install_help_and_usage_errors():

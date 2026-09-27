@@ -103,8 +103,9 @@ never blocked. `tdd-fn` does the same for shell commands with `command -v`.
 
 `bin-reqs.txt` -- one bare name per line -- at a Python tool's package root, beside a shell script
 as `<file>.bin-reqs.txt` (`common.bin-reqs.txt` is folded into every shell command). `tdd --reqs`
-reports `[ok]`/`[missing]` from the catalog against the ambient `PATH` (a pyenv/asdf/mise shim
-counts only when its manager wires it); `cargo make check` fails on a missing one; `proc.run()`
+reports `[ok]`/`[missing]` from the catalog against the ambient `PATH`, one line per binary however
+many commands declare it -- what the machine must provide; the commands that need it are in the
+JSON `needed_by` (a pyenv/asdf/mise shim counts only when its manager wires it); `cargo make check` fails on a missing one; `proc.run()`
 refuses an undeclared, unpinned binary at the point of use. Everything else a tool needs is
 carried by its package and found with `importlib.resources` -- never an OS path, the cwd or
 `__file__` arithmetic: the same code runs editable, as a wheel, and in a relocated dir. A tree
