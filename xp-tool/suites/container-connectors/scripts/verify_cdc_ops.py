@@ -3,7 +3,7 @@
 #
 """Check a CDC stream's output against the operations the domain was given.
 
-    verify_cdc_ops.py OPS_FILE COLLECTION
+    verify_cdc_ops.py OPS_FILE COLLECTION --cascades logged|unlogged --noops logged|unlogged
 
 OPS_FILE is the trail ``tdd domain create-data/modify-data/sentinel-data
 --emit-ops`` appended, one JSON line per operation, in the order the operations
@@ -23,19 +23,31 @@ A version whose data did not change repeats the one before it, so only the
 versions that changed are read. The stream's output is two things. The initial
 load is a snapshot: the tables' STATE when the stream started, every row an
 insert, in no order worth keeping. Everything after it is changes, grouped by
-source transaction and ordered by the position in it. So the last N transactions
-of OPS_FILE, N being how many source transactions the stream delivered, pair
-with those one to one: each of the trail's operations must appear in its source
-transaction, in order -- operation, table, key and values. A source transaction
-may carry more than the trail says, but only deletes: the rows an ON DELETE
-CASCADE took with the one the trail deleted, which the database did and no
-command asked for. They are counted and listed, not refused. The transactions
-before those N, replayed, must leave exactly the snapshot's rows in each table.
+source transaction (an xid, or a GTID ordered by its sequence) and ordered by
+the position in it. The trail's transactions pair with those by what they hold:
+the first the stream delivered is where the snapshot ends, and from there each
+of the trail's operations must appear in its source transaction, in order --
+operation, table, key and values. What else a transaction carries is the
+database's to say, and the suite says it:
+
+--cascades logged    the rows an ON DELETE CASCADE takes with a delete arrive
+                     in its transaction, each one (postgres); unlogged: none
+                     does (mysql's binlog has no row event for them).
+--noops logged       an update setting the values a row has arrives (postgres
+                     logs every UPDATE); unlogged: it does not, and a
+                     transaction of nothing else never arrives at all (mysql).
+
+An update or delete of a row that is not there -- a cascade took it -- arrives
+under neither. Cascaded deletes are counted and listed, not refused. The transactions before the snapshot's end,
+replayed with their cascades, must leave exactly the snapshot's rows in each
+table. A transaction the trail has and the stream lost, or one the stream has
+and the trail does not, is reported alone, and the pairing goes on after it.
 Exit 0 when both hold, 1 with what differs otherwise.
 """
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import os
@@ -47,6 +59,9 @@ from pathlib import Path
 from tdd import TddError, tdd  # put on the path by `tdd _xp-execute`
 
 LOAD_TX = "initial-load"
+LOGGED, UNLOGGED = "logged", "unlogged"
+# What applying an operation did to the tables.
+CHANGED, SAME, ABSENT = "changed", "same", "absent"
 
 # A stream row -> the trail's shape: `op` and `entity`, the source `tx` and `sq`,
 # `row` (the new values, the user's columns only) and `old` (the before-image).
@@ -64,8 +79,15 @@ _TO_OPS = r"""
      row: $new,
      old: (if $op == "delete" and ($old | [.[]] | all(. == "")) then $new else $old end)}
 """
-# The snapshot first, then the changes by source transaction and position.
-_IN_ORDER = r"""sort_by([.tx != "initial-load", (if .tx == "initial-load" then 0 else (.tx | tonumber) end), .sq]) | .[]"""
+# The snapshot first, then the changes by source transaction and position. A
+# source transaction is a number (postgres' xid) or a GTID, `<server uuid>:<n>`
+# (mysql), ordered by its n: every change comes from the one server.
+_IN_ORDER = r"""
+  def txkey: if test("^[0-9]+$") then tonumber
+             elif test(":[0-9]+$") then (split(":") | last | tonumber)
+             else . end;
+  sort_by([.tx != "initial-load", (if .tx == "initial-load" then 0 else (.tx | txkey) end), .sq]) | .[]
+"""
 
 
 # ---------------------------------------------------------------- tools ----
@@ -181,47 +203,117 @@ def matches(exp: dict, got: dict) -> str | None:
     return None
 
 
-def replay(ops: list[dict]) -> dict[str, list[tuple]]:
-    """The rows `ops` leave in each table, as sorted normalized tuples. A row is
-    known by the columns updates and deletes name it by; a table only ever
-    inserted into is known by the whole row. A delete cascades as the database
-    does and the trail does not say: every other table's rows that carry the
-    deleted key's columns with its values go too (a foreign key is named as the
-    key it references) -- the snapshot of a stream started under changes has
-    had those deletes."""
-    keys: dict[str, list[str]] = {}
-    for o in ops:
-        if "key" in o:
-            keys.setdefault(o["entity"], list(o["key"]))
-    state: dict[str, dict] = {}
-    for o in ops:
-        t = state.setdefault(o["entity"], {})
-        cols = keys.get(o["entity"])
+class Tables:
+    """Tables as the trail's operations leave them. A row is known by the
+    columns updates and deletes name it by (``keys``, from the whole trail); a
+    table only ever inserted into is known by the whole row. A delete cascades
+    as the database does and the trail does not say: every other table's rows
+    that carry the deleted key's columns with its values go too (a foreign key
+    is named as the key it references) -- the snapshot of a stream started
+    under changes has had those deletes."""
+
+    def __init__(self, trail: list[dict]):
+        self.keys: dict[str, list[str]] = {}
+        for o in trail:
+            if "key" in o:
+                self.keys.setdefault(o["entity"], list(o["key"]))
+        self.state: dict[str, dict] = {}
+        # (entity, columns) -> their values -> the rows' keys: what a cascade
+        # looks rows up by, built on first use and kept as rows come and go.
+        self.index: dict[tuple, dict[tuple, set]] = {}
+
+    def _values(self, row: dict, cols: tuple) -> tuple | None:
+        return tuple(norm(row[c]) for c in cols) if all(c in row for c in cols) else None
+
+    def _indexed(self, entity: str, pk: tuple, row: dict, add: bool) -> None:
+        for (e, cols), idx in self.index.items():
+            if e == entity and (v := self._values(row, cols)) is not None:
+                (idx.setdefault(v, set()).add if add else idx.get(v, set()).discard)(pk)
+
+    def apply(self, o: dict) -> str:
+        """Apply `o`: CHANGED, SAME (an update to the values the row already
+        has) or ABSENT (an update or delete of a row that is not there -- a
+        cascade took it). A delete's cascade is left in ``took``, (entity,
+        row) each."""
+        self.took: list[tuple[str, dict]] = []
+        t = self.state.setdefault(o["entity"], {})
+        cols = self.keys.get(o["entity"])
         if o["op"] == "insert":
             pk = tuple(norm(o["row"][c]) for c in cols) if cols else tuple(sorted(o["row"].items()))
+            if pk in t:
+                self._indexed(o["entity"], pk, t[pk], add=False)
             t[pk] = dict(o["row"])
-        else:
-            pk = tuple(norm(o["key"][c]) for c in cols)
-            if o["op"] == "delete":
-                t.pop(pk, None)
-                key = {c: norm(v) for c, v in o["key"].items()}
-                for entity, rows in state.items():
-                    if entity == o["entity"]:
-                        continue
-                    for rpk, r in list(rows.items()):
-                        if all(c in r and norm(r[c]) == v for c, v in key.items()):
-                            del rows[rpk]
-            elif pk in t:
-                t[pk].update(o["set"])
-    return {e: sorted(tuple((c, norm(v)) for c, v in sorted(r.items())) for r in t.values()) for e, t in state.items()}
+            self._indexed(o["entity"], pk, t[pk], add=True)
+            return CHANGED
+        pk = tuple(norm(o["key"][c]) for c in cols)
+        if pk not in t:
+            return ABSENT
+        if o["op"] == "update":
+            row = t[pk]
+            changed = any(norm(row.get(c)) != norm(v) for c, v in o["set"].items())
+            self._indexed(o["entity"], pk, row, add=False)
+            row.update(o["set"])
+            self._indexed(o["entity"], pk, row, add=True)
+            return CHANGED if changed else SAME
+        self._indexed(o["entity"], pk, t.pop(pk), add=False)
+        cols = tuple(sorted(o["key"]))
+        value = tuple(norm(o["key"][c]) for c in cols)
+        for entity, rows in self.state.items():
+            if entity == o["entity"]:
+                continue
+            if (entity, cols) not in self.index:
+                idx: dict[tuple, set] = {}
+                for rpk, r in rows.items():
+                    if (v := self._values(r, cols)) is not None:
+                        idx.setdefault(v, set()).add(rpk)
+                self.index[(entity, cols)] = idx
+            for rpk in list(self.index[(entity, cols)].get(value, ())):
+                row = rows.pop(rpk)
+                self._indexed(entity, rpk, row, add=False)
+                self.took.append((entity, row))
+        return CHANGED
+
+    def rows(self) -> dict[str, list[tuple]]:
+        """Each table's rows, as sorted normalized tuples."""
+        return {
+            e: sorted(tuple((c, norm(v)) for c, v in sorted(r.items())) for r in t.values())
+            for e, t in self.state.items()
+        }
 
 
-def compare(trail: list[dict], stream: list[dict]) -> tuple[list[str], list[str], str]:
-    """(problems, cascaded deletes, summary) of the stream against the trail."""
+def analyze(trail: list[dict]) -> tuple[dict[int, str], dict[int, list[tuple[str, dict]]]]:
+    """Each operation's effect (by id: CHANGED, SAME or ABSENT) and each
+    delete's cascade (by id), the whole trail replayed."""
+    tables = Tables(trail)
+    effect: dict[int, str] = {}
+    took: dict[int, list[tuple[str, dict]]] = {}
+    for o in trail:
+        effect[id(o)] = tables.apply(o)
+        if tables.took:
+            took[id(o)] = tables.took
+    return effect, took
+
+
+def _row(row: dict, cols) -> tuple:
+    return tuple((c, norm(row.get(c))) for c in sorted(cols))
+
+
+def compare(
+    trail: list[dict], stream: list[dict], cascades: str, noops: str
+) -> tuple[list[str], list[str], str]:
+    """(problems, cascaded deletes, summary) of the stream against the trail.
+    ``cascades`` and ``noops`` say what the database logs (LOGGED or
+    UNLOGGED): the rows a delete cascades to, and an update that sets the
+    values a row has."""
     problems: list[str] = []
     entities = list(dict.fromkeys(o["entity"] for o in trail))
     snapshot = [s for s in stream if s["tx"] == LOAD_TX]
     changes = [s for s in stream if s["tx"] != LOAD_TX]
+    effect, took = analyze(trail)
+    # What the stream cannot carry: an operation on a row that is not there
+    # (no database logs it) and, where they are not logged, the updates that
+    # changed nothing -- a transaction of nothing else never arrives at all.
+    idle = {i for i, e in effect.items() if e == ABSENT or (e == SAME and noops == UNLOGGED)}
 
     # The trail's transactions: one run of one verb numbers its own from 0.
     trail_txns: dict[tuple, list[dict]] = {}
@@ -231,15 +323,31 @@ def compare(trail: list[dict], stream: list[dict]) -> tuple[list[str], list[str]
     for c in changes:
         source_txns.setdefault(c["tx"], []).append(c)
     exp_groups, got_groups = list(trail_txns.values()), list(source_txns.values())
-    if len(got_groups) > len(exp_groups):
-        problems.append(
-            f"the stream delivered {len(got_groups)} source transactions, the trail has only {len(exp_groups)}"
-        )
-    split = max(0, len(exp_groups) - len(got_groups))
+
+    def opens(exp_ops: list[dict], got_ops: list[dict]) -> bool:
+        """Whether `got_ops` is `exp_ops`' source transaction: its first
+        operation is the first of theirs that changed something."""
+        first = next((o for o in exp_ops if id(o) not in idle), exp_ops[0])
+        return matches(first, got_ops[0]) is None
+
+    # Where the snapshot ends: the trail transaction the stream's first change
+    # transaction is. Counting from the end (the stream's N transactions are
+    # the trail's last N) is only a first guess: a transaction that changed
+    # nothing may be missing, one delivered twice may not.
+    guess = max(0, len(exp_groups) - len(got_groups))
+    split = guess
+    if got_groups:
+        near = sorted(range(max(0, guess - 200), min(len(exp_groups), guess + 200)), key=lambda s: abs(s - guess))
+        split = next((s for s in near if opens(exp_groups[s], got_groups[0])), guess)
+    else:
+        split = len(exp_groups)
     before = [o for g in exp_groups[:split] for o in g]
 
     # The snapshot: the trail up to the split, replayed, is each table's state.
-    want = replay(before)
+    tables = Tables(trail)
+    for o in before:
+        tables.apply(o)
+    want = tables.rows()
     for entity in entities:
         inserted = next((o["row"] for o in trail if o["entity"] == entity and o["op"] == "insert"), {})
         got = sorted(
@@ -253,33 +361,93 @@ def compare(trail: list[dict], stream: list[dict]) -> tuple[list[str], list[str]
                 f"leave {len(want.get(entity, []))}"
             )
 
-    # The changes: transaction by transaction, the trail's operations in order
-    # within each, anything more a cascaded delete.
+    # The changes: transaction by transaction, paired by what they hold, the
+    # trail's operations in order within each; anything more a cascaded delete.
     cascaded: list[str] = []
-    for exp_ops, got_ops in zip(exp_groups[split:], got_groups):
-        what = f"{exp_ops[0]['verb']} txn {exp_ops[0]['txn']} (source tx {got_ops[0]['tx']})"
-        i = 0
+
+    def pair(exp_ops: list[dict], got_ops: list[dict]) -> None:
+        o = exp_ops[0]
+        what = f"{o['verb']}" + (f" seed {o['seed']}" if "seed" in o else "") + f" txn {o['txn']} (source tx {got_ops[0]['tx']})"
+        pending = list(exp_ops)
+        # The rows this transaction's deletes cascade to, as the stream would
+        # carry them (a delete's before-image): each once.
+        owed: dict[tuple, int] = {}
+        for exp in exp_ops:
+            for entity, row in took.get(id(exp), []):
+                k = (entity, _row(row, row))
+                owed[k] = owed.get(k, 0) + 1
         for got in got_ops:
-            exp = exp_ops[i] if i < len(exp_ops) else None
+            while pending and id(pending[0]) in idle and matches(pending[0], got) is not None:
+                pending.pop(0)  # changed nothing, and was not logged
+            exp = pending[0] if pending else None
             if exp is not None and matches(exp, got) is None:
-                i += 1
+                if effect[id(exp)] == SAME and noops == UNLOGGED:
+                    problems.append(f"{what}: {exp['op']} on {exp['entity']} arrived, though it changed nothing")
+                pending.pop(0)
             elif exp is not None and got["op"] != "delete" and (exp["op"], exp["entity"]) == (got["op"], got["entity"]):
                 # The operation the trail expected, with the wrong values: said
                 # once, and the pairing moves on rather than failing every one after.
                 problems.append(f"{what}: {matches(exp, got)}")
-                i += 1
+                pending.pop(0)
+            elif got["op"] == "delete" and cascades == LOGGED:
+                k = next(
+                    (k for k in owed if k[0] == got["entity"] and owed[k] and k[1] == _row(got["old"], dict(k[1]))),
+                    None,
+                )
+                if k is None:
+                    problems.append(f"{what}: unexpected delete on {got['entity']} {got['old']}: no delete here cascades to it")
+                else:
+                    owed[k] -= 1
+                    cascaded.append(f"{what}: delete on {got['entity']} {got['old']}")
             elif got["op"] == "delete":
-                cascaded.append(f"{what}: delete on {got['entity']} {got['old']}")
+                problems.append(f"{what}: unexpected delete on {got['entity']} {got['old']}: cascades are not logged")
             else:
                 why = matches(exp, got) if exp is not None else "nothing more was expected"
                 problems.append(f"{what}: unexpected {got['op']} on {got['entity']}: {why}")
-        for exp in exp_ops[i:]:
-            problems.append(f"{what}: {exp['op']} on {exp['entity']} never arrived")
+        for exp in pending:
+            if id(exp) not in idle:
+                problems.append(f"{what}: {exp['op']} on {exp['entity']} never arrived")
+        if cascades == LOGGED:
+            for (entity, row), n in owed.items():
+                if n:
+                    problems.append(f"{what}: cascaded delete on {entity} {dict(row)} never arrived")
 
+    def txn(ops: list[dict]) -> str:
+        o = ops[0]
+        return f"{o['verb']}" + (f" seed {o['seed']}" if "seed" in o else "") + f" txn {o['txn']}"
+
+    def described(ops: list[dict]) -> str:
+        return ", ".join(f"{o['op']} {o['entity']} {o.get('key') or o.get('row')}" for o in ops[:3]) + (
+            f" (+{len(ops) - 3} more)" if len(ops) > 3 else ""
+        )
+
+    i, j = split, 0
+    while i < len(exp_groups) or j < len(got_groups):
+        exp_ops = exp_groups[i] if i < len(exp_groups) else None
+        got_ops = got_groups[j] if j < len(got_groups) else None
+        if exp_ops is not None and got_ops is not None and opens(exp_ops, got_ops):
+            pair(exp_ops, got_ops)
+            i, j = i + 1, j + 1
+        elif exp_ops is not None and all(id(o) in idle for o in exp_ops):
+            i += 1  # changed nothing: there may be no source transaction to pair
+        elif exp_ops is not None and (
+            got_ops is None or any(opens(e, got_ops) for e in exp_groups[i + 1 : i + 20])
+        ):
+            problems.append(
+                f"{txn(exp_ops)} never arrived: {described(exp_ops)}"
+            )
+            i += 1
+        else:
+            problems.append(f"source tx {got_ops[0]['tx']} is in no trail transaction: {described(got_ops)}")
+            j += 1
+
+    after = trail[len(before) :]
+    same = sum(1 for o in after if effect[id(o)] == SAME)
     summary = (
         f"{len(trail)} operation(s) in the trail: {len(before)} in the snapshot, "
-        f"{len(trail) - len(before)} as {len(got_groups)} source transaction(s) of changes "
-        f"({len(cascaded)} cascaded delete(s) beside them), over {len(entities)} table(s)"
+        f"{len(after)} as {len(got_groups)} source transaction(s) of changes "
+        f"({len(cascaded)} cascaded delete(s) beside them, cascades {cascades}; "
+        f"{same} update(s) that changed nothing, {noops}), over {len(entities)} table(s)"
     )
     return problems, cascaded, summary
 
@@ -288,9 +456,27 @@ def compare(trail: list[dict], stream: list[dict]) -> tuple[list[str], list[str]
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        sys.exit(__doc__.strip().splitlines()[2])
-    trail_file, coll = Path(sys.argv[1]), sys.argv[2]
+    parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
+    parser.add_argument("ops_file", type=Path)
+    parser.add_argument("collection")
+    # No default: what the database logs is the suite's to say, and a check
+    # that accepts either lets a stream drop what it should carry.
+    parser.add_argument(
+        "--cascades",
+        required=True,
+        choices=(LOGGED, UNLOGGED),
+        help="the rows an ON DELETE CASCADE takes: logged (postgres) -- each must arrive "
+        "in its delete's transaction -- or unlogged (mysql's binlog) -- none may",
+    )
+    parser.add_argument(
+        "--noops",
+        required=True,
+        choices=(LOGGED, UNLOGGED),
+        help="an update setting the values a row has: logged (postgres) -- it must arrive "
+        "-- or unlogged (mysql) -- it must not, nor a transaction of nothing else",
+    )
+    args = parser.parse_args()
+    trail_file, coll = args.ops_file, args.collection
     proj = os.environ["XP_PROJECT"]
     work = Path(os.environ["XP_WORK_DIR"]) / "cdc"
     work.mkdir(parents=True, exist_ok=True)
@@ -308,7 +494,7 @@ def main() -> int:
         per_table.append(to_ops(rows, entity))
     stream = in_order(concat(per_table, work / "all.ops.jsonl"), work / "actual.jsonl")
 
-    problems, cascaded, summary = compare(trail, read_jsonl(stream))
+    problems, cascaded, summary = compare(trail, read_jsonl(stream), args.cascades, args.noops)
 
     (work / "report.txt").write_text(
         summary + "\n" + "".join(f"  {p}\n" for p in problems) + "".join(f"  cascaded: {c}\n" for c in cascaded),

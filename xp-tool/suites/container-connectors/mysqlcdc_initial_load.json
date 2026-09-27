@@ -1,0 +1,127 @@
+[
+  {
+    "_comment": "CAPABILITY suite for the MySQL CDC stream source with initial_load, over every table of the employees model and its xp_sentinel (functions/caps_mysqlcdc_initial_load.py::mysqlcdc_initial_load). The same stages as postgrescdc_initial_load: (1) domains -- create the mysqlcdc domain, install the employees model, load the xs seed, its operations appended to ${XP_WORK_DIR}/ops.jsonl (--emit-ops) -- as every data command below appends its own; (2) live -- `sentinel-data --key after-create-data`, so the snapshot carries it; (3) collections; (4) functions -- register the @stream_publisher, which STARTS it: with initial_load=True it first emits a snapshot of each tracked table (rows as inserts, a LOAD control row per table ahead of them), then captures changes over the binlog, from the GTID position the snapshot's brief global read lock pinned (server_id 812 for this suite, 813 for the other, so both run at once); (5) sentinel -- hold until after-create-data is in xp_sentinel_changes (the load has flushed); (6) live -- one `modify-data --ops Mix --sets 5` pass, then `sentinel-data --key after-changes`; (7) sentinel -- hold until after-changes has arrived; (8) execute -- scripts/verify_cdc_ops.py checks every <table>_changes against ops.jsonl: the snapshot the state the seed left, the changes after it the operations modify-data applied, one by one, in the same transactions; (9) monitor. mysqlcdc_initial_load_live is the same with changes running throughout the snapshot. Run: `tdd xp one-shot --suite container-connectors/mysqlcdc_initial_load --keep`. verify-ops runs with --cascades unlogged --noops unlogged: the binlog has no row event for what a cascade takes (InnoDB applies it below the binlog) nor for a row an UPDATE did not change, so none may arrive."
+  },
+  {
+    "domain-manifest": {
+      "emit_ops": "${XP_WORK_DIR}/ops.jsonl",
+      "domains": [
+        {
+          "name": "mysqlcdc_employees_xs",
+          "system": "mysqlcdc",
+          "model": "employees",
+          "data": "xs"
+        }
+      ]
+    }
+  },
+  {
+    "live": [
+      {
+        "name": "sentinel",
+        "domain": {
+          "name": "mysqlcdc_employees_xs",
+          "command": "sentinel-data",
+          "options": [
+            "--key",
+            "after-create-data",
+            "--emit-ops",
+            "${XP_WORK_DIR}/ops.jsonl"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "mysqlcdc_initial_load",
+        "type": "mysql_cdc",
+        "connection_template": "connection-file:connections/mysql_cdc_812.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "mysqlcdc_employees_xs"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "mysqlcdc_initial_load",
+        "functionpath": "functions/caps_mysqlcdc_initial_load.py::mysqlcdc_initial_load"
+      }
+    ]
+  },
+  {
+    "sentinel": [
+      {
+        "collection": "mysqlcdc_initial_load",
+        "table": "xp_sentinel_changes",
+        "wait_for_key": "after-create-data",
+        "time_out": "5m"
+      }
+    ]
+  },
+  {
+    "live": [
+      {
+        "name": "change",
+        "domain": {
+          "name": "mysqlcdc_employees_xs",
+          "command": "modify-data",
+          "options": [
+            "--ops",
+            "Mix",
+            "--sets",
+            "5",
+            "--emit-ops",
+            "${XP_WORK_DIR}/ops.jsonl"
+          ]
+        }
+      },
+      {
+        "name": "sentinel-changed",
+        "domain": {
+          "name": "mysqlcdc_employees_xs",
+          "command": "sentinel-data",
+          "options": [
+            "--key",
+            "after-changes",
+            "--emit-ops",
+            "${XP_WORK_DIR}/ops.jsonl"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "sentinel": [
+      {
+        "collection": "mysqlcdc_initial_load",
+        "table": "xp_sentinel_changes",
+        "wait_for_key": "after-changes",
+        "time_out": "5m"
+      }
+    ]
+  },
+  {
+    "execute": [
+      {
+        "name": "verify-ops",
+        "py_script": "scripts/verify_cdc_ops.py",
+        "params": [
+          "${XP_WORK_DIR}/ops.jsonl",
+          "mysqlcdc_initial_load",
+          "--cascades",
+          "unlogged",
+          "--noops",
+          "unlogged"
+        ]
+      }
+    ]
+  },
+  {
+    "monitor": true
+  }
+]
