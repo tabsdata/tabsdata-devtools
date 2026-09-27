@@ -6,21 +6,43 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev",
-        "model": null,
-        "data": null
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "oracle_world_xs",
-        "system": "oracle",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "oracle"
+        ]
+      },
+      {
+        "name": "oracle_world_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "oracle_world_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "oracle",
-        "system": "oracle",
-        "model": null,
-        "data": null
+        "command": "create",
+        "options": [
+          "--sys",
+          "oracle"
+        ]
       }
     ]
   },

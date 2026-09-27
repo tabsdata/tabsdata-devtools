@@ -6,9 +6,27 @@
     "domains": [
       {
         "name": "postgrescdc_employees_xs",
-        "system": "postgrescdc",
-        "model": "employees",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "postgrescdc"
+        ]
+      },
+      {
+        "name": "postgrescdc_employees_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "employees"
+        ]
+      },
+      {
+        "name": "postgrescdc_employees_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       }
     ]
   },

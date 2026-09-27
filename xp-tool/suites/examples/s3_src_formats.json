@@ -7,17 +7,43 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "s3_world_xs",
-        "system": "s3",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "s3"
+        ]
+      },
+      {
+        "name": "s3_world_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "s3_world_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "s3_files",
-        "system": "s3"
+        "command": "create",
+        "options": [
+          "--sys",
+          "s3"
+        ]
       }
     ]
   },

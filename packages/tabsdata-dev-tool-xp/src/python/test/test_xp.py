@@ -7,11 +7,27 @@ import pathlib
 
 import pytest
 
+
+def calls(name, system, model=None, size=None, *data_opts):
+    """A domain as a domains stage writes it: its create and, seeded, its
+    create-model and create-data."""
+    out = [{"name": name, "command": "create", "options": ["--sys", system]}]
+    if model:
+        out.append(
+            {"name": name, "command": "create-model", "options": ["--model", model]}
+        )
+        out.append(
+            {
+                "name": name,
+                "command": "create-data",
+                "options": ["--size", str(size or 1), *data_opts],
+            }
+        )
+    return out
+
+
 SUITE = {
-    "domains": [
-        {"name": "fs", "system": "fs"},
-        {"name": "world", "system": "fs", "model": "world", "data": "s"},
-    ],
+    "domains": [*calls("fs", "fs"), *calls("world", "fs", "world", 10)],
     "collections": [
         {
             "name": "src",
@@ -193,28 +209,21 @@ def test_connection_prep_resolves_secrets_and_interpolates(xp_root, monkeypatch)
         conn.interpolate("${D0__NOPE}", {}, "here")
 
 
-def test_domain_manifest_entries_carry_the_keys_tdd_domain_takes(xp_root):
+def test_a_creates_backend_name_is_per_run_and_stable_within_one(xp_root):
+    """xp names the backend object itself (`--name-in-system`): the user, the
+    run's timestamp and a tag of the logical domain -- the same for the same
+    run, so a partial failure re-run reuses the container."""
     from tabsdata_dev.tool.xp import domains
     from tabsdata_dev.tool.xp.models import build_instance
 
     inst = build_instance("i1", xp_root / "suites" / "demo" / "one.json")
-    fs, world = inst.domains
-    entry = domains.domain_entry(inst, world, "20260829T000000")
-    assert (
-        entry["name"] == "i1_world"
-        and entry["sys"] == "fs"
-        and entry["model"] == "world"
-        and entry["size"] == 10
+    assert [(d.name, d.system) for d in inst.domains] == [("fs", "fs"), ("world", "fs")]
+    name = domains.name_in_system(inst, "world", "20260829T000000")
+    assert name.startswith("xp_") and name.endswith(
+        "_20260829T000000_" + name.split("_")[-2] + "_world"
     )
-    assert entry["name-in-system"].startswith("xp_") and entry[
-        "name-in-system"
-    ].endswith("_world")
-    # stable across runs of the same timestamp (a partial failure reuses the container)
-    assert (
-        entry["name-in-system"]
-        == domains.domain_entry(inst, world, "20260829T000000")["name-in-system"]
-    )
-    assert "model" not in domains.domain_entry(inst, fs, "x")
+    assert name == domains.name_in_system(inst, "world", "20260829T000000")
+    assert name != domains.name_in_system(inst, "fs", "20260829T000000")
 
 
 def test_dry_run_one_shot_prints_the_tdd_commands_and_touches_no_server(
@@ -234,10 +243,15 @@ def test_dry_run_one_shot_prints_the_tdd_commands_and_touches_no_server(
     out, err = capsys.readouterr()
     assert rc == 0, err
     lines = [line for line in out.splitlines() if line.startswith("tdd ")]
-    assert (
-        lines[0].startswith("tdd domain create --manifest ")
-        and "--fail-fast" in lines[0]
+    # a domains stage is its calls, as written: each domain's create first
+    assert lines[0].startswith(
+        "tdd domain create --domain p_fs --sys fs --name-in-system "
     )
+    assert lines[1].startswith("tdd domain create --domain p_world --sys fs ")
+    assert lines[2:4] == [
+        "tdd domain create-model --domain p_world --model world",
+        "tdd domain create-data --domain p_world --size 10",
+    ]
     assert "tdd tdk project create --name p" in "\n".join(lines)
     assert (
         "tdd tdk collection create --proj p --name src --group sources --conn-file -"
@@ -405,9 +419,9 @@ def test_the_login_probe_does_not_open_an_unlabelled_reporter(
     assert _run(["create-domains", "--instance", "lbl", "--dry-run"]) == 0
     out, err = capsys.readouterr()
     assert any(
-        line.startswith("demo/one - [1/2] - create-domain") for line in err.splitlines()
+        line.startswith("demo/one - [1/4] - create-domain") for line in err.splitlines()
     )
-    assert out.splitlines()[-1].startswith("demo/one - summary - 2 step(s), all ok")
+    assert out.splitlines()[-1].startswith("demo/one - summary - 4 step(s), all ok")
 
 
 def test_the_built_in_suites_are_carried_at_the_repo_root_and_packed_into_a_wheel():
@@ -541,7 +555,9 @@ def test_list_systems_reports_each_required_system_and_fails_on_a_missing_one(
 ):
     from tabsdata_dev.tool.xp import project
 
-    needed = sorted({d["system"] for d in SUITE["domains"]})
+    needed = sorted(
+        {d["options"][1] for d in SUITE["domains"] if d["command"] == "create"}
+    )
     assert needed, "the fixture suite must need at least one system"
 
     monkeypatch.setattr(
@@ -847,7 +863,10 @@ LIVE = [
             },
             {"name": "empty", "domain": _dom("world", "delete-data")},
             {"name": "drop", "domain": _dom("world", "delete-model")},
-            {"name": "model", "domain": _dom("world", "create-model", "--force")},
+            {
+                "name": "model",
+                "domain": _dom("world", "create-model", "--force", "--model", "world"),
+            },
         ],
     }
 ]
@@ -987,8 +1006,8 @@ def test_dry_run_live_domains_prints_the_script_in_order(xp_root, capsys):
     assert rc == 0, err
     lines = [ln for ln in out.splitlines() if ln.startswith(("tdd ", "sleep "))]
     first = lines[: lines.index("tdd domain delete-model --domain i_world") + 2]
-    # create-data takes the size the suite declares (s = x10), create-model its model
-    assert first[0] == "tdd domain create-data --domain i_world --size 10"
+    # a live call runs as written: nothing is filled in from the domains stage
+    assert first[0] == "tdd domain create-data --domain i_world"
     assert first[1:4] == [
         "sleep 1",
         "tdd domain modify-data --domain i_world --entity city --ops Insert",
@@ -1028,7 +1047,7 @@ def test_dry_run_marks_what_goes_to_the_background_and_what_waits(xp_root, capsy
     out, err = capsys.readouterr()
     assert rc == 0, err
     assert out.splitlines()[:7] == [
-        "tdd domain create-data --domain i_world --size 10",
+        "tdd domain create-data --domain i_world",
         "# churn: starts in the background",
         "tdd domain modify-data --domain i_world",
         "tdd domain modify-data --domain i_world",
@@ -1185,7 +1204,7 @@ def test_one_shot_runs_the_live_script_after_the_triggers_unless_told_not_to(
 
 STAGED = [
     {"_comment": "a comment entry reads as nothing"},
-    {"domains": [{"name": "world", "system": "fs", "model": "world", "data": "s"}]},
+    {"domains": calls("world", "fs", "world", 10)},
     {
         "live": [
             {"name": "early", "domain": _dom("world", "modify-data", "--ops", "Insert")}
@@ -1211,7 +1230,7 @@ STAGED = [
             }
         ]
     },
-    {"domains": [{"name": "fs", "system": "fs"}]},
+    {"domains": calls("fs", "fs")},
     {"triggers": [{"collection": "src", "function": "pub", "detached": True}]},
     {"monitor": True},
 ]
@@ -1282,7 +1301,7 @@ def test_the_older_single_object_is_refused_naming_the_list_it_ran(xp_root, caps
                         {"name": "c", "type": "t", "group": "g", "domains": {"D0": "d"}}
                     ]
                 },
-                {"domains": [{"name": "d", "system": "fs"}]},
+                {"domains": calls("d", "fs")},
             ],
             "collection 'c' names domain 'd', created by a later stage",
         ),
@@ -1300,7 +1319,7 @@ def test_the_older_single_object_is_refused_naming_the_list_it_ran(xp_root, caps
         (
             [
                 {"live": [{"name": "x", "domain": _dom("d", "delete-data")}]},
-                {"domains": [{"name": "d", "system": "fs"}]},
+                {"domains": calls("d", "fs")},
             ],
             "live entry 'x' names domain 'd', created by a later stage",
         ),
@@ -1337,7 +1356,7 @@ def test_run_suite_runs_the_stages_in_the_order_listed(xp_root, capsys):
         return next(i for i, ln in enumerate(lines) if ln.startswith(prefix))
 
     order = [
-        at("tdd domain create --manifest"),  # stage 1: world
+        at("tdd domain create --domain i_world --sys fs"),  # stage 1: world
         at(
             "tdd domain modify-data --domain i_world --ops Insert"
         ),  # live, before the project
@@ -1348,12 +1367,8 @@ def test_run_suite_runs_the_stages_in_the_order_listed(xp_root, capsys):
         at("tdd tdk trx list --proj p --monitor"),
     ]
     assert order == sorted(order)
-    # the second domains stage has a manifest of its own, between them
-    manifests = [
-        i for i, ln in enumerate(lines) if ln.startswith("tdd domain create --manifest")
-    ]
-    assert len(manifests) == 2 and order[4] < manifests[1] < order[5]
-    assert "domains-6.yaml" in lines[manifests[1]]
+    # the second domains stage runs where it stands, between them
+    assert order[4] < at("tdd domain create --domain i_fs --sys fs") < order[5]
     # "enabled": false registers it disabled
     assert lines[order[4]].endswith(" --disabled")
 
@@ -1379,7 +1394,7 @@ def test_a_live_stages_background_entries_run_through_later_stages(
 
     monkeypatch.setattr(live, "_call", call)
     doc = [
-        {"domains": [{"name": "world", "system": "fs"}]},
+        {"domains": calls("world", "fs")},
         {
             "live": [
                 {
@@ -1609,23 +1624,16 @@ def test_the_work_dir_tokens_expand_at_use_and_unknown_ones_are_refused(xp_root)
     assert work.expand("p=${XP_PROJECT}", "proj") == "p=proj"
     with pytest.raises(state.XpError, match=r"\$\{XP_PROJECT\} has no value here"):
         work.expand("${XP_PROJECT}")
-    doc = [
-        {
-            "domains": [
-                {
-                    "name": "d",
-                    "system": "fs",
-                    "model": "world",
-                    "emit_ops": "${XP_WORKDIR}/x",
-                }
-            ]
-        }
-    ]
+    doc = [{"domains": calls("d", "fs", "world", 1, "--emit-ops", "${XP_WORKDIR}/x")}]
     with pytest.raises(state.XpError, match=r"\$\{XP_WORKDIR\} is not a token"):
         build_instance("i", _staged_suite(xp_root, doc))
 
 
-def test_a_domains_emit_ops_reaches_its_manifest_entry_expanded(xp_root):
+def test_a_domain_call_expands_its_tokens_and_a_create_gets_its_backend_name(
+    xp_root,
+):
+    """A domains stage's calls run as written, tokens expanded; a create also
+    gets the per-run --name-in-system, which a suite may not set itself."""
     from tabsdata_dev.common.core import render
     from tabsdata_dev.tool.xp import domains, state, work
     from tabsdata_dev.tool.xp.models import build_instance
@@ -1633,19 +1641,76 @@ def test_a_domains_emit_ops_reaches_its_manifest_entry_expanded(xp_root):
     state.bind(render.Renderer(state.TOOL), argparse_ns())
     doc = [
         {
-            "domains": [
-                {
-                    "name": "d",
-                    "system": "fs",
-                    "model": "world",
-                    "emit_ops": "${XP_WORK_DIR}/ops.jsonl",
-                }
-            ]
+            "domains": calls(
+                "d", "fs", "world", 1, "--emit-ops", "${XP_WORK_DIR}/ops.jsonl"
+            )
         }
     ]
     inst = build_instance("i", _staged_suite(xp_root, doc))
-    entry = domains.domain_entry(inst, inst.domains[0], "ts")
-    assert entry["emit-ops"] == f"{work.work_dir()}/ops.jsonl"
+    create, model, data = inst.stages[0].domains
+    assert [d.name for d in inst.domains] == ["d"] and inst.domains[0].system == "fs"
+    argv = domains.call_argv(inst, create)
+    assert argv[-6:-2] == ["--domain", "i_d", "--sys", "fs"]
+    assert argv[-2] == "--name-in-system" and argv[-1].endswith("_d")
+    assert domains.call_argv(inst, data)[-2:] == [
+        "--emit-ops",
+        f"{work.work_dir()}/ops.jsonl",
+    ]
+    assert "--name-in-system" not in domains.call_argv(inst, model)
+
+
+@pytest.mark.parametrize(
+    "doc, why",
+    [
+        (
+            [{"domains": [{"name": "d", "command": "create", "options": []}]}],
+            "needs --sys",
+        ),
+        (
+            [
+                {
+                    "domains": [
+                        {
+                            "name": "d",
+                            "command": "create-data",
+                            "options": ["--size", "1"],
+                        }
+                    ]
+                }
+            ],
+            "create-data on 'd' before any create of it",
+        ),
+        ([{"domains": calls("d", "fs") + calls("d", "fs")}], "'d' is created twice"),
+        (
+            [
+                {
+                    "domains": [
+                        {
+                            "name": "d",
+                            "command": "create",
+                            "options": ["--sys", "fs", "--name-in-system", "x"],
+                        }
+                    ]
+                }
+            ],
+            "options set by xp itself: --name-in-system",
+        ),
+        (
+            [{"domains": [{"name": "d", "command": "destroy", "options": []}]}],
+            "domains command 'destroy' is not one of",
+        ),
+        (
+            [{"domains": [{"name": "d", "system": "fs"}]}],
+            "Field required",
+        ),
+    ],
+)
+def test_a_bad_domain_call_is_refused_when_read(xp_root, doc, why):
+    from tabsdata_dev.tool.xp import state
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    with pytest.raises(state.XpError, match=why):
+        build_instance("i", _staged_suite(xp_root, doc))
 
 
 @pytest.mark.parametrize(

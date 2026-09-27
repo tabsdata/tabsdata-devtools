@@ -6,9 +6,27 @@
     "domains": [
       {
         "name": "mysqlcdc_employees_xs",
-        "system": "mysqlcdc",
-        "model": "employees",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "mysqlcdc"
+        ]
+      },
+      {
+        "name": "mysqlcdc_employees_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "employees"
+        ]
+      },
+      {
+        "name": "mysqlcdc_employees_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       }
     ]
   },

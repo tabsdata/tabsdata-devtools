@@ -6,7 +6,10 @@
 A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
 (and so by one-shot), each an object holding one of:
 
-* ``domains`` -- backend domains to create, one `tdd domain` entry each;
+* ``domains`` -- `tdd domain` calls, ``{"name", "command", "options"}`` as a
+  live domain entry spells one: a domain's ``create`` (``--sys SYSTEM``) and
+  then what fills it (``create-model``, ``create-data``, ...), each domain's
+  calls in order and the domains side by side;
 * ``collections`` -- one per connection: a connection template plus the
   domains that back it, as a positional prefix map ``{"D0": …}`` (the project
   is created before the first one);
@@ -25,8 +28,8 @@ A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
   ``continue_on_fail`` lets the suite go on past a failed one, still failing
   the run at its end.
 
-``${XP_WORK_DIR}`` / ``${XP_PROJECT}`` in a domain's ``emit_ops``, a live
-domain entry's options or an execute entry's params name the run's working
+``${XP_WORK_DIR}`` / ``${XP_PROJECT}`` in a domain call's options (a domains
+stage's or a live entry's) or an execute entry's params name the run's working
 dir and project (see ``work``).
 
 A duration -- a live ``sleep``, a sentinel's ``time_out`` -- is
@@ -45,7 +48,7 @@ from __future__ import annotations
 import json
 import pathlib
 import re
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import (
     BaseModel,
@@ -72,23 +75,12 @@ def seconds_of(value: Any, what: str) -> float:
 
 
 class Domain(BaseModel):
+    """A suite domain, as its ``create`` call names it: what the rest of xp --
+    collections, live entries, teardown, list-systems -- refers to. Not written
+    in a suite; built from the domains stages' calls."""
+
     name: str
     system: str
-    model: str | None = None
-    data: str | None = None
-    # Pin the BACKEND object name instead of letting create-domains derive a
-    # per-run one (`xp_<user>_<ts>_<tag>_<domain>`). LAST RESORT: a pinned name
-    # has no per-run uniqueness, so two instances of the suite share backend
-    # objects and the second one's create fails on the first one's.
-    name_in_system: str | None = None
-    # A file the seed's create-data appends its operations to (`--emit-ops`),
-    # typically under ${XP_WORK_DIR}, for a script to check later.
-    emit_ops: str | None = None
-
-    @model_validator(mode="after")
-    def _known_tokens(self) -> Domain:
-        _refuse_unknown_tokens(self.emit_ops or "", f"domain {self.name!r}: emit_ops")
-        return self
 
 
 def _refuse_unknown_tokens(text: str, where: str) -> None:
@@ -140,37 +132,70 @@ LIVE_COMMANDS = (
     "delete-data",
     "delete-model",
 )
-# Options xp sets itself on every live call.
+# The verbs a domains stage may run: a domain's create, then what fills it.
+DOMAIN_COMMANDS = ("create", *LIVE_COMMANDS)
+# Options xp sets itself on every call.
 LIVE_RESERVED = {"--domain", "--domain-dir", "--format", "--latch", "--verbose", "-v"}
+# ...and on create: the backend name, per run, so two runs never share one.
+CREATE_RESERVED = {"--name-in-system"}
 _LIVE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 
 
-class LiveDomain(BaseModel):
-    """What a domain entry runs: `tdd domain <command> --domain
-    <instance>_<name> <options...>`, the options as the words typed."""
+class DomainCall(BaseModel):
+    """One `tdd domain <command> --domain <instance>_<name> <options...>`, the
+    options as the words typed -- an entry of a domains stage, and what a live
+    domain entry runs. A domain's ``create`` names its system with ``--sys``."""
 
     model_config = ConfigDict(extra="forbid")
+
+    #: The verbs this kind of call may run.
+    allowed: ClassVar[tuple[str, ...]] = DOMAIN_COMMANDS
+    where: ClassVar[str] = "domains"
 
     name: str
     command: str
     options: list[str] = []
 
     @model_validator(mode="after")
-    def _a_data_verb(self) -> LiveDomain:
-        if self.command not in LIVE_COMMANDS:
+    def _a_known_verb(self) -> DomainCall:
+        if self.command not in self.allowed:
             raise ValueError(
-                f"live command {self.command!r} is not one of {', '.join(LIVE_COMMANDS)}"
+                f"{self.where} command {self.command!r} is not one of {', '.join(self.allowed)}"
             )
         self.options = [str(o) for o in self.options]
-        reserved = sorted({o.split("=", 1)[0] for o in self.options} & LIVE_RESERVED)
+        own = LIVE_RESERVED | (CREATE_RESERVED if self.command == "create" else set())
+        reserved = sorted({o.split("=", 1)[0] for o in self.options} & own)
         if reserved:
-            raise ValueError(f"live options set by xp itself: {', '.join(reserved)}")
+            raise ValueError(
+                f"{self.where} options set by xp itself: {', '.join(reserved)}"
+            )
+        if self.command == "create" and not self.option("--sys"):
+            raise ValueError(
+                f"{self.where} create of {self.name!r} needs --sys SYSTEM in its options"
+            )
         for o in self.options:
-            _refuse_unknown_tokens(o, f"live {self.command} on {self.name!r}")
+            _refuse_unknown_tokens(o, f"{self.where} {self.command} on {self.name!r}")
         return self
 
     def has_option(self, flag: str) -> bool:
         return any(o == flag or o.startswith(flag + "=") for o in self.options)
+
+    def option(self, flag: str) -> str | None:
+        """The value given for `flag` (``--flag V`` or ``--flag=V``), if any."""
+        for i, o in enumerate(self.options):
+            if o == flag:
+                return self.options[i + 1] if i + 1 < len(self.options) else None
+            if o.startswith(flag + "="):
+                return o[len(flag) + 1 :]
+        return None
+
+
+class LiveDomain(DomainCall):
+    """A live domain entry's call: the data verbs only -- a domain's lifecycle
+    (create/destroy) is xp's own."""
+
+    allowed: ClassVar[tuple[str, ...]] = LIVE_COMMANDS
+    where: ClassVar[str] = "live"
 
 
 class LiveEntry(BaseModel):
@@ -340,7 +365,7 @@ class Stage(BaseModel):
     # Its position in the suite's list, counting comment entries: the number a
     # message names is the one a reader counts to in the file.
     at: int = 0
-    domains: list[Domain] = []
+    domains: list[DomainCall] = []
     collections: list[Collection] = []
     functions: list[Function] = []
     triggers: list[Trigger] = []
@@ -444,6 +469,26 @@ class Instance(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _each_domain_created_first(self) -> Instance:
+        """A domain is created once, by a domains stage, before anything else
+        runs on it there; a call on a domain no create names is a typo."""
+        created: set[str] = set()
+        for stage in self.stages:
+            for call in stage.domains:
+                if call.command == "create":
+                    if call.name in created:
+                        raise ValueError(
+                            f"stage {stage.at}: domain {call.name!r} is created twice"
+                        )
+                    created.add(call.name)
+                elif call.name not in created:
+                    raise ValueError(
+                        f"stage {stage.at}: {call.command} on {call.name!r} before any "
+                        "create of it -- a domain's create comes first"
+                    )
+        return self
+
+    @model_validator(mode="after")
     def _scripts_are_there(self) -> Instance:
         """Execute names unique across the suite, and each script present in
         the suite dir -- a missing one is found when the suite is read, not
@@ -501,7 +546,7 @@ def build_instance(name: str, definition: pathlib.Path) -> Instance:
             suite_file=str(definition),
             source_dir=str(source_dir),
             base_dir=str(suites.base_dir(source_dir)),
-            domains=every("domains"),
+            domains=_created(every("domains")),
             collections=every("collections"),
             functions=every("functions"),
             triggers=every("triggers"),
@@ -510,6 +555,21 @@ def build_instance(name: str, definition: pathlib.Path) -> Instance:
         )
     except ValidationError as exc:
         state.die(f"suite {definition} is not a valid definition: {exc}")
+
+
+def _created(calls: list) -> list[Domain]:
+    """The suite's domains: one per ``create`` call, named and on the system its
+    ``--sys`` says. A malformed call is left to the stage's own validation."""
+    out: list[Domain] = []
+    for raw in calls:
+        if not isinstance(raw, dict) or raw.get("command") != "create":
+            continue
+        try:
+            call = DomainCall(**raw)
+        except ValidationError:
+            continue
+        out.append(Domain(name=call.name, system=call.option("--sys") or ""))
+    return out
 
 
 def stages_of(doc, definition: pathlib.Path) -> list[dict]:

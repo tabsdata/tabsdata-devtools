@@ -7,9 +7,27 @@
     "domains": [
       {
         "name": "databricks_world_xs",
-        "system": "databricks",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "databricks"
+        ]
+      },
+      {
+        "name": "databricks_world_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "databricks_world_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       }
     ]
   },

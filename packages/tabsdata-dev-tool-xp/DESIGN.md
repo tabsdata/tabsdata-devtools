@@ -46,8 +46,9 @@ prints the `tdd tdk`/`tdd domain` lines.
 
 - Talks to the server only through `tdd tdk` (`proc.tool_argv` -> `tdd-exe`), so xp needs neither
   tdk on its PATH nor tabsdata in its own toolset -- it needs a venv with tabsdata installed,
-  the one the launcher picks and names (the last activated, managed by `tdd venv` or not). It provisions through `tdd domain
-  create|destroy --manifest --format json`, parsing the batch events.
+  the one the launcher picks and names (the last activated, managed by `tdd venv` or not). It
+  provisions through the `tdd domain` calls a suite's domains stages list, and tears down with
+  one `tdd domain destroy --manifest --format json`, parsing the batch events.
 - `--profile NAME` is tdk's `--profile`: which connection the calls use, so two shells on one
   account each keep their own login. Absent, no option is passed and tdk uses its default
   connection. tdk attaches `--profile` to every command, not to the root group -- `tdk --profile
@@ -55,10 +56,20 @@ prints the `tdd tdk`/`tdd domain` lines.
   tdk argv, appends it last, past the verb; no call can miss it or misplace it; the verbs that reach tdk (`create-`/`destroy-`/`run-`/`monitor-project`,
   `run-suite`, `enable-`/`disable-function`, `one-shot`, `bench`) take it and hand it to their fan-out children. The domain verbs never
   reach tdk and do not take it.
-- **The domains phase is one call, not a loop**: xp writes a manifest into its scratch dir and
-  hands it to `tdd domain create --manifest`, the toolkit's own batch entry point, which runs
-  every entry in parallel, heaviest backend first, chaining create -> create-model ->
-  create-data. Domains already in the store are left alone; teardown is `destroy --manifest`.
+- **A domains stage is `tdd domain` calls**, spelled as a live entry spells one --
+  `{"name", "command", "options"}`, run as `tdd domain <command> --domain <instance>_<name>
+  <options...>`: a domain's `create` (`--sys SYSTEM`), then what fills it (`create-model --model
+  M`, `create-data --size N [--emit-ops FILE]`, any data verb). Each domain's calls run in the
+  order written, the domains side by side (bounded by `$TDD_PARALLELISM`), one step per call; the
+  first failure stops the rest at their next call. xp adds `--name-in-system` to a create itself
+  (`xp_<user>_<ts>_<tag>_<domain>`, unique per run and stable within one), so a suite may not;
+  a domain's first call is its create, and a domain is created once. A domain whose create finds
+  it already in the store is left alone, its other calls with it. Teardown is one `destroy
+  --manifest` over every created domain. Rejected: a domain entry describing the domain
+  (`{name, system, model, data}`) for xp to turn into a manifest -- the old form: a second way to
+  spell what a live entry already spells, and nothing a manifest key did not foresee (an option
+  to create-data, a verb after it) could be said. Lost with it: `tdd domain create --manifest`'s
+  heaviest-first ordering; each call is now one child of its own.
 - **The project phase is fanned out except where order is meaning**: project -> groups ->
   collections in parallel -> functions **serial**, because registration order is what the
   dependency graph is built from -> triggers fired in batches gated by `detached` -> the
@@ -97,8 +108,8 @@ comment). Kinds repeat, in any order the dependencies allow:
 ]
 ```
 
-- **`run-suite` runs them in order**, one-shot through it: a domains stage is one `tdd domain
-  create --manifest` of its own (`domains-<n>.yaml`), the project is created before the first
+- **`run-suite` runs them in order**, one-shot through it: a domains stage runs its calls, the
+  project is created before the first
   stage that talks to it, collections in parallel, functions serial, triggers in their gated
   batches, a monitor stage watches until the transactions finish. A live stage's background
   entries keep running through the stages after it -- the point of ordering: data changing
@@ -136,12 +147,11 @@ comment). Kinds repeat, in any order the dependencies allow:
   suite is read, since nothing in it says what it counts. `sleep` was `sleep_secs`, a number of
   seconds; the one suite using it was converted.
 - **A run has a working dir**, `<scratch>/work`, made on first use and kept with the scratch dir.
-  A suite names it `${XP_WORK_DIR}` -- in a domain's `emit_ops`, a live domain entry's options, an
-  execute entry's params -- and the run's project `${XP_PROJECT}`; they are replaced when the
-  value is used (the dir is a run's; a suite is read before any run), and any other `${XP_*}` is
-  refused when the suite is read. A domain's `"emit_ops": FILE` becomes its manifest entry's
-  `emit-ops`, so the seed's create-data appends its operations to FILE (`--emit-ops`), as the
-  live data commands do with `--emit-ops` in their options: one trail of every operation a run
+  A suite names it `${XP_WORK_DIR}` -- in a domain call's options (a domains stage's or a live
+  entry's) and an execute entry's params -- and the run's project `${XP_PROJECT}`; they are
+  replaced when the value is used (the dir is a run's; a suite is read before any run), and any
+  other `${XP_*}` is refused when the suite is read. `--emit-ops ${XP_WORK_DIR}/ops.jsonl` on
+  every data call, the seed's create-data included, is one trail of every operation a run
   applied, for a script to check against what came out the other end.
 - **An execute stage runs check scripts**: `{"execute": [{"name", "py_script", "params": [...],
   "continue_on_fail": false}]}`. `py_script` is a `.py` in the suite dir (by convention
@@ -178,10 +188,11 @@ and is one of four kinds:
 ```
 
 A domain entry is one call, `tdd domain <command> --domain <instance>_<name> <options...>`, the
-options the words as typed (`--domain`, `--format`, `--latch`, `--verbose` are xp's and refused);
-`create-model`/`create-data` get `--model`/`--size` from the suite's domain when the options do
-not say. A repeat entry runs its nested `live` N times (default 1). **Blocking** is the default:
-the script runs the entry to the end before going on. `"blocking": false` starts it on a thread
+options the words as typed (`--domain`, `--format`, `--latch`, `--verbose` are xp's and refused)
+-- the same object a domains stage lists, limited to the data verbs; nothing is filled in from
+the domains stage, so a live create-model names its `--model`. A repeat entry runs its nested
+`live` N times (default 1). **Blocking** is the default: the script runs the entry to the end
+before going on. `"blocking": false` starts it on a thread
 of its own and the script goes straight on, side by side, until a `wait` names it. **A script --
 the whole one, or one pass of a repeat -- is complete when everything it started has finished**:
 its end waits for what still runs, so nothing outlives the loop that started it, and

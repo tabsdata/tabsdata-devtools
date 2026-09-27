@@ -1,11 +1,10 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""The domains phase: ONE `tdd domain create --manifest` off a manifest this
-run writes to its scratch dir -- the toolkit's own batch entry point, which
-runs every entry in parallel, heaviest backend first, chaining create ->
-create-model -> create-data. Teardown is `destroy --manifest`. Domains already
-in the store are left alone.
+"""The domains phase: a domains stage's `tdd domain` calls -- each domain's
+create, then what fills it -- one step per call, each domain's calls in order
+and the domains side by side. Domains already in the store are left alone.
+Teardown is one `tdd domain destroy --manifest` over every suite domain.
 """
 
 from __future__ import annotations
@@ -17,26 +16,16 @@ import os
 import pathlib
 import re
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import yaml
 
+from tabsdata_dev.common.core import batch as core_batch
 from tabsdata_dev.common.core import proc
 
 from . import lanes, pointers, shell, state, work
 from .reporter import rep, reporting, scratch
-
-# A suite domain's `data` size LABEL -> `create-data --size` multiplier
-# (xs=100 rows, s=1k, m=10k, l=100k, xl=1M; --size N loads N x ~100 rows).
-DATA_SIZE_MULT = {"xs": 1, "s": 10, "m": 100, "l": 1000, "xl": 10000}
-
-
-def size_multiplier(label: str) -> int:
-    mult = DATA_SIZE_MULT.get(label)
-    if mult is None:
-        state.die(
-            f"unknown data size {label!r}; expected one of {', '.join(DATA_SIZE_MULT)}"
-        )
-    return mult  # type: ignore[return-value]
 
 
 def run_user() -> str:
@@ -50,35 +39,51 @@ def run_user() -> str:
     return re.sub(r"[^A-Za-z0-9_]+", "_", user).strip("_") or "x"
 
 
-def name_in_system(inst, d, run_ts: str) -> str:
-    """``xp_<user>_<ts>_<tag>_<domain>`` -- the BACKEND container name for a
-    domain whose descriptor does not pin one. Short on purpose (Postgres's
-    63-byte identifier limit); <tag> is 6 hex of the LOGICAL domain name
+def name_in_system(inst, name: str, run_ts: str) -> str:
+    """``xp_<user>_<ts>_<tag>_<domain>`` -- the BACKEND name xp gives a domain's
+    create (``--name-in-system``). Short on purpose (Postgres's 63-byte
+    identifier limit); <tag> is 6 hex of the LOGICAL domain name
     (`<instance>_<domain>`), what makes the name unique across the lanes of a
     fan-out that start in the same second with the same domain vocabulary. A
     hash rather than a random tag keeps it stable, so re-running create-domains
     after a partial failure reuses the container instead of orphaning it."""
     tag = hashlib.blake2s(
-        inst.domain_full(d.name).encode("utf-8"), digest_size=3
+        inst.domain_full(name).encode("utf-8"), digest_size=3
     ).hexdigest()
-    return f"xp_{run_user()}_{run_ts}_{tag}_{d.name}"
+    return f"xp_{run_user()}_{run_ts}_{tag}_{name}"
 
 
-def domain_entry(inst, d, run_ts: str) -> dict:
-    """The manifest entry for one suite domain: `name`, `sys`, `name-in-system`
-    (the manifest keys `tdd domain create --manifest` takes), plus `model`/`size`
-    and the `emit-ops` file its create-data appends to."""
-    entry = {
-        "name": inst.domain_full(d.name),
-        "sys": d.system,
-        "name-in-system": d.name_in_system or name_in_system(inst, d, run_ts),
-    }
-    if d.model:
-        entry["model"] = d.model
-        entry["size"] = size_multiplier(d.data or "xs")
-        if d.emit_ops:
-            entry["emit-ops"] = work.expand(d.emit_ops)
-    return entry
+def call_argv(inst, call, project: str | None = None) -> list[str]:
+    """`tdd domain <command> --domain <instance>_<name> <options...>` for a
+    domain call, its tokens expanded; a create also gets the run's backend name."""
+    from .reporter import RUN_TS
+
+    options = [work.expand(o, project) for o in call.options]
+    if call.command == "create":
+        options += ["--name-in-system", name_in_system(inst, call.name, RUN_TS)]
+    return proc.tool_argv(
+        "domain", call.command, "--domain", inst.domain_full(call.name), *options
+    )
+
+
+def run_call(argv: list[str], action: str, path: str, where: str) -> None:
+    """One `tdd domain` call as one step; a failure ends the run with what the
+    command said."""
+    with rep().step(action, path) as step:
+        step["note"] = where
+        if state.run.dry_run:
+            shell.dry_echo(argv)
+            return
+        r = shell.run_cmd(
+            [*argv, "--format", "json"], check=False, env=shell.domain_env()
+        )
+        if r.returncode != 0:
+            final = shell.last_event(r.stdout) or {}
+            why = str(final.get("message") or shell.last_err(r)).splitlines()
+            state.die(
+                f"{shell.shell_line(argv)} exited {r.returncode}"
+                + (f": {why[0]}" if why else "")
+            )
 
 
 def write_manifest(name: str, entries: list[dict]) -> pathlib.Path:
@@ -225,34 +230,65 @@ def cmd_create_domains(args) -> None:
             return
         inst = pointers.load_instance(args.instance)
         require_crypto_key()
-        create_domains(inst, inst.domains)
+        create_domains(inst, [c for s in inst.stages for c in s.domains])
 
 
-def create_domains(inst, subset: list, manifest: str = "domains.yaml") -> None:
-    """Create `subset` of the instance's domains through one `tdd domain
-    create --manifest`, leaving those already in the store alone -- the whole
-    domains phase, or one domains stage of the suite (each its own manifest)."""
-    from .reporter import RUN_TS
+def _action(command: str) -> str:
+    return "create-domain" if command == "create" else command
 
-    rep().plan(len(subset))
+
+def create_domains(inst, calls: list, project: str | None = None) -> None:
+    """Run a domains stage's calls: each domain's in the order written, the
+    domains side by side (bounded by $TDD_PARALLELISM), one step per call. A
+    domain whose create finds it already in the store is left alone, the rest
+    of its calls with it -- so `run-suite` is safe to run again. The first
+    failure stops every domain at its next call and is the run's error."""
+    rep().plan(len(calls))
     stored = shell.stored_domains()
-    todo = []
-    for d in subset:
-        full = inst.domain_full(d.name)
-        if full in stored:
-            with rep().step("create-domain", full) as step:
-                step["note"] = "exists"
+    chains: dict[str, list] = {}
+    for c in calls:
+        chains.setdefault(c.name, []).append(c)
+    todo: dict[str, list] = {}
+    for name, chain in chains.items():
+        full = inst.domain_full(name)
+        if chain[0].command == "create" and full in stored:
+            for c in chain:
+                with rep().step(_action(c.command), full) as step:
+                    step["note"] = "exists"
         else:
-            todo.append(d)
-    if not todo:
+            todo[name] = chain
+    stop = threading.Event()
+
+    def run_chain(name: str, chain: list) -> None:
+        for c in chain:
+            if stop.is_set():
+                return
+            run_call(
+                call_argv(inst, c, project),
+                _action(c.command),
+                inst.domain_full(name),
+                "",
+            )
+
+    if state.run.dry_run or len(todo) < 2:
+        # One at a time: the plan prints in suite order.
+        for name, chain in todo.items():
+            run_chain(name, chain)
         return
-    path = write_manifest(manifest, [domain_entry(inst, d, RUN_TS) for d in todo])
-    run_manifest(
-        "create",
-        path,
-        [inst.domain_full(d.name) for d in todo],
-        ["--fail-fast"],
-    )
+    first: BaseException | None = None
+    with ThreadPoolExecutor(
+        max_workers=min(len(todo), core_batch.parallelism())
+    ) as pool:
+        futures = [pool.submit(run_chain, n, c) for n, c in todo.items()]
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except BaseException as exc:  # noqa: BLE001 -- the first is the run's
+                if first is None:
+                    first = exc
+                stop.set()
+    if first is not None:
+        raise first
 
 
 def cmd_destroy_domains(args) -> None:

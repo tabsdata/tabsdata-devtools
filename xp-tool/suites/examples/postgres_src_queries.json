@@ -7,9 +7,27 @@
     "domains": [
       {
         "name": "postgres_world_xs",
-        "system": "postgres",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "postgres"
+        ]
+      },
+      {
+        "name": "postgres_world_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "postgres_world_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       }
     ]
   },

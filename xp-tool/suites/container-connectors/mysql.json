@@ -6,17 +6,43 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "mysql_world_xs",
-        "system": "mysql",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "mysql"
+        ]
+      },
+      {
+        "name": "mysql_world_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "mysql_world_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "mysql",
-        "system": "mysql"
+        "command": "create",
+        "options": [
+          "--sys",
+          "mysql"
+        ]
       }
     ]
   },

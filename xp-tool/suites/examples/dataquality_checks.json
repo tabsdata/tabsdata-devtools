@@ -7,7 +7,11 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       }
     ]
   },

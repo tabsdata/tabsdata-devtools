@@ -92,7 +92,7 @@ def cmd_run_suite(args) -> None:
                     project.ensure_project(inst, args.project)
                     made = True
                 if stage.kind == "domains":
-                    domains.create_domains(inst, stage.domains, f"domains-{i}.yaml")
+                    domains.create_domains(inst, stage.domains, args.project)
                 elif stage.kind == "collections":
                     project.create_collections(inst, args.project, stage.collections)
                 elif stage.kind == "functions":

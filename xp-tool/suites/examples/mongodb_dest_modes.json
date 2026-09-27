@@ -7,11 +7,19 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "mongodb_out",
-        "system": "mongodb"
+        "command": "create",
+        "options": [
+          "--sys",
+          "mongodb"
+        ]
       }
     ]
   },

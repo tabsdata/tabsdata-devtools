@@ -7,13 +7,35 @@
     "domains": [
       {
         "name": "airportdb",
-        "system": "postgres",
-        "model": "airportdb",
-        "data": "l"
+        "command": "create",
+        "options": [
+          "--sys",
+          "postgres"
+        ]
+      },
+      {
+        "name": "airportdb",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "airportdb"
+        ]
+      },
+      {
+        "name": "airportdb",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1000"
+        ]
       },
       {
         "name": "s3",
-        "system": "s3"
+        "command": "create",
+        "options": [
+          "--sys",
+          "s3"
+        ]
       }
     ]
   },

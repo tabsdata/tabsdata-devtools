@@ -7,11 +7,19 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "bigquery_out",
-        "system": "bigquery"
+        "command": "create",
+        "options": [
+          "--sys",
+          "bigquery"
+        ]
       }
     ]
   },

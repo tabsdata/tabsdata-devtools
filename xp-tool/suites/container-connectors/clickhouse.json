@@ -6,31 +6,59 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "clickhouse_s3",
-        "system": "clickhouse"
+        "command": "create",
+        "options": [
+          "--sys",
+          "clickhouse"
+        ]
       },
       {
         "name": "clickhouse_az",
-        "system": "clickhouse"
+        "command": "create",
+        "options": [
+          "--sys",
+          "clickhouse"
+        ]
       },
       {
         "name": "clickhouse_gcs",
-        "system": "clickhouse"
+        "command": "create",
+        "options": [
+          "--sys",
+          "clickhouse"
+        ]
       },
       {
         "name": "s3",
-        "system": "s3"
+        "command": "create",
+        "options": [
+          "--sys",
+          "s3"
+        ]
       },
       {
         "name": "gcs",
-        "system": "gcs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "gcs"
+        ]
       },
       {
         "name": "azureblob",
-        "system": "azureblob"
+        "command": "create",
+        "options": [
+          "--sys",
+          "azureblob"
+        ]
       }
     ]
   },

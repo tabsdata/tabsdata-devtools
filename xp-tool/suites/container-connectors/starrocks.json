@@ -6,37 +6,107 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "starrocks_world_xs_s3",
-        "system": "starrocks",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "starrocks"
+        ]
+      },
+      {
+        "name": "starrocks_world_xs_s3",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "starrocks_world_xs_s3",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "starrocks_world_xs_az",
-        "system": "starrocks",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "starrocks"
+        ]
+      },
+      {
+        "name": "starrocks_world_xs_az",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "starrocks_world_xs_az",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "starrocks_world_xs_gcs",
-        "system": "starrocks",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "starrocks"
+        ]
+      },
+      {
+        "name": "starrocks_world_xs_gcs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "starrocks_world_xs_gcs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "s3",
-        "system": "s3"
+        "command": "create",
+        "options": [
+          "--sys",
+          "s3"
+        ]
       },
       {
         "name": "gcs",
-        "system": "gcs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "gcs"
+        ]
       },
       {
         "name": "azureblob",
-        "system": "azureblob"
+        "command": "create",
+        "options": [
+          "--sys",
+          "azureblob"
+        ]
       }
     ]
   },

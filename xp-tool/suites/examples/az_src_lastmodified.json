@@ -7,9 +7,27 @@
     "domains": [
       {
         "name": "azureblob_world_xs",
-        "system": "azureblob",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "azureblob"
+        ]
+      },
+      {
+        "name": "azureblob_world_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "azureblob_world_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       }
     ]
   },

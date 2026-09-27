@@ -7,17 +7,43 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "gcs_world_xs",
-        "system": "gcs",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "gcs"
+        ]
+      },
+      {
+        "name": "gcs_world_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "gcs_world_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "gcs_files",
-        "system": "gcs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "gcs"
+        ]
       }
     ]
   },

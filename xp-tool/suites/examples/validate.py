@@ -93,12 +93,24 @@ def _decorated_in(path: Path) -> list[str]:
     return out
 
 
+def sections(definition: Path) -> dict[str, list]:
+    """A suite's entries by kind, across its stages -- a suite is an ordered
+    list of stages, each holding one kind."""
+    out: dict[str, list] = {}
+    for stage in json.loads(definition.read_text(encoding="utf-8")):
+        for kind, value in stage.items():
+            if not kind.startswith("_") and isinstance(value, list):
+                out.setdefault(kind, []).extend(value)
+    return out
+
+
 def check_wiring(definition: Path) -> list[str]:
     """Problems in one suite definition (empty list = clean)."""
-    doc = json.loads(definition.read_text(encoding="utf-8"))
+    doc = sections(definition)
     problems: list[str] = []
 
-    domains = {d["name"] for d in doc.get("domains", [])}
+    # A domains stage is `tdd domain` calls; a domain is declared by its create.
+    domains = {d["name"] for d in doc.get("domains", []) if d.get("command") == "create"}
     collections = {c["name"]: c for c in doc.get("collections", [])}
 
     for name, c in collections.items():
@@ -204,7 +216,7 @@ def check_table_names(definition: Path, modules: dict) -> list[str]:
     Needs the imported modules: `output_tables` lives on the decorated object,
     not in the JSON.
     """
-    doc = json.loads(definition.read_text(encoding="utf-8"))
+    doc = sections(definition)
     problems: list[str] = []
     owner: dict[tuple[str, str], str] = {}
 

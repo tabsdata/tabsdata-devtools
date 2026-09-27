@@ -6,17 +6,43 @@
     "domains": [
       {
         "name": "emp_fs",
-        "system": "fs",
-        "model": "employees",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "fs"
+        ]
+      },
+      {
+        "name": "emp_fs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "employees"
+        ]
+      },
+      {
+        "name": "emp_fs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "out",
-        "system": "fs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "fs"
+        ]
       },
       {
         "name": "bq",
-        "system": "bigquery"
+        "command": "create",
+        "options": [
+          "--sys",
+          "bigquery"
+        ]
       }
     ]
   },

@@ -7,15 +7,27 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "clickhouse_out",
-        "system": "clickhouse"
+        "command": "create",
+        "options": [
+          "--sys",
+          "clickhouse"
+        ]
       },
       {
         "name": "stage_store",
-        "system": "s3"
+        "command": "create",
+        "options": [
+          "--sys",
+          "s3"
+        ]
       }
     ]
   },

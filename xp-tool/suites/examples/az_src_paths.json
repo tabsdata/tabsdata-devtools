@@ -7,11 +7,19 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "azureblob_files",
-        "system": "azureblob"
+        "command": "create",
+        "options": [
+          "--sys",
+          "azureblob"
+        ]
       }
     ]
   },

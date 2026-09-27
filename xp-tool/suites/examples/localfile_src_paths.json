@@ -7,11 +7,19 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "fs_files",
-        "system": "fs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "fs"
+        ]
       }
     ]
   },

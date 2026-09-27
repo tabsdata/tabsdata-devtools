@@ -7,17 +7,43 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "azureblob_world_xs",
-        "system": "azureblob",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "azureblob"
+        ]
+      },
+      {
+        "name": "azureblob_world_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "azureblob_world_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "azureblob_files",
-        "system": "azureblob"
+        "command": "create",
+        "options": [
+          "--sys",
+          "azureblob"
+        ]
       }
     ]
   },

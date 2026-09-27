@@ -7,17 +7,43 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "fs_world_xs",
-        "system": "fs",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "fs"
+        ]
+      },
+      {
+        "name": "fs_world_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "fs_world_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "fs_files",
-        "system": "fs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "fs"
+        ]
       }
     ]
   },

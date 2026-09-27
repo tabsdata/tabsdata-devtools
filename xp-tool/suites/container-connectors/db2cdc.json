@@ -6,9 +6,27 @@
     "domains": [
       {
         "name": "db2cdc_employees_xs",
-        "system": "db2cdc",
-        "model": "employees",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "db2cdc"
+        ]
+      },
+      {
+        "name": "db2cdc_employees_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "employees"
+        ]
+      },
+      {
+        "name": "db2cdc_employees_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       }
     ]
   },

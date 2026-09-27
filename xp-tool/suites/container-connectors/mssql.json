@@ -6,17 +6,43 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "mssqlserver_world_xs",
-        "system": "mssqlserver",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "mssqlserver"
+        ]
+      },
+      {
+        "name": "mssqlserver_world_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "mssqlserver_world_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "mssqlserver",
-        "system": "mssqlserver"
+        "command": "create",
+        "options": [
+          "--sys",
+          "mssqlserver"
+        ]
       }
     ]
   },

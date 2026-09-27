@@ -7,11 +7,19 @@
     "domains": [
       {
         "name": "dev",
-        "system": "dev"
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       },
       {
         "name": "mssqlserver_out",
-        "system": "mssqlserver"
+        "command": "create",
+        "options": [
+          "--sys",
+          "mssqlserver"
+        ]
       }
     ]
   },

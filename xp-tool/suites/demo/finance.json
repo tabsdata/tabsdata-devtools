@@ -7,13 +7,35 @@
     "domains": [
       {
         "name": "finance",
-        "system": "mysqlcdc",
-        "model": "finance",
-        "data": "l"
+        "command": "create",
+        "options": [
+          "--sys",
+          "mysqlcdc"
+        ]
+      },
+      {
+        "name": "finance",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "finance"
+        ]
+      },
+      {
+        "name": "finance",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1000"
+        ]
       },
       {
         "name": "s3",
-        "system": "s3"
+        "command": "create",
+        "options": [
+          "--sys",
+          "s3"
+        ]
       }
     ]
   },

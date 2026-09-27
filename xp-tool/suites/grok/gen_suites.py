@@ -247,8 +247,40 @@ def build(comment: str, stems: list[str], layout: Layout) -> dict:
     }
 
 
+# A domain as a generator describes it -- {name, system, model?, data?} -- and
+# as a suite writes it: the `tdd domain` calls that make it, a create and, for a
+# seeded one, its create-model and create-data (the data label as a --size).
+DATA_SIZE = {"xs": 1, "s": 10, "m": 100, "l": 1000, "xl": 10000}
+
+
+def domain_calls(d: dict) -> list:
+    calls = [{"name": d["name"], "command": "create", "options": ["--sys", d["system"]]}]
+    if d.get("model"):
+        calls.append({"name": d["name"], "command": "create-model", "options": ["--model", d["model"]]})
+        size = str(DATA_SIZE[d.get("data") or "xs"])
+        calls.append({"name": d["name"], "command": "create-data", "options": ["--size", size]})
+    return calls
+
+
+def as_stages(doc: dict) -> list:
+    """The suite as xp reads it: an ordered list of stages -- the ``_``
+    annotations, then domains (as their calls), collections, functions and
+    triggers (each only when it has entries) and a monitor. Built as one object
+    because that is how the sections are gathered; the order is what the stages
+    are."""
+    notes = {k: v for k, v in doc.items() if k.startswith("_")}
+    stages = [notes] if notes else []
+    if doc.get("domains"):
+        stages.append({"domains": [c for d in doc["domains"] for c in domain_calls(d)]})
+    for kind in ("collections", "functions", "triggers"):
+        if doc.get(kind):
+            stages.append({kind: doc[kind]})
+    stages.append({"monitor": True})
+    return stages
+
+
 def write(path: Path, obj: dict) -> None:
-    path.write_text(json.dumps(obj, indent=2) + "\n")
+    path.write_text(json.dumps(as_stages(obj), indent=2, ensure_ascii=False) + "\n")
     print(f"wrote {path.relative_to(SUITE)}  ({len(obj['functions'])} fns, "
           f"{len(obj['triggers'])} triggers)")
 

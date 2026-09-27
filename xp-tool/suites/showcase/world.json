@@ -6,17 +6,43 @@
     "domains": [
       {
         "name": "world_pg",
-        "system": "postgres",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "postgres"
+        ]
+      },
+      {
+        "name": "world_pg",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "world_pg",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "out",
-        "system": "fs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "fs"
+        ]
       },
       {
         "name": "snow",
-        "system": "snowflake"
+        "command": "create",
+        "options": [
+          "--sys",
+          "snowflake"
+        ]
       }
     ]
   },

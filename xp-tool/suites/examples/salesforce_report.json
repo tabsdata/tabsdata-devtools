@@ -7,9 +7,27 @@
     "domains": [
       {
         "name": "sf",
-        "system": "salesforce",
-        "model": "salesforce",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "salesforce"
+        ]
+      },
+      {
+        "name": "sf",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "salesforce"
+        ]
+      },
+      {
+        "name": "sf",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       }
     ]
   },

@@ -7,9 +7,27 @@
     "domains": [
       {
         "name": "db2_world_xs",
-        "system": "db2",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "db2"
+        ]
+      },
+      {
+        "name": "db2_world_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "db2_world_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       }
     ]
   },

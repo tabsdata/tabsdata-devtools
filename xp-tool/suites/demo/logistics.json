@@ -7,13 +7,35 @@
     "domains": [
       {
         "name": "s3logistics",
-        "system": "s3",
-        "model": "courierlogistics",
-        "data": "m"
+        "command": "create",
+        "options": [
+          "--sys",
+          "s3"
+        ]
+      },
+      {
+        "name": "s3logistics",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "courierlogistics"
+        ]
+      },
+      {
+        "name": "s3logistics",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "100"
+        ]
       },
       {
         "name": "s3",
-        "system": "s3"
+        "command": "create",
+        "options": [
+          "--sys",
+          "s3"
+        ]
       }
     ]
   },

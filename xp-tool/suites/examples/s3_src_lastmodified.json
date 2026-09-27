@@ -7,9 +7,27 @@
     "domains": [
       {
         "name": "s3_world_xs",
-        "system": "s3",
-        "model": "world",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "s3"
+        ]
+      },
+      {
+        "name": "s3_world_xs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "world"
+        ]
+      },
+      {
+        "name": "s3_world_xs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       }
     ]
   },

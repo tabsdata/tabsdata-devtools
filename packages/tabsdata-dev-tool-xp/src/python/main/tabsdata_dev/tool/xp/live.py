@@ -36,8 +36,7 @@ means that pass's run. Every call is one step of the run, labelled with the
 entries and passes it is under (``churn 7/20 > churn-change``). The first
 failure anywhere stops the script: every entry still running stops at its next
 step or pause, nothing later starts, and that failure is the run's error.
-``create-model``/``create-data`` default ``--model``/``--size`` to what the
-suite's domain declares. Under --dry-run the calls print in script order as
+Under --dry-run the calls print in script order as
 the commands they are, the pauses as ``sleep N``, and where an entry goes to the
 background, ends or is waited for as ``#`` comment lines.
 """
@@ -47,9 +46,7 @@ from __future__ import annotations
 import threading
 from concurrent.futures import Future
 
-from tabsdata_dev.common.core import proc
-
-from . import domains, lanes, pointers, shell, state, work
+from . import domains, lanes, pointers, shell, state
 from .models import Instance, LiveDomain, LiveEntry
 from .reporter import rep, reporting
 
@@ -66,40 +63,12 @@ def count(entries: list[LiveEntry]) -> int:
 
 
 def argv_of(inst: Instance, d: LiveDomain, project: str | None = None) -> list[str]:
-    """`tdd domain <command> --domain <instance>_<name> <options...>`, the
-    suite domain's model and size filled in where the entry left them out."""
-    extra: list[str] = []
-    spec = inst.domain(d.name)
-    if d.command == "create-model" and not d.has_option("--model"):
-        if not spec.model:
-            state.die(
-                f"live create-model on '{d.name}': no --model in its options and the suite's domain declares none"
-            )
-        extra = ["--model", spec.model]
-    if d.command == "create-data" and not d.has_option("--size") and spec.model:
-        extra = ["--size", str(domains.size_multiplier(spec.data or "xs"))]
-    options = [work.expand(o, project) for o in d.options]
-    return proc.tool_argv(
-        "domain", d.command, "--domain", inst.domain_full(d.name), *options, *extra
-    )
+    """`tdd domain <command> --domain <instance>_<name> <options...>`."""
+    return domains.call_argv(inst, d, project)
 
 
-def _call(argv: list[str], action: str, path: str, where: str) -> None:
-    with rep().step(action, path) as step:
-        step["note"] = where
-        if state.run.dry_run:
-            shell.dry_echo(argv)
-            return
-        r = shell.run_cmd(
-            [*argv, "--format", "json"], check=False, env=shell.domain_env()
-        )
-        if r.returncode != 0:
-            final = shell.last_event(r.stdout) or {}
-            why = str(final.get("message") or shell.last_err(r)).splitlines()
-            state.die(
-                f"{shell.shell_line(argv)} exited {r.returncode}"
-                + (f": {why[0]}" if why else "")
-            )
+# Looked up at call time, so a test can stand in for the child.
+_call = domains.run_call
 
 
 class _Run:

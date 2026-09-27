@@ -6,9 +6,27 @@
     "domains": [
       {
         "name": "redpanda",
-        "system": "redpanda",
-        "model": "employees",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "redpanda"
+        ]
+      },
+      {
+        "name": "redpanda",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "employees"
+        ]
+      },
+      {
+        "name": "redpanda",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       }
     ]
   },

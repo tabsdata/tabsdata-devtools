@@ -6,17 +6,43 @@
     "domains": [
       {
         "name": "ap_fs",
-        "system": "fs",
-        "model": "airportdb",
-        "data": "xs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "fs"
+        ]
+      },
+      {
+        "name": "ap_fs",
+        "command": "create-model",
+        "options": [
+          "--model",
+          "airportdb"
+        ]
+      },
+      {
+        "name": "ap_fs",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1"
+        ]
       },
       {
         "name": "out",
-        "system": "fs"
+        "command": "create",
+        "options": [
+          "--sys",
+          "fs"
+        ]
       },
       {
         "name": "dbx",
-        "system": "databricks"
+        "command": "create",
+        "options": [
+          "--sys",
+          "databricks"
+        ]
       }
     ]
   },

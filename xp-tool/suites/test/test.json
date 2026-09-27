@@ -6,9 +6,11 @@
     "domains": [
       {
         "name": "d_dev",
-        "system": "dev",
-        "model": null,
-        "data": null
+        "command": "create",
+        "options": [
+          "--sys",
+          "dev"
+        ]
       }
     ]
   },
