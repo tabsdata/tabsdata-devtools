@@ -249,16 +249,38 @@ def test_venv_exports_tdd_venv_for_the_launchers():
     assert sets == ps1.count("$env:_TDD_VENV_ACTIVATED = ") == 3
 
 
-def test_venv_delete_all_shares_the_removal_and_refuses_an_active_venv():
-    text = (shell.scripts_dir() / "venv.sh").read_text()
-    assert "_tdd_venv_remove() {" in text
-    assert (
-        text.count('_tdd_venv_remove "$_tdd_name"') == 3
-    )  # delete, --all, create --force
-    body = text.split("_tdd_venv_delete() {", 1)[1].split("\n}\n", 1)[0]
-    assert "--all)" in body and '"--all and --name are exclusive"' in body
-    assert '"$_TDD_VENV is active; run tdd venv deactivate first"' in body
-    assert '"delete|--all|false"' in text
+def test_venv_hands_everything_but_the_shell_to_the_python_half():
+    """`tdd venv` builds, lists, deletes and describes venvs, and migrates their
+    markers, through `tdd _venv` -- once, in Python -- in both families; what
+    stays in the shell is entering and leaving one, adopting and refusing, the
+    prompt. Neither family writes, probes or removes a venv itself any more."""
+    sh = (shell.scripts_dir() / "venv.sh").read_text()
+    ps1 = (shell.scripts_dir("powershell") / "venv.ps1").read_text()
+    assert 'tdd-exe _venv "$@" --format json' in sh
+    assert "tdd-exe @call" in ps1 and "$call = @('_venv')" in ps1
+    for sub in ("create", "delete", "list", "info", "migrate"):
+        assert f"_tdd_venv_py {sub}" in sh or f"_venv {sub}" in sh, sub
+        assert f"'{sub}'" in ps1, sub
+    for gone in (
+        "_tdd_venv_write_marker",
+        "_tdd_venv_probe",
+        "_tdd_venv_remove",
+        "_tdd_venv_manager_version",
+        # the builds themselves: sh, then PowerShell
+        'uv venv "$@"',
+        '-m venv "$_tdd_dir"',
+        "conda create -y",
+        "& uv @uvArgs",
+        "-m venv $dir",
+        "& conda create",
+    ):
+        assert gone not in sh, f"venv.sh still has {gone}"
+        assert gone not in ps1, f"venv.ps1 still has {gone}"
+    # the shell tells _venv which venv it stands in: delete refuses it, list marks it
+    delete = sh.split("_tdd_venv_delete() {", 1)[1].split("\n}\n", 1)[0]
+    assert 'set -- --active "${_TDD_VENV:-}"' in delete
+    assert '_tdd_venv_py list --active "${_TDD_VENV:-}"' in sh
+    assert '"delete|--all|false"' in sh
 
 
 def test_venv_adopts_a_managed_venv_active_without_the_record():
@@ -275,67 +297,23 @@ def test_venv_adopts_a_managed_venv_active_without_the_record():
     for sub in ("create", "activate", "deactivate", "delete", "list"):
         body = text.split(f"_tdd_venv_{sub}() {{", 1)[1].split("\n}\n", 1)[0]
         assert "_tdd_venv_adopt" in body, sub
-
-
-def test_venv_marker_is_json_and_a_pre_json_marker_is_migrated_first():
-    """The marker is <name>.json -- the manager, the python the venv runs and
-    was built from, whether it is relocatable, when it was made -- read by one
-    jq run (the twin of common.core.managedvenv.marker). A <name>.env from
-    before, holding the type alone, is migrated by every subcommand before it
-    adopts, so nothing downstream ever meets the old file."""
-    text = (shell.scripts_dir() / "venv.sh").read_text()
-    assert "_tdd_venv_marker() {" in text
-    assert "printf '%s' \"$(_tdd_venv_root)/$1.json\"" in text
-    assert "_tdd_venv_read_marker() {" in text and "_tdd_venv_manager_of() {" in text
-    writer = text.split("_tdd_venv_write_marker() {", 1)[1].split("\n}\n", 1)[0]
-    for field in (
-        "manager:",
-        "python:",
-        "python_path:",
-        "relocatable:",
-        "created:",
-        "manager_version:",
-        "python_requested:",
-        "tdd_version:",
-    ):
-        assert field in writer, field
-    # written through a temporary file and one rename, like every config write
-    assert 'mv "$_tdd_tmpf" "$_tdd_envf"' in writer
-    migrate = text.split("_tdd_venv_migrate() {", 1)[1].split("\n}\n", 1)[0]
-    assert "-name '*.env'" in migrate and "--migrated" in migrate
-    assert "^relocatable = true" in migrate  # what uv leaves in pyvenv.cfg
-    for sub in ("create", "activate", "deactivate", "delete", "list"):
-        body = text.split(f"_tdd_venv_{sub}() {{", 1)[1].split("\n}\n", 1)[0]
+        # the markers are migrated (by _venv) before anything reads one
         assert body.index("_tdd_venv_migrate") < body.index("_tdd_venv_adopt"), sub
-    # and the old way of reading a marker is gone
-    assert '.env" 2>/dev/null' not in text
-    assert "_tdd_venv_remove" in text and 'rm -f "$(_tdd_venv_marker "$1")"' in text
 
 
-def test_venv_create_relocatable_is_opt_in_and_uv_builds_on_managed_python_only():
+def test_venv_create_relocatable_is_opt_in_and_the_prompt_says_so():
     text = (shell.scripts_dir() / "venv.sh").read_text()
     assert '"create|--relocatable|false"' in text
     body = text.split("_tdd_venv_create() {", 1)[1].split("\n}\n", 1)[0]
     assert "_tdd_reloc=false" in body and "--relocatable)" in body
-    # uv: its managed interpreters only; relocatable when asked and only then
-    # -- UV_VENV_RELOCATABLE in the environment cannot decide it behind the
-    # flag's back, since the marker records what the venv is
-    assert "set -- --managed-python" in body
     assert '[ "$_tdd_reloc" = true ] && set -- "$@" --relocatable' in body
-    assert 'env -u UV_VENV_RELOCATABLE uv venv "$@"' in body
-    # a pyenv or conda venv is bound to its path: refused, not shrugged off
-    assert '_tdd_error "--relocatable needs --type uv' in body
+    # the active venv is left before _venv removes it (--force), and nothing
+    # is built before the foreign check
+    assert body.index("_tdd_venv_foreign_check") < body.index("_tdd_venv_py create")
+    assert body.index("_tdd_venv_leave") < body.index("_tdd_venv_py create")
     # the prompt says what the venv can stand: (<type>/<python>/<name>/reloc)
     mark = text.split("_tdd_venv_mark_text() {", 1)[1].split("\n}\n", 1)[0]
     assert "printf '/reloc'" in mark
-    # list shows the python, reloc or -, the path and the base python
-    listing = text.split("_tdd_venv_list() {", 1)[1].split("\n}\n", 1)[0]
-    assert "_tdd_venv_read_marker" in listing
-    assert "'%-24s %-6s %-9s %-6s %s  %s%s'" in listing
-    assert "printf 'reloc' || printf -- '-'" in listing
-    # the JSON fields, as the shell spells them inside a double-quoted string
-    for field in ("python", "python_path", "relocatable", "created"):
-        assert f'\\"{field}\\":' in listing, field
 
 
 def test_venv_create_has_force_and_deactivate_handles_every_kind():

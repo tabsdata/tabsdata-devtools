@@ -8,6 +8,15 @@ Copyright 2026 Tabsdata Inc.
 under `<tdd_dir>/managed-venvs/`, entered and left in the calling shell -- which is why it is a
 shell command.
 
+**Only what needs the shell is here.** Building a venv, writing, reading and migrating its
+marker, removing it and listing them is `tdd _venv` (packages/tabsdata-dev-tool-venv), once in
+Python where it was twice -- in this file and in `venv.ps1` -- and could drift. Each family calls
+it through one helper (`_tdd_venv_py`), relays its progress and its result as its own `venv-*`
+events, and tells it which venv the shell stands in (`--active`). What stays: activate,
+deactivate, adopt, the foreign-venv refusal, `create`'s leaving of the venv it replaces and
+entering of the new one, and the prompt. The notes below on markers and builds describe what
+`_venv` does.
+
 - Layout: `managed-venvs/<type>/<name>/` is the venv, `managed-venvs/<name>.json` its marker:
   `manager` (the type), `manager_version`, `python` (the version the venv runs), `python_requested`
   (what `--python` asked for), `python_path` (the base interpreter it was built from --

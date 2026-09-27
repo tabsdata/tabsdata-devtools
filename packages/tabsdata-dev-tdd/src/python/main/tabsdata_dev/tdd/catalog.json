@@ -1,5 +1,5 @@
 {
-  "fingerprint": "5698807e38ef24e6",
+  "fingerprint": "0492e4ebdcde3177",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
@@ -11,7 +11,8 @@
       "tabsdata-dev-tool-pycache",
       "tabsdata-dev-tool-smoke",
       "tabsdata-dev-tool-tdk",
-      "tabsdata-dev-tool-tdkserver"
+      "tabsdata-dev-tool-tdkserver",
+      "tabsdata-dev-tool-venv"
     ],
     "pypi": [
       "tabsdata-dev-common-core",
@@ -95,6 +96,21 @@
     }
   },
   "tools": {
+    "_venv": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "hidden": false,
+      "launcher": false,
+      "package": "tabsdata-dev-tool-venv",
+      "reqs": [
+        "pyenv",
+        "uv",
+        "conda"
+      ],
+      "summary": "plumbing of tdd venv: create, delete, list and describe managed venvs (no activation)",
+      "toolset": "launchers"
+    },
     "apidoc": {
       "commons": [
         "tabsdata-dev-common-core"

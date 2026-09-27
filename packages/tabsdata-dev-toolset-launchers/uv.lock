@@ -269,6 +269,20 @@ requires-dist = [
 ]
 
 [[package]]
+name = "tabsdata-dev-tool-venv"
+source = { editable = "../tabsdata-dev-tool-venv" }
+dependencies = [
+    { name = "tabsdata-dev-common-core" },
+    { name = "tabsdata-dev-deps-launchers" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "tabsdata-dev-common-core", editable = "../tabsdata-dev-common-core" },
+    { name = "tabsdata-dev-deps-launchers", editable = "../tabsdata-dev-deps-launchers" },
+]
+
+[[package]]
 name = "tabsdata-dev-toolset-launchers"
 version = "0.1.0"
 source = { virtual = "." }
@@ -282,6 +296,7 @@ dependencies = [
     { name = "tabsdata-dev-tool-smoke" },
     { name = "tabsdata-dev-tool-tdk" },
     { name = "tabsdata-dev-tool-tdkserver" },
+    { name = "tabsdata-dev-tool-venv" },
 ]
 
 [package.metadata]
@@ -295,4 +310,5 @@ requires-dist = [
     { name = "tabsdata-dev-tool-smoke", editable = "../tabsdata-dev-tool-smoke" },
     { name = "tabsdata-dev-tool-tdk", editable = "../tabsdata-dev-tool-tdk" },
     { name = "tabsdata-dev-tool-tdkserver", editable = "../tabsdata-dev-tool-tdkserver" },
+    { name = "tabsdata-dev-tool-venv", editable = "../tabsdata-dev-tool-venv" },
 ]

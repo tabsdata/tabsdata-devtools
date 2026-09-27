@@ -19,6 +19,7 @@ dependencies = [
     "tabsdata-dev-tool-smoke",
     "tabsdata-dev-tool-tdk",
     "tabsdata-dev-tool-tdkserver",
+    "tabsdata-dev-tool-venv",
 ]
 
 [tool.uv.sources]
@@ -31,4 +32,5 @@ tabsdata-dev-tool-pycache = { path = "../tabsdata-dev-tool-pycache", editable = 
 tabsdata-dev-tool-smoke = { path = "../tabsdata-dev-tool-smoke", editable = true }
 tabsdata-dev-tool-tdk = { path = "../tabsdata-dev-tool-tdk", editable = true }
 tabsdata-dev-tool-tdkserver = { path = "../tabsdata-dev-tool-tdkserver", editable = true }
+tabsdata-dev-tool-venv = { path = "../tabsdata-dev-tool-venv", editable = true }
 tabsdata-dev-common-core = { path = "../tabsdata-dev-common-core", editable = true }

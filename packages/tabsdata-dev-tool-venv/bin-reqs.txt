@@ -1,0 +1,10 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# bin-reqs.txt -- the venv managers `_venv` drives: the same three `tdd venv`
+# declares, all required up front rather than per --type, so `tdd --reqs` says
+# whether every kind of managed venv works.
+pyenv
+uv
+conda
