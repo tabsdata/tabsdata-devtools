@@ -2,11 +2,11 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""``tdd _1p`` -- what tdd reads from and files in 1Password.
+"""``tdd _1p`` -- what tdd fetches from and pushes to 1Password.
 
-    tdd _1p fetch [--crypto 1p:VAULT [--item ITEM] [--field FIELD]]
-                  [--secrets 1p:VAULT]
-    tdd _1p set --vault 1p:VAULT --entry PATH|-
+    tdd _1p fetch [--crypto [1p:VAULT] [--item ITEM] [--field FIELD]]
+                  [--secrets [1p:VAULT]] [--format export|json|view]
+    tdd _1p push --vault 1p:VAULT --entry PATH|-
 
 ``--crypto`` reads the one field that is the descriptor key
 (``_TDD_CRYPTO_KEY``) out of a personal vault; ``--secrets`` sweeps a shared
@@ -19,7 +19,7 @@ cannot change the shell that runs it, so ``env`` -- a shell command -- runs this
 and applies the lines, and nothing is written to disk. The providers live in
 ``common.core.secrets``; this tool only chooses what to read and checks it.
 
-``set`` files one item in a vault, replacing what is filed under its title
+``push`` files one item in a vault, replacing what is filed under its title
 (delete, then create: a create alone duplicates) -- the other end of
 ``tdd system 1p-template`` and ``tdd system info --format 1p``, which write the
 item. It was ``tdd system 1p-set``; filing an item touches no system.
@@ -37,16 +37,22 @@ from tabsdata_dev.common.core.errors import ToolError
 
 NAME = "_1p"
 DESCRIPTION = (
-    "1Password for tdd: fetch the crypto key and secrets as export lines "
-    "(tdd env), file an item in a vault"
+    "fetches the crypto key and secrets from 1Password (for tdd env) and pushes "
+    "items to it"
 )
 
 FETCH = "fetch"
-SET = "set"
-ACTIONS = (FETCH, SET)
-# Where the descriptor key sits in a personal vault, unless told otherwise.
-# The vault itself has no default here: `tdd env` passes the one it keeps in
-# env.toml, and a direct caller names it.
+PUSH = "push"
+ACTIONS = (FETCH, PUSH)
+#: `fetch`'s own rendering and the default: the lines a shell applies.
+FMT_EXPORT = "export"
+# Where fetch reads from when --crypto / --secrets are given alone: the
+# Employee vault every user has (item DevSecrets, the field that item has
+# always had) and the team's shared vault. Literals: no variable of the
+# environment chooses a vault. `tdd env` passes the vaults it keeps in env.toml,
+# the same two unless changed there.
+DEFAULT_CRYPTO_VAULT = "1p:Employee"
+DEFAULT_SECRETS_VAULT = "1p:dev_xp"
 DEFAULT_CRYPTO_ITEM = "DevSecrets"
 DEFAULT_CRYPTO_FIELD = "TD_BACKENDS_CRYPTO_KEY"
 
@@ -119,11 +125,11 @@ def _vault(option: str, value: str) -> str:
     return vault
 
 
-def _set(args: argparse.Namespace, out: render.Renderer) -> int:
+def _push(args: argparse.Namespace, out: render.Renderer) -> int:
     vault = _vault("--vault", args.vault)  # refused before the entry is read
     item = read_entry(args.entry)
     title = str(item["title"])
-    out.info(f"filing '{title}' in {args.vault}")
+    out.info(f"pushing '{title}' to {args.vault}")
     replaced, item_id = secrets_1p.set_item(vault, item)
     return out.ok(
         f"{'replaced' if replaced else 'created'} '{title}' in {args.vault}"
@@ -136,14 +142,10 @@ def _set(args: argparse.Namespace, out: render.Renderer) -> int:
     )
 
 
-def body(args: argparse.Namespace, out: render.Renderer) -> int:
-    if args.action not in ACTIONS:
-        raise ToolError(f"a subcommand is required: {', '.join(ACTIONS)} (see --help)")
-    if args.action == SET:
-        return _set(args, out)
+def _fetch(args: argparse.Namespace, out: render.Renderer) -> int:
     if not args.crypto and not args.secrets:
         raise ToolError(
-            "nothing to fetch: pass --crypto 1p:VAULT and/or --secrets 1p:VAULT"
+            "nothing to fetch: pass --crypto [1p:VAULT] and/or --secrets [1p:VAULT]"
         )
     if (args.item or args.field) and not args.crypto:
         raise ToolError("--item and --field say where the crypto key is; pass --crypto")
@@ -158,17 +160,40 @@ def body(args: argparse.Namespace, out: render.Renderer) -> int:
     if args.secrets:
         out.debug(f"reading every item of {args.secrets}")
         found.update(secrets.with_systems_var(secrets.fetch(args.secrets)))
-    # The outcome IS the lines to apply: `tdd env` evaluates what comes out.
-    return out.ok(secrets.render(found, "export"), names=list(found))
+    names = list(found)
+    if args.format == FMT_EXPORT:
+        # The outcome IS the lines to apply: `tdd env` evaluates what comes out.
+        return out.ok(secrets.render(found, "export"), names=names)
+    summary = f"fetched {len(names)} variable(s): {' '.join(names)}"
+    if args.format == "json":
+        # JSON is asked for by name, by a program: the values travel, as they do
+        # in the export lines.
+        return out.ok(summary, names=names, values=found)
+    # view is for a person at a terminal: what was read, never the values.
+    return out.ok(summary, names=names)
 
 
-def _common(sub: argparse.ArgumentParser) -> None:
-    """--format/--verbose after the subcommand word too."""
+def body(args: argparse.Namespace, out: render.Renderer) -> int:
+    if args.action not in ACTIONS:
+        raise ToolError(f"a subcommand is required: {', '.join(ACTIONS)} (see --help)")
+    if args.action == PUSH:
+        return _push(args, out)
+    return _fetch(args, out)
+
+
+def _common(
+    sub: argparse.ArgumentParser, formats: dict[str, str], default: str
+) -> None:
+    """--format/--verbose after the subcommand word too, with the formats that
+    subcommand renders. SUPPRESS so an unused copy does not overwrite what was
+    given before the word; the top-level default (export) is what `fetch`
+    takes, and `push`, which has nothing to export, reads it as view."""
     sub.add_argument(
         "--format",
-        choices=("json", "view"),
+        choices=tuple(formats),
         default=argparse.SUPPRESS,
-        help="json is JSON Lines, one event per line (default: view)",
+        help="; ".join(f"{k}: {v}" for k, v in formats.items())
+        + f" (default: {default})",
     )
     sub.add_argument(
         "--verbose",
@@ -181,28 +206,30 @@ def _common(sub: argparse.ArgumentParser) -> None:
 
 def configure(p: argparse.ArgumentParser) -> None:
     p.epilog = (
-        f"examples: tdd {NAME} {FETCH} --crypto 1p:Employee --secrets 1p:dev_xp\n"
-        f"          tdd system 1p-template --type s3 | tdd {NAME} {SET} "
+        f"examples: tdd {NAME} {FETCH} --crypto --secrets\n"
+        f"          tdd system 1p-template --type s3 | tdd {NAME} {PUSH} "
         "--vault 1p:dev_xp --entry -"
     )
     sub = p.add_subparsers(dest="action", metavar="SUBCOMMAND")
     fetch = sub.add_parser(
         FETCH,
-        help="print the crypto key and/or a vault's secrets as export lines",
+        help="fetches the crypto key and/or a vault's secrets, as export lines",
         description=(
-            "Read the descriptor crypto key (--crypto) and/or every secret of a "
-            "shared vault (--secrets) from 1Password and print them as export "
-            "lines, the outcome of the command, for a shell to apply -- `tdd env "
-            "set --crypto --secrets` does. The values are in the output: that is "
-            "what it is for."
+            "Fetches the descriptor crypto key (--crypto) and/or every secret of a "
+            "shared vault (--secrets) from 1Password. By default (--format export) "
+            "they are printed as export lines, the outcome of the command, for a "
+            "shell to apply -- `tdd env set --crypto --secrets` does; view names "
+            "what was fetched without the values, json carries them."
         ),
     )
     fetch.add_argument(
         "--crypto",
+        nargs="?",
+        const=DEFAULT_CRYPTO_VAULT,
         default=None,
         metavar="1p:VAULT",
-        help=f"read {secrets.CRYPTO_KEY_ENV} from this vault; at least "
-        f"{secrets.CRYPTO_KEY_MIN_LEN} characters",
+        help=f"fetch {secrets.CRYPTO_KEY_ENV} from this vault (alone: "
+        f"{DEFAULT_CRYPTO_VAULT}); at least {secrets.CRYPTO_KEY_MIN_LEN} characters",
     )
     fetch.add_argument(
         "--item",
@@ -218,42 +245,60 @@ def configure(p: argparse.ArgumentParser) -> None:
     )
     fetch.add_argument(
         "--secrets",
+        nargs="?",
+        const=DEFAULT_SECRETS_VAULT,
         default=None,
         metavar="1p:VAULT",
-        help="read every item of this vault as <ITEM>__<FIELD> variables, plus "
-        f"{secrets.SYSTEMS_ENV}, the prefixes set; an item titled _* is skipped",
+        help=f"fetch every item of this vault (alone: {DEFAULT_SECRETS_VAULT}) as "
+        f"<ITEM>__<FIELD> variables, plus {secrets.SYSTEMS_ENV}, the prefixes "
+        "set; an item titled _* is skipped",
     )
-    _common(fetch)
-    put = sub.add_parser(
-        SET,
-        help="file a 1Password item in a vault, replacing what is filed under its title",
+    _common(
+        fetch,
+        {
+            FMT_EXPORT: "export lines for a shell to eval",
+            "view": "the names fetched, never the values",
+            "json": "JSON Lines, the values included",
+        },
+        FMT_EXPORT,
+    )
+    push = sub.add_parser(
+        PUSH,
+        help="pushes a 1Password item to a vault, replacing what is filed under its title",
         description=(
-            "Put one 1Password item in a vault, replacing what is filed under its "
-            "title: delete, then create, since 1Password keys an item on the id it "
-            "assigns and a create alone would make a second one. The item goes to "
-            "`op` on stdin, never in argv or a file. `tdd system 1p-template` and "
-            "`tdd system info --format 1p` write one; so does `op item get "
+            "Pushes one 1Password item to a vault, replacing what is filed under "
+            "its title: delete, then create, since 1Password keys an item on the id "
+            "it assigns and a create alone would make a second one. The item goes "
+            "to `op` on stdin, never in argv or a file. `tdd system 1p-template` "
+            "and `tdd system info --format 1p` write one; so does `op item get "
             "--format=json`, whose identity (id, vault, timestamps, field "
             "references) is dropped on the way."
         ),
     )
-    put.add_argument(
+    push.add_argument(
         "--vault",
         required=True,
         metavar="1p:VAULT",
-        help="the vault to file the item in, as a provider ref",
+        help="the vault to push the item to, as a provider ref",
     )
-    put.add_argument(
+    push.add_argument(
         "--entry",
         required=True,
         metavar="PATH",
         help="the item JSON (`-` reads it from stdin)",
     )
-    _common(put)
+    _common(push, {"view": "one line", "json": "JSON Lines"}, "view")
 
 
 def main() -> int:
-    return cli.run(NAME, DESCRIPTION, body, configure=configure)
+    return cli.run(
+        NAME,
+        DESCRIPTION,
+        body,
+        configure=configure,
+        formats={FMT_EXPORT: "fetch's export lines, for a shell to eval"},
+        default_format=FMT_EXPORT,
+    )
 
 
 if __name__ == "__main__":

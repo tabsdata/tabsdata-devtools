@@ -44,6 +44,14 @@ def _run(argv, monkeypatch, capsys):
     return code, [json.loads(x) for x in capsys.readouterr().out.splitlines()]
 
 
+def _stdout(argv, monkeypatch, capsys):
+    """(exit code, stdout, stderr) of a run in the default format."""
+    monkeypatch.setattr("sys.argv", ["_1p", *argv])
+    code = onepassword.main()
+    out, err = capsys.readouterr()
+    return code, out, err
+
+
 def _exports(message: str) -> dict[str, str]:
     """The export lines as a shell would read them."""
     out = {}
@@ -56,22 +64,15 @@ def _exports(message: str) -> dict[str, str]:
 
 
 def test_fetches_both_in_one_call_as_export_lines(op, monkeypatch, capsys):
-    code, events = _run(
-        [
-            "fetch",
-            "--crypto",
-            "1p:Employee",
-            "--secrets",
-            "1p:dev_xp",
-            "--format",
-            "json",
-        ],
+    """export is the default: the lines on stdout are the outcome, nothing else
+    is there, and a shell reads back exactly the values."""
+    code, out, _ = _stdout(
+        ["fetch", "--crypto", "1p:Employee", "--secrets", "1p:dev_xp"],
         monkeypatch,
         capsys,
     )
     assert code == 0
-    ok = events[-1]
-    got = _exports(ok["message"])
+    got = _exports(out)
     assert got == {
         "_TDD_CRYPTO_KEY": KEY,
         "PG__PASSWORD": "p w'd",  # quoted for the shell
@@ -79,7 +80,6 @@ def test_fetches_both_in_one_call_as_export_lines(op, monkeypatch, capsys):
         "S3__BUCKET": "b",
         "_TDD_SYSTEMS": "PG S3",
     }
-    assert ok["names"] == list(got)
     assert op.reads == [
         ("Employee", "DevSecrets", "TD_BACKENDS_CRYPTO_KEY"),
         ("dev_xp",),
@@ -103,7 +103,7 @@ def test_crypto_takes_another_item_and_field(op, monkeypatch, capsys):
         monkeypatch,
         capsys,
     )
-    assert code == 0 and _exports(events[-1]["message"]) == {"_TDD_CRYPTO_KEY": KEY}
+    assert code == 0 and events[-1]["values"] == {"_TDD_CRYPTO_KEY": KEY}
 
 
 def test_a_short_key_is_refused_with_where_it_came_from(op, monkeypatch, capsys):
@@ -124,7 +124,7 @@ def test_a_short_key_is_refused_with_where_it_came_from(op, monkeypatch, capsys)
         (["fetch", "--crypto", "Employee"], "--crypto takes a provider ref, 1p:VAULT"),
         (["fetch", "--secrets", "1p:"], "--secrets takes a provider ref"),
         (["fetch", "--secrets", "1p:dev_xp", "--item", "X"], "pass --crypto"),
-        ([], "a subcommand is required: fetch, set"),
+        ([], "a subcommand is required: fetch, push"),
     ],
 )
 def test_refuses_before_reading_anything(op, monkeypatch, capsys, argv, says):
@@ -178,7 +178,7 @@ def op_items(monkeypatch):
 ITEM = {"title": "S3", "category": "API_CREDENTIAL", "fields": [{"id": "bucket"}]}
 
 
-def test_set_deletes_before_creating_so_a_title_cannot_duplicate(
+def test_push_deletes_before_creating_so_a_title_cannot_duplicate(
     op_items, tmp_path, monkeypatch, capsys
 ):
     """`op item create` files a second item under a title that already exists
@@ -186,7 +186,7 @@ def test_set_deletes_before_creating_so_a_title_cannot_duplicate(
     a coin toss -- so a set is a delete followed by a create."""
     entry = tmp_path / "s3.json"
     entry.write_text(json.dumps(ITEM))
-    argv = ["set", "--vault", "1p:dev_xp", "--entry", str(entry), "--format", "json"]
+    argv = ["push", "--vault", "1p:dev_xp", "--entry", str(entry), "--format", "json"]
 
     op_items.sent["exists"] = True  # the item is already filed
     code, events = _run(argv, monkeypatch, capsys)
@@ -215,13 +215,13 @@ def test_set_deletes_before_creating_so_a_title_cannot_duplicate(
     assert "created 'S3'" in events[-1]["message"]
 
 
-def test_set_reads_the_item_from_stdin(op_items, monkeypatch, capsys):
+def test_push_reads_the_item_from_stdin(op_items, monkeypatch, capsys):
     import io
 
     raw = io.BytesIO(json.dumps({**ITEM, "title": "S3 \u00e9"}).encode("utf-8"))
     monkeypatch.setattr("sys.stdin", type("In", (), {"buffer": raw})())
     code, events = _run(
-        ["set", "--vault", "1p:dev_xp", "--entry", "-", "--format", "json"],
+        ["push", "--vault", "1p:dev_xp", "--entry", "-", "--format", "json"],
         monkeypatch,
         capsys,
     )
@@ -238,7 +238,7 @@ def test_set_reads_the_item_from_stdin(op_items, monkeypatch, capsys):
         ("1p:dev_xp", "nope.json", "cannot read --entry"),
     ],
 )
-def test_set_refuses_before_it_deletes(
+def test_push_refuses_before_it_deletes(
     op_items, tmp_path, monkeypatch, capsys, vault, entry, says
 ):
     """Checked here rather than left to op: a refusal after the delete has
@@ -247,7 +247,15 @@ def test_set_refuses_before_it_deletes(
     (tmp_path / "bad.json").write_text('{"title": "S3"}')
     (tmp_path / "list.json").write_text("[]")
     code, events = _run(
-        ["set", "--vault", vault, "--entry", str(tmp_path / entry), "--format", "json"],
+        [
+            "push",
+            "--vault",
+            vault,
+            "--entry",
+            str(tmp_path / entry),
+            "--format",
+            "json",
+        ],
         monkeypatch,
         capsys,
     )
@@ -255,7 +263,7 @@ def test_set_refuses_before_it_deletes(
     assert op_items.calls == []
 
 
-def test_set_files_only_what_a_create_may_carry(tmp_path):
+def test_push_files_only_what_a_create_may_carry(tmp_path):
     """A whole `op item get --format=json` can be handed straight back: read an
     item, edit a value, file it again. What is dropped is the identity of the
     item it was read *from* -- id, version, vault, timestamps -- and each
@@ -297,3 +305,55 @@ def test_set_files_only_what_a_create_may_carry(tmp_path):
             "value": "postgres",
         }
     ]
+
+
+def test_bare_selections_read_the_default_vaults(op, monkeypatch, capsys):
+    """`--crypto` and `--secrets` alone read the Employee and dev_xp vaults --
+    the same literals `tdd env` keeps in env.toml."""
+    code, out, _ = _stdout(["fetch", "--crypto", "--secrets"], monkeypatch, capsys)
+    assert code == 0 and set(_exports(out)) >= {"_TDD_CRYPTO_KEY", "_TDD_SYSTEMS"}
+    assert op.reads == [
+        ("Employee", "DevSecrets", "TD_BACKENDS_CRYPTO_KEY"),
+        ("dev_xp",),
+    ]
+    assert onepassword.DEFAULT_CRYPTO_VAULT == "1p:Employee"
+    assert onepassword.DEFAULT_SECRETS_VAULT == "1p:dev_xp"
+    root = pathlib.Path(__file__).resolve().parents[5]
+    env_sh = (root / "packages/tabsdata-dev-shell/scripts/unix/env.sh").read_text()
+    assert f'_TDD_VAULT_CRYPTO="{onepassword.DEFAULT_CRYPTO_VAULT}"' in env_sh
+    assert f'_TDD_VAULT_SECRETS="{onepassword.DEFAULT_SECRETS_VAULT}"' in env_sh
+
+
+def test_view_names_what_was_fetched_and_json_carries_the_values(
+    op, monkeypatch, capsys
+):
+    code, out, _ = _stdout(
+        ["fetch", "--crypto", "--format", "view"], monkeypatch, capsys
+    )
+    assert code == 0
+    assert out.strip() == "fetched 1 variable(s): _TDD_CRYPTO_KEY"
+    assert KEY not in out  # a person at a terminal never sees a value
+    code, events = _run(["fetch", "--crypto", "--format", "json"], monkeypatch, capsys)
+    assert events[-1]["values"] == {"_TDD_CRYPTO_KEY": KEY}
+    # the format goes before the subcommand word as well as after it
+    code, out, _ = _stdout(
+        ["--format", "view", "fetch", "--crypto"], monkeypatch, capsys
+    )
+    assert KEY not in out
+
+
+def test_push_has_nothing_to_export(op_items, tmp_path, monkeypatch, capsys):
+    """The tool's default format is export, for fetch; push reads it as view,
+    and does not offer export itself."""
+    entry = tmp_path / "s3.json"
+    entry.write_text(json.dumps(ITEM))
+    code, out, _ = _stdout(
+        ["push", "--vault", "1p:dev_xp", "--entry", str(entry)], monkeypatch, capsys
+    )
+    assert code == 0 and out.startswith("created 'S3' in 1p:dev_xp")
+    code, events = _run(
+        ["push", "--vault", "1p:dev_xp", "--entry", str(entry), "--format", "export"],
+        monkeypatch,
+        capsys,
+    )
+    assert code == 1

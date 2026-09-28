@@ -20,7 +20,7 @@ connection details kept as encrypted descriptors.
 - Verbs: `create/destroy/status/purge/restart/fetch-bin/connect`, `types/1p-template/list/info/
   manifest/upgrade`. Talking to 1Password is not a system verb: `secrets` and `crypto-key` moved
   to `tdd _1p fetch`, which `tdd env set --crypto/--secrets` applies, and `1p-set` to `tdd _1p
-  set` (2026-09-28) -- none touches a store or a backend, and each put an `op` call in the
+  push` (2026-09-28) -- none touches a store or a backend, and each put an `op` call in the
   `systems` env. What stays is what needs a backend: `1p-template` and `info --format 1p`, which
   write a system's item.
   `clean-docker [--yes|-y]` stops and deletes every `tdd_*` container -- the prefix all
@@ -52,8 +52,8 @@ connection details kept as encrypted descriptors.
   `azpostgres` carry their server CA as the certificate, never the local path to a copy;
   `awspostgres` carries neither, since RDS's is a download); a computed default is written in
   rather than left as `?`, which would be read back as the literal string.
-- `tdd _1p set --vault 1p:V --entry PATH|-` files such an item, closing the loop: `1p-template`
-  writes it, `_1p set` puts it in the vault, `_1p fetch --secrets` reads it back as the variables
+- `tdd _1p push --vault 1p:V --entry PATH|-` files such an item, closing the loop: `1p-template`
+  writes it, `_1p push` puts it in the vault, `_1p fetch --secrets` reads it back as the variables
   `create` needs. How it files (delete, then create; the item on stdin) is in the `_1p` design doc.
 - Every descriptor read or write needs `_TDD_CRYPTO_KEY`; `create --force` replaces a descriptor
   an older key left unreadable.

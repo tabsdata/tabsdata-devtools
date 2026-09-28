@@ -60,7 +60,12 @@ class UsageError(Exception):
     pass
 
 
-def parser(prog: str, description: str) -> argparse.ArgumentParser:
+def parser(
+    prog: str,
+    description: str,
+    formats: dict[str, str] | None = None,
+    default_format: str = "view",
+) -> argparse.ArgumentParser:
     """The command's parser, named the way the command is run.
 
     `tdd <tool>`, not `<tool>`: argparse would otherwise put the bare executable
@@ -75,11 +80,13 @@ def parser(prog: str, description: str) -> argparse.ArgumentParser:
         "--help", "-h", action="help", help="show this help message and exit"
     )
     p.add_argument("--verbose", "-v", action="store_true", help="show debug events too")
+    formats = formats or {}
+    extra = "".join(f"; {name}: {what}" for name, what in formats.items())
     p.add_argument(
         "--format",
-        choices=("json", "view"),
-        default="view",
-        help="json is JSON Lines, one event per line (default: view)",
+        choices=(*formats, "json", "view"),
+        default=default_format,
+        help=f"json is JSON Lines, one event per line{extra} (default: {default_format})",
     )
     return p
 
@@ -113,6 +120,8 @@ def run(
     configure: Callable[[argparse.ArgumentParser], None] | None = None,
     config_preamble: str = "",
     config_tables: str = "",
+    formats: dict[str, str] | None = None,
+    default_format: str = "view",
 ) -> int:
     """Parse, render, run, and map everything onto exit 0 or 1.
 
@@ -123,8 +132,13 @@ def run(
     carries above the options (what it keeps of its own, explained), and
     `config_tables` the tables it keeps of its own, commented at their
     defaults, written after them -- see `config.Doc.tables`.
+    `formats` are `--format` values the command renders itself, beside json
+    and view, each with what it is for the help (`_1p fetch`'s export lines):
+    the renderer is view for them, so the body's ok still goes to stdout, and
+    the body reads `args.format` to shape it. `default_format` may be one of
+    them.
     """
-    p = parser(prog, description)
+    p = parser(prog, description, formats, default_format)
     if configure is not None:
         configure(p)
     raw = list(argv if argv is not None else sys.argv[1:])
@@ -152,7 +166,8 @@ def run(
         return out.error(f"{exc} (see --help)")
     except SystemExit as exc:  # --help
         return 0 if exc.code in (0, None) else 1
-    out = render.Renderer(prog, fmt=args.format, verbose=args.verbose)
+    fmt = args.format if args.format in ("json", "view") else "view"
+    out = render.Renderer(prog, fmt=fmt, verbose=args.verbose)
     try:
         code = body(args, out)
     except KeyboardInterrupt:

@@ -10,7 +10,9 @@ dependencies are declared as ranges; each toolset's lock pins them.
 
 ## Modules
 
-- `cli.run()` / `render` -- the command contract: `--help`, `--verbose`, `--format json|view`,
+- `cli.run()` / `render` -- the command contract: `--help`, `--verbose`, `--format json|view`
+  (plus any `formats={name: what}` the command renders itself, `_1p fetch`'s `export`; it may be
+  the `default_format`, and the renderer is view for it),
   events `ok|error|warn|info|debug` with colours, exit 0/1, the `/tmp/tdd-<cmd>-<stamp>.log`.
   Commands never print; they hand the renderer events, and help is coloured by structure
   (headings bold, terms cyan) on both halves. A message that paints its own pieces instead of
@@ -71,7 +73,7 @@ dependencies are declared as ranges; each toolset's lock pins them.
   `_*` is skipped, and skipped before it is read: a shared vault is also where people keep notes
   to themselves, and everything swept lands in the caller's shell as a variable. `set_item`
   files one (delete, then create) and `for_upload` reduces an item to what a create may carry.
-  The command over them is `tdd _1p` (`fetch`, `set`); `CRYPTO_KEY_ENV`/`CRYPTO_KEY_MIN_LEN` name the descriptor key and
+  The command over them is `tdd _1p` (`fetch`, `push`); `CRYPTO_KEY_ENV`/`CRYPTO_KEY_MIN_LEN` name the descriptor key and
   its minimum length for it, `common.systems.crypto` and both `env` scripts.
   
   `ports`, `passwords`, `docker` (the CLI wrapped rather than an SDK, so it stays standard-library

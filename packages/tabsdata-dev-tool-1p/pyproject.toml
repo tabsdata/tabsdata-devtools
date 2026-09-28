@@ -5,14 +5,14 @@
 [project]
 name = "tabsdata-dev-tool-1p"
 dynamic = ["version"]
-description = "1Password for tdd: fetch the crypto key and secrets as export lines (tdd env), file an item in a vault"
+description = "fetches the crypto key and secrets from 1Password (for tdd env) and pushes items to it"
 requires-python = ">=3.11"
 dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
 
 # `_1p`: the leading underscore makes it plumbing, left out of `tdd help`
 # (listed by `tdd -x`). `tdd env set --crypto/--secrets`, the shell command,
 # applies what `fetch` prints -- only a shell can change the shell it runs in;
-# `set` files an item `tdd system 1p-template` writes.
+# `push` files an item `tdd system 1p-template` writes.
 [project.scripts]
 _1p = "tabsdata_dev.tool.onepassword:main"
 

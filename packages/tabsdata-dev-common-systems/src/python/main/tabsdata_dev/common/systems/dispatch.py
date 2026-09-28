@@ -598,9 +598,9 @@ def _parser_1p_template(tool: str) -> ArgumentParser:
     p = ArgumentParser(
         prog=f"tdd {tool} {constants.V_1P_TEMPLATE}",
         description="a system type's create options as the 1Password item its "
-        "credentials belong in, to fill in and file with `tdd _1p set`",
+        "credentials belong in, to fill in and push with `tdd _1p push`",
         epilog=f"example: tdd {constants.SYS_TOOL} {constants.V_1P_TEMPLATE} "
-        f"{constants.OPT_TYPE} s3 | tdd _1p set --vault 1p:dev_xp --entry -",
+        f"{constants.OPT_TYPE} s3 | tdd _1p push --vault 1p:dev_xp --entry -",
     )
     cli.add_type(p)
     cli.add_verbose(p)
@@ -624,7 +624,7 @@ def _cmn_1p_template(tool: str, rest: list[str]) -> int:
     # which is a listing rather than something to file.
     text = onepassword.render(items[0] if len(items) == 1 else items)
     console.result({"types": slugs, "items": items})
-    # The rendering *is* the result, on stdout, so it can be piped to `_1p set`.
+    # The rendering *is* the result, on stdout, so it can be piped to `_1p push`.
     console.good(text)
     return 0
 

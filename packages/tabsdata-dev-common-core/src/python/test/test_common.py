@@ -858,3 +858,23 @@ def test_live_writes_nothing_off_a_terminal():
         r.live(["a: 10%"])
         r.live([])
         assert err.getvalue() == "" and out.getvalue() == ""
+
+
+def test_a_command_can_render_formats_of_its_own(capsys):
+    """`formats` add --format values the body shapes itself; the renderer is
+    view for them, so the outcome still reaches stdout, and one of them can be
+    the default."""
+    seen = []
+
+    def body(args, out):
+        seen.append((args.format, out.fmt))
+        return out.ok("lines" if args.format == "export" else "summary")
+
+    run = dict(formats={"export": "lines to eval"}, default_format="export")
+    assert cli.run("demo", "d", body, argv=[], **run) == 0
+    assert cli.run("demo", "d", body, argv=["--format", "json"], **run) == 0
+    assert seen == [("export", "view"), ("json", "json")]
+    out = capsys.readouterr().out
+    assert out.startswith("lines\n") and '"message":"summary"' in out
+    assert cli.run("demo", "d", body, argv=["--format", "xml"], **run) == 1
+    assert cli.run("demo", "d", body, argv=["--format", "export"]) == 1  # not offered

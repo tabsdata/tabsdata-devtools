@@ -1,5 +1,5 @@
 {
-  "fingerprint": "7e41809a859ae6bb",
+  "fingerprint": "cf1a8861df8fbb99",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
@@ -113,7 +113,7 @@
       "reqs": [
         "op"
       ],
-      "summary": "1Password for tdd: fetch the crypto key and secrets as export lines (tdd env), file an item in a vault",
+      "summary": "fetches the crypto key and secrets from 1Password (for tdd env) and pushes items to it",
       "toolset": "launchers"
     },
     "_venv": {
