@@ -8,7 +8,7 @@ from tabsdata_dev import shell
 def test_scripts_dir_exists_and_holds_command_files():
     found = sorted(p.name for p in shell.scripts_dir().glob("*.sh"))
     assert found, "no shell command files were installed"
-    assert "tdd-env.sh" in found
+    assert "_tdd-env.sh" in found
 
 
 def _registered(text: str) -> list[str]:
@@ -75,8 +75,8 @@ def test_summaries_avoid_the_registry_delimiter():
 
 
 def test_env_group_routes_activate_and_deactivate():
-    text = (shell.scripts_dir() / "tdd-env.sh").read_text()
-    assert "tdd_fn_register tdd-env " in text
+    text = (shell.scripts_dir() / "_tdd-env.sh").read_text()
+    assert "tdd_fn_register _tdd-env " in text
     assert "activate)" in text and "deactivate)" in text
     assert "--toolset" in text
 
@@ -147,7 +147,7 @@ def test_common_sh_declares_jq_for_every_command():
 def test_no_two_command_files_define_the_same_function():
     # Every command file is sourced into one shell, so a helper name defined
     # twice is silently the last one loaded -- `tdd env --help` once printed
-    # tdd-env's help this way, and a `_tdd_help` in common.sh once replaced the
+    # _tdd-env's help this way, and a `_tdd_help` in common.sh once replaced the
     # loader's own.
     import re
 
@@ -339,12 +339,9 @@ def test_the_shell_half_is_only_what_must_change_the_shell():
     toolbox -- and has been a Python tool since 2026-09-18. These three are the
     whole shell half; a fourth belongs here only with the same question
     answered, which is why this list is written down rather than globbed."""
-    assert sorted(p.name for p in shell.scripts_dir().glob("*.sh")) == [
-        COMMON,
-        "env.sh",
-        "tdd-env.sh",
-        "venv.sh",
-    ]
+    assert sorted(p.name for p in shell.scripts_dir().glob("*.sh")) == sorted(
+        [COMMON, "env.sh", "_tdd-env.sh", "venv.sh"]
+    )
     assert not (shell.scripts_dir() / "pycache.sh").exists()
 
 
@@ -484,7 +481,7 @@ def test_every_shell_command_with_defaults_has_the_config_action():
     # --force rewrites the template but keeps what the file set and what it keeps
     assert '_tdd_config_template "$_tdd_cfg_cmd" $_tdd_cfg_keepcur' in common
     assert "keep = ($0 !~ /^\\[options[].]/)" in common
-    for name in ("venv", "env", "tdd-env"):
+    for name in ("venv", "env", "_tdd-env"):
         text = (shell.scripts_dir() / f"{name}.sh").read_text()
         assert f"_tdd_config_action {name}" in text, name
         assert f"tdd_defaults_{name}()" in text, name
@@ -648,7 +645,7 @@ def test_every_shell_command_helps_the_way_argparse_does(tmp_path):
     helps = {
         "venv": "_tdd_venv_help",
         "env": "_tdd_vars_help",
-        "tdd-env": "_tdd_env_help",
+        "_tdd-env": "_tdd_env_help",
     }
     for name, stem in helps.items():
         text = (shell.scripts_dir() / f"{name}.sh").read_text()
@@ -770,7 +767,7 @@ def test_the_defaults_command_is_gone_in_favour_of_config():
     # defaults live in its own <command>.toml, reached through its own `config`
     text = shell.source_template()
     assert "default-opts" not in text and "defaults.sh" not in text
-    for name in ("venv", "env", "tdd-env"):
+    for name in ("venv", "env", "_tdd-env"):
         assert "_tdd_config_action" in (shell.scripts_dir() / f"{name}.sh").read_text()
 
 
@@ -1180,3 +1177,19 @@ def test_the_powershell_loader_passes_an_unquoted_comma_list_as_typed():
         "1|x",
         "5|--dirs|a,b|git|two words|1,2,3",
     ]
+
+
+def test_a_shell_command_named_with_an_underscore_is_hidden_like_a_tool():
+    """`_tdd-env` is plumbing, as `_venv` and `_1p` are: both loaders leave a
+    `_` shell command out of `tdd help`, and `-x` lists it, as `tdd-exe
+    --porcelain -x` does for tools."""
+    sh = shell.source_template()
+    assert 'case "$_n" in _*) [ -n "${_TDD_ALL:-}" ] || continue ;; esac' in sh
+    ps1 = shell.source_template(shell.POWERSHELL)
+    assert (
+        "if ($entry.Name.StartsWith('_') -and -not $global:_TDD_ALL) { continue }"
+        in ps1
+    )
+    for family, suffix in ((shell.UNIX, ".sh"), (shell.POWERSHELL, ".ps1")):
+        text = (shell.scripts_dir(family) / f"_tdd-env{suffix}").read_text()
+        assert "tdd_fn_register _tdd-env " in text

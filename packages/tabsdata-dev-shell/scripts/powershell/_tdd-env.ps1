@@ -6,10 +6,10 @@ if (-not $global:_TDD_COMMON_LOADED) { . $env:_TDD_COMMON_PS1 }
 
 # Entering or leaving a toolset venv changes the current shell, which is exactly
 # what an executable cannot do -- hence a shell command rather than a tdd-exe
-# builtin. `tdd-env` is a group with two words:
+# builtin. `_tdd-env` is a group with two words:
 #
-#     tdd tdd-env activate --toolset <toolset>
-#     tdd tdd-env deactivate
+#     tdd _tdd-env activate --toolset <toolset>
+#     tdd _tdd-env deactivate
 #
 # Activation sources the venv's own activate script rather than reimplementing
 # it -- the same decision the POSIX half records, for the same reason: what
@@ -27,15 +27,15 @@ if (-not $global:_TDD_COMMON_LOADED) { . $env:_TDD_COMMON_PS1 }
 # The POSIX half sets the same variable for the same reason.
 
 # No `|` in the summary: it is the registry delimiter.
-tdd_fn_register tdd-env "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
+tdd_fn_register _tdd-env "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
 
-# Built-in option defaults: what `tdd tdd-env config` writes as its template,
+# Built-in option defaults: what `tdd _tdd-env config` writes as its template,
 # and what `--show` compares against.
-function tdd_defaults_tdd-env {
+function tdd_defaults__tdd-env {
     @('activate|--toolset|')
 }
 
-function tddfn_tdd-env {
+function tddfn__tdd-env {
     param([string[]]$Argv)
     _tdd_cmd_reset
     $sub = if ($Argv.Count -gt 0) { $Argv[0] } else { '' }
@@ -46,12 +46,12 @@ function tddfn_tdd-env {
     # only the first, unlike the POSIX `case` this mirrors.
     switch ($sub) {
         'config' {
-            $global:_TDD_CMD = 'tdd-env-config'
-            _tdd_config_action tdd-env $rest
+            $global:_TDD_CMD = '_tdd-env-config'
+            _tdd_config_action _tdd-env $rest
             break
         }
         { $_ -eq 'activate' -or $_ -eq 'deactivate' } {
-            $global:_TDD_CMD = "tdd-env-$sub"
+            $global:_TDD_CMD = "_tdd-env-$sub"
             & "_tdd_env_$sub" $rest
             break
         }
@@ -71,7 +71,7 @@ function tddfn_tdd-env {
 # a backtick is PowerShell's escape character inside a double-quoted one.
 function _tdd_env_help {
     _tdd_help_text @'
-usage: tdd tdd-env [-h] [-v] [--format {json,view}] SUBCOMMAND ...
+usage: tdd _tdd-env [-h] [-v] [--format {json,view}] SUBCOMMAND ...
 
 enter or leave a toolset venv in this shell -- the envs the Python tools run in
 
@@ -81,13 +81,13 @@ positional arguments:
     deactivate  restore PATH
     config  this command's config file: --show, --default, --create [--force]
 
-example: tdd tdd-env activate --toolset systems
+example: tdd _tdd-env activate --toolset systems
 '@
 }
 
 function _tdd_env_help_activate {
     _tdd_help_text @'
-usage: tdd tdd-env activate --toolset TOOLSET
+usage: tdd _tdd-env activate --toolset TOOLSET
 
 Put the toolset's bin/ first on PATH, in this shell, exactly as `tdd <tool>`
 would arrange it -- which is what makes it useful while developing a tool: the
@@ -101,7 +101,7 @@ options:
 
 function _tdd_env_help_deactivate {
     _tdd_help_text @'
-usage: tdd tdd-env deactivate
+usage: tdd _tdd-env deactivate
 
 Leave the venv active in this shell and restore PATH. What it calls is the
 venv's own `deactivate`, so it leaves whatever is active, toolset or not, and

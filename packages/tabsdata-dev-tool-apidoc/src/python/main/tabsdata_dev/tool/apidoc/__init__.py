@@ -32,7 +32,7 @@ from importlib import resources
 
 from tabsdata_dev.common.core import cli, errors, managedvenv, proc, render
 
-DESCRIPTION = "a Python package's public API as structured JSON, read statically"
+DESCRIPTION = "generates a Python package's API as JSON, for documentation generation"
 
 #: The spec this package carries: tabsdata-os's variant/config/apidoc-spec.json.
 SPEC_NAME = "apidoc-spec.json"

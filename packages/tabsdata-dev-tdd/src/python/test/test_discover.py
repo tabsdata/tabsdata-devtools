@@ -61,8 +61,8 @@ def test_shell_commands_and_their_reqs_reach_the_catalog():
     neither. What a command itself shells out to is the same in both."""
     found = discover.discover(paths.repo_root())
     shell = found["shell"]
-    assert shell["tdd-env"]["reqs"]["unix"] == ["jq", "awk"]
-    assert shell["tdd-env"]["reqs"]["powershell"] == []
+    assert shell["_tdd-env"]["reqs"]["unix"] == ["jq", "awk"]
+    assert shell["_tdd-env"]["reqs"]["powershell"] == []
     assert shell["venv"]["reqs"]["unix"] == ["jq", "awk", "pyenv", "uv", "conda"]
     assert shell["venv"]["reqs"]["powershell"] == ["pyenv", "uv", "conda"]
     assert shell["venv"]["files"] == {"unix": "venv.sh", "powershell": "venv.ps1"}

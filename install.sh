@@ -83,7 +83,7 @@ CATALOG="$DIR_OPT/catalog.json"
 [ -r "$CATALOG" ] || fail "no catalog at $CATALOG"
 # A launcher owns no options: `tdd tdk config` is the program's own `config`.
 SKIP=" $(jq -r '.tools | to_entries[] | select(.value.launcher == true) | .key' "$CATALOG" | tr '\n' ' ')"
-# `tdd help` lists tdd-exe's own builtins (doctor, info) beside the commands;
+# `tdd help` lists tdd-exe's own builtins (info; _doctor with -x) beside the commands;
 # only a catalog tool or a shell command has options of its own to configure.
 # The catalog names the tools, so only the shell commands have to be asked for.
 KNOWN=" $(jq -r '.tools | keys[]' "$CATALOG" | tr '\n' ' ')"

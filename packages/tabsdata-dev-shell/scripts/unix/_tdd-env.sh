@@ -7,33 +7,33 @@
 
 # Entering or leaving a toolset venv changes the current shell, which is exactly
 # what an executable cannot do -- hence a shell command rather than a tdd-exe
-# builtin. `tdd-env` is a group with two words:
+# builtin. `_tdd-env` is a group with two words:
 #
-#     tdd tdd-env activate --toolset <toolset>
-#     tdd tdd-env deactivate
+#     tdd _tdd-env activate --toolset <toolset>
+#     tdd _tdd-env deactivate
 
 # No `|` in the summary: it is the registry delimiter.
-tdd_fn_register tdd-env "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
+tdd_fn_register _tdd-env "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
 
-# Built-in option defaults: what `tdd tdd-env config` writes as its template,
+# Built-in option defaults: what `tdd _tdd-env config` writes as its template,
 # and what `--show` compares against.
-tdd_defaults_tdd-env() {
+tdd_defaults__tdd-env() {
     printf '%s\n' "activate|--toolset|"
 }
 
-tddfn_tdd-env() {
+tddfn__tdd-env() {
     _tdd_cmd_reset
     case "${1:-}" in
         config)
             shift
-            _TDD_CMD="tdd-env-config"
-            _tdd_config_action tdd-env "$@"
+            _TDD_CMD="_tdd-env-config"
+            _tdd_config_action _tdd-env "$@"
             _tdd_rc=$?
             ;;
         activate | deactivate)
             _tdd_sub="$1"
             shift
-            _TDD_CMD="tdd-env-$_tdd_sub"
+            _TDD_CMD="_tdd-env-$_tdd_sub"
             "_tdd_env_$_tdd_sub" "$@"
             _tdd_rc=$?
             ;;
@@ -56,7 +56,7 @@ tddfn_tdd-env() {
 
 _tdd_env_help() {
     _tdd_help_text <<'HELP'
-usage: tdd tdd-env [-h] [-v] [--format {json,view}] SUBCOMMAND ...
+usage: tdd _tdd-env [-h] [-v] [--format {json,view}] SUBCOMMAND ...
 
 enter or leave a toolset venv in this shell -- the envs the Python tools run in
 
@@ -66,13 +66,13 @@ positional arguments:
     deactivate  restore PATH
     config  this command's config file: --show, --default, --create [--force]
 
-example: tdd tdd-env activate --toolset systems
+example: tdd _tdd-env activate --toolset systems
 HELP
 }
 
 _tdd_env_help_activate() {
     _tdd_help_text <<'HELP'
-usage: tdd tdd-env activate --toolset TOOLSET
+usage: tdd _tdd-env activate --toolset TOOLSET
 
 Put the toolset's bin/ first on PATH, in this shell, exactly as `tdd <tool>`
 would arrange it -- which is what makes it useful while developing a tool: the
@@ -86,7 +86,7 @@ HELP
 
 _tdd_env_help_deactivate() {
     _tdd_help_text <<'HELP'
-usage: tdd tdd-env deactivate
+usage: tdd _tdd-env deactivate
 
 Leave the venv active in this shell and restore PATH. What it calls is the
 venv's own `deactivate`, so it leaves whatever is active, toolset or not, and

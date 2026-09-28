@@ -15,7 +15,7 @@ def _events(capsys):
 
 
 def test_a_builtin_helps_like_every_other_command(capsys):
-    """`tdd doctor -h` used to be a refusal -- "doctor takes no argument
+    """`tdd _doctor -h` used to be a refusal -- "_doctor takes no argument
     '-h'" -- which `tdd --help full` walked straight into. tdd-exe reads argv by
     hand, since it must stop at the command word and hand the rest to a tool
     untouched, so a builtin had no parser to answer for it. It builds a
@@ -25,7 +25,7 @@ def test_a_builtin_helps_like_every_other_command(capsys):
 
     from tabsdata_dev.tdd import __main__ as main_mod
 
-    for word in ("doctor", "info"):
+    for word in ("_doctor", "info"):
         page = main_mod._builtin_help(word)
         assert page.startswith(
             f"usage: tdd {word} [--help] [--verbose] [--format {{json,view}}]"
@@ -39,9 +39,9 @@ def test_a_builtin_helps_like_every_other_command(capsys):
 
     # and it is printed and exits 0, rather than raising the old usage error
     with _pytest.raises(SystemExit) as exit_:
-        main_mod._builtin_opts("doctor", ["-h"], {"format": "view", "verbose": False})
+        main_mod._builtin_opts("_doctor", ["-h"], {"format": "view", "verbose": False})
     assert exit_.value.code == 0
-    assert "usage: tdd doctor" in capsys.readouterr().out
+    assert "usage: tdd _doctor" in capsys.readouterr().out
 
 
 def test_version_is_an_ok_event(capsys):
@@ -73,10 +73,10 @@ def test_uninitialized_dir_is_an_error_event(tmp_path, monkeypatch, capsys):
 def test_builtins_take_format_after_the_word(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(render, "LOG_DIR", tmp_path)
     assert (
-        main_mod.main(["--dir", str(tmp_path / "nope"), "doctor", "--format", "json"])
+        main_mod.main(["--dir", str(tmp_path / "nope"), "_doctor", "--format", "json"])
         == 1
     )
-    assert _events(capsys)[0]["command"] == "doctor"
+    assert _events(capsys)[0]["command"] == "_doctor"
 
 
 def test_builtins_reject_other_arguments(tmp_path, monkeypatch, capsys):
@@ -298,3 +298,13 @@ def test_a_tool_named_with_an_underscore_is_listed_only_with_x():
     ]
     opts, rest = main._split(["-x", "--porcelain"])
     assert opts["all"] and opts["porcelain"] and rest == []
+
+
+def test_underscore_builtins_are_listed_with_x_only(capsys):
+    """`_doctor` is plumbing, like a `_` tool: out of `tdd help`, in `-x`."""
+    assert main_mod.main(["--porcelain"]) == 0
+    names = [line.split("|")[0] for line in capsys.readouterr().out.splitlines()]
+    assert "info" in names and "_doctor" not in names
+    assert main_mod.main(["--porcelain", "-x"]) == 0
+    names = [line.split("|")[0] for line in capsys.readouterr().out.splitlines()]
+    assert "_doctor" in names

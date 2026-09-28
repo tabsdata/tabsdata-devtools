@@ -1,5 +1,5 @@
 {
-  "fingerprint": "cf1a8861df8fbb99",
+  "fingerprint": "31a0f648f81d635f",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
@@ -52,6 +52,20 @@
   },
   "schema": 1,
   "shell": {
+    "_tdd-env": {
+      "files": {
+        "powershell": "_tdd-env.ps1",
+        "unix": "_tdd-env.sh"
+      },
+      "reqs": {
+        "powershell": [],
+        "unix": [
+          "jq",
+          "awk"
+        ]
+      },
+      "summary": "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
+    },
     "env": {
       "files": {
         "powershell": "env.ps1",
@@ -65,20 +79,6 @@
         ]
       },
       "summary": "set, unset or show this shell's crypto key, 1Password secrets, TD_ and Python index variables"
-    },
-    "tdd-env": {
-      "files": {
-        "powershell": "tdd-env.ps1",
-        "unix": "tdd-env.sh"
-      },
-      "reqs": {
-        "powershell": [],
-        "unix": [
-          "jq",
-          "awk"
-        ]
-      },
-      "summary": "activate --toolset <toolset>, or deactivate, a toolset venv in this shell"
     },
     "venv": {
       "files": {
@@ -150,7 +150,7 @@
       "launcher": false,
       "package": "tabsdata-dev-tool-apidoc",
       "reqs": [],
-      "summary": "a Python package's public API as structured JSON (or Markdown descriptions), read statically with griffe",
+      "summary": "generates a Python package's API as JSON, for documentation generation",
       "toolset": "launchers"
     },
     "ci": {

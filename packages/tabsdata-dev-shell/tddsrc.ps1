@@ -247,7 +247,7 @@ function _tdd_help {
         }) -join "`n"
     _tdd_help_text @"
 usage: tdd [--help] [--verbose] [--format {json,view}] [--dir TDD_PATH] [--version]
-           [--reqs [TOOL]] [-x]
+           [--reqs [--summary] [TOOL]] [-x]
            SUBCOMMAND ...
        tdd --help full
 
@@ -261,9 +261,10 @@ $listing
 options:
   --dir TDD_PATH  the tdd dir to use (default: `$TDD_DIR, else ~/.tdd)
   --version, -V  the version stamped into that dir
-  --reqs [TOOL]  report the external binaries every tool needs; exit 1 if one is missing
+  --reqs [TOOL]  report the external binaries every tool needs, per command; exit 1 if one is missing
+  --reqs --summary [TOOL]  the same, one line per binary however many commands need it
   --help full  this listing, and then the help of every command after it
-  -x  list the hidden tools too: a name starting with _ is plumbing, left out by default
+  -x  list the hidden commands too: a name starting with _ is plumbing, left out by default
   (--dir, --format, --verbose and -x come before the command word)
 
 TDD_DIR=$($env:TDD_DIR)
@@ -303,6 +304,8 @@ function _tdd_help_full {
 function _tdd_help_rows {
     $rows = [System.Collections.Generic.List[object]]::new()
     foreach ($entry in $global:TDD_FN_COMMANDS) {
+        # A name starting with _ is plumbing, as for a tool: -x lists it.
+        if ($entry.Name.StartsWith('_') -and -not $global:_TDD_ALL) { continue }
         $rows.Add([pscustomobject]@{
                 Name = $entry.Name; Shell = $true; Summary = $entry.Summary; Kind = 'shell'
             })

@@ -16,7 +16,7 @@ tool's own design is beside its code (index at the end). How-tos:
 | | | |
 |---|---|---|
 | `tdd` | shell function, loaded from `<tdd_dir>/tdd-source.sh` or `tdd-source.ps1` | the front door; routes a word to whichever half owns it |
-| `tdd-exe` | executable in `<tdd_dir>/tdd-venvs/tdd` | dispatches Python tools; `help`, `doctor`, `info`, `--reqs` |
+| `tdd-exe` | executable in `<tdd_dir>/tdd-venvs/tdd` | dispatches Python tools; `help`, `_doctor`, `info`, `--reqs` |
 | `tdd-fn` | shell function | commands that must change the calling shell (venvs, variables) |
 
 `tdd-install` is the only way to build a tdd dir -- it breaks the bootstrap cycle (`tdd` cannot
@@ -34,7 +34,7 @@ tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
 
 `--dir` defaults to `$TDD_DIR`, then `~/.tdd`; everything after the word reaches the command
 verbatim; `--format`/`--verbose` before the word also travel on to it. Commands: `venv`,
-`tdd-env`, `env` (shell, marked `*` in `tdd help`), `system`, `domain`,
+`_tdd-env`, `env` (shell, marked `*` in `tdd help`), `system`, `domain`,
 `xp`, `gsx`, `pycache`, `mexe`, `apidoc`, `tdk`, `tdkserver`, `km`, `pqt`, `jq`, `ci`, `_1p` (Python).
 `tdd help` merges both halves from `tdd-exe --porcelain` and the shell registry.
 
@@ -167,4 +167,4 @@ the tree and the generator blind to it.
 | [`_1p`](../packages/tabsdata-dev-tool-1p/DESIGN.md) | 1Password: the crypto key and a vault's secrets as export lines (for `tdd env set`), and pushing an item to a vault |
 | [`mexe`](../packages/tabsdata-dev-tool-mexe/DESIGN.md) | the same shell commands in several directories, in parallel or serial (one after the other), inside the active managed venv |
 | [`apidoc`](../packages/tabsdata-dev-tool-apidoc/DESIGN.md) | a package's public API as structured JSON, read statically with griffe (tdx-apidocgen's port; the spec in its [README](../packages/tabsdata-dev-tool-apidoc/README.md)) |
-| [`venv`](../packages/tabsdata-dev-shell/scripts/unix/venv.design.md), [`env`](../packages/tabsdata-dev-shell/scripts/unix/env.design.md), [`tdd-env`](../packages/tabsdata-dev-shell/scripts/unix/tdd-env.design.md) | the shell commands, each written in both families |
+| [`venv`](../packages/tabsdata-dev-shell/scripts/unix/venv.design.md), [`env`](../packages/tabsdata-dev-shell/scripts/unix/env.design.md), [`_tdd-env`](../packages/tabsdata-dev-shell/scripts/unix/_tdd-env.design.md) | the shell commands, each written in both families |

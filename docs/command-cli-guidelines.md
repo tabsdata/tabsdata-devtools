@@ -9,7 +9,7 @@ A command that does not is a bug.
 
 ## Names
 
-Commands, subcommands and options are lower-case, `-` between words (`tdd-env`, `--from-wheels`);
+Commands, subcommands and options are lower-case, `-` between words (`fetch-bin`, `--from-wheels`);
 never `_`, never camelCase. An option is always a long `--name`, taking `--name value` or
 `--name=value`. Short forms exist only for `-h` (`--help`), `-v` (`--verbose`), `-f`
 (`--force`), `-y` (`--yes`, on a command that otherwise asks) and `-V` (`--version`, on `tdd`

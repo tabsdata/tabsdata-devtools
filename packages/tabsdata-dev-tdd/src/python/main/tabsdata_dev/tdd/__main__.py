@@ -29,7 +29,7 @@ from . import initialize as initialize_mod, paths, render, reqs as reqs_mod
 from . import version as version_mod
 
 BUILTIN_SUMMARIES = {
-    "doctor": "validate TDD_PATH against the installed catalog",
+    "_doctor": "validate TDD_PATH against the installed catalog",
     "info": "describe TDD_PATH: install kind, checkout, version, envs",
 }
 
@@ -40,7 +40,8 @@ Prefer the `tdd` shell function, which also reaches the sourced shell
 commands: source $TDD_DIR/tdd-source.sh (written by tdd-install).
 
 builtins:
-  doctor            validate TDD_PATH against the installed catalog
+  _doctor           validate TDD_PATH against the installed catalog (hidden:
+                    a tdd developer's check; `tdd help -x` lists it)
   info              describe TDD_PATH: install kind, checkout, version, envs
 
 options:
@@ -141,7 +142,7 @@ class UsageError(Exception):
 #: puts under the usage, so a builtin's help is the page every other command
 #: prints rather than a refusal.
 BUILTIN_ABOUT = {
-    "doctor": (
+    "_doctor": (
         "Check TDD_PATH against the catalog the installed tdd ships: the envs "
         "that should exist, the tools that should dispatch, the external "
         "binaries they declare. Reports what is wrong and exits 1, or says it "
@@ -247,7 +248,9 @@ def _porcelain(dir_: pathlib.Path, everything: bool = False) -> int:
     and `tdd info` the counts.
     """
     for name in sorted(paths.BUILTINS):
-        print(f"{name}|builtin|{BUILTIN_SUMMARIES[name]}")
+        # `_doctor` is plumbing like a `_` tool: listed with -x only.
+        if everything or not name.startswith("_"):
+            print(f"{name}|builtin|{BUILTIN_SUMMARIES[name]}")
     try:
         catalog = catalog_mod.installed(dir_)
     except catalog_mod.NotInitialized:
@@ -480,7 +483,7 @@ def _run(argv: list[str]) -> int:
 
     word, tool_argv = rest[0], rest[1:]
 
-    if word == "doctor":
+    if word == "_doctor":
         return _doctor(dir_, _builtin_opts(word, tool_argv, opts))
     if word == "info":
         return _info(dir_, _builtin_opts(word, tool_argv, opts))

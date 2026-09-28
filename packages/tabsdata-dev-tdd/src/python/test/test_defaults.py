@@ -76,10 +76,10 @@ def test_short_forms_count_as_typed(tmp_path):
 
 
 def test_hyphenated_command_names_are_their_own_files(tmp_path):
-    _config(tmp_path, "tdd-env", '[options.activate]\ntoolset = "systems"\n')
-    merged, used = defaults.resolve(tmp_path, "tdd-env", ["activate"])
+    _config(tmp_path, "_tdd-env", '[options.activate]\ntoolset = "systems"\n')
+    merged, used = defaults.resolve(tmp_path, "_tdd-env", ["activate"])
     assert merged == ["activate", "--toolset", "systems"]
-    assert used == ["tdd-env.toml [options.activate]"]
+    assert used == ["_tdd-env.toml [options.activate]"]
 
 
 def test_a_file_that_is_not_toml_is_an_error(tmp_path):

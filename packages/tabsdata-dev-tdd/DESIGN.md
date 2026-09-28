@@ -4,7 +4,7 @@ Copyright 2026 Tabsdata Inc.
 
 # tabsdata-dev-tdd
 
-The executable half: `tdd-exe` (dispatch, `help`, `doctor`, `info`, `--reqs`, `--defaults`,
+The executable half: `tdd-exe` (dispatch, `help`, `_doctor`, `info`, `--reqs`, `--defaults`,
 `--porcelain`) and `tdd-install` (the only way to build a tdd dir), plus the generator
 (`cargo make gen`). Standard library only, forever: it is what exists before any toolset does.
 

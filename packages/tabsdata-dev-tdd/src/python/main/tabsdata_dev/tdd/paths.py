@@ -14,7 +14,7 @@ DEFAULT_DIR_NAME = ".tdd"
 # Words tdd-exe answers to itself. Setting a dir up is `tdd-install`, a separate
 # executable, and regenerating the catalog is `cargo make gen`, a build step;
 # neither is something a user types after `tdd`.
-BUILTINS = frozenset({"doctor", "info"})
+BUILTINS = frozenset({"_doctor", "info"})
 
 # Words no tool may be named: the builtins and `help`, which share one argument
 # position with tool names. Shell command names are reserved too, but those

@@ -5,7 +5,7 @@
 [project]
 name = "tabsdata-dev-tool-apidoc"
 dynamic = ["version"]
-description = "a Python package's public API as structured JSON (or Markdown descriptions), read statically with griffe"
+description = "generates a Python package's API as JSON, for documentation generation"
 requires-python = ">=3.11"
 dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
 

@@ -213,7 +213,7 @@ _tdd_help() {
         # pipe and would paint nothing. Every command's help prints this way.
         _tdd_help_text <<HELP
 usage: tdd [--help] [--verbose] [--format {json,view}] [--dir TDD_PATH] [--version]
-           [--reqs [TOOL]] [-x]
+           [--reqs [--summary] [TOOL]] [-x]
            SUBCOMMAND ...
        tdd --help full
 
@@ -227,9 +227,10 @@ $(printf '%s\n' "$_tdd_rows" | awk -F'\t' '{ printf "%s%s  %s\n", ($2 == "*" ? "
 options:
   --dir TDD_PATH  the tdd dir to use (default: \$TDD_DIR, else ~/.tdd)
   --version, -V  the version stamped into that dir
-  --reqs [TOOL]  report the external binaries every tool needs; exit 1 if one is missing
+  --reqs [TOOL]  report the external binaries every tool needs, per command; exit 1 if one is missing
+  --reqs --summary [TOOL]  the same, one line per binary however many commands need it
   --help full  this listing, and then the help of every command after it
-  -x  list the hidden tools too: a name starting with _ is plumbing, left out by default
+  -x  list the hidden commands too: a name starting with _ is plumbing, left out by default
   (--dir, --format, --verbose and -x come before the command word)
 
 TDD_DIR=$TDD_DIR
@@ -275,6 +276,8 @@ _tdd_help_rows() {
     {
         printf '%s\n' "$TDD_FN_COMMANDS" | while IFS='|' read -r _n _s _k _r; do
             [ -n "$_n" ] || continue
+            # A name starting with _ is plumbing, as for a tool: -x lists it.
+            case "$_n" in _*) [ -n "${_TDD_ALL:-}" ] || continue ;; esac
             printf '%s\t*\t%s\tshell\n' "$_n" "$_s"
         done
         # shellcheck disable=SC2086

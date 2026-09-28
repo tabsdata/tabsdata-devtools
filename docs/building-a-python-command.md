@@ -89,7 +89,7 @@ tabsdata-dev-deps-legacy = { path = "../tabsdata-dev-deps-legacy", editable = tr
 ```
 
 The generator enforces: exactly one `deps-*`; at least one `[project.scripts]` entry; a name that
-is not a tool, a builtin (`doctor`, `info`, `help`) or a shell command. No `__init__.py` at
+is not a tool, a builtin (`_doctor`, `info`, `help`) or a shell command. No `__init__.py` at
 `tabsdata_dev/` or `tabsdata_dev/tool/` (namespace packages). Every file starts with the house
 copyright header.
 
@@ -150,7 +150,7 @@ Tests in `src/python/test/` run in the toolset venv; `bin-reqs` enforcement is o
 `_TDD_TOOL` is unset, so a clean test run does not prove the declarations complete. Source edits
 are live in an editable install; dependency changes, new tools and entry points need
 `cargo make install -- -e` (which also regenerates the toolset package and the catalog --
-commit them, never edit them). While iterating, `tdd tdd-env activate --toolset legacy` puts the
+commit them, never edit them). While iterating, `tdd _tdd-env activate --toolset legacy` puts the
 toolset's `bin/` on `PATH` so `audit` runs without `tdd`. `[tool.tdd] hidden = true` hides
 plumbing another tool dispatches to from `tdd help` -- as does a name starting with `_`, the
 convention for plumbing (`tdd -x` lists them all); `disabled = true` comments the tool out

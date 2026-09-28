@@ -26,8 +26,8 @@ reach a project's dependencies. This file is the working contract; the design li
 
 ```
 tdd            shell function (loaded from <tdd_dir>/tdd-source.sh or .ps1) -> front door over both halves
-tdd-exe        executable in <tdd_dir>/tdd-venvs/tdd -> dispatches Python tools; help, doctor, info, --reqs
-tdd-fn         shell function -> commands that change the current shell (venv, env, tdd-env)
+tdd-exe        executable in <tdd_dir>/tdd-venvs/tdd -> dispatches Python tools; help, _doctor, info, --reqs
+tdd-fn         shell function -> commands that change the current shell (venv, env, _tdd-env)
 tdd-install    executable -> the only way to build a tdd dir (`cargo make install [-- --editable]`)
 ```
 
@@ -44,7 +44,7 @@ Packages, all `tabsdata-dev-*` under the `tabsdata_dev` namespace: `-tdd` (stdli
 run --script NAME ...`, or exported with `tdd smoke export-scripts --dir DIR`), `apidoc` (tdx-apidocgen's
 port: `tdd apidoc generate --out FILE`, its bundled spec exported with `tdd apidoc export-spec
 --dir DIR`); shell: `venv`,
-`env`, `tdd-env`; samples. Details: the design docs.
+`env`, `_tdd-env`; samples. Details: the design docs.
 
 Never run the real `tdk`/`tdkserver` from an agent session: `tdk` refuses under an AI agent
 (only when the user asks, run it with `CLAUDECODE` unset) and `tdkserver` is a server that never

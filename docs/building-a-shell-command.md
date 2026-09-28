@@ -19,7 +19,7 @@ packages/tabsdata-dev-shell/scripts/powershell/<name>.ps1   PowerShell 7
 
 A family is the shell the reader is in, not the machine they are on: pwsh runs on macOS, Linux and
 Windows, and `tdd-install` writes both loaders into every tdd dir. The generator refuses to build
-when the two drift, and a test compares them. Copy `tdd-env.sh` and `tdd-env.ps1`, the smallest
+when the two drift, and a test compares them. Copy `_tdd-env.sh` and `_tdd-env.ps1`, the smallest
 pair. Options, exit codes and output follow
 [command-cli-guidelines.md](command-cli-guidelines.md).
 
@@ -115,7 +115,7 @@ One per command, not one per family: it describes the command, and lives beside 
 (`scripts/unix/<name>.design.md`), which the generator treats as canonical. House header, short:
 why it has to be a shell command at all, what it changes in the shell and how (variables, prompt,
 files), the decisions a reader cannot see from the code, and anything that had to differ between
-the two families. Do not repeat `--help`. `tdd-env.design.md` is the smallest real example; a
+the two families. Do not repeat `--help`. `_tdd-env.design.md` is the smallest real example; a
 test fails when a command has none.
 
 ## 4. Write for every shell
