@@ -17,11 +17,12 @@ connection details kept as encrypted descriptors.
 
 ## How it works
 
-- Verbs: `create/destroy/status/purge/restart/fetch-bin/connect`, `types/1p-template/1p-set/
-  list/info/manifest/upgrade`. Reading the crypto key and the shared secrets from 1Password is
-  not a system verb: `secrets` and `crypto-key` moved to `tdd _1p fetch` (2026-09-28), which
-  `tdd env set --crypto/--secrets` applies -- they touch no store and no backend, and cost
-  `tdd env` the `systems` env. The `1p-*` verbs stay: they write a system's item.
+- Verbs: `create/destroy/status/purge/restart/fetch-bin/connect`, `types/1p-template/list/info/
+  manifest/upgrade`. Talking to 1Password is not a system verb: `secrets` and `crypto-key` moved
+  to `tdd _1p fetch`, which `tdd env set --crypto/--secrets` applies, and `1p-set` to `tdd _1p
+  set` (2026-09-28) -- none touches a store or a backend, and each put an `op` call in the
+  `systems` env. What stays is what needs a backend: `1p-template` and `info --format 1p`, which
+  write a system's item.
   `clean-docker [--yes|-y]` stops and deletes every `tdd_*` container -- the prefix all
   docker-backed systems use -- descriptor or not; it lists them and asks first unless `--yes`.
 - **The five postgres types are one shape** (`systems/postgres/backend.py`, which
@@ -37,12 +38,12 @@ connection details kept as encrypted descriptors.
   in it. All five hold models and data; the managed three borrow the plain system's DDL
   (`ddl_from_slug`) and get the root certificate written to a temporary file for the length of
   a load (`data_plane_uri`, a context manager for exactly that reason).
-- **1Password is a shape, not an integration** (`common.systems.onepassword`). `secrets --set
-  1p:VAULT` reads a vault into `<ITEM_TITLE>__<FIELD_ID>` variables, which are the
+- **1Password is a shape, not an integration** (`common.systems.onepassword`). `tdd _1p fetch
+  --secrets 1p:VAULT` reads a vault into `<ITEM_TITLE>__<FIELD_ID>` variables, which are the
   `$<PREFIX>__<KEY>` a type's env-sourced options read; `--format 1p` writes that mapping the
   other way. `1p-template --type T` produces the item for a type before any system exists, and
   `info --sys S --format 1p` the same item carrying what the system actually has. `1p-template`
-  and `1p-set` speak the item and nothing else, so neither takes a `--format` at all. The title *is* the prefix (`--prefix` overrides it), a
+  speaks the item and nothing else, so it takes no `--format` at all. The title *is* the prefix (`--prefix` overrides it), a
   field id is its meta key lower-cased, a secret option is `CONCEALED`, and a
   host/port/user/password type is 1Password's `DATABASE` item rather than an `API_CREDENTIAL`
   -- no type has that shape today (the postgres family names two hosts, and `external_host` is
@@ -51,15 +52,9 @@ connection details kept as encrypted descriptors.
   `azpostgres` carry their server CA as the certificate, never the local path to a copy;
   `awspostgres` carries neither, since RDS's is a download); a computed default is written in
   rather than left as `?`, which would be read back as the literal string.
-- `1p-set --vault V --entry PATH|-` files such an item, closing the loop: `template` writes it,
-  this puts it in the vault, `secrets` reads it back as the variables `create` needs. Always a
-  delete then a create -- `op item create` files a *second* item under a title that already
-  exists, and a vault with two `S3` items reads back a coin toss; what it replaces stays in
-  Recently Deleted for 30 days. The item is piped to `op` (`item create -`), so it reaches it
-  through neither argv nor a file, and is refused before the delete if it is not an item. What is
-  uploaded is `title`/`category`/`fields` and no field `reference`, so a whole `op item get
-  --format=json` can be handed straight back -- the rest of it describes the item it was read
-  from.
+- `tdd _1p set --vault 1p:V --entry PATH|-` files such an item, closing the loop: `1p-template`
+  writes it, `_1p set` puts it in the vault, `_1p fetch --secrets` reads it back as the variables
+  `create` needs. How it files (delete, then create; the item on stdin) is in the `_1p` design doc.
 - Every descriptor read or write needs `_TDD_CRYPTO_KEY`; `create --force` replaces a descriptor
   an older key left unreadable.
 - **A verb exists when some type exposes it**, gated on a capability: `purge` on

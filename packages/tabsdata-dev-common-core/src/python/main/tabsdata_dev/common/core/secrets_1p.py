@@ -133,6 +133,31 @@ def _op(args: list[str], what: str, stdin: str | None = None) -> str:
     return cp.stdout
 
 
+# What `op item create` takes, and all it takes: a title to file the item under,
+# a category to shape it, and the fields. Everything else an item carries -- id,
+# version, vault, timestamps, last_edited_by -- describes the item it was read
+# *from*, so carrying it into a create would either be ignored or file the new
+# item as a copy of the old one's identity.
+UPLOAD_KEYS = ("title", "category", "fields")
+# `reference` is the op:// URL a field was read at. 1Password mints it from the
+# vault, item and field it ends up in, so one copied from elsewhere points at
+# elsewhere.
+FIELD_DROP = ("reference",)
+
+
+def for_upload(item: dict) -> dict:
+    """`item` reduced to what may be created from it.
+
+    Lets a whole `op item get --format=json` be handed straight back to
+    :func:`set_item`: read an item, edit a value, file it again."""
+    out = {k: item[k] for k in UPLOAD_KEYS if k in item}
+    out["fields"] = [
+        {k: v for k, v in field.items() if k not in FIELD_DROP}
+        for field in out.get("fields", [])
+    ]
+    return out
+
+
 def item_exists(vault: str, title: str) -> bool:
     _require("op")
     cp = subprocess.run(

@@ -164,7 +164,7 @@ the tree and the generator blind to it.
 | [`pycache`](../packages/tabsdata-dev-tool-pycache/DESIGN.md) | purge the uv and pip caches by package prefix |
 | [`pqt`](../packages/tabsdata-dev-tool-pqt/DESIGN.md), [`jq`](../packages/tabsdata-dev-tool-jq/DESIGN.md) | parquet-tools (pinned by `xp`) and the machine's jq, passed through |
 | [`ci`](../packages/tabsdata-dev-tool-ci/DESIGN.md) | GitHub Actions runs through `gh`: download a run's artifacts in parallel |
-| [`_1p`](../packages/tabsdata-dev-tool-1p/DESIGN.md) | plumbing of `tdd env set`: the crypto key and a vault's secrets from 1Password, as export lines |
+| [`_1p`](../packages/tabsdata-dev-tool-1p/DESIGN.md) | 1Password: the crypto key and a vault's secrets as export lines (for `tdd env set`), and filing an item in a vault |
 | [`mexe`](../packages/tabsdata-dev-tool-mexe/DESIGN.md) | the same shell commands in several directories, in parallel or serial (one after the other), inside the active managed venv |
 | [`apidoc`](../packages/tabsdata-dev-tool-apidoc/DESIGN.md) | a package's public API as structured JSON, read statically with griffe (tdx-apidocgen's port; the spec in its [README](../packages/tabsdata-dev-tool-apidoc/README.md)) |
 | [`venv`](../packages/tabsdata-dev-shell/scripts/unix/venv.design.md), [`env`](../packages/tabsdata-dev-shell/scripts/unix/env.design.md), [`tdd-env`](../packages/tabsdata-dev-shell/scripts/unix/tdd-env.design.md) | the shell commands, each written in both families |

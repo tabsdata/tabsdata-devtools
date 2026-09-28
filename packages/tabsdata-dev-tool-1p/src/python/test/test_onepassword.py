@@ -124,7 +124,7 @@ def test_a_short_key_is_refused_with_where_it_came_from(op, monkeypatch, capsys)
         (["fetch", "--crypto", "Employee"], "--crypto takes a provider ref, 1p:VAULT"),
         (["fetch", "--secrets", "1p:"], "--secrets takes a provider ref"),
         (["fetch", "--secrets", "1p:dev_xp", "--item", "X"], "pass --crypto"),
-        ([], "a subcommand is required"),
+        ([], "a subcommand is required: fetch, set"),
     ],
 )
 def test_refuses_before_reading_anything(op, monkeypatch, capsys, argv, says):
@@ -142,3 +142,158 @@ def test_the_key_length_is_the_one_env_and_crypto_enforce():
     assert (
         f"$global:_TDD_CRYPTO_MIN = {n}" in (scripts / "powershell/env.ps1").read_text()
     )
+
+
+@pytest.fixture
+def op_items(monkeypatch):
+    """`op` for items: what it was asked, whether the title is filed already,
+    and what it was handed on stdin."""
+    calls: list[list[str]] = []
+    sent: dict = {"exists": False}
+
+    def fake_run(argv, **kw):
+        calls.append(list(argv))
+
+        class CP:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        cp = CP()
+        if argv[0] == "which":
+            return cp
+        if "get" in argv:
+            cp.returncode = 0 if sent["exists"] else 1
+        if "create" in argv:
+            # the item is piped in, not written anywhere and not in argv
+            sent["stdin"] = kw.get("input", "")
+            cp.stdout = '{"id": "abc123"}'
+        return cp
+
+    monkeypatch.setattr(secrets_1p.subprocess, "run", fake_run)
+    monkeypatch.delenv("_TDD_TOOL", raising=False)
+    return type("OpItems", (), {"calls": calls, "sent": sent})
+
+
+ITEM = {"title": "S3", "category": "API_CREDENTIAL", "fields": [{"id": "bucket"}]}
+
+
+def test_set_deletes_before_creating_so_a_title_cannot_duplicate(
+    op_items, tmp_path, monkeypatch, capsys
+):
+    """`op item create` files a second item under a title that already exists
+    rather than replacing the first, and a vault with two `S3` items reads back
+    a coin toss -- so a set is a delete followed by a create."""
+    entry = tmp_path / "s3.json"
+    entry.write_text(json.dumps(ITEM))
+    argv = ["set", "--vault", "1p:dev_xp", "--entry", str(entry), "--format", "json"]
+
+    op_items.sent["exists"] = True  # the item is already filed
+    code, events = _run(argv, monkeypatch, capsys)
+    assert code == 0
+    calls = op_items.calls
+    assert [c[c.index("item") + 1] for c in calls if "item" in c] == [
+        "get",
+        "delete",
+        "create",
+    ]
+    assert all(c[c.index("--vault") + 1] == "dev_xp" for c in calls if "--vault" in c)
+    # what op is handed is the item itself, on stdin: not in argv (which every
+    # user on the machine can read) and not written to a file at all
+    assert json.loads(op_items.sent["stdin"]) == ITEM
+    assert not any("--template" in c or "secret" in " ".join(c) for c in calls)
+    ok = events[-1]
+    assert ok["replaced"] is True and ok["id"] == "abc123" and ok["vault"] == "dev_xp"
+    assert "replaced 'S3' in 1p:dev_xp" in ok["message"]
+    assert "Recently Deleted" in ok["message"]
+
+    calls.clear()
+    op_items.sent["exists"] = False  # nothing filed under that title yet
+    code, events = _run(argv, monkeypatch, capsys)
+    assert code == 0 and events[-1]["replaced"] is False
+    assert [c[c.index("item") + 1] for c in calls if "item" in c] == ["get", "create"]
+    assert "created 'S3'" in events[-1]["message"]
+
+
+def test_set_reads_the_item_from_stdin(op_items, monkeypatch, capsys):
+    import io
+
+    raw = io.BytesIO(json.dumps({**ITEM, "title": "S3 \u00e9"}).encode("utf-8"))
+    monkeypatch.setattr("sys.stdin", type("In", (), {"buffer": raw})())
+    code, events = _run(
+        ["set", "--vault", "1p:dev_xp", "--entry", "-", "--format", "json"],
+        monkeypatch,
+        capsys,
+    )
+    assert code == 0 and events[-1]["title"] == "S3 \u00e9"
+
+
+@pytest.mark.parametrize(
+    ("vault", "entry", "says"),
+    [
+        ("dev_xp", "s3.json", "--vault takes a provider ref, 1p:VAULT"),
+        ("hc:dev_xp", "s3.json", "only 1p:VAULT files an item"),
+        ("1p:dev_xp", "bad.json", "no category, fields"),
+        ("1p:dev_xp", "list.json", "one 1Password item"),
+        ("1p:dev_xp", "nope.json", "cannot read --entry"),
+    ],
+)
+def test_set_refuses_before_it_deletes(
+    op_items, tmp_path, monkeypatch, capsys, vault, entry, says
+):
+    """Checked here rather than left to op: a refusal after the delete has
+    already run is a refusal that has destroyed something."""
+    (tmp_path / "s3.json").write_text(json.dumps(ITEM))
+    (tmp_path / "bad.json").write_text('{"title": "S3"}')
+    (tmp_path / "list.json").write_text("[]")
+    code, events = _run(
+        ["set", "--vault", vault, "--entry", str(tmp_path / entry), "--format", "json"],
+        monkeypatch,
+        capsys,
+    )
+    assert code == 1 and says in events[-1]["message"]
+    assert op_items.calls == []
+
+
+def test_set_files_only_what_a_create_may_carry(tmp_path):
+    """A whole `op item get --format=json` can be handed straight back: read an
+    item, edit a value, file it again. What is dropped is the identity of the
+    item it was read *from* -- id, version, vault, timestamps -- and each
+    field's op:// reference, which 1Password mints from where the field ends
+    up, so a copied one points somewhere else."""
+    got = {
+        "id": "abcd1234",
+        "title": "GCPPOSTGRES",
+        "version": 3,
+        "vault": {"id": "v1", "name": "dev_xp"},
+        "category": "DATABASE",
+        "last_edited_by": "USER1",
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-02-01T00:00:00Z",
+        "additional_information": "postgres",
+        "fields": [
+            {
+                "id": "username",
+                "type": "STRING",
+                "purpose": "USERNAME",
+                "label": "username",
+                "value": "postgres",
+                "reference": "op://dev_xp/GCPPOSTGRES/username",
+            }
+        ],
+    }
+    entry = tmp_path / "item.json"
+    entry.write_text(json.dumps(got))
+    out = onepassword.read_entry(str(entry))
+    assert list(out) == ["title", "category", "fields"]
+    assert out["title"] == "GCPPOSTGRES" and out["category"] == "DATABASE"
+    # the field keeps everything that describes it, and loses only the reference
+    assert out["fields"] == [
+        {
+            "id": "username",
+            "type": "STRING",
+            "purpose": "USERNAME",
+            "label": "username",
+            "value": "postgres",
+        }
+    ]

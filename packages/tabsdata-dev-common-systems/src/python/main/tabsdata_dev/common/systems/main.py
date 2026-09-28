@@ -77,8 +77,7 @@ def config_doc(tool: str) -> core_config.Doc:
 
     Both halves matter. Without the second, ten of `system`'s seventeen verbs
     had no table at all: the ones a reader most wants a default for (where
-    `manifest` writes, which vault `1p-set` files into) are handled in
-    `dispatch`."""
+    `manifest` writes) are handled in `dispatch`."""
     import argparse
 
     parser = argparse.ArgumentParser(prog=f"tdd {tool}")

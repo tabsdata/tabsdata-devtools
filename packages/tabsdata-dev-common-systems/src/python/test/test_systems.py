@@ -519,7 +519,7 @@ def test_config_describes_every_verb_the_tool_has():
     # the defaults are the real ones, not placeholders -- this is the point of
     # reading the parser rather than keeping a list
     system = family.config_doc(constants.SYS_TOOL)
-    assert set(system.actions[constants.V_1P_SET]) == {"vault", "entry"}
+    assert "1p-set" not in system.actions  # `tdd _1p set` since 2026-09-28
 
 
 def test_a_domain_owner_is_given_the_schema_its_tables_go_in():
@@ -847,151 +847,14 @@ def test_the_managed_items_carry_the_certificate_but_not_the_path_to_it():
     } <= produced
 
 
-def test_1p_set_deletes_before_creating_so_a_title_cannot_duplicate(
-    tmp_path, monkeypatch, capsys
-):
-    """`op item create` files a second item under a title that already exists
-    rather than replacing the first, and a vault with two `S3` items reads back
-    a coin toss -- so a set is a delete followed by a create."""
+def test_a_generated_template_is_what_1p_set_may_file_untouched():
+    """`tdd _1p set` reduces an item to what a create may carry; a template
+    this tool generates is already exactly that."""
     from tabsdata_dev.common.core import secrets_1p
-    from tabsdata_dev.common.systems import main
-
-    calls: list[list[str]] = []
-    sent: dict[str, str] = {}
-
-    def fake_run(argv, **kw):
-        calls.append(list(argv))
-
-        class CP:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        cp = CP()
-        if argv[0] == "which":
-            return cp
-        if "get" in argv:
-            cp.returncode = 0 if sent.get("exists") else 1
-        if "create" in argv:
-            # the item is piped in, not written anywhere and not in argv
-            sent["stdin"] = kw.get("input", "")
-            cp.stdout = '{"id": "abc123"}'
-        return cp
-
-    monkeypatch.setattr(secrets_1p.subprocess, "run", fake_run)
-    item = {"title": "S3", "category": "API_CREDENTIAL", "fields": [{"id": "bucket"}]}
-    entry = tmp_path / "s3.json"
-    entry.write_text(json.dumps(item))
-
-    # the item is already filed: delete, then create
-    sent["exists"] = True
-    rc = main.run(
-        constants.SYS_TOOL,
-        [
-            constants.V_1P_SET,
-            constants.OPT_VAULT,
-            "dev_xp",
-            constants.OPT_ENTRY,
-            str(entry),
-        ],
-    )
-    assert rc == 0
-    ops = [c[c.index("item") + 1] for c in calls if "item" in c]
-    assert ops == ["get", "delete", "create"]
-    assert all(c[c.index("--vault") + 1] == "dev_xp" for c in calls if "--vault" in c)
-    # what op is handed is the item itself, on stdin: not in argv (which every
-    # user on the machine can read) and not written to a file at all
-    assert json.loads(sent["stdin"]) == item
-    assert not any("--template" in c or "secret" in " ".join(c) for c in calls)
-    out = capsys.readouterr().out
-    assert "replaced 'S3'" in out and "Recently Deleted" in out
-
-    # nothing filed under that title yet: no delete to do
-    calls.clear()
-    sent["exists"] = False
-    assert (
-        main.run(
-            constants.SYS_TOOL,
-            [
-                constants.V_1P_SET,
-                constants.OPT_VAULT,
-                "dev_xp",
-                constants.OPT_ENTRY,
-                str(entry),
-            ],
-        )
-        == 0
-    )
-    assert [c[c.index("item") + 1] for c in calls if "item" in c] == ["get", "create"]
-    assert "created 'S3'" in capsys.readouterr().out
-
-
-def test_1p_set_refuses_anything_that_is_not_an_item_before_it_deletes(tmp_path):
-    """The check is here rather than left to op: a refusal after the delete has
-    already run is a refusal that has destroyed something."""
-    from tabsdata_dev.common.systems import dispatch
-
-    bad = tmp_path / "bad.json"
-    bad.write_text('{"title": "S3"}')  # no category, no fields
-    with pytest.raises(TdxError, match="category, fields"):
-        dispatch._read_entry(str(bad))
-    bad.write_text("[]")
-    with pytest.raises(TdxError, match="one 1Password item"):
-        dispatch._read_entry(str(bad))
-    with pytest.raises(TdxError, match="cannot read"):
-        dispatch._read_entry(str(tmp_path / "nope.json"))
-
-
-def test_1p_set_uploads_only_what_a_create_may_carry(tmp_path):
-    """A whole `op item get --format=json` can be handed straight back to
-    1p-set: read an item, edit a value, file it again. What is dropped is the
-    identity of the item it was read *from* -- id, version, vault, timestamps --
-    and each field's op:// reference, which 1Password mints from where the field
-    ends up, so a copied one points somewhere else."""
-    from tabsdata_dev.common.systems import dispatch
-
-    got = {
-        "id": "abcd1234",
-        "title": "GCPPOSTGRES",
-        "version": 3,
-        "vault": {"id": "v1", "name": "dev_xp"},
-        "category": "DATABASE",
-        "last_edited_by": "USER1",
-        "created_at": "2026-01-01T00:00:00Z",
-        "updated_at": "2026-02-01T00:00:00Z",
-        "additional_information": "postgres",
-        "fields": [
-            {
-                "id": "username",
-                "type": "STRING",
-                "purpose": "USERNAME",
-                "label": "username",
-                "value": "postgres",
-                "reference": "op://dev_xp/GCPPOSTGRES/username",
-            }
-        ],
-    }
-    entry = tmp_path / "item.json"
-    entry.write_text(json.dumps(got))
-    out = dispatch._read_entry(str(entry))
-
-    assert list(out) == ["title", "category", "fields"]
-    assert out["title"] == "GCPPOSTGRES" and out["category"] == "DATABASE"
-    # the field keeps everything that describes it, and loses only the reference
-    assert out["fields"] == [
-        {
-            "id": "username",
-            "type": "STRING",
-            "purpose": "USERNAME",
-            "label": "username",
-            "value": "postgres",
-        }
-    ]
-    # and a template this tool generated passes through untouched
     from tabsdata_dev.common.systems import onepassword, systems as _s
 
     item = onepassword.item(_s.get("gcppostgres"))
-    assert onepassword.for_upload(item) == item
+    assert secrets_1p.for_upload(item) == item
 
 
 def test_db_failure_collects_what_the_server_said():

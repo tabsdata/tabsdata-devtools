@@ -58,31 +58,6 @@ FAR_FUTURE = "2099-12-31"
 _DATABASE_KEYS = frozenset({"HOSTNAME", "PORT", "USERNAME", "PASSWORD"})
 
 
-# What `op item create` takes, and all it takes: a title to file the item under,
-# a category to shape it, and the fields. Everything else an item carries -- id,
-# version, vault, timestamps, last_edited_by -- describes the item it was read
-# *from*, so carrying it into a create would either be ignored or file the new
-# item as a copy of the old one's identity.
-UPLOAD_KEYS = ("title", "category", "fields")
-# `reference` is the op:// URL a field was read at. 1Password mints it from the
-# vault, item and field it ends up in, so one copied from elsewhere points at
-# elsewhere.
-FIELD_DROP = ("reference",)
-
-
-def for_upload(item: dict) -> dict:
-    """`item` reduced to what may be created from it.
-
-    Lets a whole `op item get --format=json` be handed straight back to
-    :func:`.secrets_1p.set_item`: read an item, edit a value, file it again."""
-    out = {k: item[k] for k in UPLOAD_KEYS if k in item}
-    out["fields"] = [
-        {k: v for k, v in field.items() if k not in FIELD_DROP}
-        for field in out.get("fields", [])
-    ]
-    return out
-
-
 def vault_options(backend) -> tuple:
     """The options that belong in a shared vault: every one the backend does not
     exclude with ``onepassword_skip``.
@@ -198,7 +173,6 @@ def item_for_descriptor(info, title: str | None = None) -> dict:
 __all__ = [
     "CATEGORY_API",
     "CATEGORY_DATABASE",
-    "for_upload",
     "item",
     "item_for_descriptor",
     "render",

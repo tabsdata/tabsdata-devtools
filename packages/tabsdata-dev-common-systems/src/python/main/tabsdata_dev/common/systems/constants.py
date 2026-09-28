@@ -62,7 +62,6 @@ V_CONFIG = "config"
 V_CONNECT = "connect"
 V_CLEAN_DOCKER = "clean-docker"
 V_1P_TEMPLATE = "1p-template"
-V_1P_SET = "1p-set"
 
 # --- option flags ----------------------------------------------------------
 OPT_TYPE = "--type"
@@ -86,8 +85,6 @@ OPT_PORTS = "--ports"
 OPT_FORMAT = "--format"  # the guidelines' json|view, plus a renderer's own shapes
 OPT_VERBOSE = "--verbose"
 OPT_OUT = "--out"  # manifest: destination file
-OPT_VAULT = "--vault"
-OPT_ENTRY = "--entry"  # 1p-set: the item JSON (- reads stdin)
 OPT_MANIFEST = "--manifest"
 OPT_SYNC = "--sync"
 OPT_EXTERNAL_PREFIX = "--external-prefix"
@@ -133,8 +130,8 @@ FMT_1P = "1p"  # a 1Password item, ready for `op item create --template=`
 BASE_FORMATS = (FMT_JSON, FMT_VIEW)
 # info: shell lines to eval, or the 1Password item.
 RENDER_FORMATS = ("export", "unset", FMT_1P)
-# `1p-template` and `1p-set` speak one shape only -- the 1Password item -- so
-# neither takes a --format at all.
+# `1p-template` speaks one shape only -- the 1Password item -- so it takes no
+# --format at all.
 
 # Every container the docker-backed systems create -- `docker run` ones
 # (`_common/sql.py`) and compose projects (`_common/containers.py`) -- is named
