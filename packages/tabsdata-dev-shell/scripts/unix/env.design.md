@@ -7,17 +7,20 @@ Copyright 2026 Tabsdata Inc.
 `tdd env set|unset|show`: the variables tdd manages in the calling shell -- the descriptor
 crypto key, the 1Password secrets, tabsdata's `TD_*` settings and the Python index variables.
 
-- `set --crypto` evals `tdd system crypto-key --format export` (1Password; skipped when
-  `_TDD_CRYPTO_KEY` is already set unless `--force`), from `--vault`/`--item`/`--field`
-  (`1p:Employee`, `DevSecrets`, `TD_BACKENDS_CRYPTO_KEY`) -- or `--value KEY` sets the variable
-  verbatim, at least `crypto.MIN_SECRET_LEN` characters, no 1Password and no `--force` dance.
-  `set --secrets [--vault 1p:V]` (default `1p:dev_xp`) evals `tdd system secrets --format export`,
-  which also writes `_TDD_SYSTEMS`, the prefix list `unset --secrets` reads back. An item of that
-  vault titled `_*` is ignored -- everything swept becomes a variable in this shell, and that is
-  how an item says it is somebody's note rather than a system's config.
+- `set --crypto` and `set --secrets` read 1Password through **one** `tdd _1p fetch` and eval its
+  export lines here (in PowerShell, parse them). `--crypto` passes `--crypto=VAULT` and any
+  `--item`/`--field` (defaults `1p:Employee`, and `_1p`'s own `DevSecrets`,
+  `TD_BACKENDS_CRYPTO_KEY`); it is skipped when `_TDD_CRYPTO_KEY` is already set unless
+  `--force` -- or `--value KEY` sets the variable verbatim, at least `CRYPTO_KEY_MIN_LEN`
+  characters (common-core's `secrets`), no 1Password and no `--force` dance. `--secrets` passes
+  `--secrets=VAULT` (default `1p:dev_xp`); the lines include `_TDD_SYSTEMS`, the prefix list
+  `unset --secrets` reads back. An item of that vault titled `_*` is ignored -- everything swept
+  becomes a variable in this shell, and that is how an item says it is somebody's note rather
+  than a system's config. Until 2026-09-28 these were two `system` verbs (`crypto-key`,
+  `secrets`), two child processes in the `systems` env; see the `_1p` design doc.
 - `--vault` is one form for both, the provider ref `1p:NAME`, and both defaults are **literals**:
-  no `ONE_PASSWORD_*` variable decides which vault a key comes from. `crypto-key` names the vault
-  itself, so the ref sheds its `1p:` on the way (that verb takes either spelling).
+  no `ONE_PASSWORD_*` variable decides which vault a key comes from. `_1p fetch` takes the ref
+  as it is, for both.
 - A secret on a command line is masked wherever tdd echoes one back: `_tdd_mask_argv` (common.sh)
   blanks the value of `--value`/`--password`/`--secret`/`--token`/`--key` in the failure log's
   `command:` line and in `tdd`'s `resolved:` line. `--py-idx URL` sets `UV_INDEX`/`PIP_EXTRA_INDEX_URL` plus

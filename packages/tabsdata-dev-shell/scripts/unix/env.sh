@@ -8,9 +8,9 @@
 # Setting and unsetting variables in the caller's shell is the one thing a
 # Python tool cannot do, so this one command owns every variable tdd manages:
 #
-#     crypto     _TDD_CRYPTO_KEY            from 1Password, via `tdd system crypto-key`,
+#     crypto     _TDD_CRYPTO_KEY            from 1Password, via `tdd _1p fetch --crypto`,
 #                                          or verbatim from --value
-#     secrets    <PREFIX>__<KEY>..., _TDD_SYSTEMS   via `tdd system secrets`; the latter lists
+#     secrets    <PREFIX>__<KEY>..., _TDD_SYSTEMS   via `tdd _1p fetch --secrets`; the latter lists
 #                                                  the prefixes, which is how unset knows what to remove
 #     td         TD_*                              (unset only)
 #     vars       <PREFIX>*                         (unset only)
@@ -116,8 +116,8 @@ usage: tdd env set (--crypto | --secrets | --py-idx URL | --py-default-idx URL).
                    [--vault 1p:VAULT] [--item ITEM] [--field FIELD] [--value VALUE] [--force]
 
 Export the selected variables in THIS shell; several selections combine in one call. The
-crypto key and the secrets come from 1Password, through `tdd system crypto-key` and `tdd
-system secrets` (--format export, eval'd here), so nothing is written to disk. Both vault
+crypto key and the secrets come from 1Password, through one `tdd _1p fetch` whose export
+lines are eval'd here, so nothing is written to disk. Both vault
 defaults are literals: no variable of the environment decides which vault a key comes from.
 
 options:
@@ -183,19 +183,20 @@ _tdd_vars_names() {
     env | awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/{print $1}' | grep -E "$1" | sort
 }
 
-# Run `tdd-exe system <verb> ...` with --format export and eval its lines here;
-# appends the names it set to _tdd_set_names. Returns 1 after reporting.
+# Run `tdd-exe _1p fetch ARGS` and eval its export lines here -- the one way a
+# value a Python tool read reaches this shell; appends the names it set to
+# _tdd_set_names. Returns 1 after reporting.
 _tdd_vars_apply() {
     _tdd_err="$(mktemp)"
-    _tdd_lines="$(tdd-exe system "$@" --format export 2>"$_tdd_err")"
+    _tdd_lines="$(tdd-exe _1p fetch "$@" 2>"$_tdd_err")"
     if [ $? -ne 0 ]; then
-        _tdd_error "tdd system $1 failed: $(grep -v '^details:' "$_tdd_err" | tail -1)" "$(cat "$_tdd_err")"
+        _tdd_error "tdd _1p fetch failed: $(grep -v '^details:' "$_tdd_err" | tail -1)" "$(cat "$_tdd_err")"
         rm -f "$_tdd_err"
         return 1
     fi
     rm -f "$_tdd_err"
     if [ -z "$_tdd_lines" ]; then
-        _tdd_error "tdd system $1 returned nothing to export"
+        _tdd_error "tdd _1p fetch returned nothing to export"
         return 1
     fi
     eval "$_tdd_lines"
@@ -267,8 +268,8 @@ _tdd_vars_set() {
         return 1
     fi
     if [ -n "$_tdd_vault" ]; then
-        # One form for both selections: a provider ref, as `--secrets` always
-        # took. 1p is the only provider, and crypto-key reads 1Password directly.
+        # One form for both selections: a provider ref, which is what
+        # `_1p fetch` takes for each. 1p is the only provider.
         case "$_tdd_vault" in
             1p:?*) ;;
             *) _tdd_error "--vault takes a vault as a provider ref, 1p:NAME (got: $_tdd_vault)"; return 1 ;;
@@ -302,20 +303,20 @@ _tdd_vars_set() {
         fi
         _tdd_crypto=0
     fi
+    # Both selections are one fetch: one child, one trip through `op` sign-in.
+    _tdd_args=""
     if [ "$_tdd_crypto" = 1 ]; then
-        # crypto-key names the vault itself, so the ref sheds its provider.
-        _tdd_v="${_tdd_vault:-$_TDD_VAULT_CRYPTO}"
-        _tdd_args=" --vault=${_tdd_v#1p:}"
+        _tdd_args=" --crypto=${_tdd_vault:-$_TDD_VAULT_CRYPTO}"
         [ -n "$_tdd_item" ] && _tdd_args="$_tdd_args --item=$_tdd_item"
         [ -n "$_tdd_field" ] && _tdd_args="$_tdd_args --field=$_tdd_field"
-        _tdd_info "tdd system crypto-key$_tdd_args --format export"
-        # shellcheck disable=SC2086
-        _tdd_vars_apply crypto-key $(printf '%s' "$_tdd_args") || return 1
     fi
     if [ "$_tdd_secrets" = 1 ]; then
-        _tdd_v="${_tdd_vault:-$_TDD_VAULT_SECRETS}"
-        _tdd_info "tdd system secrets --set $_tdd_v --format export"
-        _tdd_vars_apply secrets "--set=$_tdd_v" || return 1
+        _tdd_args="$_tdd_args --secrets=${_tdd_vault:-$_TDD_VAULT_SECRETS}"
+    fi
+    if [ -n "$_tdd_args" ]; then
+        _tdd_info "tdd _1p fetch$_tdd_args"
+        # shellcheck disable=SC2086
+        _tdd_vars_apply $(printf '%s' "$_tdd_args") || return 1
     fi
     if [ -n "$_tdd_py_extra" ]; then
         for _tdd_v in $(printf '%s' "$_TDD_VARS_PY_EXTRA"); do

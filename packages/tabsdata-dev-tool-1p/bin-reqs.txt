@@ -1,0 +1,7 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# bin-reqs.txt -- the 1Password CLI, which does every read; its sign-in is the
+# credential, and nothing here stores one.
+op

@@ -37,6 +37,7 @@ import re
 import textwrap
 from contextlib import contextmanager
 
+from tabsdata_dev.common.core import secrets as core_secrets
 from tabsdata_dev.common.systems import constants
 from tabsdata_dev.common.systems.errors import (
     DecryptError,
@@ -45,7 +46,8 @@ from tabsdata_dev.common.systems.errors import (
 )
 
 ENV_VAR = constants.ENV_CRYPTO_KEY
-MIN_SECRET_LEN = 12
+# `_1p fetch` refuses a shorter key from 1Password; one number for both.
+MIN_SECRET_LEN = core_secrets.CRYPTO_KEY_MIN_LEN
 
 # The one instruction anything that trips over a TDX2 descriptor should give,
 # shared so the CLI, the Python fixtures and the Rust fixtures all say it.

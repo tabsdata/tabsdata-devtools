@@ -1,0 +1,35 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+[project]
+name = "tabsdata-dev-tool-1p"
+dynamic = ["version"]
+description = "plumbing of tdd env: fetch the crypto key and shared secrets from 1Password as export lines"
+requires-python = ">=3.11"
+dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
+
+# `_1p`: the leading underscore makes it plumbing, left out of `tdd help`
+# (listed by `tdd -x`). `tdd env set --crypto/--secrets`, the shell command,
+# applies what it prints; only a shell can change the shell it runs in.
+[project.scripts]
+_1p = "tabsdata_dev.tool.onepassword:main"
+
+[tool.hatch.version]
+path = "../../VERSION"
+pattern = '^(?P<version>\S+)'
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src/python/main/tabsdata_dev"]
+sources = ["src/python/main"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/python/test"]
+
+[tool.uv.sources]
+tabsdata-dev-common-core = { path = "../tabsdata-dev-common-core", editable = true }
+tabsdata-dev-deps-launchers = { path = "../tabsdata-dev-deps-launchers", editable = true }

@@ -31,6 +31,13 @@ _PROVIDERS: dict[str, str] = {
 
 OUT_FORMATS = ("json", "export", "unset")
 
+# The personal key that encrypts the system and domain descriptors: its
+# variable, and the shortest value accepted. Here rather than in common-systems
+# because `_1p fetch` reads it from 1Password and checks it, in a toolset that
+# carries common-core only; `common.systems.crypto` enforces the same minimum.
+CRYPTO_KEY_ENV = "_TDD_CRYPTO_KEY"
+CRYPTO_KEY_MIN_LEN = 12
+
 # Set alongside the fetched secrets: the distinct env prefixes (the ``<PREFIX>``
 # part of each ``<PREFIX>__<KEY>`` name) that now have credentials — it names the
 # systems the secrets populate. Part of the ``TD_BACKENDS_*`` env family.

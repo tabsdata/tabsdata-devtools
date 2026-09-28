@@ -18,10 +18,8 @@
     tdd system connect --remote-sys [user@]HOST:PATH --remote-secret-env VAR --sys NAME
                        [--ssh-port N] [--identity KEYFILE] [--force]
     tdd system upgrade [--sys-dir DIR]        # convert legacy TDX2 descriptors
-    tdd system secrets --set 1p:<vault> [--format export|unset]
     tdd system 1p-template --type TYPE|list|ALL
     tdd system 1p-set --vault <vault> --entry PATH|-
-    tdd system crypto-key [--vault V] [--item I] [--field F] [--format export|unset]
     tdd system clean-docker [--yes]           # stop and delete every tdd_* docker container
 
     tdd domain list [--domain-dir DIR]
@@ -91,7 +89,6 @@ from types import ModuleType
 
 from tabsdata_dev.common.core import config as core_config
 from tabsdata_dev.common.core import proc
-from tabsdata_dev.common.core import secrets as core_secrets
 from tabsdata_dev.common.systems import (
     batch,
     cli,
@@ -1002,98 +999,6 @@ def _cmn_dom_manifest(tool: str, rest: list[str]) -> int:
     return _write_manifest(tool, a.out, [manifest.domain_entry(i) for i in infos])  # type: ignore[arg-type]
 
 
-def _parser_secrets(tool: str) -> ArgumentParser:
-    """The parser for this verb, so `config` can read its options without
-    running it (see `common_parsers`)."""
-    p = ArgumentParser(
-        prog=f"tdd {tool} {constants.V_SECRETS}",
-        description="fetch a provider's secrets as the systems' env vars and "
-        "print them (source the export/unset form to (un)set your shell)",
-    )
-    p.add_argument(
-        constants.OPT_SET,
-        dest="ref",
-        required=True,
-        metavar="PROVIDER:REF",
-        help="provider ref, e.g. 1p:<vault> (1Password via the `op` CLI)",
-    )
-    # These render shell lines to eval, never a 1Password item: they *read* a
-    # vault, and what comes back is a set of variables, not one system's entry.
-    cli.add_format_verbose(p, ("export", "unset"))
-    return p
-
-
-def _cmn_secrets(tool: str, rest: list[str]) -> int:
-    p = _parser_secrets(tool)
-    a = p.parse_args(rest)
-    found = core_secrets.with_systems_var(core_secrets.fetch(a.ref))
-    console.result({"format": a.format, "names": list(found)})
-    console.good(core_secrets.render(found, _shape(a.format)))
-    return 0
-
-
-def _parser_crypto_key(tool: str) -> ArgumentParser:
-    """The parser for this verb, so `config` can read its options without
-    running it (see `common_parsers`)."""
-    p = ArgumentParser(
-        prog=f"tdd {tool} {constants.V_CRYPTO_KEY}",
-        description=f"fetch ${constants.ENV_CRYPTO_KEY} from 1Password and print it "
-        "(source the export form to set it in your shell)",
-    )
-    p.add_argument(
-        constants.OPT_VAULT,
-        default=constants.DEFAULT_EMPLOYEE_VAULT,
-        metavar="VAULT",
-        help=f"1Password vault, plain or as the provider ref 1p:VAULT that "
-        f"`tdd env set` speaks (default: {constants.DEFAULT_EMPLOYEE_VAULT}); no "
-        "variable of the environment is consulted",
-    )
-    p.add_argument(
-        constants.OPT_ITEM,
-        default=constants.DEFAULT_CRYPTO_ITEM,
-        metavar="ITEM",
-        help=f"item in the vault (default: {constants.DEFAULT_CRYPTO_ITEM})",
-    )
-    p.add_argument(
-        constants.OPT_FIELD,
-        default=constants.DEFAULT_CRYPTO_FIELD,
-        metavar="FIELD",
-        help=f"field of the item (default: {constants.DEFAULT_CRYPTO_FIELD})",
-    )
-    # These render shell lines to eval, never a 1Password item: they *read* a
-    # vault, and what comes back is a set of variables, not one system's entry.
-    cli.add_format_verbose(p, ("export", "unset"))
-    return p
-
-
-def _cmn_crypto_key(tool: str, rest: list[str]) -> int:
-    """Fetch the personal descriptor key -- what `secrets` does, for the one
-    variable everything else needs first. Deliberately never reads the store,
-    so it works before the key is set."""
-    from tabsdata_dev.common.systems import crypto
-
-    p = _parser_crypto_key(tool)
-    a = p.parse_args(rest)
-    # 1p is this verb's only provider, so a ref that names it says nothing more
-    # than the bare vault does -- both spellings resolve to the same vault.
-    scheme, sep, rest_ = a.vault.partition(":")
-    if sep and scheme == "1p" and rest_:
-        a.vault = rest_
-    console.debug(f"op read op://{a.vault}/{a.item}/{a.field}")
-    value = core_secrets.read_field("1p", a.vault, a.item, a.field)
-    if len(value) < crypto.MIN_SECRET_LEN:
-        raise TdxError(
-            f"{constants.ENV_CRYPTO_KEY} from op://{a.vault}/{a.item}/{a.field} is "
-            f"{len(value)} characters; it must be at least {crypto.MIN_SECRET_LEN}"
-        )
-    found = {constants.ENV_CRYPTO_KEY: value}
-    console.result(
-        {"format": a.format, "names": list(found), "vault": a.vault, "item": a.item}
-    )
-    console.good(core_secrets.render(found, _shape(a.format)))
-    return 0
-
-
 def _parser_clean_docker(tool: str) -> ArgumentParser:
     """The parser for this verb, so `config` can read its options without
     running it (see `common_parsers`)."""
@@ -1181,8 +1086,6 @@ _COMMON_PARSERS = {
         constants.V_INFO: _parser_sys_info,
         constants.V_MANIFEST: _parser_sys_manifest,
         constants.V_UPGRADE: _parser_sys_upgrade,
-        constants.V_SECRETS: _parser_secrets,
-        constants.V_CRYPTO_KEY: _parser_crypto_key,
         constants.V_CLEAN_DOCKER: _parser_clean_docker,
     },
     constants.DOM_TOOL: {
@@ -1210,8 +1113,6 @@ _COMMON = {
         constants.V_INFO: _cmn_sys_info,
         constants.V_MANIFEST: _cmn_sys_manifest,
         constants.V_UPGRADE: _cmn_sys_upgrade,
-        constants.V_SECRETS: _cmn_secrets,
-        constants.V_CRYPTO_KEY: _cmn_crypto_key,
         constants.V_CLEAN_DOCKER: _cmn_clean_docker,
     },
     constants.DOM_TOOL: {
@@ -1572,8 +1473,6 @@ def top_help(tool: str) -> tuple[str, dict]:
         constants.V_INFO: "print a descriptor (--format export|unset|1p)",
         constants.V_MANIFEST: "dump a YAML manifest of the store (--out FILE)",
         constants.V_UPGRADE: "convert legacy TDX2 descriptors in the store to TDX3",
-        constants.V_SECRETS: "fetch a provider's secrets as env vars (--set 1p:VAULT)",
-        constants.V_CRYPTO_KEY: f"fetch ${constants.ENV_CRYPTO_KEY} from 1Password (--format export to source it)",
         constants.V_CLEAN_DOCKER: f"stop and delete every {constants.DOCKER_CONTAINER_PREFIX}* docker container (--yes/-y to skip the prompt)",
     }
     summaries.update(delegated)

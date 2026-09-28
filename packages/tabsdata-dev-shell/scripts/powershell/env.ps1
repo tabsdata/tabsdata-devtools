@@ -7,9 +7,9 @@ if (-not $global:_TDD_COMMON_LOADED) { . $env:_TDD_COMMON_PS1 }
 # Setting and unsetting variables in the caller's session is the one thing a
 # Python tool cannot do, so this one command owns every variable tdd manages:
 #
-#     crypto     _TDD_CRYPTO_KEY            from 1Password, via `tdd system crypto-key`,
+#     crypto     _TDD_CRYPTO_KEY            from 1Password, via `tdd _1p fetch --crypto`,
 #                                          or verbatim from --value
-#     secrets    <PREFIX>__<KEY>..., _TDD_SYSTEMS   via `tdd system secrets`; the latter lists
+#     secrets    <PREFIX>__<KEY>..., _TDD_SYSTEMS   via `tdd _1p fetch --secrets`; the latter lists
 #                                                  the prefixes, which is how unset knows what to remove
 #     td         TD_*                              (unset only)
 #     vars       <PREFIX>*                         (unset only)
@@ -25,7 +25,7 @@ if (-not $global:_TDD_COMMON_LOADED) { . $env:_TDD_COMMON_PS1 }
 # and only three: a variable is set through the Env: provider rather than
 # `export` (_tdd_vars_put, because the names arrive in a variable and `$env:X`
 # can only spell a name written into the source); the `export NAME=VALUE` lines
-# `tdd-exe system ... --format export` prints are parsed rather than eval'd
+# `tdd-exe _1p fetch` prints are parsed rather than eval'd
 # (_tdd_vars_parse_exports); and the environment is read back as name/value
 # pairs rather than as text (_tdd_vars_names).
 
@@ -117,8 +117,8 @@ usage: tdd env set (--crypto | --secrets | --py-idx URL | --py-default-idx URL).
                    [--vault 1p:VAULT] [--item ITEM] [--field FIELD] [--value VALUE] [--force]
 
 Export the selected variables in THIS shell; several selections combine in one call. The
-crypto key and the secrets come from 1Password, through `tdd system crypto-key` and `tdd
-system secrets` (--format export, read here), so nothing is written to disk. Both vault
+crypto key and the secrets come from 1Password, through one `tdd _1p fetch` whose export
+lines are read here, so nothing is written to disk. Both vault
 defaults are literals: no variable of the environment decides which vault a key comes from.
 
 options:
@@ -247,7 +247,7 @@ function _tdd_vars_words {
 # One layer of shell quoting off a value, or $null when a quote is still open --
 # which is how the caller knows the value runs on to the next line.
 #
-# `tdd system ... --format export` renders its values with Python's
+# `tdd _1p fetch` renders its values with Python's
 # shlex.quote, so a value is either bare or wrapped in single quotes with
 # '"'"' standing in for an embedded quote; this reverses exactly that, and the
 # double-quote and backslash cases besides, so the reading is the shell's and
@@ -331,20 +331,21 @@ function _tdd_vars_parse_exports {
     }
 }
 
-# Run `tdd-exe system <verb> ...` with --format export and apply the lines it
-# prints; appends the names it set to $Names. Reports and leaves $_TDD_RC at 1
+# Run `tdd-exe _1p fetch ARGS` and apply the export lines it prints -- the one
+# way a value a Python tool read reaches this session; appends the names it set
+# to $Names. Reports and leaves $_TDD_RC at 1
 # on failure -- the status never travels back as a value, because this function
 # has a caller that emits.
 function _tdd_vars_apply {
-    param([string]$Verb, [string[]]$ExtraArgs, [System.Collections.Generic.List[string]]$Names)
+    param([string[]]$FetchArgs, [System.Collections.Generic.List[string]]$Names)
     $errFile = [System.IO.Path]::GetTempFileName()
     try {
-        $out = & { tdd-exe system $Verb @ExtraArgs --format export 2>$errFile }
+        $out = & { tdd-exe _1p fetch @FetchArgs 2>$errFile }
         if ($global:_TDD_RC -ne 0) {
             $details = Get-Content -LiteralPath $errFile -Raw
             $last = @(@($details -split "`r?`n") | Where-Object { $_ -ne '' -and $_ -notmatch '^details:' })
             $summary = if ($last.Count -gt 0) { $last[-1] } else { '' }
-            _tdd_error "tdd system $Verb failed: $summary" $details
+            _tdd_error "tdd _1p fetch failed: $summary" $details
             return
         }
     } finally {
@@ -352,7 +353,7 @@ function _tdd_vars_apply {
     }
     $lines = @($out | ForEach-Object { [string]$_ })
     if ($lines.Count -eq 0 -or ($lines -join '') -eq '') {
-        _tdd_error "tdd system $Verb returned nothing to export"
+        _tdd_error "tdd _1p fetch returned nothing to export"
         return
     }
     _tdd_vars_parse_exports $lines $Names
@@ -447,8 +448,8 @@ function _tdd_vars_set {
         return
     }
     if ($vault) {
-        # One form for both selections: a provider ref, as `--secrets` always
-        # took. 1p is the only provider, and crypto-key reads 1Password directly.
+        # One form for both selections: a provider ref, which is what
+        # `_1p fetch` takes for each. 1p is the only provider.
         if ($vault -notlike '1p:?*') {
             _tdd_error "--vault takes a vault as a provider ref, 1p:NAME (got: $vault)"
             return
@@ -482,20 +483,21 @@ function _tdd_vars_set {
         }
         $crypto = $false
     }
+    # Both selections are one fetch: one child, one trip through `op` sign-in.
+    $fetchArgs = @()
     if ($crypto) {
-        # crypto-key names the vault itself, so the ref sheds its provider.
         $v = if ($vault) { $vault } else { $global:_TDD_VAULT_CRYPTO }
-        $keyArgs = @("--vault=$($v -replace '^1p:', '')")
-        if ($item) { $keyArgs += "--item=$item" }
-        if ($field) { $keyArgs += "--field=$field" }
-        _tdd_info "tdd system crypto-key $($keyArgs -join ' ') --format export"
-        _tdd_vars_apply crypto-key $keyArgs $setNames
-        if (_tdd_failed) { return }
+        $fetchArgs += "--crypto=$v"
+        if ($item) { $fetchArgs += "--item=$item" }
+        if ($field) { $fetchArgs += "--field=$field" }
     }
     if ($secrets) {
         $v = if ($vault) { $vault } else { $global:_TDD_VAULT_SECRETS }
-        _tdd_info "tdd system secrets --set $v --format export"
-        _tdd_vars_apply secrets @("--set=$v") $setNames
+        $fetchArgs += "--secrets=$v"
+    }
+    if ($fetchArgs.Count -gt 0) {
+        _tdd_info "tdd _1p fetch $($fetchArgs -join ' ')"
+        _tdd_vars_apply $fetchArgs $setNames
         if (_tdd_failed) { return }
     }
     if ($pyExtra) {

@@ -32,7 +32,7 @@ automatically; the driver venv is untouched.
 
 ```bash
 # 1. Credentials + salesforce system.
-eval "$(tdd system secrets --set 1p:dev_xp --format export)"
+tdd env set --secrets              # the dev_xp vault's secrets, in this shell
 tdd system create --type salesforce --sys sf
 
 # 2. Create the domain (a credentials clone — no schema), record the model, and

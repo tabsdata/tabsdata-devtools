@@ -17,8 +17,11 @@ connection details kept as encrypted descriptors.
 
 ## How it works
 
-- Verbs: `create/destroy/status/purge/restart/fetch-bin/connect`, `types/1p-template/list/info/
-  manifest/upgrade`, `secrets` and `crypto-key` (`--format export`, which `tdd env set` evals).
+- Verbs: `create/destroy/status/purge/restart/fetch-bin/connect`, `types/1p-template/1p-set/
+  list/info/manifest/upgrade`. Reading the crypto key and the shared secrets from 1Password is
+  not a system verb: `secrets` and `crypto-key` moved to `tdd _1p fetch` (2026-09-28), which
+  `tdd env set --crypto/--secrets` applies -- they touch no store and no backend, and cost
+  `tdd env` the `systems` env. The `1p-*` verbs stay: they write a system's item.
   `clean-docker [--yes|-y]` stops and deletes every `tdd_*` container -- the prefix all
   docker-backed systems use -- descriptor or not; it lists them and asks first unless `--yes`.
 - **The five postgres types are one shape** (`systems/postgres/backend.py`, which

@@ -69,7 +69,9 @@ dependencies are declared as ranges; each toolset's lock pins them.
   `<ITEM_TITLE>__<FIELD_ID>`, normalised to valid env-var names, which is the `<PREFIX>__<KEY>`
   a system's env-sourced options read; plus `_TDD_SYSTEMS`, the prefix list). An item titled
   `_*` is skipped, and skipped before it is read: a shared vault is also where people keep notes
-  to themselves, and everything swept lands in the caller's shell as a variable.
+  to themselves, and everything swept lands in the caller's shell as a variable. The command
+  over them is `tdd _1p fetch`; `CRYPTO_KEY_ENV`/`CRYPTO_KEY_MIN_LEN` name the descriptor key and
+  its minimum length for it, `common.systems.crypto` and both `env` scripts.
   
   `ports`, `passwords`, `docker` (the CLI wrapped rather than an SDK, so it stays standard-library
   only and identical to what a person would type; every failure is a `ToolError` carrying docker's

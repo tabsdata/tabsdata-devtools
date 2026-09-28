@@ -4,7 +4,7 @@
 
 """1Password items for a system's credentials (``--format 1p``).
 
-``tdd system secrets --set 1p:VAULT`` (and ``envx set-secrets``) read a vault and
+``tdd env set --secrets`` (through ``tdd _1p fetch --secrets 1p:VAULT``) reads a vault and
 turn every item into ``<TITLE>__<FIELD_ID>`` environment variables -- see
 ``common.core.secrets_1p`` -- and those are exactly the ``$<PREFIX>__<KEY>`` names
 a system's env-sourced create options read. This module writes that mapping the

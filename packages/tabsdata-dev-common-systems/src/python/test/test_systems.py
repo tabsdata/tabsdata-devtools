@@ -60,11 +60,14 @@ def test_top_help_lists_verbs_in_both_shapes():
     assert "create" in text and any(c["name"] == "create" for c in fields["commands"])
 
 
-def test_crypto_key_is_a_system_verb_that_needs_no_store():
+def test_fetching_from_1password_is_not_a_system_verb():
+    """`crypto-key` and `secrets` moved to `tdd _1p fetch` (2026-09-28): they
+    touch no store and no backend, and cost `tdd env` the systems env."""
     text, fields = dispatch.top_help(constants.SYS_TOOL)
-    assert "crypto-key" in text
-    assert constants.V_CRYPTO_KEY in dispatch._COMMON[constants.SYS_TOOL]
-    assert constants.V_CRYPTO_KEY not in dispatch._STORE_READING_VERBS
+    verbs = {c["name"] for c in fields["commands"]}
+    assert not {"crypto-key", "secrets"} & verbs
+    assert "crypto-key" not in text
+    assert not {"crypto-key", "secrets"} & set(dispatch._COMMON[constants.SYS_TOOL])
 
 
 def test_clean_docker_lists_then_refuses_without_yes_and_sweeps_with_it(
@@ -171,19 +174,21 @@ def test_port_range_mixin_walks_its_slot_without_repeating_or_leaving_it():
         busy.close()
 
 
-def test_crypto_key_takes_a_literal_vault_default_and_the_shell_agrees_on_the_minimum():
+def test_the_crypto_key_is_one_variable_and_one_minimum_everywhere():
     import pathlib
 
+    from tabsdata_dev.common.core import secrets as core_secrets
     from tabsdata_dev.common.systems import crypto
 
     repo = pathlib.Path(__file__).resolve().parents[5]
     env_sh = (repo / "packages/tabsdata-dev-shell/scripts/unix/env.sh").read_text()
+    # what `_1p fetch` reads and checks is what the crypto module opens with
+    assert constants.ENV_CRYPTO_KEY == crypto.ENV_VAR == core_secrets.CRYPTO_KEY_ENV
+    assert crypto.MIN_SECRET_LEN == core_secrets.CRYPTO_KEY_MIN_LEN
     # `tdd env set --crypto --value` checks the length the crypto module enforces
     assert f"_TDD_CRYPTO_MIN={crypto.MIN_SECRET_LEN}" in env_sh
-    # neither side lets a variable of the environment choose the vault
+    # no variable of the environment chooses the vault
     assert not hasattr(constants, "ENV_EMPLOYEE_VAULT")
-    assert constants.DEFAULT_EMPLOYEE_VAULT == "Employee"
-    assert f'_TDD_VAULT_CRYPTO="1p:{constants.DEFAULT_EMPLOYEE_VAULT}"' in env_sh
     assert not any(ev.name.startswith("ONE_PASSWORD") for ev in constants.ENV_VARS)
     src = (
         repo
@@ -514,9 +519,6 @@ def test_config_describes_every_verb_the_tool_has():
     # the defaults are the real ones, not placeholders -- this is the point of
     # reading the parser rather than keeping a list
     system = family.config_doc(constants.SYS_TOOL)
-    crypto = {k: v for k, (v, _) in system.actions[constants.V_CRYPTO_KEY].items()}
-    assert crypto["field"] == "TD_BACKENDS_CRYPTO_KEY"
-    assert crypto["vault"] and crypto["item"]
     assert set(system.actions[constants.V_1P_SET]) == {"vault", "entry"}
 
 

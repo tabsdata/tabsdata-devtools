@@ -157,6 +157,20 @@ requires-dist = [
 ]
 
 [[package]]
+name = "tabsdata-dev-tool-1p"
+source = { editable = "../tabsdata-dev-tool-1p" }
+dependencies = [
+    { name = "tabsdata-dev-common-core" },
+    { name = "tabsdata-dev-deps-launchers" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "tabsdata-dev-common-core", editable = "../tabsdata-dev-common-core" },
+    { name = "tabsdata-dev-deps-launchers", editable = "../tabsdata-dev-deps-launchers" },
+]
+
+[[package]]
 name = "tabsdata-dev-tool-apidoc"
 source = { editable = "../tabsdata-dev-tool-apidoc" }
 dependencies = [
@@ -302,6 +316,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "tabsdata-dev-deps-launchers" },
+    { name = "tabsdata-dev-tool-1p" },
     { name = "tabsdata-dev-tool-apidoc" },
     { name = "tabsdata-dev-tool-ci" },
     { name = "tabsdata-dev-tool-jq" },
@@ -317,6 +332,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "tabsdata-dev-deps-launchers", editable = "../tabsdata-dev-deps-launchers" },
+    { name = "tabsdata-dev-tool-1p", editable = "../tabsdata-dev-tool-1p" },
     { name = "tabsdata-dev-tool-apidoc", editable = "../tabsdata-dev-tool-apidoc" },
     { name = "tabsdata-dev-tool-ci", editable = "../tabsdata-dev-tool-ci" },
     { name = "tabsdata-dev-tool-jq", editable = "../tabsdata-dev-tool-jq" },

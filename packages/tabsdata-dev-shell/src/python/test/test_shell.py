@@ -430,9 +430,16 @@ def test_env_set_takes_provider_refs_a_literal_default_and_a_crypto_value():
     )
     # --vault is one form for both: a provider ref
     assert "1p:?*) ;;" in text and "1p:NAME" in text
+    # both selections are one `_1p fetch`, each passing its ref as it is
+    assert '_tdd_args=" --crypto=${_tdd_vault:-$_TDD_VAULT_CRYPTO}"' in text
+    assert '_tdd_args="$_tdd_args --secrets=${_tdd_vault:-$_TDD_VAULT_SECRETS}"' in text
+    assert 'tdd-exe _1p fetch "$@"' in text
+    assert "tdd-exe system" not in text
+    ps1 = (shell.scripts_dir("powershell") / "env.ps1").read_text()
     assert (
-        '_tdd_args=" --vault=${_tdd_v#1p:}"' in text
-    )  # crypto-key wants the bare vault
+        '$fetchArgs += "--crypto=$v"' in ps1 and '$fetchArgs += "--secrets=$v"' in ps1
+    )
+    assert "tdd-exe _1p fetch @FetchArgs" in ps1 and "tdd-exe system" not in ps1
     # --value: the key itself, at least MIN_SECRET_LEN characters, crypto only
     assert "_TDD_CRYPTO_MIN=12" in text
     assert '[ "${#_tdd_value}" -lt "$_TDD_CRYPTO_MIN" ]' in text

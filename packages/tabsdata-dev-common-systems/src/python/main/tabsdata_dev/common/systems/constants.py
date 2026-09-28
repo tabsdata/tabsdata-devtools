@@ -57,8 +57,6 @@ V_DELETE_DATA = "delete-data"
 V_DELETE_MODEL = "delete-model"
 V_MANIFEST = "manifest"
 V_UPGRADE = "upgrade"
-V_SECRETS = "secrets"
-V_CRYPTO_KEY = "crypto-key"
 # Every command has it, from the shared layer (common.core.config).
 V_CONFIG = "config"
 V_CONNECT = "connect"
@@ -88,11 +86,8 @@ OPT_PORTS = "--ports"
 OPT_FORMAT = "--format"  # the guidelines' json|view, plus a renderer's own shapes
 OPT_VERBOSE = "--verbose"
 OPT_OUT = "--out"  # manifest: destination file
-OPT_SET = "--set"
 OPT_VAULT = "--vault"
 OPT_ENTRY = "--entry"  # 1p-set: the item JSON (- reads stdin)
-OPT_ITEM = "--item"
-OPT_FIELD = "--field"
 OPT_MANIFEST = "--manifest"
 OPT_SYNC = "--sync"
 OPT_EXTERNAL_PREFIX = "--external-prefix"
@@ -136,7 +131,7 @@ FMT_VIEW = "view"
 FMT_JSON = "json"
 FMT_1P = "1p"  # a 1Password item, ready for `op item create --template=`
 BASE_FORMATS = (FMT_JSON, FMT_VIEW)
-# info / secrets / crypto-key: shell lines to eval, or the 1Password item.
+# info: shell lines to eval, or the 1Password item.
 RENDER_FORMATS = ("export", "unset", FMT_1P)
 # `1p-template` and `1p-set` speak one shape only -- the 1Password item -- so
 # neither takes a --format at all.
@@ -153,14 +148,6 @@ DOCKER_NAME_PREFIX = f"{DOCKER_CONTAINER_PREFIX}_"
 # tdd's own variables carry a leading underscore when they are private to the
 # tool chain; the crypto key is one -- users set it with `tdd env set --crypto`.
 ENV_CRYPTO_KEY = "_TDD_CRYPTO_KEY"
-# Where `crypto-key` reads the personal key from, unless told otherwise: the
-# 1Password Employee vault every user has, item DevSecrets, and the field that
-# item has always had -- the 1Password schema did not follow the variable's rename.
-# Literals: which vault a key comes from is a choice made on the command line,
-# never one an exported variable can change underfoot.
-DEFAULT_EMPLOYEE_VAULT = "Employee"
-DEFAULT_CRYPTO_ITEM = "DevSecrets"
-DEFAULT_CRYPTO_FIELD = "TD_BACKENDS_CRYPTO_KEY"
 ENV_BUILD_USER = "TD_BUILD_USER"
 ENV_BUILD_NUMBER = "TD_BUILD_NUMBER"
 ENV_MYSQL_IMAGE_VERSION = "MYSQL_IMAGE_VERSION"

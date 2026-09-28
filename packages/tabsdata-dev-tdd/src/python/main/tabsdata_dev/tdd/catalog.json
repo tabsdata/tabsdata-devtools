@@ -1,9 +1,10 @@
 {
-  "fingerprint": "7240200c880fb804",
+  "fingerprint": "1c2f34baeed5dba2",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
       "tabsdata-dev-deps-launchers",
+      "tabsdata-dev-tool-1p",
       "tabsdata-dev-tool-apidoc",
       "tabsdata-dev-tool-ci",
       "tabsdata-dev-tool-jq",
@@ -102,6 +103,19 @@
     }
   },
   "tools": {
+    "_1p": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "hidden": false,
+      "launcher": false,
+      "package": "tabsdata-dev-tool-1p",
+      "reqs": [
+        "op"
+      ],
+      "summary": "plumbing of tdd env: fetch the crypto key and shared secrets from 1Password as export lines",
+      "toolset": "launchers"
+    },
     "_venv": {
       "commons": [
         "tabsdata-dev-common-core"
