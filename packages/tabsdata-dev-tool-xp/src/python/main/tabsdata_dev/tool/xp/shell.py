@@ -163,6 +163,23 @@ def tdk(
     return r
 
 
+def tdk_read(args: list[str]) -> tuple[object | None, str]:
+    """A tdk read that may fail and whose failure matters: ``(parsed JSON,
+    "")``, or ``(None, tdk's last error line)``. `tdk(check=False)` answers
+    None alone, and a caller that retries needs to say why at the end rather
+    than report nothing read."""
+    argv = tdk_argv(*args, "--format", "json")
+    if state.run.dry_run:
+        return None, ""
+    r = run_cmd(argv, check=False)
+    if r.returncode != 0:
+        return None, last_err(r)
+    try:
+        return json.loads(r.stdout), ""
+    except json.JSONDecodeError as exc:
+        return None, f"not JSON: {exc}"
+
+
 def domain_env() -> dict:
     """Environment for a `domain` child: the crypto key from the var named by
     --secret-env mapped into the fixed _TDD_CRYPTO_KEY (a no-op when

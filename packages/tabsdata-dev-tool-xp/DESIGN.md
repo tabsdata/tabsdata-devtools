@@ -154,7 +154,13 @@ comment). Kinds repeat, in any order the dependencies allow:
   that flush's rows, so the latest alone would miss a key flushed earlier. It polls every 5s;
   the entries run in turn, but a key that arrived while an earlier one was awaited is found on
   the first look. It is how a stage waits for data to have *arrived* rather than for a guessed
-  pause. It runs under `run-suite` (so one-shot); no phase verb takes it and `bench` ignores it.
+  pause. **The column is read as the table spells it**: DB2 upper-cases unquoted names, so its
+  stream carries `SENTINEL_KEY`, and tdk's SQL (Polars) matches a column's case -- so the name
+  comes from `tdk table schema` of the first readable version, matched case-insensitively, and
+  is quoted in the query. Found on a real run, where every read of a DB2 table failed with
+  "unable to find column" and the stage timed out saying "0 version(s) read": a version that
+  cannot be read is retried, and the time-out now counts those and gives the last error. A
+  table with no such column at all fails at once. It runs under `run-suite` (so one-shot); no phase verb takes it and `bench` ignores it.
 - **Durations** -- a sentinel's `time_out`, a live `sleep` -- are `"<VALUE><UNIT>"` with unit `s`,
   `m` or `h` (`"90s"`, `"2m"`, `"1.5h"`), and nothing else: a bare number is refused when the
   suite is read, since nothing in it says what it counts. `sleep` was `sleep_secs`, a number of

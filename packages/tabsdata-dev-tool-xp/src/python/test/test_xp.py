@@ -1504,6 +1504,49 @@ def test_a_bad_sentinel_or_duration_is_refused_when_read(xp_root, doc, why):
         build_instance("i", _staged_suite(xp_root, doc))
 
 
+def _fake_sentinel_tdk(
+    monkeypatch, looks, *, column="sentinel_key", found_in=(), unreadable=None
+):
+    """shell.tdk answering `table versions` from `looks`, and shell.tdk_read
+    answering `table schema` with `column` and `table data` with the key in
+    the versions `found_in`. `unreadable` maps a version to the error of its
+    next read (one read each, unless the value is sticky: a list). Returns
+    the log of (verb, version, sql)."""
+    from tabsdata_dev.tool.xp import project, shell
+
+    monkeypatch.setattr(project.time, "sleep", lambda s: None)
+    looks = iter(looks)
+    last: list = []
+    calls: list = []
+    unreadable = dict(unreadable or {})
+
+    def tdk(args, want_json=True, check=True, stdin_text=None):
+        assert args[:2] == ["table", "versions"] and "--max-result" in args
+        nonlocal last
+        last = next(looks, last)
+        return last
+
+    def tdk_read(args):
+        verb, vid = args[1], args[args.index("--version") + 1]
+        sql = args[args.index("--sql") + 1] if "--sql" in args else None
+        calls.append((verb, vid, sql))
+        why = unreadable.get(vid)
+        if why is not None:
+            if not isinstance(why, list):
+                del unreadable[vid]
+            return None, why if isinstance(why, str) else why[0]
+        if verb == "schema":
+            return [
+                {"name": column, "type": "String"},
+                {"name": "ts", "type": "Datetime"},
+            ], ""
+        return ([{column: "k"}] if vid in found_in else []), ""
+
+    monkeypatch.setattr(shell, "tdk", tdk)
+    monkeypatch.setattr(shell, "tdk_read", tdk_read)
+    return calls
+
+
 def test_a_sentinel_reads_every_version_once_until_one_holds_the_key(
     xp_root, monkeypatch
 ):
@@ -1511,53 +1554,95 @@ def test_a_sentinel_reads_every_version_once_until_one_holds_the_key(
     read -- once, since a committed one never changes; one that cannot be read
     yet is tried again. The latch opens on the version holding the key."""
     from tabsdata_dev.common.core import render
-    from tabsdata_dev.tool.xp import project, shell, state
+    from tabsdata_dev.tool.xp import project, state
     from tabsdata_dev.tool.xp.models import Sentinel
 
     state.bind(render.Renderer(state.TOOL), argparse_ns())
-    monkeypatch.setattr(project.time, "sleep", lambda s: None)
-    looks = iter(
-        [[{"id": "v1"}, {"id": "v2"}], [{"id": "v1"}, {"id": "v2"}, {"id": "v3"}]]
+    calls = _fake_sentinel_tdk(
+        monkeypatch,
+        [[{"id": "v1"}, {"id": "v2"}], [{"id": "v1"}, {"id": "v2"}, {"id": "v3"}]],
+        found_in={"v3"},
+        unreadable={"v2": "not yet"},
     )
-    reads: list[str] = []
-    unreadable = {"v2"}
-
-    def tdk(args, want_json=True, check=True, stdin_text=None):
-        if args[:2] == ["table", "versions"]:
-            assert "--max-result" in args and "xp_sentinel_changes" in args
-            return next(looks)
-        vid = args[args.index("--version") + 1]
-        reads.append(vid)
-        sql = args[args.index("--sql") + 1]
-        assert sql.endswith("WHERE sentinel_key = 'it''s'")
-        if vid in unreadable:
-            unreadable.discard(vid)
-            return None
-        return [{"sentinel_key": "it's"}] if vid == "v3" else []
-
-    monkeypatch.setattr(shell, "tdk", tdk)
     s = Sentinel(
         collection="c", table="xp_sentinel_changes", wait_for_key="it's", time_out="1m"
     )
     project.wait_sentinels("p", [s])
-    assert reads == ["v1", "v2", "v2", "v3"]
+    data = [(vid, sql) for verb, vid, sql in calls if verb == "data"]
+    assert [vid for vid, _ in data] == ["v1", "v2", "v2", "v3"]
+    assert data[0][1] == (
+        'SELECT "sentinel_key" FROM xp_sentinel_changes '
+        "WHERE \"sentinel_key\" = 'it''s'"
+    )
+    assert [c[:2] for c in calls if c[0] == "schema"] == [("schema", "v1")]  # once
+
+
+def test_a_sentinel_reads_the_key_column_as_the_database_spells_it(
+    xp_root, monkeypatch
+):
+    """DB2 upper-cases unquoted names, so its stream carries SENTINEL_KEY, and
+    tdk's SQL matches case: the column is taken from the schema and quoted."""
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import project, state
+    from tabsdata_dev.tool.xp.models import Sentinel
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    calls = _fake_sentinel_tdk(
+        monkeypatch, [[{"id": "v1"}]], column="SENTINEL_KEY", found_in={"v1"}
+    )
+    s = Sentinel(collection="c", table="t", wait_for_key="k", time_out="1m")
+    project.wait_sentinels("p", [s])
+    [(_, _, sql)] = [c for c in calls if c[0] == "data"]
+    assert sql == 'SELECT "SENTINEL_KEY" FROM t WHERE "SENTINEL_KEY" = \'k\''
 
 
 def test_a_sentinel_that_never_arrives_fails_at_its_time_out(xp_root, monkeypatch):
     from tabsdata_dev.common.core import render
-    from tabsdata_dev.tool.xp import project, shell, state
+    from tabsdata_dev.tool.xp import project, state
     from tabsdata_dev.tool.xp.models import Sentinel
 
     state.bind(render.Renderer(state.TOOL), argparse_ns())
-    monkeypatch.setattr(
-        shell,
-        "tdk",
-        lambda args, **kw: [{"id": "v1"}] if args[1] == "versions" else [],
+    _fake_sentinel_tdk(monkeypatch, [[{"id": "v1"}]])
+    s = Sentinel(collection="c", table="t", wait_for_key="k", time_out="0s")
+    with pytest.raises(
+        state.XpError,
+        match=r"sentinel 'k' not in any version of c/t after 0s \(1 version\(s\) read\)$",
+    ):
+        project.wait_sentinels("p", [s])
+
+
+def test_a_sentinel_says_why_the_versions_it_could_not_read_failed(
+    xp_root, monkeypatch
+):
+    """Versions that exist but cannot be read are not "0 read": the time-out
+    counts them and gives the last error, rather than leaving it in run.log."""
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import project, state
+    from tabsdata_dev.tool.xp.models import Sentinel
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    _fake_sentinel_tdk(
+        monkeypatch,
+        [[{"id": "v1"}, {"id": "v2"}]],
+        unreadable={"v1": ["SQL Error: boom"], "v2": ["SQL Error: boom"]},
     )
     s = Sentinel(collection="c", table="t", wait_for_key="k", time_out="0s")
     with pytest.raises(
-        state.XpError, match="sentinel 'k' not in any version of c/t after 0s"
+        state.XpError,
+        match=r"\(0 version\(s\) read; 2 could not be read: SQL Error: boom\)",
     ):
+        project.wait_sentinels("p", [s])
+
+
+def test_a_table_without_the_key_column_fails_at_once(xp_root, monkeypatch):
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import project, state
+    from tabsdata_dev.tool.xp.models import Sentinel
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    _fake_sentinel_tdk(monkeypatch, [[{"id": "v1"}]], column="other")
+    s = Sentinel(collection="c", table="t", wait_for_key="k", time_out="1h")
+    with pytest.raises(state.XpError, match="has no sentinel_key column in any case"):
         project.wait_sentinels("p", [s])
 
 

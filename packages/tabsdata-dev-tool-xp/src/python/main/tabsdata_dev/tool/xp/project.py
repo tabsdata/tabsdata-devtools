@@ -680,13 +680,15 @@ def wait_sentinels(project: str, sentinels: list[Sentinel]) -> None:
 def _wait_sentinel(project: str, s: Sentinel) -> None:
     """Poll the table's committed versions until one holds the key. A version
     is final once committed, so each is read once; one that cannot be read yet
-    (the table half made, a hiccup) is tried again on the next look."""
+    (the table half made, a hiccup) is tried again on the next look, and the
+    time-out says how many could not be, and why.
+
+    The key column is looked up in the table's schema rather than assumed:
+    a database that upper-cases unquoted names (DB2) streams the sentinel
+    entity as ``SENTINEL_KEY``, and tdk's SQL matches a column's case. It is
+    then quoted, as it is spelled."""
     where = ["--proj", project, "--coll", s.collection, "--name", s.table]
     key = s.wait_for_key.replace("'", "''")
-    sql = (
-        f"SELECT {SENTINEL_KEY_COLUMN} FROM {s.table} "
-        f"WHERE {SENTINEL_KEY_COLUMN} = '{key}'"
-    )
     versions_args = ["table", "versions", *where, "--max-result", "0"]
     if state.run.dry_run:
         shell.dry_echo(shell.tdk_argv(*versions_args, "--format", "json"))
@@ -697,18 +699,30 @@ def _wait_sentinel(project: str, s: Sentinel) -> None:
         return
     deadline = time.monotonic() + s.seconds
     read: set[str] = set()
+    unreadable: dict[str, str] = {}  # version -> why, until it is read
+    column: str | None = None
     while True:
         for version in shell.tdk(versions_args, check=False) or []:
             vid = str(version.get("id") or "")
             if not vid or vid in read:
                 continue
-            rows = shell.tdk(
-                ["table", "data", *where, "--version", vid, "--sql", sql, "--len", "1"],
-                check=False,
+            if column is None:
+                schema, why = shell.tdk_read(
+                    ["table", "schema", *where, "--version", vid]
+                )
+                if schema is None:
+                    unreadable[vid] = why
+                    continue
+                column = _key_column(s, schema)
+            sql = f'SELECT "{column}" FROM {s.table} WHERE "{column}" = \'{key}\''
+            rows, why = shell.tdk_read(
+                ["table", "data", *where, "--version", vid, "--sql", sql, "--len", "1"]
             )
             if rows is None:
+                unreadable[vid] = why
                 continue
             read.add(vid)
+            unreadable.pop(vid, None)
             if rows:
                 rep().log(
                     f"sentinel {s.wait_for_key!r} found in {s.table} version {vid}"
@@ -716,12 +730,30 @@ def _wait_sentinel(project: str, s: Sentinel) -> None:
                 return
         left = deadline - time.monotonic()
         if left <= 0:
+            unread = ""
+            if unreadable:
+                last = next(reversed(unreadable.values())) or "no error output"
+                unread = f"; {len(unreadable)} could not be read: {last}"
             state.die(
                 f"sentinel {s.wait_for_key!r} not in any version of "
                 f"{s.collection}/{s.table} after {s.time_out} "
-                f"({len(read)} version(s) read)"
+                f"({len(read)} version(s) read{unread})"
             )
         time.sleep(min(SENTINEL_POLL, left))
+
+
+def _key_column(s: Sentinel, schema) -> str:
+    """The table's own spelling of the sentinel key column. None is fatal at
+    once: a table without it can never hold the key, and waiting out the
+    time-out would only hide that."""
+    names = [str(c.get("name", "")) for c in schema or [] if isinstance(c, dict)]
+    found = next((n for n in names if n.lower() == SENTINEL_KEY_COLUMN), None)
+    if found is None:
+        state.die(
+            f"sentinel {s.wait_for_key!r}: {s.collection}/{s.table} has no "
+            f"{SENTINEL_KEY_COLUMN} column in any case (columns: {', '.join(names)})"
+        )
+    return str(found)
 
 
 def collect_worker_logs(failed: list) -> str:
