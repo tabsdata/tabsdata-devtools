@@ -31,11 +31,15 @@ operation, table, key and values. What else a transaction carries is the
 database's to say, and the suite says it:
 
 --cascades logged    the rows an ON DELETE CASCADE takes with a delete arrive
-                     in its transaction, each one (postgres); unlogged: none
+                     in its transaction, each one (postgres, db2); unlogged: none
                      does (mysql's binlog has no row event for them).
 --noops logged       an update setting the values a row has arrives (postgres
                      logs every UPDATE); unlogged: it does not, and a
-                     transaction of nothing else never arrives at all (mysql).
+                     transaction of nothing else never arrives at all (mysql,
+                     db2).
+
+Column names are compared without case: db2 reports them upper-cased, as its
+catalog folds unquoted names, and the trail has the model's.
 
 An update or delete of a row that is not there -- a cascade took it -- arrives
 under neither. Cascaded deletes are counted and listed, not refused. The transactions before the snapshot's end,
@@ -80,10 +84,14 @@ _TO_OPS = r"""
      old: (if $op == "delete" and ($old | [.[]] | all(. == "")) then $new else $old end)}
 """
 # The snapshot first, then the changes by source transaction and position. A
-# source transaction is a number (postgres' xid) or a GTID, `<server uuid>:<n>`
-# (mysql), ordered by its n: every change comes from the one server.
+# source transaction is a number (postgres' xid), a GTID, `<server uuid>:<n>`
+# (mysql), ordered by its n -- every change comes from the one server -- or
+# db2's 32 hex digits, which order as they read: fixed width, so as a string,
+# and never through tonumber, which would round 32 digits and leave the ones
+# with a-f in them strings, sorted after every number.
 _IN_ORDER = r"""
-  def txkey: if test("^[0-9]+$") then tonumber
+  def txkey: if test("^[0-9a-fA-F]{32}$") then ascii_downcase
+             elif test("^[0-9]+$") then tonumber
              elif test(":[0-9]+$") then (split(":") | last | tonumber)
              else . end;
   sort_by([.tx != "initial-load", (if .tx == "initial-load" then 0 else (.tx | txkey) end), .sq]) | .[]
@@ -155,6 +163,18 @@ def _jq_sorted(jsonl: str, dest: Path) -> Path:
 
 def read_jsonl(file: Path) -> list[dict]:
     return [json.loads(line) for line in file.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def fold(ops: list[dict]) -> list[dict]:
+    """`ops` with every column name lower-cased, in the rows, keys and
+    before-images. The trail names columns as the model does; a database that
+    folds unquoted names reports them its way -- db2 upper-cases (EMP_NO), as
+    its catalog stores them -- and the values are the same either way."""
+    for o in ops:
+        for part in ("row", "old", "key", "set"):
+            if isinstance(o.get(part), dict):
+                o[part] = {c.lower(): v for c, v in o[part].items()}
+    return ops
 
 
 # ------------------------------------------------------------ comparing ----
@@ -481,7 +501,7 @@ def main() -> int:
     work = Path(os.environ["XP_WORK_DIR"]) / "cdc"
     work.mkdir(parents=True, exist_ok=True)
 
-    trail = [o for o in read_jsonl(trail_file) if not o.get("dry_run")]
+    trail = fold([o for o in read_jsonl(trail_file) if not o.get("dry_run")])
     entities = list(dict.fromkeys(o["entity"] for o in trail))
 
     # The stream's output: every changed version of every table, as operations.
@@ -494,7 +514,7 @@ def main() -> int:
         per_table.append(to_ops(rows, entity))
     stream = in_order(concat(per_table, work / "all.ops.jsonl"), work / "actual.jsonl")
 
-    problems, cascaded, summary = compare(trail, read_jsonl(stream), args.cascades, args.noops)
+    problems, cascaded, summary = compare(trail, fold(read_jsonl(stream)), args.cascades, args.noops)
 
     (work / "report.txt").write_text(
         summary + "\n" + "".join(f"  {p}\n" for p in problems) + "".join(f"  cascaded: {c}\n" for c in cascaded),
