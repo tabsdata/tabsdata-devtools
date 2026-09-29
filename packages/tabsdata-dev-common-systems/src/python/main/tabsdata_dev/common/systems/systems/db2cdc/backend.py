@@ -779,13 +779,13 @@ class Db2Cdc(Db2):
         )
 
     def _register_tables(self, container: str, schema: str, tables: list[str]) -> None:
-        """Register every one of `tables`, then wait once for asncap to take
-        them all: each start is one container call, and the capture program
-        consumes every pending CAPSTART in the same cycle."""
-        map_ids = []
-        for table in tables:
-            print(f"    registering {schema}.{table} …")
-            map_ids.append(self._start_registration(container, schema, table))
+        """Register every one of `tables` in one container call, then wait once
+        for asncap to take them all: the capture program consumes every
+        pending CAPSTART in the same cycle."""
+        print(f"    registering {', '.join(f'{schema}.{t}' for t in tables)} …")
+        started = time.monotonic()
+        map_ids = self._start_registrations(container, schema, tables)
+        registered = time.monotonic()
         self._poll(
             lambda: self._registrations_started(container, schema, tables, map_ids),
             what=(
@@ -793,53 +793,75 @@ class Db2Cdc(Db2):
                 f"consumed and the registrations to become active"
             ),
         )
+        # Where the time goes, said once: the registrations themselves, then
+        # asncap taking them -- what a slow model install is read for.
+        print(
+            f"    registered {len(tables)} table(s) in {registered - started:.1f}s, "
+            f"active {time.monotonic() - registered:.1f}s later"
+        )
 
-    def _start_registration(self, container: str, schema: str, table: str) -> str:
+    def _start_registrations(
+        self, container: str, schema: str, tables: list[str]
+    ) -> list[str]:
         """``data capture changes``, ``asnclp create registration``, the
         ``IBMSNAP_LOGMARKER`` column and trigger, the prune control row and the
-        CAPSTART signal, in one container call over one connection."""
-        source = f"{schema}.{table}"
-        staging = self._staging(schema, table)
-        # The domain's own, as the CD table is: two domains of one model may
-        # register at the same moment, and share the container's home dir.
-        script = f"TD_ASN_REGISTER_{staging}".upper()
-        map_id = str(random.randint(1, 2**31 - 1))  # noqa: S311 - internal signal id
-        after = [
-            f"alter table {_ASN}.{staging} add column IBMSNAP_LOGMARKER "
-            f"TIMESTAMP NOT NULL WITH DEFAULT CURRENT TIMESTAMP",
-            f"create trigger {_ASN}.LM_{staging} no cascade before insert on "
-            f"{_ASN}.{staging} referencing new as N for each row "
-            f"set N.IBMSNAP_LOGMARKER = coalesce((select IBMSNAP_LOGMARKER from "
-            f"{_ASN}.IBMSNAP_UOW where IBMSNAP_COMMITSEQ = N.IBMSNAP_COMMITSEQ), "
-            f"CURRENT TIMESTAMP)",
-            f"insert into {_ASN}.ibmsnap_pruncntl (target_server, target_owner, "
-            f"target_table, source_owner, source_table, source_view_qual, "
-            f"apply_qual, set_name, cntl_server, target_structure, "
-            f"phys_change_owner, phys_change_table, map_id) values "
-            f"('{_XP_DB}', '{_ASN}', '{staging}', '{schema}', '{table}', 0, "
-            f"'TDQUAL', 'TDSET', '{_XP_DB}', 1, '{_ASN}', '{staging}', '{map_id}')",
-            f"insert into {_ASN}.ibmsnap_signal (signal_type, signal_subtype, "
-            f"signal_input_in, signal_state) values "
-            f"('CMD', 'CAPSTART', '{map_id}', 'P')",
-        ]
+        CAPSTART signal for every one of `tables`, in ONE container call over
+        one connection, with one asnclp run generating every registration.
+
+        Per table, a call of its own cost a ``docker exec``, a CLP connect and
+        an asnclp start -- about 3.5s before any DDL, most of a model install's
+        time -- so a model of seven tables paid it seven times. Returns the
+        CAPSTART map ids, in `tables` order."""
+        stagings = [self._staging(schema, t) for t in tables]
+        # The domain's own, as the CD tables are: two domains may register at
+        # the same moment, and share the container's home dir.
+        script = f"TD_ASN_REGISTER_{schema}".upper()
+        map_ids = [str(random.randint(1, 2**31 - 1)) for _ in tables]  # noqa: S311 - internal signal ids
+        registrations = "".join(
+            f"create registration ({schema}.{table}) differential refresh "
+            f"stage {_ASN}.{staging} cols all image both "
+            f"prefix {_OLD_VALUES_PREFIX} options capture all\\n"
+            for table, staging in zip(tables, stagings)
+        )
+        after: list[str] = []
+        for table, staging, map_id in zip(tables, stagings, map_ids):
+            after += [
+                f"alter table {_ASN}.{staging} add column IBMSNAP_LOGMARKER "
+                f"TIMESTAMP NOT NULL WITH DEFAULT CURRENT TIMESTAMP",
+                f"create trigger {_ASN}.LM_{staging} no cascade before insert on "
+                f"{_ASN}.{staging} referencing new as N for each row "
+                f"set N.IBMSNAP_LOGMARKER = coalesce((select IBMSNAP_LOGMARKER from "
+                f"{_ASN}.IBMSNAP_UOW where IBMSNAP_COMMITSEQ = N.IBMSNAP_COMMITSEQ), "
+                f"CURRENT TIMESTAMP)",
+                f"insert into {_ASN}.ibmsnap_pruncntl (target_server, target_owner, "
+                f"target_table, source_owner, source_table, source_view_qual, "
+                f"apply_qual, set_name, cntl_server, target_structure, "
+                f"phys_change_owner, phys_change_table, map_id) values "
+                f"('{_XP_DB}', '{_ASN}', '{staging}', '{schema}', '{table}', 0, "
+                f"'TDQUAL', 'TDSET', '{_XP_DB}', 1, '{_ASN}', '{staging}', '{map_id}')",
+                f"insert into {_ASN}.ibmsnap_signal (signal_type, signal_subtype, "
+                f"signal_input_in, signal_state) values "
+                f"('CMD', 'CAPSTART', '{map_id}', 'P')",
+            ]
         self._run(
             container,
             f'cd "$HOME"\n'
             f"db2w connect to {_XP_DB} >/dev/null{_OR_EXIT}\n"
-            f'db2w -v "alter table {source} data capture changes"{_OR_EXIT}\n'
-            f"rm -f {script}\n"
+            + "".join(
+                f'db2w -v "alter table {schema}.{table} data capture changes"{_OR_EXIT}\n'
+                for table in tables
+            )
+            + f"rm -f {script}\n"
             f"printf 'set output capture script {script}\\n"
             f"set server capture to db {_XP_DB}\\n"
             f"set capture schema source {_ASN}\\n"
-            f"create registration ({source}) differential refresh "
-            f"stage {_ASN}.{staging} cols all image both "
-            f"prefix {_OLD_VALUES_PREFIX} options capture all\\n"
+            f"{registrations}"
             f"quit\\n' | asnclp\n"
             f"db2w -tvf {script}{_OR_EXIT}\n"
             + "".join(f'db2w -v "{sql}"{_OR_EXIT}\n' for sql in after)
             + "db2 terminate >/dev/null 2>&1\n",
         )
-        return map_id
+        return map_ids
 
     def _registrations_started(
         self, container: str, schema: str, tables: list[str], map_ids: list[str]

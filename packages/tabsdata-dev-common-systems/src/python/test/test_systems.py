@@ -1872,16 +1872,19 @@ def db2cdc(monkeypatch):
     return system
 
 
-def test_db2cdc_registers_each_table_in_one_container_call(db2cdc):
+def test_db2cdc_registers_every_table_in_one_container_call(db2cdc):
+    """One docker exec, one CLP connect and one asnclp run for the whole
+    model: per table they cost ~3.5s before any DDL, most of an install."""
     db2cdc.scalars = ["0 3"]
     db2cdc._register_tables("C", "S", ["A", "B", "D"])
-    registrations = [call for call in db2cdc.calls if "asnclp" in call]
-    assert len(registrations) == 3
-    for call in registrations:
-        assert "data capture changes" in call
-        assert "IBMSNAP_LOGMARKER" in call
-        assert "ibmsnap_pruncntl" in call
-        assert "'CAPSTART'" in call
+    [call] = [call for call in db2cdc.calls if "asnclp" in call]
+    assert call.count("| asnclp") == 1 and call.count("connect to") == 1
+    for table in ("A", "B", "D"):
+        assert f"alter table S.{table} data capture changes" in call
+        assert f"create registration (S.{table})" in call
+        assert "LM_TD_" in call and f"'{table}', 0, 'TDQUAL'" in call
+    assert call.count("IBMSNAP_LOGMARKER TIMESTAMP") == 3
+    assert call.count("'CAPSTART'") == 3
 
 
 def test_db2cdc_waits_for_every_registration_together(db2cdc):
