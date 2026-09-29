@@ -988,29 +988,38 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
     owners: dict[str, str] = {}  # CD table -> schema holding it (IBMSNAP_REGISTER)
     existing: set[str] = set()  # SCHEMA.TABLE in syscat: source and CD tables
 
+    def listed(s, column):
+        return s.split(f"{column} in (")[1].split(")")[0].replace("'", "").split(", ")
+
+    def lines(container, sql):
+        s = " ".join(sql.split())
+        if "select cd_table, source_owner" in s:  # who holds these CD tables
+            return [
+                f"{cd} {owners[cd]}" for cd in listed(s, "cd_table") if cd in owners
+            ]
+        if "select source_table, cd_table" in s:  # the CD tables registrations record
+            sch = s.split("source_owner = '")[1].split("'")[0]
+            return [
+                f"{tab} {cd}"
+                for tab in listed(s, "source_table")
+                for cd, o in owners.items()
+                if o == sch and cd.endswith("__" + tab)
+            ]
+        if "select tabname from syscat.tables where tabschema = 'ASN'" in s:
+            return [cd for cd in listed(s, "tabname") if f"ASN.{cd}" in existing]
+        raise AssertionError(s)
+
     def scalar(container, sql):
         s = " ".join(sql.split())
-        if "min(cd_table)" in s:  # the CD table a registration records
-            sch = s.split("source_owner = '")[1].split("'")[0]
-            tab = s.split("source_table = '")[1].split("'")[0]
-            return next(
-                (
-                    cd
-                    for cd, o in owners.items()
-                    if o == sch and cd.endswith("__" + tab)
-                ),
-                "",
-            )
-        if "ibmsnap_register where cd_owner" in s:
-            cd = s.split("cd_table = '")[1].split("'")[0]
-            return owners.get(cd, "")
         if "syscat.tables where tabschema" in s:
             sch = s.split("tabschema = '")[1].split("'")[0]
             tab = s.split("tabname = '")[1].split("'")[0]
             return "1" if f"{sch}.{tab}" in existing else "0"
         raise AssertionError(s)
 
+    monkeypatch.setattr(b, "_clp_lines", lines)
     monkeypatch.setattr(b, "_clp_scalar", scalar)
+    monkeypatch.setattr(b, "_ensure_asncap", lambda c, tune=False: None)
     monkeypatch.setattr(
         b, "_container_and_schema", lambda meta: ("tdd_db2cdc", "XP_NEW")
     )
@@ -1018,22 +1027,27 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
         b, "_list_schema_tables", lambda c, s: ["DEPARTMENTS", "EMPLOYEES"]
     )
     monkeypatch.setattr(
-        b, "_register_table", lambda c, s, t: calls.append(("register", s, t))
+        b,
+        "_register_tables",
+        lambda c, s, tables: calls.extend(("register", s, t) for t in tables),
     )
     monkeypatch.setattr(
-        b, "_send_capstop", lambda c, s, t: calls.append(("capstop", s, t))
+        b,
+        "_send_capstops",
+        lambda c, s, tables: calls.extend(("capstop", s, t) for t in tables),
     )
     stuck: set[str] = set()  # CD tables whose drop fails
 
-    def clp(container, sql, ignore_failure=False):
-        s = " ".join(sql.split())
-        calls.append(("sql", s))
-        if s.startswith("drop table ASN."):
-            cd = s.split("drop table ASN.")[1]
-            if cd not in stuck:
-                existing.discard(f"ASN.{cd}")
+    def batch(container, statements, ignore_failure=False):
+        for sql in statements:
+            s = " ".join(sql.split())
+            calls.append(("sql", s))
+            if s.startswith("drop table ASN."):
+                cd = s.split("drop table ASN.")[1]
+                if cd not in stuck:
+                    existing.discard(f"ASN.{cd}")
 
-    monkeypatch.setattr(b, "_clp", clp)
+    monkeypatch.setattr(b, "_clp_batch", batch)
 
     # nothing holds the names: both tables register
     b.after_install_schema({}, "employees")
@@ -1064,7 +1078,7 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
     )
     sqls = [c[1] for c in calls if c[0] == "sql"]
     assert any(
-        "delete from ASN.ibmsnap_register where source_owner = 'XP_OLD' and source_table = 'DEPARTMENTS'"
+        "delete from ASN.ibmsnap_register where source_owner = 'XP_OLD' and source_table in ('DEPARTMENTS')"
         in s
         for s in sqls
     )
@@ -1724,13 +1738,127 @@ def test_db2cdc_removes_the_cd_table_its_registration_records(monkeypatch):
     sqls: list[str] = []
     monkeypatch.setattr(
         b,
-        "_clp_scalar",
-        lambda c, sql: "TD_T__EMPLOYEES" if "min(cd_table)" in sql else "0",
+        "_clp_lines",
+        lambda c, sql: ["EMPLOYEES TD_T__EMPLOYEES"] if "cd_table from" in sql else [],
     )
     monkeypatch.setattr(
-        b, "_clp", lambda c, sql, ignore_failure=False: sqls.append(sql)
+        b,
+        "_clp_batch",
+        lambda c, statements, ignore_failure=False: sqls.extend(statements),
     )
-    monkeypatch.setattr(b, "_send_capstop", lambda c, s, t: None)
-    b._remove_registration("tdd_db2cdc", "XP_OLD", "EMPLOYEES")
+    monkeypatch.setattr(b, "_send_capstops", lambda c, s, t: None)
+    b._remove_registrations("tdd_db2cdc", "XP_OLD", ["EMPLOYEES"])
     assert "drop table ASN.TD_T__EMPLOYEES" in sqls
     assert "drop trigger ASN.LM_TD_T__EMPLOYEES" in sqls
+
+
+def test_a_forced_domain_chain_loads_data_without_reinstalling_the_model():
+    """A forced create-data drops and recreates the tables, so after a
+    create-model, which has just installed them empty, it goes unforced."""
+    entry = {"name": "d1", "sys": "pg", "model": "employees", "size": 1}
+    create, model, data = dispatch._entry_steps(constants.DOM_TOOL, entry, force=True)
+    assert constants.OPT_FORCE in create and constants.OPT_FORCE in model
+    assert constants.OPT_FORCE not in data
+
+
+def test_a_forced_domain_chain_without_a_model_still_forces_the_data():
+    entry = {"name": "d1", "sys": "pg", "size": 1}
+    create, data = dispatch._entry_steps(constants.DOM_TOOL, entry, force=True)
+    assert constants.OPT_FORCE in create and constants.OPT_FORCE in data
+
+
+@pytest.fixture
+def db2cdc(monkeypatch):
+    """A db2cdc backend whose container calls are recorded, not run; `scalars`
+    answers the scalar queries in order, `lines` the row queries by fragment."""
+    from tabsdata_dev.common.systems.systems.db2cdc import backend
+
+    monkeypatch.setattr(backend.time, "sleep", lambda seconds: None)
+    system = backend.Db2Cdc()
+    system.calls = []
+    system.scalars = []
+    system.lines = {}
+
+    def run(container, body, **kwargs):
+        system.calls.append(body)
+        return ""
+
+    def scalar(container, sql):
+        system.calls.append(sql)
+        return system.scalars.pop(0) if system.scalars else ""
+
+    def lines(container, sql):
+        system.calls.append(sql)
+        return next(
+            (rows for fragment, rows in system.lines.items() if fragment in sql), []
+        )
+
+    system._run = run
+    system._clp_scalar = scalar
+    system._clp_lines = lines
+    return system
+
+
+def test_db2cdc_registers_each_table_in_one_container_call(db2cdc):
+    db2cdc.scalars = ["0 3"]
+    db2cdc._register_tables("C", "S", ["A", "B", "D"])
+    registrations = [call for call in db2cdc.calls if "asnclp" in call]
+    assert len(registrations) == 3
+    for call in registrations:
+        assert "data capture changes" in call
+        assert "IBMSNAP_LOGMARKER" in call
+        assert "ibmsnap_pruncntl" in call
+        assert "'CAPSTART'" in call
+
+
+def test_db2cdc_waits_for_every_registration_together(db2cdc):
+    db2cdc.scalars = ["1 2", "0 2", "0 3"]
+    db2cdc._register_tables("C", "S", ["A", "B", "D"])
+    polls = [call for call in db2cdc.calls if "sysdummy1" in call]
+    assert len(polls) == 3
+    assert "'A', 'B', 'D'" in polls[0]
+
+
+def test_db2cdc_a_failing_registration_step_ends_its_call(db2cdc):
+    from tabsdata_dev.common.systems.systems.db2cdc import backend
+
+    db2cdc.scalars = ["0 1"]
+    db2cdc._register_tables("C", "S", ["A"])
+    [call] = [call for call in db2cdc.calls if "asnclp" in call]
+    steps = [line for line in call.splitlines() if line.startswith("db2w ")]
+    assert steps
+    assert all(line.endswith(backend._OR_EXIT) for line in steps)
+
+
+def test_db2cdc_stops_every_table_in_one_call_and_waits_once(db2cdc):
+    db2cdc.lines = {"cd_table from": ["A TD_X__A", "B TD_X__B"]}
+    db2cdc.scalars = ["0"]
+    db2cdc._remove_registrations("C", "S", ["A", "B"])
+    stops = [c for c in db2cdc.calls if "'CAPSTOP'" in c and "insert" in c]
+    assert len(stops) == 1
+    assert "'S.A'" in stops[0] and "'S.B'" in stops[0]
+    drops = next(c for c in db2cdc.calls if "drop table ASN.TD_X__A" in c)
+    assert "drop table ASN.TD_X__B" in drops
+
+
+def test_db2cdc_waits_only_for_the_latest_stop_of_each_table(db2cdc):
+    db2cdc.scalars = ["0"]
+    assert db2cdc._capstops_consumed("C", ["S.A"]) is True
+    assert "row_number() over" in db2cdc.calls[-1]
+
+
+def test_db2cdc_a_cd_table_that_survives_its_removal_is_an_error(db2cdc):
+    db2cdc.lines = {"cd_table from": ["A TD_X__A"], "tabname in": ["TD_X__A"]}
+    db2cdc.scalars = ["0"]
+    with pytest.raises(TdxError, match="could not be dropped"):
+        db2cdc._remove_registrations("C", "S", ["A"])
+
+
+def test_db2cdc_tunes_the_capture_program_to_its_minimum_intervals(db2cdc, monkeypatch):
+    commands = []
+    monkeypatch.setattr(
+        db2cdc, "_exec_inst", lambda c, script, **k: commands.append(script) or ""
+    )
+    db2cdc._tune_capture("C")
+    assert any("commit_interval = 1" in call for call in db2cdc.calls)
+    assert any("chgparms commit_interval=1 sleep_interval=1" in c for c in commands)
