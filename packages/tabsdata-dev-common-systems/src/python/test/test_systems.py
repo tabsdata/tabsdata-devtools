@@ -1019,13 +1019,27 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
 
     monkeypatch.setattr(b, "_clp_lines", lines)
     monkeypatch.setattr(b, "_clp_scalar", scalar)
-    monkeypatch.setattr(b, "_ensure_asncap", lambda c, tune=False: None)
     monkeypatch.setattr(
         b, "_container_and_schema", lambda meta: ("tdd_db2cdc", "XP_NEW")
     )
-    monkeypatch.setattr(
-        b, "_list_schema_tables", lambda c, s: ["DEPARTMENTS", "EMPLOYEES"]
-    )
+
+    def probe(container, schema):
+        # What the one probe call reads: this domain's CD table names only,
+        # as its prefix finds them, and asncap up and tuned.
+        from tabsdata_dev.common.systems.systems.db2cdc.backend import _Probe
+
+        prefix = b.staging_prefix(schema)
+        return _Probe(
+            tables=["DEPARTMENTS", "EMPLOYEES"],
+            owners={cd: o for cd, o in owners.items() if cd.startswith(prefix)},
+            existing={
+                e[len("ASN.") :] for e in existing if e.startswith("ASN." + prefix)
+            },
+            asncap_up=True,
+            tuned=True,
+        )
+
+    monkeypatch.setattr(b, "_install_probe", probe)
     monkeypatch.setattr(
         b,
         "_register_tables",
@@ -1887,12 +1901,93 @@ def test_db2cdc_registers_every_table_in_one_container_call(db2cdc):
     assert call.count("'CAPSTART'") == 3
 
 
-def test_db2cdc_waits_for_every_registration_together(db2cdc):
-    db2cdc.scalars = ["1 2", "0 2", "0 3"]
+def test_db2cdc_waits_for_every_registration_together_in_the_container(db2cdc):
+    """One wait for all the tables, looped inside the container over one
+    connection: a docker exec and a connect per look cost ~3s each."""
     db2cdc._register_tables("C", "S", ["A", "B", "D"])
-    polls = [call for call in db2cdc.calls if "sysdummy1" in call]
-    assert len(polls) == 3
-    assert "'A', 'B', 'D'" in polls[0]
+    [wait] = [call for call in db2cdc.calls if "sysdummy1" in call]
+    assert "'A', 'B', 'D'" in wait and wait.count("connect to") == 1
+    assert 'if [ "$got" = "0 3" ]' in wait and "while [ $SECONDS -lt 300 ]" in wait
+    # the query in the connecting shell: `$(db2 ...)` would run it in a
+    # subshell, which the CLP's connection does not reach (SQL1024N)
+    assert '> "$rows" 2>&1' in wait and "$(db2" not in wait
+
+
+def test_db2cdc_a_wait_that_never_ends_says_what_it_last_read(db2cdc):
+    from tabsdata_dev.common.systems.errors import TdxError
+
+    def run(container, body, **kwargs):
+        raise TdxError("db2 instance command failed: last read: 1 2")
+
+    db2cdc._run = run
+    with pytest.raises(
+        TdxError, match=r"CDC: timed out waiting for x .*last read: 1 2"
+    ):
+        db2cdc._wait_until("C", "select 1 from sysibm.sysdummy1", "0 3", what="x")
+
+
+def test_db2cdc_reads_what_an_install_needs_in_one_call(db2cdc):
+    """The schema's tables, this domain's CD tables -- held and existing, by
+    its own prefix exactly -- the capture intervals and asncap's status, from
+    one container call over one connection."""
+    from tabsdata_dev.common.systems.systems.db2cdc import backend
+
+    p = db2cdc.staging_prefix("S")
+    other = "TD_X" + p[4:]  # `_` in LIKE matches it; the exact filter does not
+    out = "\n".join(
+        [
+            f"{backend._SECTION}tables",
+            "EMPLOYEES",
+            "SALARIES",
+            f"{backend._SECTION}owners",
+            f"{p}EMPLOYEES S_OLD",
+            f"{other}EMPLOYEES S_X",
+            f"{backend._SECTION}existing",
+            f"{p}EMPLOYEES",
+            "SQL0100W  No row was found",
+            f"{backend._SECTION}intervals",
+            "          1           1",
+            f"{backend._SECTION}asncap",
+            "ASN0520I  AsnCcmd : The STATUS command response: ...",
+            "rc=0",
+        ]
+    )
+    db2cdc._run = lambda container, body, **kwargs: db2cdc.calls.append(body) or out
+    probe = db2cdc._install_probe("C", "S")
+    [call] = db2cdc.calls
+    assert call.count("connect to") == 1 and "asnccmd" in call
+    assert probe.tables == ["EMPLOYEES", "SALARIES"]
+    assert probe.owners == {f"{p}EMPLOYEES": "S_OLD"}
+    assert probe.existing == {f"{p}EMPLOYEES"}
+    assert probe.asncap_up and probe.tuned
+
+    down = out.replace("ASN0520I", backend._ASNCAP_DOWN)
+    db2cdc._run = lambda container, body, **kwargs: down.replace(
+        "1           1", "5 30"
+    )
+    probe = db2cdc._install_probe("C", "S")
+    assert not probe.asncap_up and not probe.tuned
+
+
+def test_db2cdc_tunes_asncap_only_when_it_needs_it(db2cdc, monkeypatch):
+    from tabsdata_dev.common.systems.systems.db2cdc import backend
+
+    done: list[str] = []
+    monkeypatch.setattr(db2cdc, "_container_and_schema", lambda meta: ("C", "S"))
+    monkeypatch.setattr(db2cdc, "_claim_cd_tables", lambda *a: None)
+    monkeypatch.setattr(db2cdc, "_register_tables", lambda *a: None)
+    monkeypatch.setattr(db2cdc, "_tune_capture", lambda c: done.append("tune"))
+    monkeypatch.setattr(db2cdc, "_setup_asncap", lambda c: done.append("setup"))
+    for up, tuned, want in (
+        (True, True, []),
+        (True, False, ["tune"]),
+        (False, False, ["setup"]),
+    ):
+        done.clear()
+        probe = backend._Probe(["A"], {}, set(), asncap_up=up, tuned=tuned)
+        monkeypatch.setattr(db2cdc, "_install_probe", lambda c, s, probe=probe: probe)
+        db2cdc.after_install_schema({}, "m")
+        assert done == want, (up, tuned)
 
 
 def test_db2cdc_a_failing_registration_step_ends_its_call(db2cdc):

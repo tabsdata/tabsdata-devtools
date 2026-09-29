@@ -38,6 +38,7 @@ from __future__ import annotations
 import hashlib
 import random
 import time
+from dataclasses import dataclass
 
 from tabsdata_dev.common.systems import descriptor, store
 from tabsdata_dev.common.systems.errors import TdxError
@@ -55,6 +56,8 @@ CD_TABLE_PREFIX_KEY = "CD_TABLE_PREFIX"
 _OLD_VALUES_PREFIX = "_"
 _WAIT_TIMEOUT_S = 300
 _WAIT_POLL_S = 1
+# Marks where one step's output begins in a _clp_sections call.
+_SECTION = "@@TDD@@"
 
 # asncap publishes what it has done -- a signal consumed, a registration made
 # active, the CD rows of a change -- only when it commits, every
@@ -69,6 +72,34 @@ _CAPTURE_INTERVAL_S = 1
 _PRELUDE = 'db2w() { db2 "$@"; local r=$?; [ "$r" -ge 4 ] && return "$r"; return 0; }\n'
 # Appended to a step of a multi-statement call: a failure ends the call there.
 _OR_EXIT = ' || { r=$?; db2 terminate >/dev/null 2>&1; exit "$r"; }'
+
+
+@dataclass
+class _Probe:
+    """What `_install_probe` read, in one container call."""
+
+    tables: list[str]
+    owners: dict[str, str]  # CD table -> the schema whose registration holds it
+    existing: set[str]  # this domain's CD tables that exist
+    asncap_up: bool
+    tuned: bool  # asncap's intervals are the test system's
+
+
+class _Steps:
+    """How long each step of a model install took, for its detail log: a slow
+    install is read for where the time went."""
+
+    def __init__(self) -> None:
+        self._last = time.monotonic()
+        self._steps: list[str] = []
+
+    def step(self, name: str) -> None:
+        now = time.monotonic()
+        self._steps.append(f"{name} {now - self._last:.1f}s")
+        self._last = now
+
+    def __str__(self) -> str:
+        return ", ".join(self._steps)
 
 
 def _sql_list(values: list[str]) -> str:
@@ -135,6 +166,71 @@ class Db2Cdc(Db2):
             + "db2 terminate >/dev/null 2>&1\n",
             ignore_failure=ignore_failure,
         )
+
+    def _clp_sections(
+        self, container: str, steps: dict[str, str]
+    ) -> dict[str, list[str]]:
+        """Several read-only steps in ONE container call over one connection --
+        each a query (run with ``db2 -x``) or, prefixed ``!``, a shell command
+        -- and each one's output lines, by name. A call of its own per query
+        paid a docker exec and a CLP connect, ~3s, before the query ran."""
+        body = f"db2 connect to {_XP_DB} >/dev/null 2>&1\n"
+        for name, step in steps.items():
+            body += f"echo '{_SECTION}{name}'\n"
+            body += (
+                f'{step[1:]} 2>&1; echo "rc=$?"\n'
+                if step.startswith("!")
+                else f'db2 -x "{step}"\n'
+            )
+        body += "db2 terminate >/dev/null 2>&1\n"
+        out = self._run(container, body, ignore_failure=True)
+        sections: dict[str, list[str]] = {name: [] for name in steps}
+        current: str | None = None
+        for raw in out.splitlines():
+            line = raw.strip()
+            if line.startswith(_SECTION):
+                current = line[len(_SECTION) :]
+                continue
+            if current is None or not line:
+                continue
+            # A query's own chatter (SQL0100W no rows, DB2 notices) is not a
+            # row; a command's lines are kept as they are.
+            if not steps[current].startswith("!") and line.startswith(("DB2", "SQL")):
+                continue
+            sections[current].append(line)
+        return sections
+
+    def _wait_until(
+        self, container: str, sql: str, expected: str, *, what: str
+    ) -> None:
+        """Poll `sql` until its row reads `expected` (columns space-separated),
+        inside the container over ONE connection -- each look a query, not a
+        docker exec and a connect, which cost ~3s a look and made a 1s poll a
+        3s one. Times out after _WAIT_TIMEOUT_S with the last row it read."""
+        # bash's SECONDS counts from the shell's start: a deadline, where a
+        # count of looks would add every query's own time to the timeout. The
+        # query runs in THIS shell, its rows to a file: the CLP ties the
+        # connection to the process that made it, and `$(db2 ...)` runs db2
+        # in a subshell, which has none (SQL1024N).
+        body = (
+            f"db2 connect to {_XP_DB} >/dev/null 2>&1\n"
+            f"rows=$(mktemp); got=''\n"
+            f"while [ $SECONDS -lt {_WAIT_TIMEOUT_S} ]; do\n"
+            f'  db2 -x "{sql}" > "$rows" 2>&1\n'
+            f'  got=$(tr -s " \\t\\n" " " < "$rows" | sed "s/^ //; s/ $//")\n'
+            f'  if [ "$got" = "{expected}" ]; then rm -f "$rows"; '
+            f"db2 terminate >/dev/null 2>&1; exit 0; fi\n"
+            f"  sleep {_WAIT_POLL_S}\n"
+            f"done\n"
+            f'rm -f "$rows"\n'
+            f'echo "last read: $got"\n'
+            f"db2 terminate >/dev/null 2>&1\n"
+            f"exit 3\n"
+        )
+        try:
+            self._run(container, body)
+        except TdxError as exc:
+            raise TdxError(f"CDC: timed out waiting for {what} ({exc})") from exc
 
     def _clp_scalar(self, container: str, sql: str) -> str:
         out = self._run(
@@ -585,7 +681,14 @@ class Db2Cdc(Db2):
         each stop would wait out the full timeout."""
         if force:
             self._deregister_schema(meta)
+        started = time.monotonic()
+        self._cdc_seconds = 0.0
         super().install_schema(meta, model, force=force)
+        total = time.monotonic() - started
+        print(
+            f"    model install {total:.1f}s: DDL {total - self._cdc_seconds:.1f}s, "
+            f"CDC {self._cdc_seconds:.1f}s"
+        )
 
     def uninstall_schema(self, meta: dict[str, str], model: str) -> None:
         """Deregistered before the drop, for the reason :meth:`install_schema`
@@ -630,20 +733,80 @@ class Db2Cdc(Db2):
     # ---- model registration ---------------------------------------------
 
     def after_install_schema(self, meta: dict[str, str], model: str) -> None:
+        started = time.monotonic()
+        clock = _Steps()
         container, schema = self._container_and_schema(meta)
-        tables = self._list_schema_tables(container, schema)
-        if not tables:
+        probe = self._install_probe(container, schema)
+        clock.step("probe")
+        if not probe.tables:
             print(">>> CDC: no tables to register")
             return
-        self._ensure_asncap(container, tune=True)
-        self._claim_cd_tables(container, schema, tables)
+        if not probe.asncap_up:
+            self._setup_asncap(container)
+        elif not probe.tuned:
+            print(">>> CDC: asncap running with other intervals; tuning it")
+            self._tune_capture(container)
+        else:
+            print(">>> CDC: asncap already running")
+        clock.step("asncap")
+        tables = probe.tables
+        self._claim_cd_tables(container, schema, tables, probe.owners, probe.existing)
+        clock.step("claim CD tables")
         print(f">>> CDC: registering {len(tables)} table(s) for ASN capture …")
         self._register_tables(container, schema, tables)
-        print(">>> CDC: all tables registered and active")
+        clock.step("register+activate")
+        print(f">>> CDC: all tables registered and active ({clock})")
+        self._cdc_seconds = time.monotonic() - started
 
     # ---- CD table names: this domain's own, left over or not --------------
 
-    def _claim_cd_tables(self, container: str, schema: str, tables: list[str]) -> None:
+    def _install_probe(self, container: str, schema: str) -> _Probe:
+        """Everything a model install reads before it registers, in ONE
+        container call: the schema's tables, which of this domain's CD table
+        names a registration holds and which exist, the capture intervals,
+        and whether asncap is up. The CD tables are found by the domain's own
+        prefix and filtered on it exactly -- in LIKE, its `_` matches any
+        character."""
+        prefix = self.staging_prefix(schema)
+        like = f"{prefix}%"
+        out = self._clp_sections(
+            container,
+            {
+                "tables": f"select tabname from syscat.tables where tabschema = "
+                f"'{schema}' and type = 'T'",
+                "owners": f"select cd_table, source_owner from {_ASN}.ibmsnap_register "
+                f"where cd_owner = '{_ASN}' and cd_table like '{like}'",
+                "existing": f"select tabname from syscat.tables where tabschema = "
+                f"'{_ASN}' and tabname like '{like}'",
+                "intervals": f"select commit_interval, sleep_interval from "
+                f"{_ASN}.ibmsnap_capparms",
+                "asncap": f"!asnccmd capture_schema={_ASN} capture_server={_XP_DB} status",
+            },
+        )
+        owners = {
+            row.split()[0]: row.split()[1]
+            for row in out["owners"]
+            if len(row.split()) >= 2 and row.split()[0].startswith(prefix)
+        }
+        existing = {row for row in out["existing"] if row.startswith(prefix)}
+        status = "\n".join(out["asncap"])
+        want = f"{_CAPTURE_INTERVAL_S} {_CAPTURE_INTERVAL_S}"
+        return _Probe(
+            tables=out["tables"],
+            owners=owners,
+            existing=existing,
+            asncap_up="rc=0" in status and _ASNCAP_DOWN not in status,
+            tuned=[" ".join(r.split()) for r in out["intervals"]] == [want],
+        )
+
+    def _claim_cd_tables(
+        self,
+        container: str,
+        schema: str,
+        tables: list[str],
+        owners: dict[str, str],
+        existing: set[str],
+    ) -> None:
         """Before the first registration: every CD table this model needs is
         free, or is freed here, or the create is refused with the holder named.
 
@@ -666,8 +829,6 @@ class Db2Cdc(Db2):
         that frees it.
         """
         stagings = {table: self._staging(schema, table) for table in tables}
-        owners = self._cd_table_owners(container, list(stagings.values()))
-        existing = self._existing_cd_tables(container, list(stagings.values()))
         own: list[str] = []
         blockers: dict[str, list[str]] = {}
         for table in tables:
@@ -731,16 +892,6 @@ class Db2Cdc(Db2):
             f"{container}: {fix}, or create this one on another db2cdc system."
         )
 
-    def _cd_table_owners(self, container: str, stagings: list[str]) -> dict[str, str]:
-        """The schema whose registration holds each of these CD tables, for
-        the ones any registration holds."""
-        rows = self._clp_lines(
-            container,
-            f"select cd_table, source_owner from {_ASN}.ibmsnap_register "
-            f"where cd_owner = '{_ASN}' and cd_table in ({_sql_list(stagings)})",
-        )
-        return dict(row.split()[:2] for row in rows if len(row.split()) >= 2)
-
     def _source_table_exists(self, container: str, schema: str, table: str) -> bool:
         return self._clp_scalar(
             container,
@@ -771,13 +922,6 @@ class Db2Cdc(Db2):
                 return info.name
         return ""
 
-    def _list_schema_tables(self, container: str, schema: str) -> list[str]:
-        return self._clp_lines(
-            container,
-            f"select tabname from syscat.tables where tabschema = '{schema}' "
-            f"and type = 'T'",
-        )
-
     def _register_tables(self, container: str, schema: str, tables: list[str]) -> None:
         """Register every one of `tables` in one container call, then wait once
         for asncap to take them all: the capture program consumes every
@@ -786,8 +930,10 @@ class Db2Cdc(Db2):
         started = time.monotonic()
         map_ids = self._start_registrations(container, schema, tables)
         registered = time.monotonic()
-        self._poll(
-            lambda: self._registrations_started(container, schema, tables, map_ids),
+        self._wait_until(
+            container,
+            self._registrations_sql(schema, tables, map_ids),
+            f"0 {len(tables)}",
             what=(
                 f"CAPSTART of {', '.join(f'{schema}.{t}' for t in tables)} to be "
                 f"consumed and the registrations to become active"
@@ -863,16 +1009,16 @@ class Db2Cdc(Db2):
         )
         return map_ids
 
-    def _registrations_started(
-        self, container: str, schema: str, tables: list[str], map_ids: list[str]
-    ) -> bool:
-        counts = self._clp_scalar(
-            container,
+    def _registrations_sql(
+        self, schema: str, tables: list[str], map_ids: list[str]
+    ) -> str:
+        """One row: the CAPSTARTs of `map_ids` not yet consumed, and how many of
+        `tables` are active -- ``0 <len(tables)>`` once asncap has taken all."""
+        return (
             f"select (select count(*) from {_ASN}.ibmsnap_signal where "
             f"signal_type = 'CMD' and signal_subtype = 'CAPSTART' and "
             f"signal_input_in in ({_sql_list(map_ids)}) and signal_state <> 'C'), "
             f"(select count(*) from {_ASN}.ibmsnap_register where source_owner = "
             f"'{schema}' and source_table in ({_sql_list(tables)}) and state = 'A') "
-            f"from sysibm.sysdummy1",
-        ).split()
-        return counts == ["0", str(len(tables))]
+            f"from sysibm.sysdummy1"
+        )
