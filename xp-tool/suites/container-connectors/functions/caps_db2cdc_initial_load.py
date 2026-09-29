@@ -31,12 +31,10 @@ Two functions, one per suite, identical -- each suite's domain brings its own CD
                                  deleted employee's rows in dept_emp, dept_manager,
                                  titles and salaries go too (ON DELETE CASCADE).
 
-NOT YET RUNNABLE: the connector's initial load fails as the stream starts, with
-``DB2_25: An initial load read its resume position before pinning the source tables``.
-The shared ``InitialLoader.load()`` reads ``session.offset`` before iterating
-``session.tables()``, and the Db2 session fixes its offset only inside ``_pin()``,
-which ``tables()`` runs -- postgres' and mysql's fix it when the session opens.
-``SqlReplicaInitialLoadSession(engine=None, dialect=None).offset`` raises it alone.
+The output tables carry Db2's column names, upper-cased (``EMP_NO``) as its catalog
+folds unquoted identifiers, where the model has ``emp_no``: the sentinel stage and
+``scripts/verify_cdc_ops.py`` match columns without case. A source transaction is
+Db2's 32 hex digits.
 
 asncap stages changes in the background, so a change reaches a CD table a moment after
 it commits. Registering a stream publisher STARTS it (no trigger); the snapshot is its

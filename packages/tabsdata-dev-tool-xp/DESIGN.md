@@ -189,7 +189,7 @@ comment). Kinds repeat, in any order the dependencies allow:
   exit code is what every tool already speaks. `container-connectors/scripts/verify_cdc_ops.py`
   is the first: the CDC stream's output against the trail, the snapshot as the state the
   operations before it leave, and the changes after it one by one in the same source
-  transactions (cascades replayed before the snapshot; transactions paired by content, so one lost or extra is reported alone; what the database logs besides the trail -- the rows a cascade takes, an update that changed nothing -- is the suite's to say, `--cascades`/`--noops logged|unlogged`, with no default: a check that accepts either lets a stream drop what it should carry).
+  transactions (cascades replayed before the snapshot; transactions paired by content, so one lost or extra is reported alone; what the database logs besides the trail -- the rows a cascade takes, an update that changed nothing -- is the suite's to say, `--cascades`/`--noops logged|unlogged`, with no default: a check that accepts either lets a stream drop what it should carry). Column names are compared without case -- db2 reports them upper-cased, the trail has the model's -- and a source transaction orders by what it is: a postgres xid, a mysql GTID's sequence, db2's 32 hex digits as a string.
 - **`"enabled": false`** on a function registers it with `tdk fn register --disabled`: a stream
   publisher does not start until `enable-function --project P --collection C --function F`
   (tdk's `fn enable`); `disable-function` stops one. A group project is refused -- its lanes'
