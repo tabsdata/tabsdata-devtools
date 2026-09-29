@@ -497,29 +497,49 @@ class Db2Cdc(Db2):
     def _deregister_tables(
         self, container: str, schema: str, tables: list[str], *, drop: bool = False
     ) -> None:
-        self._remove_registrations(container, schema, tables)
-        statements = [
-            f"alter table {schema}.{table} data capture none" for table in tables
-        ]
+        after = [f"alter table {schema}.{table} data capture none" for table in tables]
         if drop:
-            statements += [f"drop table {schema}.{table}" for table in tables]
-        self._clp_batch(container, statements, ignore_failure=True)
+            after += [f"drop table {schema}.{table}" for table in tables]
+        self._remove_registrations(container, schema, tables, after=after)
 
     def _remove_registrations(
-        self, container: str, schema: str, tables: list[str]
+        self,
+        container: str,
+        schema: str,
+        tables: list[str],
+        *,
+        after: list[str] | None = None,
     ) -> None:
         """CAPSTOP, then the registrations' rows, triggers and CD tables: what a
         deregistration and a reclaim both take away. The source tables' own
-        ``DATA CAPTURE`` flag is the deregistration's to clear -- a reclaim has
-        no source table left to alter. Each CD table is the one its registration
-        records, so one made under an older naming goes too."""
+        ``DATA CAPTURE`` flag is the deregistration's to clear, in `after` -- a
+        reclaim has no source table left to alter. Each CD table is the one its
+        registration records, so one made under an older naming goes too.
+
+        Everything after reading those names runs in ONE container call over
+        one connection: the stops, the wait for asncap to take them (looped in
+        the container, as :meth:`_wait_until` does), the removal, `after`, and
+        the check that the CD tables are gone. CAPSTOP comes first and is waited
+        on: dropping a CD table under a still-capturing registration fails its
+        next insert (SQLCODE -42704) and takes the capture program down. A
+        capture program already down never takes them; the wait then runs out
+        and the registrations go regardless."""
         if not tables:
             return
         stagings = self._registered_stagings(container, schema, tables)
-        self._send_capstops(container, schema, tables)
+        sources = [f"{schema}.{table}" for table in tables]
         names = _sql_list(tables)
-        self._clp_batch(
-            container,
+        # Only each source's latest stop counts: an older one sent while the
+        # capture program was down is never consumed.
+        pending = (
+            f"select count(*) from (select signal_state, row_number() over "
+            f"(partition by signal_input_in order by signal_time desc) as latest "
+            f"from {_ASN}.ibmsnap_signal where signal_type = 'CMD' and "
+            f"signal_subtype = 'CAPSTOP' and signal_input_in in "
+            f"({_sql_list(sources)})) as stops "
+            f"where latest = 1 and signal_state <> 'C'"
+        )
+        removal = (
             [
                 f"delete from {_ASN}.ibmsnap_register where source_owner = "
                 f"'{schema}' and source_table in ({names})",
@@ -527,10 +547,44 @@ class Db2Cdc(Db2):
                 f"'{schema}' and source_table in ({names})",
             ]
             + [f"drop trigger {_ASN}.LM_{staging}" for staging in stagings]
-            + [f"drop table {_ASN}.{staging}" for staging in stagings],
-            ignore_failure=True,
+            + [f"drop table {_ASN}.{staging}" for staging in stagings]
+            + (after or [])
         )
-        self._require_cd_tables_gone(container, stagings)
+        body = (
+            f"db2 connect to {_XP_DB} >/dev/null 2>&1\n"
+            + "".join(
+                f'db2w -v "insert into {_ASN}.ibmsnap_signal (signal_type, '
+                f"signal_subtype, signal_input_in, signal_state) values "
+                f"('CMD', 'CAPSTOP', '{source}', 'P')\"\n"
+                for source in sources
+            )
+            + f"rows=$(mktemp); got=''\n"
+            f"while [ $SECONDS -lt {_WAIT_TIMEOUT_S} ]; do\n"
+            f'  db2 -x "{pending}" > "$rows" 2>&1\n'
+            f'  got=$(tr -s " \\t\\n" " " < "$rows" | sed "s/^ //; s/ $//")\n'
+            f'  if [ "$got" = "0" ]; then break; fi\n'
+            f"  sleep {_WAIT_POLL_S}\n"
+            f"done\n"
+            f'rm -f "$rows"\n'
+            + "".join(f'db2w -v "{sql}"\n' for sql in removal)
+            + f"echo '{_SECTION}left'\n"
+            f'db2 -x "select tabname from syscat.tables where tabschema = '
+            f"'{_ASN}' and tabname in ({_sql_list(stagings)})\"\n"
+            f"db2 terminate >/dev/null 2>&1\n"
+        )
+        out = self._run(container, body, ignore_failure=True)
+        _, _, tail = out.partition(_SECTION + "left")
+        left = {
+            line.strip()
+            for line in tail.splitlines()
+            if line.strip() and not line.strip().startswith(("DB2", "SQL"))
+        }
+        if left:
+            listed = ", ".join(f"{_ASN}.{staging}" for staging in sorted(left))
+            raise TdxError(
+                f"CDC: {listed} could not be dropped in {container}; drop them by "
+                f"hand (db2 drop table ...) or recreate the system"
+            )
 
     def _registered_stagings(
         self, container: str, schema: str, tables: list[str]
@@ -580,44 +634,6 @@ class Db2Cdc(Db2):
             ignore_failure=True,
         )
         self._require_cd_tables_gone(container, [staging])
-
-    def _send_capstops(self, container: str, schema: str, tables: list[str]) -> None:
-        """Tell asncap to stop capturing `tables` and wait for it to acknowledge
-        every stop, so their CD tables can be removed safely."""
-        sources = [f"{schema}.{table}" for table in tables]
-        self._clp_batch(
-            container,
-            [
-                f"insert into {_ASN}.ibmsnap_signal (signal_type, signal_subtype, "
-                f"signal_input_in, signal_state) values "
-                f"('CMD', 'CAPSTOP', '{source}', 'P')"
-                for source in sources
-            ],
-            ignore_failure=True,
-        )
-        try:
-            self._poll(
-                lambda: self._capstops_consumed(container, sources),
-                what=f"CAPSTOP of {', '.join(sources)} to be consumed",
-            )
-        except TdxError:
-            # A capture program that is already down cannot consume them; the
-            # registrations are going away regardless.
-            pass
-
-    def _capstops_consumed(self, container: str, sources: list[str]) -> bool:
-        # Only each source's latest stop counts: an older one sent while the
-        # capture program was down is never consumed.
-        pending = self._clp_scalar(
-            container,
-            f"select count(*) from (select signal_state, row_number() over "
-            f"(partition by signal_input_in order by signal_time desc) as latest "
-            f"from {_ASN}.ibmsnap_signal where signal_type = 'CMD' and "
-            f"signal_subtype = 'CAPSTOP' and signal_input_in in "
-            f"({_sql_list(sources)})) as stops "
-            f"where latest = 1 and signal_state <> 'C'",
-        ).strip()
-        return pending == "0"
 
     def _container_and_schema(self, meta: dict[str, str]) -> tuple[str, str]:
         container = meta.get("SYS_DOCKER_CONTAINER_NAME", "")

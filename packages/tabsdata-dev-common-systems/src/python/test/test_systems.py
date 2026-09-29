@@ -1045,11 +1045,6 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
         "_register_tables",
         lambda c, s, tables: calls.extend(("register", s, t) for t in tables),
     )
-    monkeypatch.setattr(
-        b,
-        "_send_capstops",
-        lambda c, s, tables: calls.extend(("capstop", s, t) for t in tables),
-    )
     stuck: set[str] = set()  # CD tables whose drop fails
 
     def batch(container, statements, ignore_failure=False):
@@ -1061,7 +1056,25 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
                 if cd not in stuck:
                     existing.discard(f"ASN.{cd}")
 
+    def run(container, body, **kwargs):
+        # The one removal call: its stops, its statements, then the check of
+        # what is left, answered from `existing`.
+        from tabsdata_dev.common.systems.systems.db2cdc.backend import _SECTION
+
+        check = ""
+        for line in body.splitlines():
+            if line.startswith('db2w -v "insert') and "'CAPSTOP'" in line:
+                source = line.split("'CAPSTOP', '")[1].split("'")[0]
+                calls.append(("capstop", *source.split(".")))
+            elif line.startswith('db2w -v "'):
+                batch(container, [line[len('db2w -v "') : -1]])
+            elif line.startswith('db2 -x "select tabname'):
+                check = line
+        left = [cd for cd in listed(check, "tabname") if f"ASN.{cd}" in existing]
+        return f"{_SECTION}left\n" + "\n".join(left)
+
     monkeypatch.setattr(b, "_clp_batch", batch)
+    monkeypatch.setattr(b, "_run", run)
 
     # nothing holds the names: both tables register
     b.after_install_schema({}, "employees")
@@ -1822,21 +1835,17 @@ def test_db2cdc_removes_the_cd_table_its_registration_records(monkeypatch):
     from tabsdata_dev.common.systems.systems.db2cdc.backend import Db2Cdc
 
     b = Db2Cdc()
-    sqls: list[str] = []
+    bodies: list[str] = []
     monkeypatch.setattr(
         b,
         "_clp_lines",
         lambda c, sql: ["EMPLOYEES TD_T__EMPLOYEES"] if "cd_table from" in sql else [],
     )
-    monkeypatch.setattr(
-        b,
-        "_clp_batch",
-        lambda c, statements, ignore_failure=False: sqls.extend(statements),
-    )
-    monkeypatch.setattr(b, "_send_capstops", lambda c, s, t: None)
+    monkeypatch.setattr(b, "_run", lambda c, body, **k: bodies.append(body) or "")
     b._remove_registrations("tdd_db2cdc", "XP_OLD", ["EMPLOYEES"])
-    assert "drop table ASN.TD_T__EMPLOYEES" in sqls
-    assert "drop trigger ASN.LM_TD_T__EMPLOYEES" in sqls
+    [body] = bodies
+    assert 'db2w -v "drop table ASN.TD_T__EMPLOYEES"' in body
+    assert 'db2w -v "drop trigger ASN.LM_TD_T__EMPLOYEES"' in body
 
 
 def test_a_forced_domain_chain_loads_data_without_reinstalling_the_model():
@@ -2001,26 +2010,45 @@ def test_db2cdc_a_failing_registration_step_ends_its_call(db2cdc):
     assert all(line.endswith(backend._OR_EXIT) for line in steps)
 
 
-def test_db2cdc_stops_every_table_in_one_call_and_waits_once(db2cdc):
+def test_db2cdc_removes_every_table_in_one_container_call(db2cdc):
+    """Past reading the recorded CD table names, one docker exec and one CLP
+    connect for the stops, the wait, the removal and the check."""
     db2cdc.lines = {"cd_table from": ["A TD_X__A", "B TD_X__B"]}
-    db2cdc.scalars = ["0"]
     db2cdc._remove_registrations("C", "S", ["A", "B"])
-    stops = [c for c in db2cdc.calls if "'CAPSTOP'" in c and "insert" in c]
-    assert len(stops) == 1
-    assert "'S.A'" in stops[0] and "'S.B'" in stops[0]
-    drops = next(c for c in db2cdc.calls if "drop table ASN.TD_X__A" in c)
-    assert "drop table ASN.TD_X__B" in drops
+    [call] = [c for c in db2cdc.calls if "'CAPSTOP'" in c]
+    assert call.count("connect to") == 1
+    assert "'S.A', 'P'" in call and "'S.B', 'P'" in call
+    assert "while [ $SECONDS -lt 300 ]" in call and "$(db2" not in call
+    for statement in (
+        "delete from ASN.ibmsnap_register",
+        "delete from ASN.ibmsnap_pruncntl",
+        "drop trigger ASN.LM_TD_X__A",
+        "drop table ASN.TD_X__B",
+    ):
+        assert statement in call
+    assert call.index("'CAPSTOP'") < call.index("while") < call.index("drop table")
 
 
 def test_db2cdc_waits_only_for_the_latest_stop_of_each_table(db2cdc):
-    db2cdc.scalars = ["0"]
-    assert db2cdc._capstops_consumed("C", ["S.A"]) is True
-    assert "row_number() over" in db2cdc.calls[-1]
+    db2cdc._remove_registrations("C", "S", ["A"])
+    [call] = [c for c in db2cdc.calls if "'CAPSTOP'" in c]
+    assert "row_number() over" in call and "latest = 1" in call
+
+
+def test_db2cdc_a_deregistration_clears_data_capture_and_drops_its_sources(db2cdc):
+    db2cdc._deregister_tables("C", "S", ["A"], drop=True)
+    [call] = [c for c in db2cdc.calls if "'CAPSTOP'" in c]
+    assert "alter table S.A data capture none" in call
+    assert call.index("drop table ASN.") < call.index("drop table S.A")
 
 
 def test_db2cdc_a_cd_table_that_survives_its_removal_is_an_error(db2cdc):
-    db2cdc.lines = {"cd_table from": ["A TD_X__A"], "tabname in": ["TD_X__A"]}
-    db2cdc.scalars = ["0"]
+    from tabsdata_dev.common.systems.systems.db2cdc import backend
+
+    db2cdc.lines = {"cd_table from": ["A TD_X__A"]}
+    db2cdc._run = lambda container, body, **kwargs: (
+        f"DB20000I done\n{backend._SECTION}left\nTD_X__A\n"
+    )
     with pytest.raises(TdxError, match="could not be dropped"):
         db2cdc._remove_registrations("C", "S", ["A"])
 
@@ -2033,3 +2061,73 @@ def test_db2cdc_tunes_the_capture_program_to_its_minimum_intervals(db2cdc, monke
     db2cdc._tune_capture("C")
     assert any("commit_interval = 1" in call for call in db2cdc.calls)
     assert any("chgparms commit_interval=1 sleep_interval=1" in c for c in commands)
+
+
+def _postgrescdc_server(setting, *, after_reload=None):
+    """A postgrescdc backend whose psql calls answer as a server whose
+    ``output_plugin_libraries`` is `setting` (``None``: no such setting)."""
+    from tabsdata_dev.common.systems.systems.postgrescdc.backend import Postgrescdc
+
+    system = Postgrescdc()
+    system.statements = []
+
+    def psql(container, sql):
+        system.statements.append(sql)
+        if sql.startswith("select current_setting"):
+            return "f|" if setting is None else f"t|{setting}"
+        if sql.startswith("show"):
+            return after_reload
+        return ""
+
+    system._psql = psql
+    return system
+
+
+def test_postgrescdc_leaves_a_server_without_the_plugin_setting_alone():
+    system = _postgrescdc_server(None)
+    system._allow_wal2json("C")
+    assert len(system.statements) == 1
+
+
+def test_postgrescdc_leaves_a_server_that_already_allows_wal2json_alone():
+    system = _postgrescdc_server("pgoutput, test_decoding, wal2json")
+    system._allow_wal2json("C")
+    assert len(system.statements) == 1
+
+
+def test_postgrescdc_adds_wal2json_to_what_the_server_allows():
+    """One quoted value per element: a single quoted string would be one
+    library named after the whole list, and allow nothing."""
+    system = _postgrescdc_server(
+        "pgoutput, test_decoding", after_reload="pgoutput, test_decoding, wal2json"
+    )
+    system._allow_wal2json("C")
+    alter, reload, _ = system.statements[1:]
+    assert alter == (
+        "alter system set output_plugin_libraries = "
+        "'pgoutput', 'test_decoding', 'wal2json'"
+    )
+    assert reload == "select pg_reload_conf()"
+
+
+def test_postgrescdc_fails_when_wal2json_is_still_not_allowed():
+    system = _postgrescdc_server(
+        "pgoutput, test_decoding", after_reload="pgoutput, test_decoding"
+    )
+    with pytest.raises(TdxError, match="still not allowed"):
+        system._allow_wal2json("C")
+
+
+def test_postgrescdc_allows_wal2json_before_a_domain_of_an_existing_system(
+    monkeypatch,
+):
+    from tabsdata_dev.common.systems.systems.postgrescdc.backend import Postgrescdc
+
+    system = _postgrescdc_server("pgoutput")
+    allowed = []
+    monkeypatch.setattr(system, "_allow_wal2json", allowed.append)
+    monkeypatch.setattr(
+        Postgrescdc.__mro__[1], "provision_domain", lambda *args, **kwargs: None
+    )
+    system.provision_domain({"DOCKER_CONTAINER_NAME": "tdd_postgrescdc"}, "d1", {})
+    assert allowed == ["tdd_postgrescdc"]
