@@ -4,8 +4,10 @@
 
 """caps_db2cdc_initial_load — the Db2 CDC stream source with ``initial_load``.
 
-A stream publisher over EVERY table of the ``employees`` model (departments,
-employees, dept_emp, dept_manager, titles, salaries, and its xp_sentinel), started with
+A stream publisher over EVERY table of the ``employeescdc`` model -- one table per way a
+row is identified: ``accounts`` (a primary key every update CHANGES), ``ledger`` (a
+composite primary key), ``devices`` (no primary key, a unique index), ``readings``
+(no primary key and no index) -- and its xp_sentinel, started with
 ``initial_load=True``: the stream first emits a full snapshot of each tracked SOURCE
 table -- its rows as inserts (``@td.cdc.meta.op`` = ``i``), preceded by a LOAD control
 row per table -- and then reads the CD tables from the commit sequence the snapshot is
@@ -27,12 +29,10 @@ Two functions, one per suite, identical -- each suite's domain brings its own CD
 - ``db2cdc_initial_load_live`` : suite ``db2cdc_initial_load_live`` -- modify-data keeps
                                  changing the tables from before the project exists,
                                  so the snapshot is taken over tables changing under
-                                 it and the changes after it arrive as CDC rows; a
-                                 deleted employee's rows in dept_emp, dept_manager,
-                                 titles and salaries go too (ON DELETE CASCADE).
+                                 it and the changes after it arrive as CDC rows.
 
-The output tables carry Db2's column names, upper-cased (``EMP_NO``) as its catalog
-folds unquoted identifiers, where the model has ``emp_no``: the sentinel stage and
+The output tables carry Db2's column names, upper-cased (``ACCOUNT_ID``) as its catalog
+folds unquoted identifiers, where the model has ``account_id``: the sentinel stage and
 ``scripts/verify_cdc_ops.py`` match columns without case. A source transaction is
 Db2's 32 hex digits.
 
@@ -50,20 +50,16 @@ from tabsdatak.tableframe.functions import concat
 # CD (staging) tables, not the source tables: the D0 domain's own prefix
 # (ASN.TD_<tag>__), uppercased the way Db2 stores unquoted identifiers.
 _TABLES = [
-    "${D0__CD_TABLE_PREFIX}DEPARTMENTS",
-    "${D0__CD_TABLE_PREFIX}EMPLOYEES",
-    "${D0__CD_TABLE_PREFIX}DEPT_EMP",
-    "${D0__CD_TABLE_PREFIX}DEPT_MANAGER",
-    "${D0__CD_TABLE_PREFIX}TITLES",
-    "${D0__CD_TABLE_PREFIX}SALARIES",
+    "${D0__CD_TABLE_PREFIX}ACCOUNTS",
+    "${D0__CD_TABLE_PREFIX}LEDGER",
+    "${D0__CD_TABLE_PREFIX}DEVICES",
+    "${D0__CD_TABLE_PREFIX}READINGS",
 ]
 _OUTPUT = [
-    "departments_changes",
-    "employees_changes",
-    "dept_emp_changes",
-    "dept_manager_changes",
-    "titles_changes",
-    "salaries_changes",
+    "accounts_changes",
+    "ledger_changes",
+    "devices_changes",
+    "readings_changes",
 ]
 # Every model's sentinel entity: empty until `tdd domain sentinel-data` writes a key.
 _SENTINEL_TABLE = "${D0__CD_TABLE_PREFIX}XP_SENTINEL"
@@ -100,29 +96,17 @@ def _source() -> Db2CdcStreamSrc:
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )
 def db2cdc_initial_load(
-    departments: TableFramesSpec,
-    employees: TableFramesSpec,
-    dept_emp: TableFramesSpec,
-    dept_manager: TableFramesSpec,
-    titles: TableFramesSpec,
-    salaries: TableFramesSpec,
+    accounts: TableFramesSpec,
+    ledger: TableFramesSpec,
+    devices: TableFramesSpec,
+    readings: TableFramesSpec,
     xp_sentinel: TableFramesSpec,
-) -> tuple[
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-]:
+) -> tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]:
     return (
-        concat(departments),
-        concat(employees),
-        concat(dept_emp),
-        concat(dept_manager),
-        concat(titles),
-        concat(salaries),
+        concat(accounts),
+        concat(ledger),
+        concat(devices),
+        concat(readings),
         concat(xp_sentinel),
     )
 
@@ -133,28 +117,16 @@ def db2cdc_initial_load(
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )
 def db2cdc_initial_load_live(
-    departments: TableFramesSpec,
-    employees: TableFramesSpec,
-    dept_emp: TableFramesSpec,
-    dept_manager: TableFramesSpec,
-    titles: TableFramesSpec,
-    salaries: TableFramesSpec,
+    accounts: TableFramesSpec,
+    ledger: TableFramesSpec,
+    devices: TableFramesSpec,
+    readings: TableFramesSpec,
     xp_sentinel: TableFramesSpec,
-) -> tuple[
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-]:
+) -> tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]:
     return (
-        concat(departments),
-        concat(employees),
-        concat(dept_emp),
-        concat(dept_manager),
-        concat(titles),
-        concat(salaries),
+        concat(accounts),
+        concat(ledger),
+        concat(devices),
+        concat(readings),
         concat(xp_sentinel),
     )

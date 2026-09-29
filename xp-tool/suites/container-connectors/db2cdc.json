@@ -1,14 +1,15 @@
 [
   {
-    "_comment": "CAPABILITY suite for the Db2 CDC stream source, via `--type connectors/db2cdc.json`. Functions in functions/caps_db2cdc.py. Four @stream_publisher variants over the ASN SQL-Replication CD tables of the seeded db2cdc_employees_xs domain, each tracking the employees model's two MUTABLE tables (employees: insert/update/delete, departments: update) -> 2 slots, 2 output tables (emp_changes / dept_changes) per collection: base (tail = each CD table's current watermark, flattened tabular rows), _head (start_from=head, replays each CD table from the origin; registration precedes create-data, so the seed load arrives as inserts), _struct (columns_format=struct, flatten_columns=False; registrations use `image both`, so old values are present), _map (columns_format=map, new values still inlined). ONE COLLECTION PER VARIANT (one connection each, all from the same template — Db2 needs no per-stream id: each consumer just reads the CD table and tracks its own offset, so the four coexist). NOTE `tables` names the CD tables (${D0__CD_TABLE_PREFIX}EMPLOYEES / ${D0__CD_TABLE_PREFIX}DEPARTMENTS: the domain's own ASN.TD_<tag>__ prefix, uppercase as Db2 folds them), not the source tables — the ingester resolves the source via ASN.IBMSNAP_REGISTER; the ASN schema is shared, so the CD tables carry the domain in their name and db2cdc domains of one model share a system. NO TRIGGERS, and none are needed: REGISTERING a stream publisher STARTS it — the worker comes up seconds after `create-project` and runs until you `tdk fn disable`/`fn delete` it (a stream worker has no execution plan or transaction; find it with `tdk worker list`). To exercise: (1) `tdx-xp oneshot --suite connectors/db2cdc --keep` (or create-project), (2) generate changes with `tdx-domain modify-data --domain <instance>_db2cdc_employees_xs --ops Mix --sets 5` (Insert|Update|Delete|Mix), (3) watch batches land with `tdk trx list --proj <P> --monitor` and the workers with `tdk worker list`. `oneshot` WITHOUT --keep tears the project down again, which also stops the streams. Capture is asynchronous (asncap stages into the CD table first), so a change takes a moment longer to appear than on MySQL/Postgres."
+    "_comment": "CAPABILITY suite for the Db2 CDC stream source, over the ASN SQL-Replication CD tables of a employeescdc domain: every table of the model -- one table per way a row is identified: accounts (a primary key every update CHANGES), ledger (a composite primary key), devices (no primary key, a unique index), readings (no primary key and no index) -- and its xp_sentinel. Functions in functions/caps_db2cdc.py: four @stream_publisher variants, each in its own collection: db2cdc_in (start_from=tail, flattened tabular rows), db2cdc_head (start_from=head), db2cdc_struct (columns_format=struct, flatten_columns=False), db2cdc_map (columns_format=map). STAGES: (1) domains -- create the domain, install the employeescdc model, load the xs seed, its operations appended to ${XP_WORK_DIR}/ops.jsonl (--emit-ops) -- as every data command below appends its own; (2) collections and (3) functions -- registering a stream publisher STARTS it (no trigger); (4) live -- a 30s pause for the tail streams to attach (a change before that is not theirs to see), one `modify-data --ops Mix --sets 30` pass (every set one transaction of one verb over all four tables: inserts, updates -- accounts' moving its key -- and deletes), then `sentinel-data --key after-changes`; (5) sentinel -- hold until after-changes is in db2cdc_in's and db2cdc_head's xp_sentinel_changes (at most 5m); (6) execute -- scripts/verify_cdc_ops.py checks db2cdc_in from the tail (the changes after the stream attached, one by one, each with its whole before-image and the row it leaves) and db2cdc_head: head replays each CD table from its origin, the create-data seed first (registration precedes it), so it is checked from the head. db2cdc_struct and db2cdc_map run over the same changes, unchecked: their rows nest the values the check reads flat; (7) monitor. Run: `tdd xp one-shot --suite container-connectors/db2cdc --keep`."
   },
   {
     "domain-manifest": {
+      "emit_ops": "${XP_WORK_DIR}/ops.jsonl",
       "domains": [
         {
-          "name": "db2cdc_employees_xs",
+          "name": "db2cdc_employeescdc_xs",
           "system": "db2cdc",
-          "model": "employees",
+          "model": "employeescdc",
           "data": "xs"
         }
       ]
@@ -22,7 +23,7 @@
         "connection_template": "connection-file:connections/db2_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "db2cdc_employees_xs"
+          "D0": "db2cdc_employeescdc_xs"
         }
       },
       {
@@ -31,7 +32,7 @@
         "connection_template": "connection-file:connections/db2_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "db2cdc_employees_xs"
+          "D0": "db2cdc_employeescdc_xs"
         }
       },
       {
@@ -40,7 +41,7 @@
         "connection_template": "connection-file:connections/db2_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "db2cdc_employees_xs"
+          "D0": "db2cdc_employeescdc_xs"
         }
       },
       {
@@ -49,7 +50,7 @@
         "connection_template": "connection-file:connections/db2_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "db2cdc_employees_xs"
+          "D0": "db2cdc_employeescdc_xs"
         }
       }
     ]
@@ -71,6 +72,92 @@
       {
         "collection": "db2cdc_map",
         "functionpath": "functions/caps_db2cdc.py::db2cdc_in_map"
+      }
+    ]
+  },
+  {
+    "live": [
+      {
+        "name": "attach",
+        "sleep": "30s"
+      },
+      {
+        "name": "change",
+        "domain": {
+          "name": "db2cdc_employeescdc_xs",
+          "command": "modify-data",
+          "options": [
+            "--ops",
+            "Mix",
+            "--sets",
+            "30",
+            "--emit-ops",
+            "${XP_WORK_DIR}/ops.jsonl"
+          ]
+        }
+      },
+      {
+        "name": "sentinel-changed",
+        "domain": {
+          "name": "db2cdc_employeescdc_xs",
+          "command": "sentinel-data",
+          "options": [
+            "--key",
+            "after-changes",
+            "--emit-ops",
+            "${XP_WORK_DIR}/ops.jsonl"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "sentinel": [
+      {
+        "collection": "db2cdc_in",
+        "table": "xp_sentinel_changes",
+        "wait_for_key": "after-changes",
+        "time_out": "5m"
+      },
+      {
+        "collection": "db2cdc_head",
+        "table": "xp_sentinel_changes",
+        "wait_for_key": "after-changes",
+        "time_out": "5m"
+      }
+    ]
+  },
+  {
+    "execute": [
+      {
+        "name": "verify-db2cdc_in",
+        "py_script": "scripts/verify_cdc_ops.py",
+        "params": [
+          "${XP_WORK_DIR}/ops.jsonl",
+          "db2cdc_in",
+          "--cascades",
+          "logged",
+          "--noops",
+          "unlogged",
+          "--start",
+          "tail"
+        ],
+        "continue_on_fail": true
+      },
+      {
+        "name": "verify-db2cdc_head",
+        "py_script": "scripts/verify_cdc_ops.py",
+        "params": [
+          "${XP_WORK_DIR}/ops.jsonl",
+          "db2cdc_head",
+          "--cascades",
+          "logged",
+          "--noops",
+          "unlogged",
+          "--start",
+          "head"
+        ],
+        "continue_on_fail": true
       }
     ]
   },

@@ -1361,6 +1361,79 @@ def test_mix_passes_delete_a_distinct_row_each_and_update_only_live_ones():
     assert len(deleted) == len(set(deleted)) == 99  # seeds 1..99; then exhausted
 
 
+def test_employeescdc_changes_a_key_and_every_table_by_its_own_kind_of_key():
+    """employeescdc, the CDC suites' model: 20 live-suite Mix passes at m, applied
+    to its seed by the keys the DDL declares -- or, for the two tables without a
+    primary key, the column its changes name a row by. Every update of accounts
+    moves its key, every table takes all three verbs, and no change misses its
+    row or collides with another: what the stream carries is exactly the trail."""
+    import random
+
+    from tabsdata_dev.common.systems.datagen import ChangeSpec, OpKind, OpSelector
+
+    model = datagen.load_model("employeescdc")
+    keys = {
+        "accounts": ["account_id"],
+        "ledger": ["account_code", "entry_no"],
+        "devices": ["serial"],
+        "readings": ["reading_id"],
+    }
+    tables = model.build_initial(
+        random.Random(datagen.INITIAL_SEED), 100 * datagen.BASE_SIZE
+    )
+    state = {
+        t.name: {tuple(r[c] for c in keys[t.name]): r for r in t.rows} for t in tables
+    }
+    assert all(len(state[t.name]) == len(t.rows) for t in tables)  # unique keys
+    seeded = {t.name: len(t.rows) for t in tables}
+    verbs: dict = {}
+    for seed in range(1, 21):
+        spec = ChangeSpec(
+            entities=[e.table for e in model.entities],
+            ops=OpSelector.MIX,
+            sets=250,
+            rows_per_entity={e.table: 1 for e in model.entities},
+            seed=seed,
+            insert_base=seed * datagen.FIXED_SEED_INSERT_STRIDE,
+        )
+        for txn in datagen.plan(model, spec, seeded):
+            assert {ch.table for ch in txn} == set(keys)  # one set, every table
+            for ch in txn:
+                rows, cols = state[ch.table], keys[ch.table]
+                verbs.setdefault(ch.table, set()).add(ch.kind)
+                if ch.kind is OpKind.INSERT:
+                    key = tuple(ch.row[c] for c in cols)
+                    assert key not in rows, (ch.table, key)
+                    rows[key] = ch.row
+                    continue
+                key = tuple(ch.where[c] for c in cols)
+                assert key in rows, (seed, ch.table, ch.kind, key)
+                row = rows.pop(key)
+                if ch.kind is OpKind.UPDATE:
+                    moved = {**row, **ch.set_values}
+                    new = tuple(moved[c] for c in cols)
+                    assert (new != key) == (ch.table == "accounts"), (
+                        ch.table,
+                        key,
+                        new,
+                    )
+                    assert new not in rows, (ch.table, new)
+                    rows[new] = moved
+    assert verbs == {t: {OpKind.INSERT, OpKind.UPDATE, OpKind.DELETE} for t in keys}
+    for slug in ("postgres", "mysql", "db2"):
+        ddl = systems.get(slug).ddl_text("employeescdc").lower()
+        for table in ("devices", "readings"):
+            # The body ends at its closing line, `);` or mysql's `) ENGINE=...;`.
+            body = ddl.split(f"create table {table} (", 1)[1].split("\n)", 1)[0]
+            assert "primary key" not in body, (slug, table)
+        assert (
+            "unique"
+            in ddl.split("create table readings", 1)[0].split(
+                "create table devices", 1
+            )[1]
+        ), slug
+
+
 def test_dry_run_touches_nothing_and_emit_ops_appends_the_plan(tmp_path, monkeypatch):
     """`--dry-run` plans what create-data / modify-data / sentinel-data would
     do and applies none of it: the backend is never called and the descriptor

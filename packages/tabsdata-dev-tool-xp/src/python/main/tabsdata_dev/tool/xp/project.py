@@ -714,6 +714,13 @@ def _wait_sentinel(project: str, s: Sentinel) -> None:
                     unreadable[vid] = why
                     continue
                 column = _key_column(s, schema)
+                if column is None:
+                    # No columns at all: a flush that carried nothing for this
+                    # table (a stream from its tail publishes one before the
+                    # first sentinel row). It holds no key; the next may.
+                    read.add(vid)
+                    unreadable.pop(vid, None)
+                    continue
             sql = f'SELECT "{column}" FROM {s.table} WHERE "{column}" = \'{key}\''
             rows, why = shell.tdk_read(
                 ["table", "data", *where, "--version", vid, "--sql", sql, "--len", "1"]
@@ -742,11 +749,15 @@ def _wait_sentinel(project: str, s: Sentinel) -> None:
         time.sleep(min(SENTINEL_POLL, left))
 
 
-def _key_column(s: Sentinel, schema) -> str:
-    """The table's own spelling of the sentinel key column. None is fatal at
-    once: a table without it can never hold the key, and waiting out the
-    time-out would only hide that."""
+def _key_column(s: Sentinel, schema) -> str | None:
+    """The table's own spelling of the sentinel key column, or None for a
+    version with no columns at all -- an empty flush, which says nothing about
+    the table yet. Columns without the key are fatal at once: a table without
+    it can never hold the key, and waiting out the time-out would only hide
+    that."""
     names = [str(c.get("name", "")) for c in schema or [] if isinstance(c, dict)]
+    if not names:
+        return None
     found = next((n for n in names if n.lower() == SENTINEL_KEY_COLUMN), None)
     if found is None:
         state.die(

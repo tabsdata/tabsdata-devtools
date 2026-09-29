@@ -4,12 +4,14 @@
 """Check a CDC stream's output against the operations the domain was given.
 
     verify_cdc_ops.py OPS_FILE COLLECTION --cascades logged|unlogged --noops logged|unlogged
+                      --start initial-load|head|tail
 
 OPS_FILE is the trail ``tdd domain create-data/modify-data/sentinel-data
 --emit-ops`` appended, one JSON line per operation, in the order the operations
 were applied. COLLECTION holds the stream publisher's output, one
 ``<entity>_changes`` table per source table. The project is ``$XP_PROJECT``;
-every file this makes goes under ``$XP_WORK_DIR/cdc/``, left there to read.
+every file this makes goes under ``$XP_WORK_DIR/cdc/COLLECTION/``, left there to
+read.
 
 The work is files through tools, each step one function (see ``main``):
 
@@ -20,14 +22,28 @@ The work is files through tools, each step one function (see ``main``):
     concat                                       files -> one file
 
 A version whose data did not change repeats the one before it, so only the
-versions that changed are read. The stream's output is two things. The initial
-load is a snapshot: the tables' STATE when the stream started, every row an
-insert, in no order worth keeping. Everything after it is changes, grouped by
-source transaction (an xid, or a GTID ordered by its sequence) and ordered by
-the position in it. The trail's transactions pair with those by what they hold:
-the first the stream delivered is where the snapshot ends, and from there each
-of the trail's operations must appear in its source transaction, in order --
-operation, table, key and values. What else a transaction carries is the
+versions that changed are read. The stream's output is two things. What it
+starts with depends on where it started (``--start``):
+
+initial-load         a snapshot: the tables' STATE when the stream started,
+                     every row an insert, in no order worth keeping.
+head                 the log from its start: the seed create-data loaded, as
+                     inserts in whatever transactions the load committed --
+                     checked as a snapshot is, the state the trail's seed leaves.
+tail                 nothing: the changes after the stream attached, the first
+                     of them wherever that was.
+
+Everything after it is changes, grouped by source transaction (an xid, a GTID
+ordered by its sequence, db2's commit sequence) and ordered by the position in
+it. The trail's transactions pair with those by what they hold: the first the
+stream delivered is where the load ends, and from there each of the trail's
+operations must appear in its source transaction, in order -- operation, table,
+key and values -- with its whole row images: an update's and a delete's
+before-image is every column of the row as the trail left it, and an update's
+row is every column after it. A table without a key is known to a stream by
+nothing less, so that is what checks one. An update that sets a key column moves
+its row: the before-image carries the old key, the row the new, and the trail's
+later operations name it by the new one. What else a transaction carries is the
 database's to say, and the suite says it:
 
 --cascades logged    the rows an ON DELETE CASCADE takes with a delete arrive
@@ -64,6 +80,8 @@ from tdd import TddError, tdd  # put on the path by `tdd _xp-execute`
 
 LOAD_TX = "initial-load"
 LOGGED, UNLOGGED = "logged", "unlogged"
+# Where a stream began: a snapshot, the log's start, or where it attached.
+INITIAL_LOAD, HEAD, TAIL = "initial-load", "head", "tail"
 # What applying an operation did to the tables.
 CHANGED, SAME, ABSENT = "changed", "same", "absent"
 
@@ -254,8 +272,12 @@ class Tables:
         """Apply `o`: CHANGED, SAME (an update to the values the row already
         has) or ABSENT (an update or delete of a row that is not there -- a
         cascade took it). A delete's cascade is left in ``took``, (entity,
-        row) each."""
+        row) each; the row as it was before `o` in ``before`` and after it in
+        ``after`` (None where there is none). An update that sets a key column
+        moves the row to its new key: later operations name it by that one."""
         self.took: list[tuple[str, dict]] = []
+        self.before: dict | None = None
+        self.after: dict | None = None
         t = self.state.setdefault(o["entity"], {})
         cols = self.keys.get(o["entity"])
         if o["op"] == "insert":
@@ -264,17 +286,25 @@ class Tables:
                 self._indexed(o["entity"], pk, t[pk], add=False)
             t[pk] = dict(o["row"])
             self._indexed(o["entity"], pk, t[pk], add=True)
+            self.after = dict(t[pk])
             return CHANGED
         pk = tuple(norm(o["key"][c]) for c in cols)
         if pk not in t:
             return ABSENT
         if o["op"] == "update":
             row = t[pk]
+            self.before = dict(row)
             changed = any(norm(row.get(c)) != norm(v) for c, v in o["set"].items())
             self._indexed(o["entity"], pk, row, add=False)
             row.update(o["set"])
-            self._indexed(o["entity"], pk, row, add=True)
+            moved = tuple(norm(row[c]) for c in cols)
+            if moved != pk:
+                del t[pk]
+                t[moved] = row
+            self._indexed(o["entity"], moved, row, add=True)
+            self.after = dict(row)
             return CHANGED if changed else SAME
+        self.before = dict(t[pk])
         self._indexed(o["entity"], pk, t.pop(pk), add=False)
         cols = tuple(sorted(o["key"]))
         value = tuple(norm(o["key"][c]) for c in cols)
@@ -301,17 +331,21 @@ class Tables:
         }
 
 
-def analyze(trail: list[dict]) -> tuple[dict[int, str], dict[int, list[tuple[str, dict]]]]:
-    """Each operation's effect (by id: CHANGED, SAME or ABSENT) and each
-    delete's cascade (by id), the whole trail replayed."""
+def analyze(trail: list[dict]) -> tuple[dict[int, str], dict[int, list[tuple[str, dict]]], dict[int, tuple]]:
+    """Each operation's effect (by id: CHANGED, SAME or ABSENT), each delete's
+    cascade and each update's and delete's row images, (before, after), the
+    whole trail replayed."""
     tables = Tables(trail)
     effect: dict[int, str] = {}
     took: dict[int, list[tuple[str, dict]]] = {}
+    images: dict[int, tuple] = {}
     for o in trail:
         effect[id(o)] = tables.apply(o)
         if tables.took:
             took[id(o)] = tables.took
-    return effect, took
+        if tables.before is not None:
+            images[id(o)] = (tables.before, tables.after)
+    return effect, took, images
 
 
 def _row(row: dict, cols) -> tuple:
@@ -319,17 +353,22 @@ def _row(row: dict, cols) -> tuple:
 
 
 def compare(
-    trail: list[dict], stream: list[dict], cascades: str, noops: str
+    trail: list[dict], stream: list[dict], cascades: str, noops: str, start: str = INITIAL_LOAD
 ) -> tuple[list[str], list[str], str]:
     """(problems, cascaded deletes, summary) of the stream against the trail.
     ``cascades`` and ``noops`` say what the database logs (LOGGED or
     UNLOGGED): the rows a delete cascades to, and an update that sets the
-    values a row has."""
+    values a row has. ``start`` is where the stream began: INITIAL_LOAD (a
+    snapshot, then the changes after it), HEAD (the log from its start: the
+    seed's inserts, in whatever transactions the load made, then every change)
+    or TAIL (the log from where the stream attached: changes alone)."""
     problems: list[str] = []
     entities = list(dict.fromkeys(o["entity"] for o in trail))
     snapshot = [s for s in stream if s["tx"] == LOAD_TX]
     changes = [s for s in stream if s["tx"] != LOAD_TX]
-    effect, took = analyze(trail)
+    if start != INITIAL_LOAD and snapshot:
+        problems.append(f"{len(snapshot)} initial-load row(s) from a stream that starts at its {start}")
+    effect, took, images = analyze(trail)
     # What the stream cannot carry: an operation on a row that is not there
     # (no database logs it) and, where they are not logged, the updates that
     # changed nothing -- a transaction of nothing else never arrives at all.
@@ -356,19 +395,34 @@ def compare(
     # nothing may be missing, one delivered twice may not.
     guess = max(0, len(exp_groups) - len(got_groups))
     split = guess
-    if got_groups:
+    if start == HEAD:
+        # From the log's start the seed arrives first, as the load committed
+        # it -- in transactions of its own making, not the trail's one -- so
+        # it is checked as a snapshot is, and the changes begin after it.
+        split = next((s for s, g in enumerate(exp_groups) if g[0]["verb"] != "create-data"), len(exp_groups))
+        first = next(
+            (j for j, g in enumerate(got_groups) if split < len(exp_groups) and opens(exp_groups[split], g)),
+            len(got_groups),
+        )
+        loaded = [c for g in got_groups[:first] for c in g]
+        if any(c["op"] != "insert" for c in loaded):
+            problems.append(f"the log's start holds more than the seed's inserts: {sorted({c['op'] for c in loaded})}")
+        snapshot, got_groups = loaded, got_groups[first:]
+    elif got_groups:
         near = sorted(range(max(0, guess - 200), min(len(exp_groups), guess + 200)), key=lambda s: abs(s - guess))
         split = next((s for s in near if opens(exp_groups[s], got_groups[0])), guess)
     else:
         split = len(exp_groups)
     before = [o for g in exp_groups[:split] for o in g]
 
-    # The snapshot: the trail up to the split, replayed, is each table's state.
+    # The snapshot (or the seed from the log's head): the trail up to the
+    # split, replayed, is each table's state. From the tail there is none: the
+    # stream holds only what came after it attached.
     tables = Tables(trail)
     for o in before:
         tables.apply(o)
     want = tables.rows()
-    for entity in entities:
+    for entity in entities if start != TAIL else ():
         inserted = next((o["row"] for o in trail if o["entity"] == entity and o["op"] == "insert"), {})
         got = sorted(
             tuple((c, norm(v)) for c, v in sorted(s["row"].items()) if c in inserted)
@@ -377,13 +431,33 @@ def compare(
         )
         if got != want.get(entity, []):
             problems.append(
-                f"snapshot of {entity}: {len(got)} row(s), the {len(before)} operation(s) before it "
-                f"leave {len(want.get(entity, []))}"
+                f"{'snapshot' if start == INITIAL_LOAD else 'seed from the head'} of {entity}: "
+                f"{len(got)} row(s), the {len(before)} operation(s) before it leave {len(want.get(entity, []))}"
             )
 
     # The changes: transaction by transaction, paired by what they hold, the
     # trail's operations in order within each; anything more a cascaded delete.
     cascaded: list[str] = []
+
+    def images_differ(exp: dict, got: dict) -> list[str]:
+        """How a change's whole row images differ from the replayed row: the
+        before-image of an update or delete -- all of it, since a table
+        without a key is known to the stream by nothing less -- and the row
+        an update leaves. `matches` has looked at the key and the columns
+        set; this is every other column too."""
+        image = images.get(id(exp))
+        if image is None:
+            return []
+        out = []
+        old, new = image
+        wrong = sorted(c for c, v in old.items() if norm(v) != norm(got["old"].get(c)))
+        if wrong:
+            out.append(f"before-image differs in {wrong}: {got['old']}")
+        if exp["op"] == "update":
+            wrong = sorted(c for c, v in new.items() if norm(v) != norm(got["row"].get(c)))
+            if wrong:
+                out.append(f"row after it differs in {wrong}: {got['row']}")
+        return out
 
     def pair(exp_ops: list[dict], got_ops: list[dict]) -> None:
         o = exp_ops[0]
@@ -403,6 +477,8 @@ def compare(
             if exp is not None and matches(exp, got) is None:
                 if effect[id(exp)] == SAME and noops == UNLOGGED:
                     problems.append(f"{what}: {exp['op']} on {exp['entity']} arrived, though it changed nothing")
+                for why in images_differ(exp, got):
+                    problems.append(f"{what}: {exp['op']} on {exp['entity']} {exp.get('key')}: {why}")
                 pending.pop(0)
             elif exp is not None and got["op"] != "delete" and (exp["op"], exp["entity"]) == (got["op"], got["entity"]):
                 # The operation the trail expected, with the wrong values: said
@@ -463,11 +539,16 @@ def compare(
 
     after = trail[len(before) :]
     same = sum(1 for o in after if effect[id(o)] == SAME)
+    keys = Tables(trail).keys
+    rekeyed = sum(1 for o in after if o["op"] == "update" and set(o["set"]) & set(keys.get(o["entity"], ())))
+    composite = sum(1 for o in after if o["op"] != "insert" and len(keys.get(o["entity"], ())) > 1)
+    loaded = {INITIAL_LOAD: "in the snapshot", HEAD: "in the seed from the head", TAIL: "before the stream attached"}
     summary = (
-        f"{len(trail)} operation(s) in the trail: {len(before)} in the snapshot, "
+        f"{len(trail)} operation(s) in the trail: {len(before)} {loaded[start]}, "
         f"{len(after)} as {len(got_groups)} source transaction(s) of changes "
         f"({len(cascaded)} cascaded delete(s) beside them, cascades {cascades}; "
-        f"{same} update(s) that changed nothing, {noops}), over {len(entities)} table(s)"
+        f"{same} update(s) that changed nothing, {noops}; {rekeyed} that changed a key; "
+        f"{composite} update(s)/delete(s) by a composite key), over {len(entities)} table(s)"
     )
     return problems, cascaded, summary
 
@@ -495,10 +576,19 @@ def main() -> int:
         help="an update setting the values a row has: logged (postgres) -- it must arrive "
         "-- or unlogged (mysql) -- it must not, nor a transaction of nothing else",
     )
+    parser.add_argument(
+        "--start",
+        required=True,
+        choices=(INITIAL_LOAD, HEAD, TAIL),
+        help="where the stream began: initial-load (a snapshot, the state the trail before "
+        "it leaves), head (the log from its start: the seed's inserts, then every change) "
+        "or tail (where it attached: changes alone, none missed after the first)",
+    )
     args = parser.parse_args()
     trail_file, coll = args.ops_file, args.collection
     proj = os.environ["XP_PROJECT"]
-    work = Path(os.environ["XP_WORK_DIR"]) / "cdc"
+    # One directory per collection: a suite checks several streams in one run.
+    work = Path(os.environ["XP_WORK_DIR"]) / "cdc" / coll
     work.mkdir(parents=True, exist_ok=True)
 
     trail = fold([o for o in read_jsonl(trail_file) if not o.get("dry_run")])
@@ -514,7 +604,7 @@ def main() -> int:
         per_table.append(to_ops(rows, entity))
     stream = in_order(concat(per_table, work / "all.ops.jsonl"), work / "actual.jsonl")
 
-    problems, cascaded, summary = compare(trail, fold(read_jsonl(stream)), args.cascades, args.noops)
+    problems, cascaded, summary = compare(trail, fold(read_jsonl(stream)), args.cascades, args.noops, args.start)
 
     (work / "report.txt").write_text(
         summary + "\n" + "".join(f"  {p}\n" for p in problems) + "".join(f"  cascaded: {c}\n" for c in cascaded),
