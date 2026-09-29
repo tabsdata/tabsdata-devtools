@@ -11,9 +11,11 @@ window over). One input slot per tracked table (``cardinality = len(tables)``), 
 slot an ARRAY of the frames that flush carried, and NO ``ctx`` parameter (a stream
 publisher runs in the runtime's stream loop, not per transaction).
 
-The suite tracks the ``employees`` model's two mutable tables (``employees`` supports
-INSERT/UPDATE/DELETE, ``departments`` UPDATE), so ``tdx-domain modify-data`` on the
-backing domain produces the full change-op mix for the stream to capture.
+The suite tracks every table of the ``employeescdc`` model -- one table per way a row is
+identified: ``accounts`` (a primary key every update CHANGES), ``ledger`` (a composite
+primary key), ``devices`` (no primary key, a unique index), ``readings`` (no primary
+key and no index) -- and its xp_sentinel, so ``tdd domain modify-data`` on the backing
+domain produces inserts, updates and deletes by each for the stream to capture.
 
 NO TRIGGER IS INVOLVED: registering a stream publisher STARTS it. The worker comes up
 seconds after ``create-project`` and runs until the function is disabled or deleted, so
@@ -49,7 +51,14 @@ from tabsdatak.tableframe.functions import concat
 
 # Unqualified names: MySQL resolves them against the connection's default database,
 # so the same function works whatever DB the domain was given.
-_TABLES = ["employees", "departments"]
+_TABLES = ["accounts", "ledger", "devices", "readings", "xp_sentinel"]
+_OUTPUT = [
+    "accounts_changes",
+    "ledger_changes",
+    "devices_changes",
+    "readings_changes",
+    "xp_sentinel_changes",
+]
 
 # Small thresholds so a handful of `modify-data` changes flush promptly instead of
 # sitting in the buffer; poll every second so the loop reacts quickly.
@@ -63,33 +72,42 @@ _CFG = {
 }
 
 
+_Out = tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]
+
+
 # `concat` drops None entries and returns None for an empty/None list, so it doubles as
 # the "this flush carried nothing for this slot" guard. Vertical (strict) on purpose: a
 # mid-stream schema change should surface here rather than be absorbed silently.
 @stream_publisher(
     source=MySQLCdcStreamSrc(tables=_TABLES, start_from="tail", src_cfg=_CFG),
     flush_interval_mins=1,
-    output_tables=["emp_changes", "dept_changes"],
+    output_tables=_OUTPUT,
 )
 def mysqlcdc_in(
-    employees: TableFramesSpec,
-    departments: TableFramesSpec,
-) -> tuple[TableFrameSpec, TableFrameSpec]:
-    return (concat(employees), concat(departments))
+    accounts: TableFramesSpec,
+    ledger: TableFramesSpec,
+    devices: TableFramesSpec,
+    readings: TableFramesSpec,
+    xp_sentinel: TableFramesSpec,
+) -> _Out:
+    return (concat(accounts), concat(ledger), concat(devices), concat(readings), concat(xp_sentinel))
 
 
 @stream_publisher(
     source=MySQLCdcStreamSrc(tables=_TABLES, start_from="head", src_cfg=_CFG),
     flush_interval_mins=1,
-    output_tables=["emp_changes", "dept_changes"],
+    output_tables=_OUTPUT,
 )
 def mysqlcdc_in_head(
-    employees: TableFramesSpec,
-    departments: TableFramesSpec,
-) -> tuple[TableFrameSpec, TableFrameSpec]:
+    accounts: TableFramesSpec,
+    ledger: TableFramesSpec,
+    devices: TableFramesSpec,
+    readings: TableFramesSpec,
+    xp_sentinel: TableFramesSpec,
+) -> _Out:
     # Replays the binlog from the oldest retained position -> the create-data seed
     # arrives as inserts before any live change.
-    return (concat(employees), concat(departments))
+    return (concat(accounts), concat(ledger), concat(devices), concat(readings), concat(xp_sentinel))
 
 
 @stream_publisher(
@@ -101,14 +119,17 @@ def mysqlcdc_in_head(
         src_cfg=_CFG,
     ),
     flush_interval_mins=1,
-    output_tables=["emp_changes", "dept_changes"],
+    output_tables=_OUTPUT,
 )
 def mysqlcdc_in_struct(
-    employees: TableFramesSpec,
-    departments: TableFramesSpec,
-) -> tuple[TableFrameSpec, TableFrameSpec]:
+    accounts: TableFramesSpec,
+    ledger: TableFramesSpec,
+    devices: TableFramesSpec,
+    readings: TableFramesSpec,
+    xp_sentinel: TableFramesSpec,
+) -> _Out:
     # Not flattened: the row's new/old values stay nested under struct columns.
-    return (concat(employees), concat(departments))
+    return (concat(accounts), concat(ledger), concat(devices), concat(readings), concat(xp_sentinel))
 
 
 @stream_publisher(
@@ -119,11 +140,14 @@ def mysqlcdc_in_struct(
         src_cfg=_CFG,
     ),
     flush_interval_mins=1,
-    output_tables=["emp_changes", "dept_changes"],
+    output_tables=_OUTPUT,
 )
 def mysqlcdc_in_map(
-    employees: TableFramesSpec,
-    departments: TableFramesSpec,
-) -> tuple[TableFrameSpec, TableFrameSpec]:
+    accounts: TableFramesSpec,
+    ledger: TableFramesSpec,
+    devices: TableFramesSpec,
+    readings: TableFramesSpec,
+    xp_sentinel: TableFramesSpec,
+) -> _Out:
     # flatten_columns defaults to True, so the format only shapes the OLD values.
-    return (concat(employees), concat(departments))
+    return (concat(accounts), concat(ledger), concat(devices), concat(readings), concat(xp_sentinel))

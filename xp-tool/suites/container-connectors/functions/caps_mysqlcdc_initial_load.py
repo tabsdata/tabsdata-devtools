@@ -4,15 +4,19 @@
 
 """caps_mysqlcdc_initial_load — the MySQL CDC stream source with ``initial_load``.
 
-A stream publisher over EVERY table of the ``employees`` model (departments,
-employees, dept_emp, dept_manager, titles, salaries, and its xp_sentinel), started with
+A stream publisher over EVERY table of the ``employeescdc`` model -- one table per way a
+row is identified: ``accounts`` (a primary key every update CHANGES), ``ledger`` (a
+composite primary key), ``devices`` (no primary key, a unique index), ``readings``
+(no primary key and no index) -- and its xp_sentinel, started with
 ``initial_load=True``: the stream first emits a full snapshot of each tracked table --
 its rows as inserts (``@td.cdc.meta.op`` = ``i``), preceded by a LOAD control row per
 table -- and then reads the binlog from the position the snapshot is consistent at.
 ``start_from`` is not allowed with it. The position is pinned under a brief global read
 lock (``FLUSH TABLES WITH READ LOCK``, hence the domain user's RELOAD grant), held only
 while the GTID set is read, not while the tables are scanned; the server runs
-``gtid_mode=ON`` and the model's tables are InnoDB, as an initial load requires.
+``gtid_mode=ON`` and the model's tables are InnoDB, as an initial load requires. The
+binlog carries full row images (``binlog_row_image=FULL``), so a change to a table
+without a key still names its row by every column.
 
 ``xp_sentinel`` is the model's sentinel entity: a suite writes keys into it with ``tdd
 domain sentinel-data`` and waits for them to arrive in ``xp_sentinel_changes`` (an xp
@@ -30,9 +34,7 @@ can run at the same time:
                                    keeps changing the tables from before the project
                                    exists, so the snapshot is taken over tables
                                    changing under it and the changes after it arrive
-                                   as CDC rows; a deleted employee's rows in dept_emp,
-                                   dept_manager, titles and salaries go too (ON DELETE
-                                   CASCADE), each its own row event in the binlog.
+                                   as CDC rows.
 
 Registering a stream publisher STARTS it (no trigger); the snapshot is its first work.
 """
@@ -44,21 +46,12 @@ from tabsdatak.conn.mysql import MySQLCdcStreamSrc
 from tabsdatak.tableframe.functions import concat
 
 # Unqualified: MySQL resolves them against the connection's database, the domain's.
-_TABLES = [
-    "departments",
-    "employees",
-    "dept_emp",
-    "dept_manager",
-    "titles",
-    "salaries",
-]
+_TABLES = ["accounts", "ledger", "devices", "readings"]
 _OUTPUT = [
-    "departments_changes",
-    "employees_changes",
-    "dept_emp_changes",
-    "dept_manager_changes",
-    "titles_changes",
-    "salaries_changes",
+    "accounts_changes",
+    "ledger_changes",
+    "devices_changes",
+    "readings_changes",
 ]
 # Every model's sentinel entity: empty until `tdd domain sentinel-data` writes a key.
 _SENTINEL_TABLE = "xp_sentinel"
@@ -93,29 +86,17 @@ def _source() -> MySQLCdcStreamSrc:
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )
 def mysqlcdc_initial_load(
-    departments: TableFramesSpec,
-    employees: TableFramesSpec,
-    dept_emp: TableFramesSpec,
-    dept_manager: TableFramesSpec,
-    titles: TableFramesSpec,
-    salaries: TableFramesSpec,
+    accounts: TableFramesSpec,
+    ledger: TableFramesSpec,
+    devices: TableFramesSpec,
+    readings: TableFramesSpec,
     xp_sentinel: TableFramesSpec,
-) -> tuple[
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-]:
+) -> tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]:
     return (
-        concat(departments),
-        concat(employees),
-        concat(dept_emp),
-        concat(dept_manager),
-        concat(titles),
-        concat(salaries),
+        concat(accounts),
+        concat(ledger),
+        concat(devices),
+        concat(readings),
         concat(xp_sentinel),
     )
 
@@ -126,28 +107,16 @@ def mysqlcdc_initial_load(
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )
 def mysqlcdc_initial_load_live(
-    departments: TableFramesSpec,
-    employees: TableFramesSpec,
-    dept_emp: TableFramesSpec,
-    dept_manager: TableFramesSpec,
-    titles: TableFramesSpec,
-    salaries: TableFramesSpec,
+    accounts: TableFramesSpec,
+    ledger: TableFramesSpec,
+    devices: TableFramesSpec,
+    readings: TableFramesSpec,
     xp_sentinel: TableFramesSpec,
-) -> tuple[
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-]:
+) -> tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]:
     return (
-        concat(departments),
-        concat(employees),
-        concat(dept_emp),
-        concat(dept_manager),
-        concat(titles),
-        concat(salaries),
+        concat(accounts),
+        concat(ledger),
+        concat(devices),
+        concat(readings),
         concat(xp_sentinel),
     )

@@ -1,0 +1,22 @@
+[
+  {
+    "name": "accounts",
+    "sizeable": true
+  },
+  {
+    "name": "ledger",
+    "sizeable": true
+  },
+  {
+    "name": "devices",
+    "sizeable": true
+  },
+  {
+    "name": "readings",
+    "sizeable": true
+  },
+  {
+    "name": "xp_sentinel",
+    "sizeable": false
+  }
+]

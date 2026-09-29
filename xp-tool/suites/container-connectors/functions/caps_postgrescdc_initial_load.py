@@ -4,8 +4,10 @@
 
 """caps_postgrescdc_initial_load — the PostgreSQL CDC stream source with ``initial_load``.
 
-A stream publisher over EVERY table of the ``employees`` model (departments,
-employees, dept_emp, dept_manager, titles, salaries, and its xp_sentinel), started with
+A stream publisher over EVERY table of the ``employeescdc`` model -- one table per way a
+row is identified: ``accounts`` (a primary key every update CHANGES), ``ledger`` (a
+composite primary key), ``devices`` (no primary key, a unique index), ``readings``
+(no primary key and no index) -- and its xp_sentinel, started with
 ``initial_load=True``: the stream first emits a full snapshot of each tracked table --
 its rows as inserts (``@td.cdc.meta.op`` = ``i``), preceded by a LOAD control row per
 table -- and then captures changes from the exact position the snapshot is consistent
@@ -31,28 +33,23 @@ Two functions, one per suite, identical -- each suite's domain brings its own sl
 
 - ``postgrescdc_initial_load``      : suite ``postgrescdc_initial_load`` -- the seed is
                                       loaded, then the snapshot is taken over quiet
-                                      tables: the load is the whole seed, and no change
-                                      follows it; the one sentinel, written after the
-                                      seed, arrives with the snapshot.
+                                      tables: the load is the whole seed, and one
+                                      modify-data pass follows it.
 - ``postgrescdc_initial_load_live`` : suite ``postgrescdc_initial_load_live`` -- a live
                                       stage keeps changing the tables (modify-data Mix,
-                                      20 passes back to back) from before the project
-                                      exists, so the snapshot is taken over tables
-                                      changing under it and the changes after it arrive
-                                      as CDC rows. ``employees`` gets inserts, updates
-                                      and deletes, ``departments`` updates; a deleted
-                                      employee's rows in dept_emp, dept_manager, titles
-                                      and salaries go too (ON DELETE CASCADE), so those
-                                      tables see deletes after their load. A second
-                                      sentinel, written once the churn has ended,
+                                      20 passes) from before the project exists, so the
+                                      snapshot is taken over tables changing under it
+                                      and the changes after it arrive as CDC rows. A
+                                      second sentinel, written once the churn has ended,
                                       arrives after its last change. A change committing
                                       as the snapshot is taken may arrive twice (reuse).
 
 The postgrescdc system runs ``wal_level=logical``, installs wal2json, grants the domain
-owner REPLICATION and sets REPLICA IDENTITY FULL on every model table, so updates and
-deletes carry full before-images. Registering a stream publisher STARTS it (no
-trigger); the snapshot is its first work. The domain's slot pins WAL until the domain
-is destroyed, which ends any reader still on it and drops it.
+owner REPLICATION and sets REPLICA IDENTITY FULL on every model table -- which is what
+lets ``devices`` and ``readings``, with no primary key, log their updates and deletes at
+all, and gives every change a full before-image. Registering a stream publisher STARTS
+it (no trigger); the snapshot is its first work. The domain's slot pins WAL until the
+domain is destroyed, which ends any reader still on it and drops it.
 """
 
 from __future__ import annotations
@@ -64,20 +61,16 @@ from tabsdatak.tableframe.functions import concat
 # Schema-qualified, as the source asks: each domain is its own database, and the model
 # is installed in its `public` schema.
 _TABLES = [
-    "public.departments",
-    "public.employees",
-    "public.dept_emp",
-    "public.dept_manager",
-    "public.titles",
-    "public.salaries",
+    "public.accounts",
+    "public.ledger",
+    "public.devices",
+    "public.readings",
 ]
 _OUTPUT = [
-    "departments_changes",
-    "employees_changes",
-    "dept_emp_changes",
-    "dept_manager_changes",
-    "titles_changes",
-    "salaries_changes",
+    "accounts_changes",
+    "ledger_changes",
+    "devices_changes",
+    "readings_changes",
 ]
 # Every model's sentinel entity: empty until `tdd domain sentinel-data` writes a key.
 _SENTINEL_TABLE = "public.xp_sentinel"
@@ -118,29 +111,17 @@ def _source() -> PostgresCdcStreamSrc:
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )
 def postgrescdc_initial_load(
-    departments: TableFramesSpec,
-    employees: TableFramesSpec,
-    dept_emp: TableFramesSpec,
-    dept_manager: TableFramesSpec,
-    titles: TableFramesSpec,
-    salaries: TableFramesSpec,
+    accounts: TableFramesSpec,
+    ledger: TableFramesSpec,
+    devices: TableFramesSpec,
+    readings: TableFramesSpec,
     xp_sentinel: TableFramesSpec,
-) -> tuple[
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-]:
+) -> tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]:
     return (
-        concat(departments),
-        concat(employees),
-        concat(dept_emp),
-        concat(dept_manager),
-        concat(titles),
-        concat(salaries),
+        concat(accounts),
+        concat(ledger),
+        concat(devices),
+        concat(readings),
         concat(xp_sentinel),
     )
 
@@ -151,28 +132,16 @@ def postgrescdc_initial_load(
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )
 def postgrescdc_initial_load_live(
-    departments: TableFramesSpec,
-    employees: TableFramesSpec,
-    dept_emp: TableFramesSpec,
-    dept_manager: TableFramesSpec,
-    titles: TableFramesSpec,
-    salaries: TableFramesSpec,
+    accounts: TableFramesSpec,
+    ledger: TableFramesSpec,
+    devices: TableFramesSpec,
+    readings: TableFramesSpec,
     xp_sentinel: TableFramesSpec,
-) -> tuple[
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-    TableFrameSpec,
-]:
+) -> tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]:
     return (
-        concat(departments),
-        concat(employees),
-        concat(dept_emp),
-        concat(dept_manager),
-        concat(titles),
-        concat(salaries),
+        concat(accounts),
+        concat(ledger),
+        concat(devices),
+        concat(readings),
         concat(xp_sentinel),
     )
