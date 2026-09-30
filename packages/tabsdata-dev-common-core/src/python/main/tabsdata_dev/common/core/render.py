@@ -46,7 +46,9 @@ RESET = "\033[0m"
 # sixteen palette colours (34 is a near-black navy on a dark theme, 94 a
 # grey-white under "minimum contrast") but leave the cube alone, so 38;5;33 is
 # the same azure everywhere. The shell half paints with the same five codes
-# (`_tdd_color`) -- keep them in step.
+# (`_tdd_color`) -- keep them in step. The soft paints, cube entries too and
+# muted rather than bright, colour the columns of `tdd xp`'s progress lines, a
+# line of many colours that the bright ones would make hard to read.
 PAINTS = {
     "green": "32",
     "blue": "38;5;33",
@@ -54,6 +56,15 @@ PAINTS = {
     "yellow": "33",
     "red": "31",
     "magenta": "35",
+    "soft-yellow": "38;5;179",
+    "soft-magenta": "38;5;139",
+    "soft-green": "38;5;71",
+    "soft-red": "38;5;167",
+    "soft-blue": "38;5;67",
+    "soft-orange": "38;5;173",
+    "soft-violet": "38;5;103",
+    "soft-cyan": "38;5;73",
+    "soft-brown": "38;5;137",
 }
 
 LOG_DIR = pathlib.Path("/tmp")

@@ -35,7 +35,8 @@ import re
 import tempfile
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from typing import TextIO
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -48,9 +49,19 @@ from . import state
 RUN_TS = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
 SCRATCH_ROOT = render.LOG_DIR / "tdd-xp"
 
-# Progress-line column widths (view format).
+# Progress-line column widths (view format). The path ends the line: it is as
+# long as its names, so nothing after it could line up. The note column fits
+# the one-word outcomes steps note ('exists', 'absent', 'dry-run', 'disabled'),
+# and a run that knows its notes beforehand widens it to the longest (see
+# Reporter.reserve); a note it could not know pushes its own line's path on.
 _W_ACTION = 18
-_W_PATH = 46
+# What became of a step, as its status column says it, and in what colour.
+PASSED, FAILED, DRY_RUN = "passed", "failed", "dry-run"
+_STATUS_PAINTS = {PASSED: "soft-green", FAILED: "soft-red", DRY_RUN: "soft-orange"}
+_W_STATUS = max(map(len, _STATUS_PAINTS))
+_W_NOTE = 8
+# A step taking at least this long has its time painted, to find it in a run.
+SLOW_STEP_SECONDS = 60.0
 
 
 def fs_token(value: str) -> str:
@@ -124,6 +135,9 @@ class Reporter:
         self.log_path = dest / "run.log"
         self.errors_path = dest / "errors.log"  # written only if something fails
         self.total = 0
+        # Steps reserved up front that the phases' own plans draw on.
+        self.reserved = 0
+        self.note_width = _W_NOTE
         self.done = 0
         self.failed = 0
         self.steps: list[dict] = []
@@ -138,9 +152,29 @@ class Reporter:
     # -- planning & steps --
     def plan(self, n: int) -> None:
         """Declare `n` more steps, so the [N/M] denominator is known before they
-        run. Commands plan a phase at a time (oneshot plans four)."""
+        run. Commands plan a phase at a time (oneshot plans four); a phase of a
+        run reserved up front draws on the reservation instead."""
+        with self._lock:
+            taken = min(n, self.reserved)
+            self.reserved -= taken
+            self.total += n - taken
+
+    def reserve(self, n: int, notes: Iterable[str] = ()) -> None:
+        """Declare a whole run of `n` steps before any of its phases plans its
+        own -- a suite's, live steps included, which no phase plans -- so the
+        [N/M] denominator is the run's from its first step. `notes` are the
+        notes its steps are known to carry, which the note column is as wide
+        as."""
         with self._lock:
             self.total += n
+            self.reserved += n
+            self.note_width = max(self.note_width, *map(len, notes), 0)
+
+    def release(self) -> None:
+        """End the reservation: what it held stays in the total, and the steps
+        planned after it add to it."""
+        with self._lock:
+            self.reserved = 0
 
     @contextmanager
     def step(self, action: str, path: str) -> Iterator[dict]:
@@ -195,6 +229,11 @@ class Reporter:
                 "path": path,
                 "seconds": round(seconds, 2),
                 "ok": ok,
+                "status": FAILED
+                if not ok
+                else DRY_RUN
+                if state.run.dry_run
+                else PASSED,
                 "note": note,
                 "step_error": error,
             }
@@ -280,16 +319,32 @@ class Reporter:
         return doc
 
 
-def render_step(event: dict) -> str:
-    """One progress line: ``suite - [N/M] - action - path - seconds``."""
+def render_step(
+    event: dict, stream: TextIO | None = None, note_width: int = _W_NOTE
+) -> str:
+    """One progress line: ``suite - [N/M] - action - seconds - status - note -
+    path``, the note blank where the step has none. Painted for `stream` when
+    it is a terminal, a soft colour a column: the suite yellow, the counter
+    magenta, the action cyan, the time blue, orange for a slow step, the
+    status green when the step passed, red when it failed and orange on a dry
+    run, the note violet and the path brown."""
+
+    def paint(name: str, text: str) -> str:
+        return render.paint(name, text, stream) if stream is not None else text
+
+    status = event.get("status") or (PASSED if event.get("ok", True) else FAILED)
     width = len(str(event["total"]))
-    note = f"  ({event['note']})" if event.get("note") else ""
-    mark = "" if event.get("ok", True) else "  FAILED"
-    return (
-        f"{event['suite']} - [{event['n']:>{width}}/{event['total']}] - "
-        f"{event['action']:<{_W_ACTION}} - {event['path']:<{_W_PATH}} - "
-        f"{event['seconds']:6.2f}s{note}{mark}"
+    suite = paint("soft-yellow", event["suite"])
+    counter = paint("soft-magenta", f"[{event['n']:>{width}}/{event['total']}]")
+    action = paint("soft-cyan", f"{event['action']:<{_W_ACTION}}")
+    slow = event["seconds"] >= SLOW_STEP_SECONDS
+    seconds = paint("soft-orange" if slow else "soft-blue", f"{event['seconds']:7.2f}s")
+    outcome = paint(
+        _STATUS_PAINTS.get(status, "soft-red"), f"{status.upper():<{_W_STATUS}}"
     )
+    note = paint("soft-violet", f"{event.get('note') or '':<{note_width}}")
+    path = paint("soft-brown", event["path"])
+    return f"{suite} - {counter} - {action} - {seconds} - {outcome} - {note} - {path}"
 
 
 def emit_step(event: dict, prefix: str = "") -> None:
@@ -297,11 +352,16 @@ def emit_step(event: dict, prefix: str = "") -> None:
     rendered line is the message, the step is the fields. A step re-emitted
     from a lane arrives as the child's whole event, model keys included; those
     are the renderer's to write, not fields."""
-    text = prefix + render_step(event)
+    out = state.run.out
+    stream = out.err if out.fmt == "view" else None
+    reporter = state.run.reporter
+    width = reporter.note_width if reporter is not None else _W_NOTE
+    text = prefix + render_step(event, stream, width)
     if event.get("step_error"):
-        text += "\n" + "\n".join(
+        detail = "\n".join(
             f"        {line}" for line in str(event["step_error"]).splitlines()
         )
+        text += "\n" + (render.paint("soft-red", detail, stream) if stream else detail)
     fields = {
         k: v
         for k, v in event.items()

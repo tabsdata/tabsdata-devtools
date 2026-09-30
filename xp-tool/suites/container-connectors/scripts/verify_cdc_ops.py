@@ -4,7 +4,7 @@
 """Check a CDC stream's output against the operations the domain was given.
 
     verify_cdc_ops.py OPS_FILE COLLECTION --cascades logged|unlogged --noops logged|unlogged
-                      --start initial-load|head|tail
+                      --start initial-load|head|tail [--check ops|state [--keyless ENTITY...]]
 
 OPS_FILE is the trail ``tdd domain create-data/modify-data/sentinel-data
 --emit-ops`` appended, one JSON line per operation, in the order the operations
@@ -63,6 +63,21 @@ replayed with their cascades, must leave exactly the snapshot's rows in each
 table. A transaction the trail has and the stream lost, or one the stream has
 and the trail does not, is reported alone, and the pairing goes on after it.
 Exit 0 when both hold, 1 with what differs otherwise.
+
+That is ``--check ops``, the default. A snapshot taken while the tables change
+has no one point the trail can be split at: a database without a point-in-time
+snapshot reads each table at its own moment, and a change committed as it reads
+may be in the snapshot and in the stream too. ``--check state`` checks what a
+target would hold instead: the snapshot, as rows keyed by the columns the trail
+names each table's rows by (every column of a table only ever inserted into),
+with each change applied in order as the connector deduplicates -- an insert
+when its key has no row, an update or delete when its key has one -- and the
+rest discarded. Each table must end as the whole trail replayed leaves it. A
+table the connector does not deduplicate, one without a primary key, is named
+by ``--keyless``: a change discarded on it is counted and listed; on any other
+table it is a change the snapshot holds arriving again, and a problem. The
+columns identify a keyless table's rows though the database does not know
+them for a key, as a target that declares them one would.
 """
 
 from __future__ import annotations
@@ -84,6 +99,8 @@ LOGGED, UNLOGGED = "logged", "unlogged"
 INITIAL_LOAD, HEAD, TAIL = "initial-load", "head", "tail"
 # What applying an operation did to the tables.
 CHANGED, SAME, ABSENT = "changed", "same", "absent"
+# What is checked: the stream's operations one by one, or the state they leave.
+OPS, STATE = "ops", "state"
 
 # A stream row -> the trail's shape: `op` and `entity`, the source `tx` and `sq`,
 # `row` (the new values, the user's columns only) and `old` (the before-image).
@@ -553,6 +570,101 @@ def compare(
     return problems, cascaded, summary
 
 
+def compare_state(
+    trail: list[dict], stream: list[dict], start: str, keyless: set[str]
+) -> tuple[list[str], list[str], str]:
+    """(problems, discarded changes, summary) of the state the stream leaves
+    against the one the trail does. ``start`` is INITIAL_LOAD or HEAD: the
+    stream holds the state it starts from. ``keyless`` names the tables the
+    connector does not deduplicate."""
+    problems: list[str] = []
+    entities = list(dict.fromkeys(o["entity"] for o in trail))
+    keys = Tables(trail).keys
+    columns = {
+        e: set(next((o["row"] for o in trail if o["entity"] == e and o["op"] == "insert"), {}))
+        for e in entities
+    }
+
+    def cut(entity: str, row: dict) -> dict:
+        return {c: norm(v) for c, v in row.items() if c in columns.get(entity, ())}
+
+    def key(entity: str, row: dict) -> tuple:
+        cols = keys.get(entity)
+        return tuple(norm(row.get(c)) for c in cols) if cols else tuple(sorted(cut(entity, row).items()))
+
+    snapshot = [s for s in stream if s["tx"] == LOAD_TX]
+    changes = [s for s in stream if s["tx"] != LOAD_TX]
+    if start != INITIAL_LOAD and snapshot:
+        problems.append(f"{len(snapshot)} initial-load row(s) from a stream that starts at its {start}")
+    state: dict[str, dict[tuple, dict]] = {e: {} for e in entities}
+    for s in snapshot:
+        t = state.setdefault(s["entity"], {})
+        k = key(s["entity"], s["row"])
+        if k in t:
+            problems.append(f"snapshot of {s['entity']} holds {s['row']} twice")
+        t[k] = cut(s["entity"], s["row"])
+
+    discarded: list[str] = []
+    for c in changes:
+        e = c["entity"]
+        t = state.setdefault(e, {})
+        if c["op"] == "insert":
+            image, k = c["row"], key(e, c["row"])
+            if k not in t:
+                t[k] = cut(e, c["row"])
+                continue
+            why = "inserts a row that is there"
+        else:
+            image, k = c["old"], key(e, c["old"])
+            if k in t and c["op"] == "delete":
+                del t[k]
+                continue
+            if k in t:
+                moved = key(e, c["row"])
+                if moved != k and moved in t:
+                    problems.append(f"update on {e} (source tx {c['tx']}) {c['old']} moves its row onto another: {c['row']}")
+                    continue
+                del t[k]
+                t[moved] = cut(e, c["row"])
+                continue
+            why = f"{c['op']}s a row that is not there"
+        line = f"{c['op']} on {e} (source tx {c['tx']}) {image}: {why}"
+        if e in keyless:
+            discarded.append(line)
+        else:
+            problems.append(f"{line}, a change the snapshot holds arriving again on a deduplicated table")
+
+    replay = Tables(trail)
+    for o in trail:
+        replay.apply(o)
+    ended = 0
+    for e in entities:
+        want = {key(e, r): cut(e, r) for r in replay.state.get(e, {}).values()}
+        got = state.get(e, {})
+        missing = [want[k] for k in want if k not in got]
+        extra = [got[k] for k in got if k not in want]
+        different = [(want[k], got[k]) for k in want if k in got and got[k] != want[k]]
+        if not (missing or extra or different):
+            ended += 1
+            continue
+        examples = [f"missing {missing[0]}"] if missing else []
+        examples += [f"extra {extra[0]}"] if extra else []
+        examples += [f"{different[0][1]} instead of {different[0][0]}"] if different else []
+        problems.append(
+            f"end state of {e}: {len(missing)} row(s) missing, {len(extra)} extra, "
+            f"{len(different)} different, e.g. {'; '.join(examples)}"
+        )
+
+    loaded = {INITIAL_LOAD: "snapshot row(s)", HEAD: "row(s) from the head"}
+    summary = (
+        f"{len(trail)} operation(s) in the trail; the stream's {len(snapshot)} {loaded[start]} and "
+        f"{len(changes)} change(s), applied as deduplicated, leave the trail's end state in {ended} of "
+        f"{len(entities)} table(s); {len(discarded)} change(s) discarded on keyless "
+        f"{', '.join(sorted(keyless)) or 'tables (none named)'}"
+    )
+    return problems, discarded, summary
+
+
 # ----------------------------------------------------------------- main ----
 
 
@@ -584,7 +696,27 @@ def main() -> int:
         "it leaves), head (the log from its start: the seed's inserts, then every change) "
         "or tail (where it attached: changes alone, none missed after the first)",
     )
+    parser.add_argument(
+        "--check",
+        choices=(OPS, STATE),
+        default=OPS,
+        help="ops (default): every change paired with the trail's, one by one, after a "
+        "snapshot the trail can be split at; state: the state the stream leaves, applied "
+        "as deduplicated, against the trail's -- for a snapshot taken under changes",
+    )
+    parser.add_argument(
+        "--keyless",
+        nargs="+",
+        default=[],
+        metavar="ENTITY",
+        help="with --check state: the tables the connector does not deduplicate, those "
+        "without a primary key, where a change the snapshot holds may arrive again",
+    )
     args = parser.parse_args()
+    if args.check == STATE and args.start == TAIL:
+        parser.error("--check state needs the state the stream starts from; a tail start has none")
+    if args.keyless and args.check != STATE:
+        parser.error("--keyless is only for --check state")
     trail_file, coll = args.ops_file, args.collection
     proj = os.environ["XP_PROJECT"]
     # One directory per collection: a suite checks several streams in one run.
@@ -604,10 +736,15 @@ def main() -> int:
         per_table.append(to_ops(rows, entity))
     stream = in_order(concat(per_table, work / "all.ops.jsonl"), work / "actual.jsonl")
 
-    problems, cascaded, summary = compare(trail, fold(read_jsonl(stream)), args.cascades, args.noops, args.start)
+    if args.check == STATE:
+        problems, noted, summary = compare_state(trail, fold(read_jsonl(stream)), args.start, set(args.keyless))
+        label = "discarded"
+    else:
+        problems, noted, summary = compare(trail, fold(read_jsonl(stream)), args.cascades, args.noops, args.start)
+        label = "cascaded"
 
     (work / "report.txt").write_text(
-        summary + "\n" + "".join(f"  {p}\n" for p in problems) + "".join(f"  cascaded: {c}\n" for c in cascaded),
+        summary + "\n" + "".join(f"  {p}\n" for p in problems) + "".join(f"  {label}: {c}\n" for c in noted),
         encoding="utf-8",
     )
     print(summary)

@@ -33,6 +33,49 @@ def _profile_hint() -> str:
 _PROJECT_STAGES = ("collections", "functions", "triggers", "monitor", "sentinel")
 
 
+def suite_steps(inst, no_live: bool) -> int:
+    """How many steps run-suite reports over `inst`'s stages: what each stage's
+    phase plans, the project it creates, and the live calls, which no phase
+    plans."""
+    steps = int(any(s.kind in _PROJECT_STAGES for s in inst.stages))
+    for s in inst.stages:
+        if s.kind == "domain-manifest":
+            steps += len(s.domain_manifest.domains)
+        elif s.kind == "collections":
+            groups = {c.group for c in s.collections} - project.BUILTIN_GROUPS
+            steps += len(groups) + len(s.collections)
+        elif s.kind == "monitor":
+            steps += 1
+        elif s.kind == "live":
+            steps += 0 if no_live else live.count(s.live)
+        else:
+            steps += len(getattr(s, s.kind))
+    return steps
+
+
+def suite_notes(inst, project_name: str, no_live: bool) -> list[str]:
+    """The notes run-suite's steps over `inst` are known to carry before they
+    run: the live calls' labels, the collections' types, the sentinels' keys,
+    a disabled function's, a check's that goes on failing and a trigger's plan,
+    named by a timestamp of the length its own will have. What a step finds out
+    as it runs is known only then."""
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    notes: list[str] = []
+    for s in inst.stages:
+        notes += [
+            f"plan={project.plan_name(ts, inst.name, project_name, t.function)}"
+            + ("" if t.detached else ", gated")
+            for t in s.triggers
+        ]
+        if s.kind == "live" and not no_live:
+            notes += live.labels(s.live)
+        notes += [c.type for c in s.collections]
+        notes += [x.wait_for_key for x in s.sentinel]
+        notes += ["disabled" for f in s.functions if not f.enabled]
+        notes += ["continue_on_fail" for e in s.execute if e.continue_on_fail]
+    return notes
+
+
 def cmd_run_suite(args) -> None:
     """Run the instance's stages in the order the suite lists them. A live
     stage's background entries keep running through the stages after it; the
@@ -82,6 +125,9 @@ def cmd_run_suite(args) -> None:
             shell.require_login()
         pointers.write_project(args.project, args.instance)
         session = live.Session(inst, args.project)
+        rep().reserve(
+            suite_steps(inst, no_live), suite_notes(inst, args.project, no_live)
+        )
         made = False
         deferred = 0  # scripts that failed with continue_on_fail
         try:
@@ -117,6 +163,7 @@ def cmd_run_suite(args) -> None:
             session.abort(exc)
             raise
         session.finish()
+        rep().release()
         if deferred:
             state.die(
                 f"{deferred} check script(s) failed (continue_on_fail let the "

@@ -1373,6 +1373,95 @@ def test_run_suite_runs_the_stages_in_the_order_listed(xp_root, capsys):
     assert lines[order[4]].endswith(" --disabled")
 
 
+def test_every_step_of_a_suite_counts_out_of_the_whole_suite(xp_root, capsys):
+    """The [N/M] total is the suite's from the first step: the phases plan
+    their own steps only as they start, and a live stage plans none."""
+    import re
+
+    _staged_suite(xp_root)
+    assert (
+        _run(
+            [
+                "create-instance",
+                "--suite",
+                "staged/one",
+                *_suites_dir(xp_root),
+                "--instance",
+                "i",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert _run(["run-suite", "--instance", "i", "--project", "p", "--dry-run"]) == 0
+    _, err = capsys.readouterr()
+    counts = [
+        (int(n), int(m))
+        for n, m in re.findall(r"^staged/one - \[\s*(\d+)/(\d+)\] - ", err, re.M)
+    ]
+    assert [n for n, _ in counts] == list(range(1, len(counts) + 1))
+    assert {m for _, m in counts} == {len(counts)}
+
+
+def test_the_note_column_is_as_wide_as_the_longest_note_a_suite_knows(xp_root, capsys):
+    """The live calls' labels and the triggers' plans are known before they
+    run, so the note column fits the longest of them from the first line."""
+    from tabsdata_dev.tool.xp.reporter import strip_ansi
+
+    _live_suite(xp_root)
+    _instance(xp_root)
+    capsys.readouterr()
+    assert _run(["run-suite", "--instance", "i", "--project", "p", "--dry-run"]) == 0
+    _, err = capsys.readouterr()
+    notes = [
+        line.split(" - ")[5]
+        for line in map(strip_ansi, err.splitlines())
+        if line.startswith("live/one - [")
+    ]
+    assert "cycle 3/3 > churn 10/10 > files" in [n.strip() for n in notes]
+    assert any(n.startswith("plan=") for n in notes)
+    assert {len(n) for n in notes} == {max(len(n.strip()) for n in notes)}
+
+
+def test_a_step_line_keeps_its_columns_whatever_its_path():
+    from tabsdata_dev.tool.xp.reporter import render_step
+
+    def line(path, seconds):
+        event = {"suite": "s", "n": 3, "total": 12, "action": "modify-data"}
+        return render_step({**event, "path": path, "seconds": seconds})
+
+    short, long = line("d", 0.33), line("xp_" + "x" * 120, 180.53)
+    assert short.index(" - d") == long.index(" - xp_")
+    assert short.startswith("s - [ 3/12] - modify-data ")
+
+
+def test_a_step_line_is_painted_by_its_outcome_on_a_terminal(monkeypatch):
+    import io
+
+    from tabsdata_dev.tool.xp.reporter import render_step, strip_ansi
+
+    class Terminal(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    event = {"suite": "s", "n": 1, "total": 2, "action": "sentinel", "path": "p"}
+    passed = render_step({**event, "seconds": 180.5}, Terminal())
+    failed = render_step({**event, "seconds": 0.5, "ok": False}, Terminal())
+
+    assert passed.startswith("\033[38;5;179ms\033[0m - \033[38;5;139m[1/2]")
+    assert "\033[38;5;73msentinel" in passed and "\033[38;5;73msentinel" in failed
+    assert "\033[38;5;173m 180.50s" in passed and "\033[38;5;67m   0.50s" in failed
+    assert "\033[38;5;71mPASSED " in passed and "\033[38;5;167mFAILED " in failed
+    assert (
+        failed.endswith("\033[38;5;137mp\033[0m") and "\033[37m" not in passed + failed
+    )
+    assert strip_ansi(passed) == render_step({**event, "seconds": 180.5})
+    assert render_step({**event, "seconds": 0.5}, io.StringIO()) == render_step(
+        {**event, "seconds": 0.5}
+    )
+
+
 def test_a_live_stages_background_entries_run_through_later_stages(
     xp_root, monkeypatch
 ):

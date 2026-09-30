@@ -44,11 +44,26 @@ background, ends or is waited for as ``#`` comment lines.
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
 from concurrent.futures import Future
 
 from . import domains, lanes, pointers, shell, state
 from .models import Instance, LiveDomain, LiveEntry
 from .reporter import rep, reporting
+
+
+def labels(entries: list[LiveEntry], where: str = "") -> Iterator[str]:
+    """The label each call of the script is noted with, as `_run_list` and
+    `_run_entry` build it."""
+    for e in entries:
+        label = f"{where} > {e.name}" if where else e.name
+        if e.domain is not None:
+            yield label
+        elif e.live is not None:
+            for i in range(1, e.passes + 1):
+                yield from labels(
+                    e.live, f"{label} {i}/{e.passes}" if e.passes > 1 else label
+                )
 
 
 def count(entries: list[LiveEntry]) -> int:

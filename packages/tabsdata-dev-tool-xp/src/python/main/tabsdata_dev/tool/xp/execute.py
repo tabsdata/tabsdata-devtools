@@ -212,9 +212,7 @@ def run_scripts(inst: Instance, project: str | None, entries: list[Execute]) -> 
         tail = "\n".join(output.rstrip().splitlines()[-TAIL_LINES:])
         why = f"{e.py_script} exited {r.returncode}" + (f":\n{tail}" if tail else "")
         if e.continue_on_fail:
-            rep().step_done(
-                "execute", e.name, seconds, False, "continuing (continue_on_fail)", why
-            )
+            rep().step_done("execute", e.name, seconds, False, "continue_on_fail", why)
             deferred += 1
             continue
         rep().step_done("execute", e.name, seconds, False, "", why)
