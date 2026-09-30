@@ -800,6 +800,64 @@ def test_a_failed_lane_shows_its_own_error_not_just_its_exit_code(
     assert "exit 1" not in err and " - summary - 0 step(s)" not in err
 
 
+@pytest.mark.parametrize("planned", [True, False])
+def test_lanes_share_their_columns_from_the_first_line(
+    xp_root, monkeypatch, capsys, planned
+):
+    """Lanes one after another, their labels and totals unlike: every line
+    keeps the same columns, and with plans [N/M] is the run's from the first."""
+    import sys
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import lanes, pointers, state
+    from tabsdata_dev.tool.xp.reporter import strip_ansi
+
+    monkeypatch.setenv("TDD_PARALLELISM", "1")
+    labels = {"a": "perf/a", "b": "perf/a_much_longer_label"}
+    monkeypatch.setattr(pointers, "suite_of_instance", lambda i: labels[i])
+
+    def child(lane, total, note):
+        steps = [
+            {
+                "command": "xp", "event": "info", "message": "-", "xp": "step",
+                "suite": labels[lane], "n": n, "total": total,
+                "action": "create-domain", "path": "d", "seconds": 0.1,
+                "ok": True, "note": note if n == 1 else "", "step_error": "",
+            }
+            for n in range(1, total + 1)
+        ]  # fmt: skip
+        done = {"command": "xp", "event": "ok", "message": "-", "xp": "summary"}
+        code = "import json\n" + "".join(
+            f"print(json.dumps({s!r}))\n" for s in [*steps, done]
+        )
+        return (lane, [sys.executable, "-c", code, "--instance", lane])
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    plans = {"a": lanes.LanePlan(12, ("postgres_cdc",)), "b": lanes.LanePlan(3)}
+    failed = lanes.dispatch(
+        "t",
+        [child("a", 12, "postgres_cdc"), child("b", 3, "")],
+        fatal=False,
+        plans=plans if planned else None,
+    )
+    assert failed == []
+    lines = [
+        ln
+        for ln in map(strip_ansi, capsys.readouterr().err.splitlines())
+        if "perf/" in ln
+    ]
+    assert len(lines) == 15
+    assert len({ln.index(" - create-domain") for ln in lines}) == 1
+    if planned:
+        # A known note widens the column: the path holds on every line too.
+        paths = {ln.index(" - d", ln.index("create-domain")) for ln in lines}
+        assert len(paths) == 1
+        assert lines[0].startswith("[ 1/15] perf/a ")
+        assert lines[-1].startswith("[15/15] perf/a_much_longer_label -  [ 3/3]")
+    else:
+        assert lines[-1].startswith("[15/15] ")
+
+
 def argparse_ns(**kw):
     import argparse
 
@@ -2030,6 +2088,35 @@ def test_a_failed_script_stops_the_run_unless_it_continues_on_fail(xp_root, laun
     inst = _execute_suite(xp_root, [bad, good])
     with pytest.raises(state.XpError, match="(?s)execute 'bad' failed.*row 3 differs"):
         launcher.run_scripts(inst, "p", inst.stages[0].execute)
+
+
+def test_a_script_says_its_steps_note_on_a_marked_line(xp_root, launcher):
+    """The last `xp-note:` line is the note, passed or failed; unmarked output
+    is not, and a failure that continues keeps saying so."""
+    from tabsdata_dev.tool.xp import state
+
+    _script(
+        xp_root,
+        "print('xp-note: first'); print('noise'); print('xp-note:  10/10 rows ')\n",
+        "good.py",
+    )
+    _script(xp_root, "print('xp-note: 3/10 rows'); raise SystemExit(1)\n", "bad.py")
+    _script(xp_root, "print('nothing marked')\n", "plain.py")
+    inst = _execute_suite(
+        xp_root,
+        [
+            {"name": "good", "py_script": "scripts/good.py"},
+            {"name": "bad", "py_script": "scripts/bad.py", "continue_on_fail": True},
+            {"name": "plain", "py_script": "scripts/plain.py"},
+        ],
+    )
+    assert launcher.run_scripts(inst, "p", inst.stages[0].execute) == 1
+    notes = [(s["path"], s["note"]) for s in state.run.reporter.steps[-3:]]
+    assert notes == [
+        ("good", "10/10 rows"),
+        ("bad", "continue_on_fail; 3/10 rows"),
+        ("plain", ""),
+    ]
 
 
 def test_requirements_get_a_one_off_venv_deleted_whether_the_script_passes_or_not(

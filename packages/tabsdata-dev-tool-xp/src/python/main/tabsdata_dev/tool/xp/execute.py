@@ -19,6 +19,11 @@ It is handed what it needs to reach the run: ``XP_WORK_DIR``, ``XP_PROJECT``,
 ``XP_INSTANCE`` and ``XP_SUITE_DIR`` in its environment, and ``tdd-exe`` on its
 PATH (``tdd`` is a shell function and cannot be exec'd).
 
+A line the script prints starting ``xp-note:`` (``tdd.note()`` prints one) is
+its step's note, the progress line's free column -- a measured figure, say,
+which a pass or fail alone does not carry; the last one wins. It says nothing
+about the outcome; the exit code still does.
+
 A failed script stops the run, unless it says ``continue_on_fail``: then the
 failure is reported, the stages after it run, and the run fails at its end --
 a check that fails is never a green run.
@@ -45,6 +50,21 @@ TAIL_LINES = 20
 VENV_PREFIX = "tdd-xp-execute-"
 VENV_PYTHON = "3.12.13"
 VENV_ENV = "_TDD_XP_EXECUTE_VENV"
+#: A stdout line so marked is the step's note; `tdd.note()` prints one.
+NOTE_MARK = "xp-note:"
+#: A note is one column of a progress line, not a report: longer is cut.
+NOTE_MAX = 160
+
+
+def read_note(stdout: str) -> str:
+    """The note a script printed: its last ``xp-note:`` line, or none."""
+    notes = [
+        ln[len(NOTE_MARK) :].strip()
+        for ln in stdout.splitlines()
+        if ln.startswith(NOTE_MARK)
+    ]
+    line = notes[-1] if notes else ""
+    return line if len(line) <= NOTE_MAX else line[: NOTE_MAX - 3] + "..."
 
 
 def script_env(inst: Instance, project: str | None) -> dict:
@@ -206,15 +226,17 @@ def run_scripts(inst: Instance, project: str | None, entries: list[Execute]) -> 
         seconds = time.perf_counter() - t
         output = (r.stdout or "") + (r.stderr or "")
         rep().log(f"$ {shell.shell_line(argv)} -> exit {r.returncode}", output)
+        note = read_note(r.stdout or "")
         if r.returncode == 0:
-            rep().step_done("execute", e.name, seconds, True)
+            rep().step_done("execute", e.name, seconds, True, note)
             continue
         tail = "\n".join(output.rstrip().splitlines()[-TAIL_LINES:])
         why = f"{e.py_script} exited {r.returncode}" + (f":\n{tail}" if tail else "")
         if e.continue_on_fail:
-            rep().step_done("execute", e.name, seconds, False, "continue_on_fail", why)
+            said = "; ".join(filter(None, ["continue_on_fail", note]))
+            rep().step_done("execute", e.name, seconds, False, said, why)
             deferred += 1
             continue
-        rep().step_done("execute", e.name, seconds, False, "", why)
+        rep().step_done("execute", e.name, seconds, False, note, why)
         state.die(f"execute {e.name!r} failed: {why}")
     return deferred

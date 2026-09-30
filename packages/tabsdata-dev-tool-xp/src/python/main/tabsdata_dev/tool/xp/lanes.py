@@ -18,19 +18,44 @@ import subprocess
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 
 from tabsdata_dev.common.core import batch as core_batch
 from tabsdata_dev.common.core import proc
 
-from . import state
+from . import pointers, state
 from .reporter import child_env, emit_step, fs_token, rep, scratch
 from .shell import dry_echo
+
+
+@dataclass(frozen=True)
+class LanePlan:
+    """What a lane is known to report before it runs: its steps and the notes
+    they carry -- so the fan-out's [N/M] is the whole run's from its first line
+    and its note column fits them, rather than both growing as lanes start."""
+
+    steps: int
+    notes: tuple[str, ...] = ()
 
 
 def child_argv(*words: str) -> list[str]:
     """`tdd xp <words>`, through the dispatcher."""
     return proc.tool_argv(state.TOOL, *words)
+
+
+def _lane_suite(argv: list[str]) -> str:
+    """The suite label a lane's child writes on its lines: its instance's,
+    named by the child's --instance, or its --project's instance. Empty when
+    no pointer says -- the label is then as long as it is."""
+
+    def value(flag: str) -> str | None:
+        return argv[argv.index(flag) + 1] if flag in argv[:-1] else None
+
+    inst = value("--instance")
+    if inst is None and (proj := value("--project")) is not None:
+        inst = pointers.doc_of(pointers.project_file(proj)).get("instance")
+    return (pointers.suite_of_instance(inst) or "") if inst else ""
 
 
 def parallel(items: list, worker: Callable) -> None:
@@ -74,9 +99,17 @@ def dispatch(
     phase: str | None = None,
     base: str | None = None,
     fatal: bool = True,
+    plans: dict[str, LanePlan] | None = None,
 ) -> list[str]:
     """Run each ``(lane, argv)`` as a child IN PARALLEL and aggregate their
-    progress live. Returns the lanes that FAILED."""
+    progress live. Returns the lanes that FAILED.
+
+    The lanes' lines share one console, so their columns are sized for all of
+    them before the first arrives: the suite as the longest lane's label, the
+    lanes' own [n/m] and this run's [N/M] as the widest. A lane in `plans`
+    counts its steps in [N/M] from the start; one without is counted once it
+    reports, and [N/M]'s width is then estimated as the lanes times the
+    largest lane seen, so it holds while lanes run one after another."""
     lanes = state.run.lanes
     track = (
         lanes is not None
@@ -108,7 +141,14 @@ def dispatch(
         return []
 
     lock = threading.Lock()
-    totals: dict[str, int] = {}
+    planned = {lane: plans[lane] for lane, _ in argvs if plans and lane in plans}
+    totals: dict[str, int] = {lane: p.steps for lane, p in planned.items()}
+    rep().widen(
+        notes=[n for p in planned.values() for n in p.notes],
+        suites=[_lane_suite(argv) for _, argv in argvs],
+        total=max(totals.values(), default=0),
+    )
+    outer = 0  # the [N/M] width: it only ever grows
     procs: dict[str, subprocess.Popen] = {}
     summaries: dict[str, dict] = {}
     tails: dict[str, list[str]] = {}
@@ -119,15 +159,21 @@ def dispatch(
     done = 0
 
     def on_event(lane: str, event: dict) -> None:
-        nonlocal done
+        nonlocal done, outer
         kind = event.get("xp")
         if kind == "step":
             with lock:
                 totals[lane] = max(totals.get(lane, 0), int(event.get("total") or 0))
                 done += 1
                 total = sum(totals.values())
-                width = len(str(total))
-                emit_step({**event, "lane": lane}, prefix=f"[{done:>{width}}/{total}] ")
+                unseen = len(argvs) - len(totals)
+                guess = total + unseen * max(totals.values())
+                outer = max(outer, len(str(max(total, guess))))
+                rep().widen(total=totals[lane])
+                counter = f"[{done:>{outer}}/{total}]"
+                emit_step(
+                    {**event, "lane": lane}, prefix=f"{counter:>{2 * outer + 3}} "
+                )
             if not event.get("ok", True):
                 rep().error(
                     f"FAILED lane {lane} - {event.get('action')} {event.get('path')} ({event.get('seconds')}s)",

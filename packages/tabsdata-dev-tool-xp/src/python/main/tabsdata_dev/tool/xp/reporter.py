@@ -138,6 +138,11 @@ class Reporter:
         # Steps reserved up front that the phases' own plans draw on.
         self.reserved = 0
         self.note_width = _W_NOTE
+        # Set by a lane fan-out, which re-renders its lanes' steps: the suite
+        # column as wide as the longest lane's label, and the lanes' own [n/m]
+        # as wide as the widest lane's -- 0 leaves each line its own.
+        self.suite_width = 0
+        self.counter_width = 0
         self.done = 0
         self.failed = 0
         self.steps: list[dict] = []
@@ -169,6 +174,19 @@ class Reporter:
             self.total += n
             self.reserved += n
             self.note_width = max(self.note_width, *map(len, notes), 0)
+
+    def widen(
+        self, notes: Iterable[str] = (), suites: Iterable[str] = (), total: int = 0
+    ) -> None:
+        """Make room, before they run, for steps this run will re-render but
+        not plan -- its lanes': their notes, their suite labels, and the
+        largest of their totals."""
+        with self._lock:
+            self.note_width = max(self.note_width, *map(len, notes), 0)
+            self.suite_width = max(self.suite_width, *map(len, suites), 0)
+            self.counter_width = max(
+                self.counter_width, len(str(total)) if total else 0
+            )
 
     def release(self) -> None:
         """End the reservation: what it held stays in the total, and the steps
@@ -320,10 +338,16 @@ class Reporter:
 
 
 def render_step(
-    event: dict, stream: TextIO | None = None, note_width: int = _W_NOTE
+    event: dict,
+    stream: TextIO | None = None,
+    note_width: int = _W_NOTE,
+    suite_width: int = 0,
+    counter_width: int = 0,
 ) -> str:
     """One progress line: ``suite - [N/M] - action - seconds - status - note -
-    path``, the note blank where the step has none. Painted for `stream` when
+    path``, the note blank where the step has none. The suite and the counter
+    are as wide as they are, or as `suite_width` and `counter_width` say when
+    lines of several lanes share a console. Painted for `stream` when
     it is a terminal, a soft colour a column: the suite yellow, the counter
     magenta, the action cyan, the time blue, orange for a slow step, the
     status green when the step passed, red when it failed and orange on a dry
@@ -333,9 +357,11 @@ def render_step(
         return render.paint(name, text, stream) if stream is not None else text
 
     status = event.get("status") or (PASSED if event.get("ok", True) else FAILED)
-    width = len(str(event["total"]))
-    suite = paint("soft-yellow", event["suite"])
-    counter = paint("soft-magenta", f"[{event['n']:>{width}}/{event['total']}]")
+    width = max(len(str(event["total"])), counter_width)
+    suite = paint("soft-yellow", f"{event['suite']:<{suite_width}}")
+    # Right-aligned whole, so a lane of fewer steps ends where the widest does.
+    count = f"[{event['n']:>{width}}/{event['total']}]"
+    counter = paint("soft-magenta", f"{count:>{2 * width + 3}}")
     action = paint("soft-cyan", f"{event['action']:<{_W_ACTION}}")
     slow = event["seconds"] >= SLOW_STEP_SECONDS
     seconds = paint("soft-orange" if slow else "soft-blue", f"{event['seconds']:7.2f}s")
@@ -355,8 +381,16 @@ def emit_step(event: dict, prefix: str = "") -> None:
     out = state.run.out
     stream = out.err if out.fmt == "view" else None
     reporter = state.run.reporter
-    width = reporter.note_width if reporter is not None else _W_NOTE
-    text = prefix + render_step(event, stream, width)
+    if reporter is None:
+        text = prefix + render_step(event, stream)
+    else:
+        text = prefix + render_step(
+            event,
+            stream,
+            reporter.note_width,
+            reporter.suite_width,
+            reporter.counter_width,
+        )
     if event.get("step_error"):
         detail = "\n".join(
             f"        {line}" for line in str(event["step_error"]).splitlines()

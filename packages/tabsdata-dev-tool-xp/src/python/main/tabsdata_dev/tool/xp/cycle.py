@@ -93,6 +93,18 @@ def cmd_run_suite(args) -> None:
             ]
             # Written first: a failed lane is torn down through this pointer.
             pointers.write_group_project(args.project, [mp for _, mp in pairs])
+            plans = {}
+            for mi, mp in pairs:
+                try:
+                    member = pointers.load_instance(mi)
+                except state.XpError:
+                    # Read when the group was made, so the file changed since:
+                    # its lane fails on the same, and is counted if it reports.
+                    continue
+                plans[mp] = lanes.LanePlan(
+                    suite_steps(member, no_live),
+                    tuple(suite_notes(member, mp, no_live)),
+                )
             lanes.dispatch(
                 f"run-suite group '{args.project}'",
                 [
@@ -115,6 +127,7 @@ def cmd_run_suite(args) -> None:
                 ],
                 phase="suite",
                 base=args.project,
+                plans=plans,
             )
             return
         inst = pointers.load_instance(args.instance)

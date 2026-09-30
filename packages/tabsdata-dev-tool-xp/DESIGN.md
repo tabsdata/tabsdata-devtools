@@ -28,7 +28,14 @@ prints the `tdd tdk`/`tdd domain` lines.
   systems) and `cloud-connectors` (lanes needing a cloud store or warehouse: az, bigquery,
   databricks, gcs, s3, snowflake). clickhouse and starrocks are container-connectors although
   they stage through s3/az/gcs: the aks/eks/gke smoke runs take `cloud-connectors`, and those
-  two are not to run there. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
+  two are not to run there. `performance` holds the CDC ingestion suites (`gen_suites.py`
+  writes them: per source an initial load and a changes run over a million rows loaded
+  before the stream starts, so it reads a backlog). `scripts/cdc_throughput.py` measures
+  the rows the stream writes to its files per second -- off the worker log's `Buffer flush`
+  lines, from the plugin's `run()` to the last file -- not end to end, whose time is the
+  trigger's and the commit's; the figure is the step's note, PARTIAL rather than failed when
+  a stream is still short after the time-out. A type of their own so no connector run takes
+  them, and meant to run one at a time. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
 - No `bin-reqs`: xp reaches tdk and tdkserver only through `tdd tdk`/`tdd tdkserver`,
   and those launchers declare the binaries themselves -- the requirement belongs to the
   command that runs the program. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run
@@ -183,7 +190,11 @@ comment). Kinds repeat, in any order the dependencies allow:
   `tdd-xp-execute-<run>-<entry>`, filled with `uv pip install`, deleted after the step whether
   the script passed or not; the prefix finds what a killed run left (`tdd venv list`). The
   script gets `XP_WORK_DIR`, `XP_PROJECT`, `XP_INSTANCE`, `XP_SUITE_DIR` and `tdd-exe` on its
-  PATH. Its output is in run.log, its last lines the step's error. A failure stops the run;
+  PATH. Its output is in run.log, its last lines the step's error. A stdout line starting
+  `xp-note:` (`tdd.note(text)` prints one; the last wins) is the step's note -- the progress
+  line's free column, for a figure the outcome does not carry, such as a measured throughput;
+  it is said whether the step passed or failed and decides neither. Rejected: a note file
+  named in the environment -- a temp file per step, when the output is already captured. A failure stops the run;
   `continue_on_fail` lets the stages after it run and fails the run at the end -- a check that
   fails is never a green run. Rejected: a script that passes by printing, or a result file -- an
   exit code is what every tool already speaks. `container-connectors/scripts/verify_cdc_ops.py`
@@ -259,7 +270,15 @@ only pointing at `list-suites`: the name alone is what a reader remembers, and i
 shape that stopped working when the connectors were split in two. Offered, never accepted -- a
 bare name is unique today and need not stay so. Each lane is a normal
 single-lane `xp` child run with `--format json`, so the parent aggregates their event streams
-live under a running total (`TDD_PARALLELISM` bounds them). `--fail-fast` lets the first failure
+live under a running total (`TDD_PARALLELISM` bounds them). Their lines share one console, so
+the parent sizes the columns for every lane before the first line: the suite column as the
+longest lane's label (from each lane's instance pointer), the lanes' own `[n/m]` as the widest,
+and -- where a lane's steps and notes are known up front (`run-suite`, one-shot's: a
+`LanePlan` per lane from `suite_steps`/`suite_notes`) -- `[N/M]` as the run's whole total from
+its first line and the note column as the longest note. A phase with no plan (the teardowns)
+counts a lane once it reports, its `[N/M]` width estimated as the lanes times the largest seen,
+so it holds when lanes run one after another. Found when `TDD_PARALLELISM=1` over a suite dir
+climbed the total lane by lane and every column shifted at 10. `--fail-fast` lets the first failure
 kill the rest; without it every lane is attempted, and a multi-phase run records the lanes that
 died against their phase, drops them from later phases and reports them once at the end. Children
 nest their scratch under the parent's through `_TDD_XP_SCRATCH`, honoured only with the parent's

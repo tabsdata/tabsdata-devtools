@@ -13,7 +13,8 @@ Copyright 2026 Tabsdata Inc.
   `common-core`. `launcher = true`: every argument is the script's, so no options and no config.
 - `tdd.py`, a resource of the package: `tdd(*args, out=None, check=True)` runs `tdd-exe ARGS`,
   returns its stdout (or writes it to `out`) and raises `TddError` -- status and output --
-  when it fails. Standard library only (a test checks), since it runs in whatever venv a
+  when it fails; `note(text)` prints `xp-note: <text>` on one line, which xp makes the step's
+  note (the last one printed). Standard library only (a test checks), since it runs in whatever venv a
   script asked for.
 
 ## Decisions

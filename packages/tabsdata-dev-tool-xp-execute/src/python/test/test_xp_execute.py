@@ -85,6 +85,13 @@ def test_a_one_off_venv_that_is_not_one_is_an_error(
     assert xp_execute.main([str(script), "0"]) == 1
 
 
+def test_note_prints_one_marked_line_for_xp_to_read(tmp_path, capfd):
+    s = tmp_path / "noted.py"
+    s.write_text("from tdd import note\nnote('812 rows,\\n  3 rows/s')\n")
+    assert xp_execute.main([str(s)]) == 0
+    assert capfd.readouterr().out.splitlines() == ["xp-note: 812 rows, 3 rows/s"]
+
+
 def test_the_tdd_module_is_standard_library_only():
     """It runs in whatever venv a script asked for, so it imports nothing else."""
     import ast

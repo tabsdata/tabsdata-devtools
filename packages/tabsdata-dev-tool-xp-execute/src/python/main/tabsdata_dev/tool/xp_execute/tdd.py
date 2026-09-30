@@ -7,6 +7,7 @@
 
     versions = json.loads(tdd("tdk", "table", "versions", "--proj", proj, ..., "--format", "json"))
     tdd("pqt", "csv", "t.parquet", out=Path("t.csv"))
+    note("1000000 rows, 3201 rows/s")   # the step's note in xp's progress line
 
 `tdd` is a shell function and cannot be exec'd; `tdd-exe` is the executable
 behind it, and xp puts it on the script's PATH. This module is put on the
@@ -21,7 +22,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-__all__ = ["tdd", "TddError"]
+__all__ = ["tdd", "note", "TddError"]
+
+#: xp reads a stdout line so marked as the step's note (xp's execute.NOTE_MARK).
+NOTE_MARK = "xp-note:"
 
 
 class TddError(RuntimeError):
@@ -43,6 +47,13 @@ def tdd(*args: str, out: Path | None = None, check: bool = True) -> str:
     if out is not None:
         Path(out).write_text(done.stdout, encoding="utf-8")
     return done.stdout
+
+
+def note(text: str) -> None:
+    """Say `text` in the step's note -- the free column of xp's progress line,
+    for a figure the pass or fail does not carry. One line; the last one said
+    is the note. It does not decide the outcome: the exit code does."""
+    print(f"{NOTE_MARK} {' '.join(str(text).split())}", flush=True)
 
 
 if __name__ == "__main__":  # `python tdd.py ARGS...`: the same, from a shell
