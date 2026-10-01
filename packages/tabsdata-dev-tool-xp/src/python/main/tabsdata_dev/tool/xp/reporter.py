@@ -148,8 +148,11 @@ class Reporter:
         self.steps: list[dict] = []
         # Extra top-level keys for the report -- bench adds its phase metrics.
         self.extra: dict = {}
-        # Summaries of the lanes this run dispatched (empty for a single suite).
-        self.lanes: dict[str, dict] = {}
+        # Summaries of the lanes this run dispatched, per dispatch -- a phase's
+        # lanes are named as that phase names them (a project's, a suite
+        # run's), so keyed by lane alone a later phase would replace an earlier
+        # one's summary, or count its lanes twice (empty for a single suite).
+        self.lanes: dict[str, dict[str, dict]] = {}
         self.started = datetime.now(timezone.utc)
         self._t0 = time.perf_counter()
         self._lock = threading.Lock()
@@ -300,10 +303,11 @@ class Reporter:
                 if body:
                     fh.write(body.rstrip("\n") + "\n")
 
-    def absorb_lane(self, lane: str, summary: dict) -> None:
-        """Fold a dispatched lane's summary into this run's."""
+    def absorb_lane(self, dispatch: str, lane: str, summary: dict) -> None:
+        """Fold a dispatched lane's summary into this run's, under the dispatch
+        (the phase) that ran it."""
         with self._lock:
-            self.lanes[lane] = summary
+            self.lanes.setdefault(dispatch, {})[lane] = summary
 
     # -- wrap-up --
     def summary(self) -> dict:
@@ -322,13 +326,11 @@ class Reporter:
         if self.errors_path.exists():
             doc["errors"] = str(self.errors_path)
         if self.lanes:
-            doc["lanes_total"] = len(self.lanes)
-            doc["lane_steps"] = sum(
-                int(s.get("steps") or 0) for s in self.lanes.values()
-            )
-            doc["lane_failed"] = sum(
-                int(s.get("failed") or 0) for s in self.lanes.values()
-            )
+            every = [s for phase in self.lanes.values() for s in phase.values()]
+            # The lanes are the suite dir's, however many phases ran them.
+            doc["lanes_total"] = max(len(phase) for phase in self.lanes.values())
+            doc["lane_steps"] = sum(int(s.get("steps") or 0) for s in every)
+            doc["lane_failed"] = sum(int(s.get("failed") or 0) for s in every)
             doc["lanes"] = self.lanes
         return doc
 

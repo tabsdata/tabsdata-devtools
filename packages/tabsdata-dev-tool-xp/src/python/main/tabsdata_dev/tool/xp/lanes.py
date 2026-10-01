@@ -223,7 +223,7 @@ def dispatch(
         code = p.wait()
         summary = summaries.get(lane)
         if summary:
-            rep().absorb_lane(lane, summary)
+            rep().absorb_lane(label, lane, summary)
         if code == 0 and summary and summary.get("event") == "ok":
             return
         with lock:
