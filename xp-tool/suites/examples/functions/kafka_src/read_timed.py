@@ -6,12 +6,14 @@
 
 `kafka.time_rollover_seconds` closes a batch every N seconds whatever the count.
 That is the axis to pick when LATENCY matters more than batch size — a quiet
-topic still produces a table version every 15 seconds here, where a count
-rollover would leave those few messages buffered until `flush_interval_mins`.
+topic still produces a table version every 60 seconds here, the shortest interval
+allowed, where a count rollover would leave those few messages buffered until
+`flush_interval_mins`.
 
-The three axes combine: whichever threshold fires first closes the batch. Setting
-a count AND a time bound is the usual production shape — "at most 5000 messages
-or 60 seconds, whichever comes first".
+The three axes combine: once 60 seconds have passed since the last batch,
+whichever threshold has fired closes the next one. Setting a count AND a longer
+time bound is the usual production shape — "at most 5000 messages or 300 seconds,
+whichever comes first".
 
 WHY THIS FUNCTION HAS ITS OWN COLLECTION
     Every registered stream publisher joins its CONNECTION's consumer group, and
@@ -56,7 +58,7 @@ EMPLOYEE_SCHEMA = json.dumps({
         src_cfg={
             "kafka.consume_timeout_seconds": 2,
             "kafka.connection_timeout_seconds": 10,
-            "kafka.time_rollover_seconds": 15,
+            "kafka.time_rollover_seconds": 60,
         },
     ),
     flush_interval_mins=1,

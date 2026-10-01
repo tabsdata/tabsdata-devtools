@@ -111,7 +111,7 @@ from tabsdatak.tableframe.functions import concat
             "tabsdata.cdc.buffer.max_rows": 100,
             "tabsdata.cdc.buffer.max_secs": 5,
             "tabsdata.cdc.trigger.max_rows": 10,
-            "tabsdata.cdc.trigger.max_secs": 10,
+            "tabsdata.cdc.trigger.max_secs": 60,
             "tabsdata.cdc.poll_interval_seconds": 1,
             "postgres.cdc.blocking_timeout_seconds": 5,
         },

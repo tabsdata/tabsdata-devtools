@@ -61,11 +61,13 @@ one group would leave one idle (templates: kafka_topic_in.yaml / _dlq / _time):
                               <prefix>.departments <<'EOF'
                           {"dept_no": 42}
                           EOF
-                      A rollover of 5 also leaves 4 messages buffered until
-                      ``flush_interval_mins`` rolls them over — both paths in one lane.
+                      A rollover of 5 is reached at once, but nothing is staged
+                      before the 60-second manifest floor, so all 9 messages land
+                      in one table version.
 - ``kafka_in_time`` : ``<prefix>.employees`` again (own consumer group, so it sees every
-                      message too) with ``kafka.time_rollover_seconds=15`` — rolls over
-                      on TIME rather than count.
+                      message too) with ``kafka.time_rollover_seconds`` marked down
+                      to 15 seconds (``unsafe_seconds(15)``, below the 60-second
+                      floor, for tests only) — rolls over on TIME rather than count.
 
 The consumer forces ``auto.offset.reset=earliest`` and never commits offsets, so it does
 not matter whether the worker starts before or after the topics are seeded, and a re-run
@@ -81,6 +83,9 @@ from __future__ import annotations
 import json
 
 from tabsdatak.api import TableFrameSpec, TableFramesSpec, stream_publisher
+
+# noinspection PyProtectedMember
+from tabsdatak.conn.common._stream._floor import unsafe_seconds
 from tabsdatak.conn.kafka import KafkaStreamSrc
 from tabsdatak.tableframe.functions import concat
 
@@ -175,12 +180,12 @@ def kafka_in_dlq(rows: TableFramesSpec) -> TableFrameSpec:
         topic=_EMP_TOPIC,
         data_format="json",
         schema=_EMP_SCHEMA,
-        src_cfg=_CFG | {"kafka.time_rollover_seconds": 15},
+        src_cfg=_CFG | {"kafka.time_rollover_seconds": unsafe_seconds(15)},
     ),
     flush_interval_mins=1,
     output_tables=["kafka_timed"],
 )
 def kafka_in_time(rows: TableFramesSpec) -> TableFrameSpec:
     # Same topic as the base variant, own consumer group -> it sees every message too,
-    # but batches on a 15s clock instead of a message count.
+    # but batches on a 15s clock (marked below the floor) instead of a message count.
     return concat(rows)

@@ -42,6 +42,9 @@ Registering a stream publisher STARTS it (no trigger); the snapshot is its first
 from __future__ import annotations
 
 from tabsdatak.api import TableFrameSpec, TableFramesSpec, stream_publisher
+
+# noinspection PyProtectedMember
+from tabsdatak.conn.common._stream._floor import unsafe_seconds
 from tabsdatak.conn.mysql import MySQLCdcStreamSrc
 from tabsdatak.tableframe.functions import concat
 
@@ -63,7 +66,7 @@ _CFG = {
     "tabsdata.cdc.buffer.max_rows": 100,
     "tabsdata.cdc.buffer.max_secs": 5,
     "tabsdata.cdc.trigger.max_rows": 10,
-    "tabsdata.cdc.trigger.max_secs": 10,
+    "tabsdata.cdc.trigger.max_secs": unsafe_seconds(10),
     "tabsdata.cdc.poll_interval_seconds": 1,
     "mysql.cdc.blocking_timeout_seconds": 5,
 }
