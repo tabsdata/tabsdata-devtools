@@ -71,7 +71,7 @@ def _call(domain: str, command: str, *options: str) -> dict:
 
 def own(name: str) -> str:
     """A domain of the suite's own run: ``<XP_ID>_<name>`` once read."""
-    return "${xp_name(%s)}" % name
+    return "${xp:name(%s)}" % name
 
 
 def suite(source: str, kind: str) -> list:

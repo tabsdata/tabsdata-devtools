@@ -7,7 +7,7 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(sf)}",
+          "name": "${xp:name(sf)}",
           "system": "salesforce",
           "model": "salesforce",
           "data": "xs"
@@ -23,7 +23,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/salesforce_soql_in.yaml",
         "domains": {
-          "D0": "${xp_name(sf)}"
+          "D0": "${xp:name(sf)}"
         }
       }
     ]

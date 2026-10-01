@@ -6,7 +6,7 @@
 ``XP_ID`` is ``xp_<USER>_<BUILD>_<YYYYMMDD>T<hhmmss>`` (UTC): tabsdata-os's
 build identity -- ``$TD_BUILD_USER``, else the OS login, and
 ``$TD_BUILD_NUMBER``, else ``0`` -- and the second the run began. It names the
-run's domains (``${xp_name(x)}`` is ``<XP_ID>_x``) and, by default, the suite
+run's domains (``${xp:name(x)}`` is ``<XP_ID>_x``) and, by default, the suite
 run and its project.
 
 ``XP_SHORT_ID`` is the same identity in 12 characters, ``<UUU><BB>_<TTTTTT>``,
@@ -99,38 +99,59 @@ def new() -> tuple[str, str]:
 
 
 # ------------------------------------------------------------ resolving ----
-XP_NAME_RE = re.compile(r"\$\{xp_name\(([^)]*)\)\}")
+#: A suite's tokens: ``${xp:NAME}`` or ``${xp:NAME(ARG)}``.
+TOKEN_RE = re.compile(r"\$\{xp:([A-Za-z][A-Za-z0-9_-]*)(?:\(([^)]*)\))?\}")
 _NAME_ARG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
-RUN_TOKENS = {"XP_ID": 0, "XP_SHORT_ID": 1}
+#: The spellings an older xp read, and what they are now.
+RETIRED = {
+    "${xp_name(": "${xp:name(NAME)}",
+    "${XP_ID}": "${xp:id}",
+    "${XP_SHORT_ID}": "${xp:short_id}",
+    "${XP_WORK_DIR}": "${xp:dir}",
+    "${XP_PROJECT}": "${xp:project}",
+}
 
 
 def resolve(value, xp_id: str, short_id: str, where: str = "suite"):
-    """`value` -- a suite, as parsed JSON -- with every ``${xp_name(x)}``,
-    ``${XP_ID}`` and ``${XP_SHORT_ID}`` in its strings replaced. The tokens a
-    run fills in as it goes (``${XP_WORK_DIR}``, ``${XP_PROJECT}``) are left
-    for it. A malformed ``${xp_name(...)}`` is refused, not left to name a
-    domain nobody meant."""
+    """`value` -- a suite, as parsed JSON -- with every ``${xp:name(x)}``,
+    ``${xp:id}`` and ``${xp:short_id}`` in its strings replaced. The tokens a
+    run fills in as it goes (``${xp:dir}``, ``${xp:project}``) are left for it,
+    and so is any other, which the stage that holds it refuses. A malformed
+    ``${xp:name(...)}`` is refused, not left to name a domain nobody meant, and
+    so is a spelling an older xp read, naming the one it is now."""
     if isinstance(value, list):
         return [resolve(v, xp_id, short_id, where) for v in value]
     if isinstance(value, dict):
         return {k: resolve(v, xp_id, short_id, where) for k, v in value.items()}
     if not isinstance(value, str):
         return value
-
-    def name(m: re.Match) -> str:
-        arg = m.group(1).strip()
-        if not _NAME_ARG.match(arg):
-            raise ValueError(
-                f"{where}: ${{xp_name({m.group(1)})}}: a name is a letter or digit, "
-                "then letters, digits, '_' or '-'"
-            )
-        return f"{xp_id}_{arg}"
-
-    out = XP_NAME_RE.sub(name, value)
-    for token, i in RUN_TOKENS.items():
-        out = out.replace(f"${{{token}}}", (xp_id, short_id)[i])
-    if "${xp_name" in out:
+    for old, new in RETIRED.items():
+        if old in value:
+            raise ValueError(f"{where}: {old.rstrip('(')} is {new} now (in {value!r})")
+    if "${XP_" in value:
         raise ValueError(
-            f"{where}: {value!r} has a ${{xp_name(...)}} that does not close"
+            f"{where}: {value!r}: a token is ${{xp:...}} now "
+            "(${xp:name(NAME)}, ${xp:id}, ${xp:short_id}, ${xp:dir}, ${xp:project})"
+        )
+
+    def one(m: re.Match) -> str:
+        token, arg = m.group(1), m.group(2)
+        if token == "name":
+            if arg is None or not _NAME_ARG.match(arg.strip()):
+                raise ValueError(
+                    f"{where}: {m.group(0)}: a name is a letter or digit, "
+                    "then letters, digits, '_' or '-'"
+                )
+            return f"{xp_id}_{arg.strip()}"
+        if token == "id" and arg is None:
+            return xp_id
+        if token == "short_id" and arg is None:
+            return short_id
+        return m.group(0)
+
+    out = TOKEN_RE.sub(one, value)
+    if "${xp:name" in out:
+        raise ValueError(
+            f"{where}: {value!r} has a ${{xp:name(...)}} that does not close"
         )
     return out

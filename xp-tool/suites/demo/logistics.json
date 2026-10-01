@@ -7,13 +7,13 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(s3logistics)}",
+          "name": "${xp:name(s3logistics)}",
           "system": "s3",
           "model": "courierlogistics",
           "data": "m"
         },
         {
-          "name": "${xp_name(s3)}",
+          "name": "${xp:name(s3)}",
           "system": "s3"
         }
       ]
@@ -27,7 +27,7 @@
         "connection_template": "connection-file:connections/s3_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp_name(s3logistics)}"
+          "D0": "${xp:name(s3logistics)}"
         }
       },
       {
@@ -41,7 +41,7 @@
         "connection_template": "connection-file:connections/s3_file_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "${xp_name(s3)}"
+          "D0": "${xp:name(s3)}"
         }
       }
     ]

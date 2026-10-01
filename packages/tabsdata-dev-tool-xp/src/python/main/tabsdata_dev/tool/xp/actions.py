@@ -7,11 +7,11 @@ An entry is one of five steps or four blocks (``models.Action``)::
 
     "actions": [
       {"tdd": {"name": "seed", "tool": "domain", "command": "sentinel-data",
-               "options": ["--domain", "${xp_name(pg)}", "--key", "k"]}},
+               "options": ["--domain", "${xp:name(pg)}", "--key", "k"]}},
       {"background": {"name": "churn", "tags": ["churn"], "actions": [
         {"loop": {"name": "cycle", "repeat": 20, "actions": [
           {"tdd": {"name": "change", "tool": "domain", "command": "modify-data",
-                   "options": ["--domain", "${xp_name(pg)}"]}},
+                   "options": ["--domain", "${xp:name(pg)}"]}},
           {"sleep": {"name": "pause", "time": "1s"}}]}}]}},
       {"wait": {"name": "settled", "for": ["churn"]}},
       {"python": {"name": "verify", "script": "scripts/check.py", "params": [...]}}

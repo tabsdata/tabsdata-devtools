@@ -7,17 +7,17 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(dev)}",
+          "name": "${xp:name(dev)}",
           "system": "dev"
         },
         {
-          "name": "${xp_name(starrocks_world_xs)}",
+          "name": "${xp:name(starrocks_world_xs)}",
           "system": "starrocks",
           "model": "world",
           "data": "xs"
         },
         {
-          "name": "${xp_name(stage_store)}",
+          "name": "${xp:name(stage_store)}",
           "system": "s3"
         }
       ]
@@ -31,7 +31,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "domains": {
-          "D0": "${xp_name(dev)}"
+          "D0": "${xp:name(dev)}"
         }
       },
       {
@@ -40,8 +40,8 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/starrocks_bulk_out_s3.yaml",
         "domains": {
-          "D0": "${xp_name(starrocks_world_xs)}",
-          "D1": "${xp_name(stage_store)}"
+          "D0": "${xp:name(starrocks_world_xs)}",
+          "D1": "${xp:name(stage_store)}"
         }
       }
     ]

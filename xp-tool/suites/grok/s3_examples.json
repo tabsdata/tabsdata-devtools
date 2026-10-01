@@ -6,13 +6,13 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(s3_world_xs)}",
+          "name": "${xp:name(s3_world_xs)}",
           "system": "s3",
           "model": "world",
           "data": "xs"
         },
         {
-          "name": "${xp_name(s3_out)}",
+          "name": "${xp:name(s3_out)}",
           "system": "s3",
           "model": null,
           "data": null
@@ -28,7 +28,7 @@
         "connection_template": "connection-file:connections/s3_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp_name(s3_world_xs)}"
+          "D0": "${xp:name(s3_world_xs)}"
         }
       },
       {
@@ -42,7 +42,7 @@
         "connection_template": "connection-file:connections/s3_file_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "${xp_name(s3_out)}"
+          "D0": "${xp:name(s3_out)}"
         }
       }
     ]

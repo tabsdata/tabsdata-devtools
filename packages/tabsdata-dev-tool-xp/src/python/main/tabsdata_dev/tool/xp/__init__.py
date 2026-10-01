@@ -13,7 +13,7 @@ the built-in ones out). ``--suite <type>/<name>`` names one definition (one
 lane), ``--suite <type>`` a suite DIRECTORY (one lane per definition in it, run
 in parallel). A SUITE RUN is one run of a suite, named ``--suite-run`` (by
 default its XP_ID, ``xp_<user>_<build>_<YYYYMMDD>T<hhmmss>``): the suite is
-resolved for it, so ``${xp_name(x)}`` names its domain ``<XP_ID>_x``; a
+resolved for it, so ``${xp:name(x)}`` names its domain ``<XP_ID>_x``; a
 PROJECT is created on the server for it, ``<XP_ID>_<suite>`` unless
 ``--project`` names one. Pointers live under
 ``<tdd_dir>/data/xp``; each run's manifests, logs and report land in one
@@ -347,7 +347,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         "--project",
         default=None,
         metavar="P",
-        help="the project ${XP_PROJECT} names (default: <XP_ID>_<suite>)",
+        help="the project ${xp:project} names (default: <XP_ID>_<suite>)",
     )
     _selection(c, no_actions=False)
     for add in (_secret_env, _latch, _report, _dry_run, _common):

@@ -3,6 +3,7 @@
 #
 
 import json
+import re
 import pathlib
 
 import pytest
@@ -21,7 +22,7 @@ MONITOR = {"monitor": {"time_out": "30m"}}
 
 def N(name):
     """A suite's own domain, as a suite names it: `<XP_ID>_<name>` once read."""
-    return "${xp_name(%s)}" % name
+    return "${xp:name(%s)}" % name
 
 
 def calls(name, system, model=None, size=None, *data_opts):
@@ -246,7 +247,7 @@ def test_connection_prep_resolves_secrets_and_interpolates(xp_root, monkeypatch)
 
 
 def test_a_runs_domain_is_named_by_its_ids_and_a_fixed_one_as_written(xp_root):
-    """`${xp_name(x)}` is the run's domain, `<XP_ID>_x` in the store and
+    """`${xp:name(x)}` is the run's domain, `<XP_ID>_x` in the store and
     `<XP_SHORT_ID>_x` in the system -- short, because a system's identifiers
     are. A name written plainly is fixed, the same in both."""
     from tabsdata_dev.tool.xp.models import build_instance
@@ -289,9 +290,9 @@ def test_two_runs_one_process_starts_are_a_second_apart(xp_root):
 @pytest.mark.parametrize(
     "value, why",
     [
-        ("${xp_name()}", "a name is a letter or digit"),
-        ("${xp_name(a b)}", "a name is a letter or digit"),
-        ("${xp_name(pg}", "does not close"),
+        ("${xp:name()}", "a name is a letter or digit"),
+        ("${xp:name(a b)}", "a name is a letter or digit"),
+        ("${xp:name(pg}", "does not close"),
     ],
 )
 def test_a_malformed_xp_name_is_refused(value, why):
@@ -299,9 +300,9 @@ def test_a_malformed_xp_name_is_refused(value, why):
 
     with pytest.raises(ValueError, match=why):
         ids.resolve({"name": value}, XP_ID, XP_SHORT)
-    assert ids.resolve(["${XP_ID}/${XP_SHORT_ID}", "${XP_WORK_DIR}"], "a", "b") == [
+    assert ids.resolve(["${xp:id}/${xp:short_id}", "${xp:dir}"], "a", "b") == [
         "a/b",
-        "${XP_WORK_DIR}",
+        "${xp:dir}",
     ]
 
 
@@ -1124,11 +1125,11 @@ def test_an_actions_script_counts_its_steps_through_every_loop(xp_root):
                         "name": "x",
                         "tool": "d",
                         "command": "m",
-                        "options": ["${XP_NOPE}"],
+                        "options": ["${xp:nope}"],
                     }
                 }
             ],
-            r"\$\{XP_NOPE\} is not a token",
+            r"\$\{xp:nope\} is not a token",
         ),
         ([_loop("x", 0, _sleep("s"))], "repeat must be >= 1"),
         ([_bg("x")], "holds no actions"),
@@ -2130,21 +2131,21 @@ def _script(xp_root, body: str, name: str = "check.py") -> str:
 
 
 def test_the_work_dir_tokens_expand_at_use_and_unknown_ones_are_refused(xp_root):
-    """${XP_WORK_DIR} is the run's <scratch>/work, made on first use;
-    ${XP_PROJECT} needs a project; any other ${XP_*} is a typo, refused when
+    """${xp:dir} is the run's <scratch>/work, made on first use;
+    ${xp:project} needs a project; any other ${xp:...} is a typo, refused when
     the suite is read."""
     from tabsdata_dev.common.core import render
     from tabsdata_dev.tool.xp import state, work
     from tabsdata_dev.tool.xp.models import build_instance
 
     state.bind(render.Renderer(state.TOOL), argparse_ns())
-    expanded = work.expand("${XP_WORK_DIR}/ops.jsonl")
+    expanded = work.expand("${xp:dir}/ops.jsonl")
     assert expanded == f"{work.work_dir()}/ops.jsonl" and work.work_dir().is_dir()
-    assert work.expand("p=${XP_PROJECT}", "proj") == "p=proj"
-    with pytest.raises(state.XpError, match=r"\$\{XP_PROJECT\} has no value here"):
-        work.expand("${XP_PROJECT}")
-    doc = [{"domains": calls("d", "fs", "world", 1, "--emit-ops", "${XP_WORKDIR}/x")}]
-    with pytest.raises(state.XpError, match=r"\$\{XP_WORKDIR\} is not a token"):
+    assert work.expand("p=${xp:project}", "proj") == "p=proj"
+    with pytest.raises(state.XpError, match=r"\$\{xp:project\} has no value here"):
+        work.expand("${xp:project}")
+    doc = [{"domains": calls("d", "fs", "world", 1, "--emit-ops", "${xp:workdir}/x")}]
+    with pytest.raises(state.XpError, match=r"\$\{xp:workdir\} is not a token"):
         build_instance("i", _staged_suite(xp_root, doc))
 
 
@@ -2159,11 +2160,7 @@ def test_a_domain_call_expands_its_tokens_and_a_create_gets_its_backend_name(
 
     state.bind(render.Renderer(state.TOOL), argparse_ns())
     doc = [
-        {
-            "domains": calls(
-                "d", "fs", "world", 1, "--emit-ops", "${XP_WORK_DIR}/ops.jsonl"
-            )
-        }
+        {"domains": calls("d", "fs", "world", 1, "--emit-ops", "${xp:dir}/ops.jsonl")}
     ]
     inst = build_instance("i", _staged_suite(xp_root, doc))
     create, model, data = inst.stages[0].domains
@@ -2316,7 +2313,7 @@ def test_a_python_step_gets_its_params_env_path_and_the_tdd_module(xp_root, laun
     )
     inst = _python_suite(
         xp_root,
-        [_py("c", "scripts/check.py", "${XP_WORK_DIR}/ops.jsonl", "${XP_PROJECT}")],
+        [_py("c", "scripts/check.py", "${xp:dir}/ops.jsonl", "${xp:project}")],
     )
     assert launcher.run_script(inst, "proj", launcher.Selection()) == 0
     seen = json.loads(out.read_text())
@@ -2489,7 +2486,7 @@ def test_a_domain_manifest_stage_reads_its_domains_and_emit_settings(xp_root):
             PG,
             FS,
             {**PG, "name": N("quiet"), "emit": False},
-            emit_ops="${XP_WORK_DIR}/o",
+            emit_ops="${xp:dir}/o",
         )
     ]
     inst = build_instance("i", _staged_suite(xp_root, doc))
@@ -2501,7 +2498,7 @@ def test_a_domain_manifest_stage_reads_its_domains_and_emit_settings(xp_root):
         (f"{PH}_quiet", "postgres"),
     ]
     dm = stage.domain_manifest
-    assert dm.emit_ops == "${XP_WORK_DIR}/o" and [d.emit for d in dm.domains] == [
+    assert dm.emit_ops == "${xp:dir}/o" and [d.emit for d in dm.domains] == [
         True,
         True,
         False,
@@ -2515,7 +2512,7 @@ def test_a_domain_manifest_stage_reads_its_domains_and_emit_settings(xp_root):
         ([{"domain-manifest": [PG]}], "domain-manifest takes an object"),
         ([_dm({**PG, "data": "huge"})], "data 'huge' is not one of"),
         ([_dm({"name": "x", "system": "fs", "data": "xs"})], "data needs a model"),
-        ([_dm(PG, emit_ops="${XP_WORKDIR}/o")], r"\$\{XP_WORKDIR\} is not a token"),
+        ([_dm(PG, emit_ops="${xp:workdir}/o")], r"\$\{xp:workdir\} is not a token"),
         ([_dm({**PG, "name_in_system": "pinned"})], "Extra inputs"),
         ([_dm(PG), {"domains": calls("pg", "fs")}], f"'{PH}_pg' is created twice"),
         ([{"domain-manifest": {"domains": []}}], "names no domains"),
@@ -2560,7 +2557,7 @@ def test_a_domain_manifest_seeds_to_files_of_their_own_then_joins_them_in_order(
             FS,
             {**PG, "name": N("quiet"), "emit": False},
             {**PG, "name": N("pg2")},
-            emit_ops="${XP_WORK_DIR}/ops.jsonl",
+            emit_ops="${xp:dir}/ops.jsonl",
         )
     ]
     inst = build_instance("i", _staged_suite(xp_root, doc))
@@ -2768,3 +2765,22 @@ def test_the_tdd_module_is_standard_library_only():
         for alias in node.names
     }
     assert imported <= {"__future__", "subprocess", "sys", "pathlib"}, imported
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("${xp_name(pg)}", "${xp:name(NAME)}"),
+        ("${XP_ID}", "${xp:id}"),
+        ("${XP_SHORT_ID}", "${xp:short_id}"),
+        ("${XP_WORK_DIR}/ops.jsonl", "${xp:dir}"),
+        ("${XP_PROJECT}", "${xp:project}"),
+    ],
+)
+def test_an_older_tokens_spelling_is_refused_naming_the_one_it_is_now(old, new):
+    from tabsdata_dev.tool.xp import ids
+
+    with pytest.raises(ValueError, match=re.escape(f"is {new} now")):
+        ids.resolve([old], XP_ID, XP_SHORT)
+    with pytest.raises(ValueError, match=re.escape("a token is ${xp:...} now")):
+        ids.resolve(["${XP_NOPE}"], XP_ID, XP_SHORT)

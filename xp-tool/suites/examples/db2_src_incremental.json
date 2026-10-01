@@ -7,7 +7,7 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(db2_world_xs)}",
+          "name": "${xp:name(db2_world_xs)}",
           "system": "db2",
           "model": "world",
           "data": "xs"
@@ -23,7 +23,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/db2_sql_in.yaml",
         "domains": {
-          "D0": "${xp_name(db2_world_xs)}"
+          "D0": "${xp:name(db2_world_xs)}"
         }
       }
     ]

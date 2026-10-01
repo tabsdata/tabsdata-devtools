@@ -6,17 +6,17 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(emp_fs)}",
+          "name": "${xp:name(emp_fs)}",
           "system": "fs",
           "model": "employees",
           "data": "xs"
         },
         {
-          "name": "${xp_name(out)}",
+          "name": "${xp:name(out)}",
           "system": "fs"
         },
         {
-          "name": "${xp_name(bq)}",
+          "name": "${xp:name(bq)}",
           "system": "bigquery"
         }
       ]
@@ -30,7 +30,7 @@
         "connection_template": "connection-file:connections/local_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp_name(emp_fs)}"
+          "D0": "${xp:name(emp_fs)}"
         }
       },
       {
@@ -44,7 +44,7 @@
         "connection_template": "connection-file:connections/local_file_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "${xp_name(out)}"
+          "D0": "${xp:name(out)}"
         }
       },
       {
@@ -53,7 +53,7 @@
         "connection_template": "connection-file:connections/bigquery_bulk_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "${xp_name(bq)}"
+          "D0": "${xp:name(bq)}"
         }
       }
     ]

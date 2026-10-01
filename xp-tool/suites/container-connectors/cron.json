@@ -6,7 +6,7 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(dev)}",
+          "name": "${xp:name(dev)}",
           "system": "dev"
         }
       ]
@@ -20,7 +20,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp_name(dev)}"
+          "D0": "${xp:name(dev)}"
         }
       },
       {
@@ -34,7 +34,7 @@
         "connection_template": "connection-file:connections/trash_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "${xp_name(dev)}"
+          "D0": "${xp:name(dev)}"
         }
       }
     ]

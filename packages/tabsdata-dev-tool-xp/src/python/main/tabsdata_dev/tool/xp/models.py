@@ -33,11 +33,11 @@ A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
   fails when its ``time_out`` runs out;
 
 A suite is resolved as it is read, for the suite run it is read for (see
-``ids``): ``${xp_name(x)}`` becomes ``<XP_ID>_x`` -- how a suite names a domain
-of its own run -- and ``${XP_ID}`` / ``${XP_SHORT_ID}`` the run's IDs, in every
-string of it. A name written without ``${xp_name(...)}`` is FIXED: used as
-written, in the tdd store and in the system. ``${XP_WORK_DIR}`` /
-``${XP_PROJECT}`` in a domain call's options or an action's options and params
+``ids``): ``${xp:name(x)}`` becomes ``<XP_ID>_x`` -- how a suite names a domain
+of its own run -- and ``${xp:id}`` / ``${xp:short_id}`` the run's IDs, in every
+string of it. A name written without ``${xp:name(...)}`` is FIXED: used as
+written, in the tdd store and in the system. ``${xp:dir}`` /
+``${xp:project}`` in a domain call's options or an action's options and params
 name the run's working dir and project, and are filled in when used (see
 ``work``).
 
@@ -98,8 +98,10 @@ def _refuse_unknown_tokens(text: str, where: str) -> None:
     bad = work.unknown(text)
     if bad:
         raise ValueError(
-            f"{where}: ${{{bad[0]}}} is not a token (known: "
-            + ", ".join(f"${{{t}}}" for t in work.TOKENS)
+            f"{where}: ${{xp:{bad[0]}}} is not a token (known: "
+            + ", ".join(
+                f"${{xp:{t}}}" for t in (*work.TOKENS, "name(NAME)", "id", "short_id")
+            )
             + ")"
         )
 

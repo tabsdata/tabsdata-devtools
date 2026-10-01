@@ -7,11 +7,11 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(dev)}",
+          "name": "${xp:name(dev)}",
           "system": "dev"
         },
         {
-          "name": "${xp_name(databricks_out)}",
+          "name": "${xp:name(databricks_out)}",
           "system": "databricks"
         }
       ]
@@ -25,7 +25,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "domains": {
-          "D0": "${xp_name(dev)}"
+          "D0": "${xp:name(dev)}"
         }
       },
       {
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/databricks_bulk_out.yaml",
         "domains": {
-          "D0": "${xp_name(databricks_out)}"
+          "D0": "${xp:name(databricks_out)}"
         }
       }
     ]

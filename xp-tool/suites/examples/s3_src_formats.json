@@ -7,17 +7,17 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(dev)}",
+          "name": "${xp:name(dev)}",
           "system": "dev"
         },
         {
-          "name": "${xp_name(s3_world_xs)}",
+          "name": "${xp:name(s3_world_xs)}",
           "system": "s3",
           "model": "world",
           "data": "xs"
         },
         {
-          "name": "${xp_name(s3_files)}",
+          "name": "${xp:name(s3_files)}",
           "system": "s3"
         }
       ]
@@ -31,7 +31,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/s3_file_in.yaml",
         "domains": {
-          "D0": "${xp_name(s3_world_xs)}"
+          "D0": "${xp:name(s3_world_xs)}"
         }
       },
       {
@@ -40,7 +40,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "domains": {
-          "D0": "${xp_name(dev)}"
+          "D0": "${xp:name(dev)}"
         }
       },
       {
@@ -49,7 +49,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/s3_file_out.yaml",
         "domains": {
-          "D0": "${xp_name(s3_files)}"
+          "D0": "${xp:name(s3_files)}"
         }
       },
       {
@@ -58,7 +58,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/s3_file_in.yaml",
         "domains": {
-          "D0": "${xp_name(s3_files)}"
+          "D0": "${xp:name(s3_files)}"
         }
       }
     ]

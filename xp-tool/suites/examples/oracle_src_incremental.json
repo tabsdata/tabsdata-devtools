@@ -7,7 +7,7 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(oracle_world_xs)}",
+          "name": "${xp:name(oracle_world_xs)}",
           "system": "oracle",
           "model": "world",
           "data": "xs"
@@ -23,7 +23,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/oracle_sql_in.yaml",
         "domains": {
-          "D0": "${xp_name(oracle_world_xs)}"
+          "D0": "${xp:name(oracle_world_xs)}"
         }
       }
     ]

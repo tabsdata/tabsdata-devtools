@@ -1,13 +1,13 @@
 [
   {
-    "_comment": "CAPABILITY suite for the MySQL CDC stream source, over the binlog of a employeescdc domain: every table of the model -- one table per way a row is identified: accounts (a primary key every update CHANGES), ledger (a composite primary key), devices (no primary key, a unique index), readings (no primary key and no index) -- and its xp_sentinel. Functions in functions/caps_mysqlcdc.py: four @stream_publisher variants, each in its own collection: mysqlcdc_in (start_from=tail, flattened tabular rows), mysqlcdc_head (start_from=head), mysqlcdc_struct (columns_format=struct, flatten_columns=False), mysqlcdc_map (columns_format=map). STAGES: (1) domains -- create the domain, install the employeescdc model, load the xs seed, its operations appended to ${XP_WORK_DIR}/ops.jsonl (--emit-ops) -- as every data command below appends its own; (2) collections and (3) functions -- registering a stream publisher STARTS it (no trigger); (4) actions, tagged live -- a 30s pause for the tail streams to attach (a change before that is not theirs to see), one `modify-data --ops Mix --sets 30` pass (every set one transaction of one verb over all four tables: inserts, updates -- accounts' moving its key -- and deletes), then `sentinel-data --key after-changes`; (5) sentinel -- hold until after-changes is in mysqlcdc_in's and mysqlcdc_head's xp_sentinel_changes (at most 5m); (6) actions, tagged check -- scripts/verify_cdc_ops.py checks mysqlcdc_in from the tail (the changes after the stream attached, one by one, each with its whole before-image and the row it leaves) and mysqlcdc_head: head replays the binlog, the create-data seed first, so it is checked from the head. mysqlcdc_struct and mysqlcdc_map run over the same changes, unchecked: their rows nest the values the check reads flat; (7) monitor. Run: `tdd xp one-shot --suite container-connectors/mysqlcdc --keep`."
+    "_comment": "CAPABILITY suite for the MySQL CDC stream source, over the binlog of a employeescdc domain: every table of the model -- one table per way a row is identified: accounts (a primary key every update CHANGES), ledger (a composite primary key), devices (no primary key, a unique index), readings (no primary key and no index) -- and its xp_sentinel. Functions in functions/caps_mysqlcdc.py: four @stream_publisher variants, each in its own collection: mysqlcdc_in (start_from=tail, flattened tabular rows), mysqlcdc_head (start_from=head), mysqlcdc_struct (columns_format=struct, flatten_columns=False), mysqlcdc_map (columns_format=map). STAGES: (1) domains -- create the domain, install the employeescdc model, load the xs seed, its operations appended to ${xp:dir}/ops.jsonl (--emit-ops) -- as every data command below appends its own; (2) collections and (3) functions -- registering a stream publisher STARTS it (no trigger); (4) actions, tagged live -- a 30s pause for the tail streams to attach (a change before that is not theirs to see), one `modify-data --ops Mix --sets 30` pass (every set one transaction of one verb over all four tables: inserts, updates -- accounts' moving its key -- and deletes), then `sentinel-data --key after-changes`; (5) sentinel -- hold until after-changes is in mysqlcdc_in's and mysqlcdc_head's xp_sentinel_changes (at most 5m); (6) actions, tagged check -- scripts/verify_cdc_ops.py checks mysqlcdc_in from the tail (the changes after the stream attached, one by one, each with its whole before-image and the row it leaves) and mysqlcdc_head: head replays the binlog, the create-data seed first, so it is checked from the head. mysqlcdc_struct and mysqlcdc_map run over the same changes, unchecked: their rows nest the values the check reads flat; (7) monitor. Run: `tdd xp one-shot --suite container-connectors/mysqlcdc --keep`."
   },
   {
     "domain-manifest": {
-      "emit_ops": "${XP_WORK_DIR}/ops.jsonl",
+      "emit_ops": "${xp:dir}/ops.jsonl",
       "domains": [
         {
-          "name": "${xp_name(mysqlcdc_employeescdc_xs)}",
+          "name": "${xp:name(mysqlcdc_employeescdc_xs)}",
           "system": "mysqlcdc",
           "model": "employeescdc",
           "data": "xs"
@@ -23,7 +23,7 @@
         "connection_template": "connection-file:connections/mysql_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp_name(mysqlcdc_employeescdc_xs)}"
+          "D0": "${xp:name(mysqlcdc_employeescdc_xs)}"
         }
       },
       {
@@ -32,7 +32,7 @@
         "connection_template": "connection-file:connections/mysql_cdc_513.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp_name(mysqlcdc_employeescdc_xs)}"
+          "D0": "${xp:name(mysqlcdc_employeescdc_xs)}"
         }
       },
       {
@@ -41,7 +41,7 @@
         "connection_template": "connection-file:connections/mysql_cdc_514.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp_name(mysqlcdc_employeescdc_xs)}"
+          "D0": "${xp:name(mysqlcdc_employeescdc_xs)}"
         }
       },
       {
@@ -50,7 +50,7 @@
         "connection_template": "connection-file:connections/mysql_cdc_515.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp_name(mysqlcdc_employeescdc_xs)}"
+          "D0": "${xp:name(mysqlcdc_employeescdc_xs)}"
         }
       }
     ]
@@ -96,13 +96,13 @@
           "command": "modify-data",
           "options": [
             "--domain",
-            "${xp_name(mysqlcdc_employeescdc_xs)}",
+            "${xp:name(mysqlcdc_employeescdc_xs)}",
             "--ops",
             "Mix",
             "--sets",
             "30",
             "--emit-ops",
-            "${XP_WORK_DIR}/ops.jsonl"
+            "${xp:dir}/ops.jsonl"
           ]
         }
       },
@@ -116,11 +116,11 @@
           "command": "sentinel-data",
           "options": [
             "--domain",
-            "${xp_name(mysqlcdc_employeescdc_xs)}",
+            "${xp:name(mysqlcdc_employeescdc_xs)}",
             "--key",
             "after-changes",
             "--emit-ops",
-            "${XP_WORK_DIR}/ops.jsonl"
+            "${xp:dir}/ops.jsonl"
           ]
         }
       }
@@ -152,7 +152,7 @@
           ],
           "script": "scripts/verify_cdc_ops.py",
           "params": [
-            "${XP_WORK_DIR}/ops.jsonl",
+            "${xp:dir}/ops.jsonl",
             "mysqlcdc_in",
             "--cascades",
             "unlogged",
@@ -172,7 +172,7 @@
           ],
           "script": "scripts/verify_cdc_ops.py",
           "params": [
-            "${XP_WORK_DIR}/ops.jsonl",
+            "${xp:dir}/ops.jsonl",
             "mysqlcdc_head",
             "--cascades",
             "unlogged",

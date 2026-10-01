@@ -124,16 +124,16 @@ times the phases, `--dry-run` prints the commands.
   (`a` and `A` fold together), `(YYYY-2026)MMDDhhmmss` as one number in base 36 (7 characters
   from 2027). Runs one process starts are a second apart (`ids.new`), so a suite dir's lanes,
   each a run of its own, never share an ID. run.log says both IDs at the run's start and end.
-- **A suite is resolved for its run as it is read**: `${xp_name(x)}` is `<XP_ID>_x`, the domain
-  in the tdd store, and `${XP_ID}` / `${XP_SHORT_ID}` the IDs -- in every string of the suite,
+- **A suite is resolved for its run as it is read**: `${xp:name(x)}` is `<XP_ID>_x`, the domain
+  in the tdd store, and `${xp:id}` / `${xp:short_id}` the IDs -- in every string of the suite,
   which is then plain values (a collection's `D0` must equal a domain's name, a string compare).
   The resolved suite is left as `suite.resolved.json` in the run's scratch dir. The domain's
   container in its system is the same name with `XP_SHORT_ID` for `XP_ID`
-  (`tuc00_0e2aec_pgcdc`); a name written without `${xp_name(...)}` is **fixed** and used as
+  (`tuc00_0e2aec_pgcdc`); a name written without `${xp:name(...)}` is **fixed** and used as
   written in both, for whoever wants that name. `tdd domain create` refuses a
   `--name-in-system` already in the system, so two runs drawing one name do not mix.
-  `${XP_WORK_DIR}` / `${XP_PROJECT}` are left for the run to fill in as it goes. Every built-in
-  suite and every generator uses `${xp_name(...)}`.
+  `${xp:dir}` / `${xp:project}` are left for the run to fill in as it goes. Every built-in
+  suite and every generator uses `${xp:name(...)}`.
 - **A suite run is `--suite-run R`** (it was `--instance`): a pointer holding the run's IDs, by
   default named by its XP_ID, so it is always a file holding its XP_ID. An existing R is reused,
   its IDs with it -- how a failed run is finished a phase at a time; one of another suite is
@@ -150,7 +150,7 @@ comment). Kinds repeat, in any order the dependencies allow:
 
 ```
 [
-  {"domain-manifest": {"domains": [{"name": "${xp_name(pg)}", "system": "postgrescdc"}]}},
+  {"domain-manifest": {"domains": [{"name": "${xp:name(pg)}", "system": "postgrescdc"}]}},
   {"actions": [{"background": {"name": "churn", "tags": ["live"], "actions": [...]}}]},
   {"collections": [...]},
   {"functions": [{"collection": "c", "functionpath": "...", "enabled": false}]},
@@ -208,10 +208,10 @@ comment). Kinds repeat, in any order the dependencies allow:
   `"<VALUE><UNIT>"` with unit `s`, `m` or `h` (`"90s"`, `"2m"`, `"1.5h"`), and nothing else: a
   bare number is refused when the suite is read, since nothing in it says what it counts.
 - **A run has a working dir**, `<scratch>/work`, made on first use and kept with the scratch dir.
-  A suite names it `${XP_WORK_DIR}` -- in a domain call's options and an action's options or
-  params -- and the run's project `${XP_PROJECT}`; they are
+  A suite names it `${xp:dir}` -- in a domain call's options and an action's options or
+  params -- and the run's project `${xp:project}`; they are
   replaced when the value is used (the dir is a run's; a suite is read before any run), and any
-  other `${XP_*}` is refused when the suite is read. `--emit-ops ${XP_WORK_DIR}/ops.jsonl` on
+  other `${xp:...}` is refused when the suite is read, and so is an older spelling (`${XP_WORK_DIR}`, `${xp_name(x)}`, ...), naming the one it is now. `--emit-ops ${xp:dir}/ops.jsonl` on
   every data call, the seed's create-data included, is one trail of every operation a run
   applied, for a script to check against what came out the other end.
 - **The CDC check**, `container-connectors/scripts/verify_cdc_ops.py`, a python step tagged

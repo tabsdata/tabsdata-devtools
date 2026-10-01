@@ -217,8 +217,8 @@ def as_stages(doc: dict) -> list:
     gathered; the order is what the stages are."""
     notes = {k: v for k, v in doc.items() if k.startswith("_")}
     stages = [notes] if notes else []
-    # A suite's domains are its run's own: ${xp_name(x)} is <XP_ID>_x once read.
-    own = "${xp_name(%s)}".__mod__
+    # A suite's domains are its run's own: ${xp:name(x)} is <XP_ID>_x once read.
+    own = "${xp:name(%s)}".__mod__
     if doc.get("domains"):
         domains = [{**d, "name": own(d["name"])} for d in doc["domains"]]
         stages.append({"domain-manifest": {"domains": domains}})

@@ -7,15 +7,15 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(dev)}",
+          "name": "${xp:name(dev)}",
           "system": "dev"
         },
         {
-          "name": "${xp_name(clickhouse_out)}",
+          "name": "${xp:name(clickhouse_out)}",
           "system": "clickhouse"
         },
         {
-          "name": "${xp_name(stage_store)}",
+          "name": "${xp:name(stage_store)}",
           "system": "s3"
         }
       ]
@@ -29,7 +29,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "domains": {
-          "D0": "${xp_name(dev)}"
+          "D0": "${xp:name(dev)}"
         }
       },
       {
@@ -38,8 +38,8 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/clickhouse_bulk_out_s3.yaml",
         "domains": {
-          "D0": "${xp_name(clickhouse_out)}",
-          "D1": "${xp_name(stage_store)}"
+          "D0": "${xp:name(clickhouse_out)}",
+          "D1": "${xp:name(stage_store)}"
         }
       }
     ]

@@ -1,13 +1,13 @@
 [
   {
-    "_comment": "CAPABILITY suite for the Db2 CDC stream source with initial_load UNDER LIVE CHANGES, over every table of the employeescdc model -- one table per way a row is identified: accounts (a primary key every update CHANGES: the before-image must carry the old key, the row the new), ledger (a composite primary key), devices (no primary key, a unique index), readings (no primary key and no index) -- and its xp_sentinel (functions/caps_db2cdc_initial_load.py::db2cdc_initial_load_live). The same stages as postgrescdc_initial_load_live: (1) domains -- create the db2cdc domain, install the employeescdc model, load the m seed (10k rows a table), its operations appended to ${XP_WORK_DIR}/ops.jsonl (--emit-ops) -- as every data command below appends its own; (2) actions, tagged live -- `sentinel-data --key after-create-data`, then start `churn` in the background: 20 passes a second apart, `modify-data --ops Mix --sets 250` -- ~1000 CDC rows each: every set one transaction of one verb over all four tables, inserts, updates (accounts' moving its key) and deletes; nothing cascades; it keeps running through the stages below; (3) collections; (4) functions -- register the @stream_publisher, which STARTS it: its snapshot is taken over tables changing under it, and every change after it arrives as a CDC row, over the domain's own CD tables (${D0__CD_TABLE_PREFIX}<TABLE>, registered with the model), from the commit sequence the snapshot's brief table lock pinned; asncap stages each change a moment after it commits; (5) actions, tagged live -- wait for churn to finish, then `sentinel-data --key after-churn`; (6) sentinel -- hold until both keys are in xp_sentinel_changes (at most 5m each); (7) actions, tagged check -- scripts/verify_cdc_ops.py --check state checks what a target would hold: the snapshot plus every <table>_changes applied in order as the connector deduplicates (an insert when its key has no row, an update or delete when it has one), each table ending as the whole ops.jsonl leaves it -- a snapshot taken under changes has no one point the trail splits at, so the changes are not paired one by one; devices and readings have no primary key, so the connector does not deduplicate them and a change the snapshot holds may arrive again (--keyless): it is discarded by the column that names their rows (serial, reading_id), counted and listed, and on the keyed tables any such change fails the check; (8) monitor. Run: `tdd xp one-shot --suite container-connectors/db2cdc_initial_load_live --keep`. verify-ops runs with --cascades logged --noops unlogged, what the Db2 log carries: each row an ON DELETE CASCADE takes arrives in its delete's transaction, and an update setting the values a row has does not arrive. Db2 reports columns upper-cased (EMP_NO), as its catalog folds unquoted names; verify-ops compares them without case."
+    "_comment": "CAPABILITY suite for the Db2 CDC stream source with initial_load UNDER LIVE CHANGES, over every table of the employeescdc model -- one table per way a row is identified: accounts (a primary key every update CHANGES: the before-image must carry the old key, the row the new), ledger (a composite primary key), devices (no primary key, a unique index), readings (no primary key and no index) -- and its xp_sentinel (functions/caps_db2cdc_initial_load.py::db2cdc_initial_load_live). The same stages as postgrescdc_initial_load_live: (1) domains -- create the db2cdc domain, install the employeescdc model, load the m seed (10k rows a table), its operations appended to ${xp:dir}/ops.jsonl (--emit-ops) -- as every data command below appends its own; (2) actions, tagged live -- `sentinel-data --key after-create-data`, then start `churn` in the background: 20 passes a second apart, `modify-data --ops Mix --sets 250` -- ~1000 CDC rows each: every set one transaction of one verb over all four tables, inserts, updates (accounts' moving its key) and deletes; nothing cascades; it keeps running through the stages below; (3) collections; (4) functions -- register the @stream_publisher, which STARTS it: its snapshot is taken over tables changing under it, and every change after it arrives as a CDC row, over the domain's own CD tables (${D0__CD_TABLE_PREFIX}<TABLE>, registered with the model), from the commit sequence the snapshot's brief table lock pinned; asncap stages each change a moment after it commits; (5) actions, tagged live -- wait for churn to finish, then `sentinel-data --key after-churn`; (6) sentinel -- hold until both keys are in xp_sentinel_changes (at most 5m each); (7) actions, tagged check -- scripts/verify_cdc_ops.py --check state checks what a target would hold: the snapshot plus every <table>_changes applied in order as the connector deduplicates (an insert when its key has no row, an update or delete when it has one), each table ending as the whole ops.jsonl leaves it -- a snapshot taken under changes has no one point the trail splits at, so the changes are not paired one by one; devices and readings have no primary key, so the connector does not deduplicate them and a change the snapshot holds may arrive again (--keyless): it is discarded by the column that names their rows (serial, reading_id), counted and listed, and on the keyed tables any such change fails the check; (8) monitor. Run: `tdd xp one-shot --suite container-connectors/db2cdc_initial_load_live --keep`. verify-ops runs with --cascades logged --noops unlogged, what the Db2 log carries: each row an ON DELETE CASCADE takes arrives in its delete's transaction, and an update setting the values a row has does not arrive. Db2 reports columns upper-cased (EMP_NO), as its catalog folds unquoted names; verify-ops compares them without case."
   },
   {
     "domain-manifest": {
-      "emit_ops": "${XP_WORK_DIR}/ops.jsonl",
+      "emit_ops": "${xp:dir}/ops.jsonl",
       "domains": [
         {
-          "name": "${xp_name(db2cdc_employeescdc_m)}",
+          "name": "${xp:name(db2cdc_employeescdc_m)}",
           "system": "db2cdc",
           "model": "employeescdc",
           "data": "m"
@@ -27,11 +27,11 @@
           "command": "sentinel-data",
           "options": [
             "--domain",
-            "${xp_name(db2cdc_employeescdc_m)}",
+            "${xp:name(db2cdc_employeescdc_m)}",
             "--key",
             "after-create-data",
             "--emit-ops",
-            "${XP_WORK_DIR}/ops.jsonl"
+            "${xp:dir}/ops.jsonl"
           ]
         }
       },
@@ -54,13 +54,13 @@
                       "command": "modify-data",
                       "options": [
                         "--domain",
-                        "${xp_name(db2cdc_employeescdc_m)}",
+                        "${xp:name(db2cdc_employeescdc_m)}",
                         "--ops",
                         "Mix",
                         "--sets",
                         "250",
                         "--emit-ops",
-                        "${XP_WORK_DIR}/ops.jsonl"
+                        "${xp:dir}/ops.jsonl"
                       ]
                     }
                   },
@@ -86,7 +86,7 @@
         "connection_template": "connection-file:connections/db2_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp_name(db2cdc_employeescdc_m)}"
+          "D0": "${xp:name(db2cdc_employeescdc_m)}"
         }
       }
     ]
@@ -122,11 +122,11 @@
           "command": "sentinel-data",
           "options": [
             "--domain",
-            "${xp_name(db2cdc_employeescdc_m)}",
+            "${xp:name(db2cdc_employeescdc_m)}",
             "--key",
             "after-churn",
             "--emit-ops",
-            "${XP_WORK_DIR}/ops.jsonl"
+            "${xp:dir}/ops.jsonl"
           ]
         }
       }
@@ -158,7 +158,7 @@
           ],
           "script": "scripts/verify_cdc_ops.py",
           "params": [
-            "${XP_WORK_DIR}/ops.jsonl",
+            "${xp:dir}/ops.jsonl",
             "db2cdc_initial_load_live",
             "--cascades",
             "logged",

@@ -7,11 +7,11 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(dev)}",
+          "name": "${xp:name(dev)}",
           "system": "dev"
         },
         {
-          "name": "${xp_name(s3_out)}",
+          "name": "${xp:name(s3_out)}",
           "system": "s3"
         }
       ]
@@ -25,7 +25,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "domains": {
-          "D0": "${xp_name(dev)}"
+          "D0": "${xp:name(dev)}"
         }
       },
       {
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/s3_file_out.yaml",
         "domains": {
-          "D0": "${xp_name(s3_out)}"
+          "D0": "${xp:name(s3_out)}"
         }
       }
     ]

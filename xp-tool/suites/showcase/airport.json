@@ -6,17 +6,17 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(ap_fs)}",
+          "name": "${xp:name(ap_fs)}",
           "system": "fs",
           "model": "airportdb",
           "data": "xs"
         },
         {
-          "name": "${xp_name(out)}",
+          "name": "${xp:name(out)}",
           "system": "fs"
         },
         {
-          "name": "${xp_name(dbx)}",
+          "name": "${xp:name(dbx)}",
           "system": "databricks"
         }
       ]
@@ -30,7 +30,7 @@
         "connection_template": "connection-file:connections/local_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp_name(ap_fs)}"
+          "D0": "${xp:name(ap_fs)}"
         }
       },
       {
@@ -44,7 +44,7 @@
         "connection_template": "connection-file:connections/local_file_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "${xp_name(out)}"
+          "D0": "${xp:name(out)}"
         }
       },
       {
@@ -53,7 +53,7 @@
         "connection_template": "connection-file:connections/databricks_bulk_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "${xp_name(dbx)}"
+          "D0": "${xp:name(dbx)}"
         }
       }
     ]

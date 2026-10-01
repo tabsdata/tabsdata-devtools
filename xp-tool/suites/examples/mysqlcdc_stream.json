@@ -7,7 +7,7 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp_name(mysqlcdc_employees_xs)}",
+          "name": "${xp:name(mysqlcdc_employees_xs)}",
           "system": "mysqlcdc",
           "model": "employees",
           "data": "xs"
@@ -23,7 +23,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/mysql_cdc_612.yaml",
         "domains": {
-          "D0": "${xp_name(mysqlcdc_employees_xs)}"
+          "D0": "${xp:name(mysqlcdc_employees_xs)}"
         }
       },
       {
@@ -32,7 +32,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/mysql_cdc_613.yaml",
         "domains": {
-          "D0": "${xp_name(mysqlcdc_employees_xs)}"
+          "D0": "${xp:name(mysqlcdc_employees_xs)}"
         }
       },
       {
@@ -41,7 +41,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/mysql_cdc_614.yaml",
         "domains": {
-          "D0": "${xp_name(mysqlcdc_employees_xs)}"
+          "D0": "${xp:name(mysqlcdc_employees_xs)}"
         }
       },
       {
@@ -50,7 +50,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/mysql_cdc_615.yaml",
         "domains": {
-          "D0": "${xp_name(mysqlcdc_employees_xs)}"
+          "D0": "${xp:name(mysqlcdc_employees_xs)}"
         }
       }
     ]
