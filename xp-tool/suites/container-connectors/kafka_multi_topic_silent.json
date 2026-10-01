@@ -1,0 +1,118 @@
+[
+  {
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "CAPABILITY suite: ONE Kafka stream publisher consuming THREE topics, TWO of them written and ONE never. Functions in functions/caps_kafka_topics.py::kafka_two_of_three: its topic is the regex ^<prefix>\\.(departments|employees|titles)$, every frame routed to its topic's table by its columns (kafka_departments, kafka_employees, kafka_titles), anything else to kafka_unrouted. The silent topic EXISTS -- a redpanda domain's create-model creates every entity's topic -- so the subscription holds it from the start and it simply carries nothing. STAGES: (1) domains -- a redpanda domain with the employees model and no seed (create-data would write every topic); (2) actions, tagged live -- `produce` in the background: 6 passes 15s apart of `modify-data --entity departments,employees`, each appended to ${xp:dir}/ops.jsonl, running while (3) the collection is created and (4) the publisher registered, which STARTS it; (5) actions -- wait for produce, then scripts/verify_kafka.py, tagged check: every message of departments and employees in its table exactly once (polling, at most 5m), and kafka_titles and kafka_unrouted without a row; (6) monitor. Run: `tdd xp one-shot --suite container-connectors/kafka_multi_topic_silent --keep`."
+  },
+  {
+    "domains": [
+      {
+        "name": "${xp:name(redpanda)}",
+        "command": "create",
+        "options": ["--sys", "redpanda"]
+      },
+      {
+        "name": "${xp:name(redpanda)}",
+        "command": "create-model",
+        "options": ["--model", "employees"]
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "background": {
+          "name": "produce",
+          "tags": ["live"],
+          "actions": [
+            {
+              "loop": {
+                "name": "produce-pass",
+                "repeat": 6,
+                "actions": [
+                  {
+                    "tdd": {
+                      "name": "push",
+                      "tool": "domain",
+                      "command": "modify-data",
+                      "options": [
+                        "--domain",
+                        "${xp:name(redpanda)}",
+                        "--entity",
+                        "departments,employees",
+                        "--emit-ops",
+                        "${xp:dir}/ops.jsonl"
+                      ]
+                    }
+                  },
+                  {
+                    "sleep": {
+                      "name": "pause",
+                      "time": "15s"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "kafka_topics",
+        "type": "kafka_topic_in",
+        "connection_template": "connection-file:connections/kafka_topic_in_multi.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "${xp:name(redpanda)}"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "kafka_topics",
+        "functionpath": "functions/caps_kafka_topics.py::kafka_two_of_three"
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "wait": {
+          "name": "produced",
+          "tags": ["live"],
+          "for": ["produce"]
+        }
+      },
+      {
+        "python": {
+          "name": "verify-topics",
+          "tags": ["check"],
+          "script": "scripts/verify_kafka.py",
+          "params": [
+            "${xp:dir}/ops.jsonl",
+            "kafka_topics",
+            "--expect",
+            "kafka_departments=departments",
+            "--expect",
+            "kafka_employees=employees",
+            "--empty",
+            "kafka_titles",
+            "kafka_unrouted",
+            "--time-out",
+            "5m"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "monitor": {
+      "time_out": "30m"
+    }
+  }
+]

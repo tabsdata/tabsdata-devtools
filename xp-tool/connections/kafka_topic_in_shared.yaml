@@ -1,0 +1,31 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: kafka-topic-in (stream-src) — consumer group '<prefix>_shared'
+# The one kafka template meant to be SHARED: every stream publisher of a collection with
+# this connection joins one consumer group, and the group splits a topic's partitions
+# between them -- on a topic of several partitions (a redpanda domain's create-model
+# --up-to-partitions), each reads only its own. On a one-partition topic all but one sit
+# idle, which is why every other kafka template gives its collection a group of its own.
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+# '${D<n>__<KEY>}' reads the same bag but interpolates the value PLAIN and inline — for a name rather than a credential.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.kafka:KafkaStreamSrcConn
+spec:
+
+  # accepts: <value> | secret:<value>
+  # the redpanda domain's broker list (meta KAFKA_BROKERS, e.g. localhost:19092)
+  #
+  servers: '$secret:D0__KAFKA_BROKERS'
+
+  # accepts: <value> | secret:<value>
+  # A per-collection group, prefixed by the domain so it is per-run as well.
+  #
+  group_id: '${D0__DB}_shared'
+  # credentials  (optional, default: none) -- OMITTED: the redpanda domain runs without SASL
+  # schema_registry  (optional, default: none) -- left off, as in kafka_topic_in.yaml
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}

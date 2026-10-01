@@ -14,8 +14,16 @@ from __future__ import annotations
 
 import argparse
 import random
+from collections.abc import Callable
 
-from tabsdata_dev.common.systems import cli, console, constants, datagen, descriptor
+from tabsdata_dev.common.systems import (
+    cli,
+    console,
+    constants,
+    datagen,
+    descriptor,
+    emit,
+)
 from tabsdata_dev.common.systems.errors import TdxError
 
 
@@ -29,7 +37,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     cli.add_latch(parser)
 
 
-def run(ctx: cli.Context) -> int:
+def run(
+    ctx: cli.Context,
+    prepare: Callable[[list[emit.Table]], list[emit.Table]] | None = None,
+) -> int:
+    """`prepare`, from a system's own create-data, turns the tables the model
+    built into the ones loaded -- a subset, reshaped rows (redpanda's
+    ``--entity``/``--schema-changes``). It runs before the load and before a
+    dry run's plan, so both see the same rows, and reaches no system."""
     assert isinstance(ctx.info, descriptor.DomainInfo) and ctx.path is not None
     a = ctx.args
     info = ctx.info
@@ -47,6 +62,8 @@ def run(ctx: cli.Context) -> int:
     model_obj = datagen.load_model(model)
     n = datagen.BASE_SIZE * a.size
     tables = model_obj.build_initial(random.Random(datagen.INITIAL_SEED), n)
+    if prepare is not None:
+        tables = prepare(tables)
     if a.dry_run:
         return _dry_run(ctx, tables)
     reload = bool(a.force or info.data)

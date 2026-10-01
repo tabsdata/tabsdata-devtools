@@ -19,7 +19,7 @@ seconds after ``create-project`` and runs until the function is disabled or dele
 
 WHERE THE MESSAGES COME FROM. A redpanda domain IS a Kafka topic namespace: its data
 plane produces a model's rows as JSON, ONE MESSAGE PER ROW, to ``<prefix>.<entity>`` —
-one topic per model entity, auto-created on produce. The suite's domain carries the
+one topic per model entity, created by create-model. The suite's domain carries the
 ``employees`` model at size ``xs``, so ``create-domains`` seeds:
 
     <prefix>.employees      100 messages   {emp_no, birth_date, first_name,
