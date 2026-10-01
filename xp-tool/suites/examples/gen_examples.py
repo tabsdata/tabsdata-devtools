@@ -3491,7 +3491,7 @@ def as_stages(doc: dict) -> list:
                 for c in entries
             ]
         stages.append({kind: entries})
-    stages.append({"monitor": True})
+    stages.append({"monitor": {"time_out": "30m"}})
     return stages
 
 

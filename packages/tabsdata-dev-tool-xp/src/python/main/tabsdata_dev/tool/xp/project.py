@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from tabsdata_dev.common.core import proc
 
 from . import conn, ids, lanes, pointers, shell, state, suites
-from .models import Sentinel, build_instance
+from .models import Monitor, Sentinel, build_instance
 from .reporter import fs_token, rep, reporting, say
 
 BUILTIN_GROUPS = {"sources", "destinations", "default"}
@@ -566,10 +566,11 @@ def fire_triggers(inst, project: str, triggers: list) -> None:
         lanes.parallel(batch, _trigger)
 
 
-def watch(project: str) -> None:
+def watch(project: str, monitor: Monitor) -> None:
     rep().plan(1)
-    with rep().step("monitor", project):
-        monitor_trx(project)
+    with rep().step("monitor", project) as step:
+        step["note"] = str(monitor.time_out)
+        monitor_trx(project, monitor)
 
 
 def cmd_destroy_project(args) -> None:
@@ -668,15 +669,22 @@ MONITOR_RETRY_PAUSE = 5.0
 MONITOR_HEALTHY_WATCH = 30.0
 
 
-def _watch(argv: list[str], project: str) -> subprocess.CompletedProcess:
-    if state.run.out.fmt == "json":
-        return shell.run_cmd(argv, check=False)
-    rep().note(f"monitor '{project}' (Ctrl-C to stop watching)")
-    shell.flush_stdout()
-    return subprocess.run(argv)
+def _watch(
+    argv: list[str], project: str, left: float
+) -> subprocess.CompletedProcess | None:
+    """One watch, for at most `left` seconds; None when they ran out (the
+    watch is killed)."""
+    try:
+        if state.run.out.fmt == "json":
+            return shell.run_cmd(argv, check=False, timeout=left)
+        rep().note(f"monitor '{project}' (Ctrl-C to stop watching)")
+        shell.flush_stdout()
+        return subprocess.run(argv, timeout=left)
+    except subprocess.TimeoutExpired:
+        return None
 
 
-def monitor_trx(project: str) -> None:
+def monitor_trx(project: str, monitor: Monitor) -> None:
     """Wait for every transaction in ``project`` to finish, then FAIL if any
     ended in a failed state. In view the monitor streams to the terminal (its
     live table is the point); in json it is captured into run.log instead.
@@ -688,15 +696,25 @@ def monitor_trx(project: str) -> None:
     transactions ran on. Only a monitor that keeps failing for
     ``MONITOR_OUTAGE_GRACE`` seconds fails the run; one that fails at once for
     another reason (a lost login) never lasts long enough to restart the clock,
-    so it too ends within the grace period."""
+    so it too ends within the grace period.
+
+    The whole watch -- every attempt, every pause -- ends at the monitor's
+    ``time_out``: transactions still running then fail the run."""
     argv = shell.tdk_argv("trx", "list", "--proj", project, "--monitor")
     if state.run.dry_run:
         shell.dry_echo(argv)
         return
+    deadline = time.monotonic() + monitor.seconds
     down_since = None
     while True:
         started = time.monotonic()
-        r = _watch(argv, project)
+        left = deadline - started
+        r = _watch(argv, project, left) if left > 0 else None
+        if r is None:
+            state.die(
+                f"project '{project}' still has transactions running after the "
+                f"monitor's time_out ({monitor.time_out})"
+            )
         if r.returncode == 0:
             break
         now = time.monotonic()
@@ -713,7 +731,7 @@ def monitor_trx(project: str) -> None:
             f"monitor '{project}' exited with {r.returncode} ({why}); watching again in "
             f"{MONITOR_RETRY_PAUSE:g}s"
         )
-        time.sleep(MONITOR_RETRY_PAUSE)
+        time.sleep(max(0.0, min(MONITOR_RETRY_PAUSE, deadline - time.monotonic())))
     trx = shell.tdk(["trx", "list", "--proj", project], check=False) or []
     failed = [t for t in trx if trx_status(str(t.get("status", ""))) in FAILED_TRX]
     if failed:
@@ -927,23 +945,44 @@ def plan_name(ts: str, instance: str, project: str, function: str) -> str:
     return f"{ts}_{where[:room]}_{digest}_{function}"
 
 
-def cmd_run_project(args) -> None:
+def monitor_of(args) -> Monitor | None:
+    """The monitor `--monitor --time-out T` asks for, None without --monitor;
+    a watch is never without an end."""
+    if not getattr(args, "monitor", True):
+        return None
+    if not getattr(args, "time_out", None):
+        state.die(
+            "--time-out <VALUE><UNIT> (e.g. 30m) says how long the monitor may watch"
+        )
+    try:
+        return Monitor(time_out=args.time_out)
+    except ValueError as exc:
+        state.die(f"--time-out: {exc}")
+
+
+def cmd_run_triggers(args) -> None:
+    monitor = monitor_of(args)
     with reporting(
-        args, "run-project", args.project, suite=pointers.suite_of_project(args.project)
+        args,
+        "run-triggers",
+        args.project,
+        suite=pointers.suite_of_project(args.project),
     ):
         members = pointers.project_group(args.project)
-        monitor = bool(getattr(args, "monitor", False))
         if members is not None:
+            watch_flags = (
+                ["--monitor", "--time-out", str(monitor.time_out)] if monitor else []
+            )
             lanes.dispatch(
-                f"run-project group '{args.project}'",
+                f"run-triggers group '{args.project}'",
                 [
                     (
                         m,
                         lanes.child_argv(
-                            "run-project",
+                            "run-triggers",
                             "--project",
                             m,
-                            *(["--monitor"] if monitor else []),
+                            *watch_flags,
                             *shell.profile_flag(),
                             *shell.dry_flag(),
                         ),
@@ -958,10 +997,11 @@ def cmd_run_project(args) -> None:
         inst = pointers.load_instance(pointers.load_project(args.project))
         fire_triggers(inst, args.project, inst.triggers)
         if monitor:
-            watch(args.project)
+            watch(args.project, monitor)
 
 
 def cmd_monitor_project(args) -> None:
+    monitor = monitor_of(args)
     shell.require_login()
     with reporting(
         args,
@@ -980,6 +1020,8 @@ def cmd_monitor_project(args) -> None:
                             "monitor-project",
                             "--project",
                             m,
+                            "--time-out",
+                            str(monitor.time_out),
                             *shell.profile_flag(),
                             *shell.dry_flag(),
                         ),
@@ -990,7 +1032,7 @@ def cmd_monitor_project(args) -> None:
                 base=args.project,
             )
             return
-        watch(args.project)
+        watch(args.project, monitor)
 
 
 def _set_enabled(args, enabled: bool) -> None:

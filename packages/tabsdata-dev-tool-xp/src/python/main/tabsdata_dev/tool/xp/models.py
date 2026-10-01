@@ -21,7 +21,8 @@ A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
 * ``functions`` -- ``functions/<file>.py::<symbol>`` relative to the suite dir,
   registered in order, ``"enabled": false`` to register one disabled;
 * ``triggers`` -- functions to fire;
-* ``monitor`` -- ``true``: watch the project's transactions until they finish;
+* ``monitor`` -- ``{"time_out": "<VALUE><UNIT>"}``: watch the project's
+  transactions until they finish, failing the run if they have not by then;
 * ``live`` -- a script of named entries (`tdd domain` data verbs, pauses,
   waits, repeated nested scripts), blocking or side by side; its background
   entries keep running through the stages after it (see ``live``);
@@ -301,6 +302,25 @@ class LiveEntry(BaseModel):
         return self.repeat or 1
 
 
+class Monitor(BaseModel):
+    """A monitor stage: watch the project's transactions until they finish,
+    for at most ``time_out`` -- given, never assumed: a watch with no end is
+    what a run that hangs looks like."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    time_out: Any  # "<VALUE><UNIT>", checked by `seconds_of` (see `sleep`)
+
+    @model_validator(mode="after")
+    def _a_duration(self) -> Monitor:
+        seconds_of(self.time_out, "monitor: time_out")
+        return self
+
+    @property
+    def seconds(self) -> float:
+        return seconds_of(self.time_out, "time_out")
+
+
 class Sentinel(BaseModel):
     """A latch: hold until ``wait_for_key`` is in some version of ``table`` in
     ``collection``, or fail once ``time_out`` has passed. Every version is
@@ -457,7 +477,7 @@ STAGE_KINDS = (
 
 class Stage(BaseModel):
     """One step of the suite's ordered list: its kind, and the entries of that
-    kind it holds (none for ``monitor``)."""
+    kind it holds (a monitor's settings for ``monitor``)."""
 
     kind: str
     # Its position in the suite's list, counting comment entries: the number a
@@ -472,6 +492,7 @@ class Stage(BaseModel):
     live: list[LiveEntry] = []
     sentinel: list[Sentinel] = []
     execute: list[Execute] = []
+    monitor: Monitor | None = None
 
 
 class Instance(BaseModel):
@@ -718,7 +739,7 @@ def stages_of(doc, definition: pathlib.Path) -> list[dict]:
             f"suite {definition} is a single object, a form xp no longer reads: a "
             "suite is a list of stages -- "
             '[{"domains": [...]}, {"collections": [...]}, {"functions": [...]}, '
-            '{"triggers": [...]}, {"monitor": true}] is what it ran'
+            '{"triggers": [...]}, {"monitor": {"time_out": "30m"}}] is what it ran'
         )
     if not isinstance(doc, list):
         state.die(f"suite {definition} must be a JSON list of stages")
@@ -739,9 +760,13 @@ def stages_of(doc, definition: pathlib.Path) -> list[dict]:
         kind = keys[0]
         value = element[kind]
         if kind == "monitor":
-            if value not in (True, {}):
-                state.die(f"suite {definition}: stage {i}: monitor takes true")
-            stages.append({"kind": kind, "at": i})
+            # `true` was the whole stage once; it watched for as long as it took.
+            if not isinstance(value, dict) or "time_out" not in value:
+                state.die(
+                    f"suite {definition}: stage {i}: monitor takes "
+                    '{"time_out": "<VALUE><UNIT>"}, how long it may watch (e.g. "30m")'
+                )
+            stages.append({"kind": kind, "at": i, "monitor": value})
         elif kind == "domain-manifest":
             # An object, not a list: its domains beside a setting of its own.
             if not isinstance(value, dict):

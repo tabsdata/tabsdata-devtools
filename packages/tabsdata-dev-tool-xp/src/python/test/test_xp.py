@@ -16,6 +16,9 @@ XP_SHORT = "tuc00_0e2aec"
 PH = "xp_user_0_20260101T000000"
 
 
+MONITOR = {"monitor": {"time_out": "30m"}}
+
+
 def N(name):
     """A suite's own domain, as a suite names it: `<XP_ID>_<name>` once read."""
     return "${xp_name(%s)}" % name
@@ -72,7 +75,7 @@ def _stages(doc: dict) -> list:
         for k in ("domains", "collections", "functions", "triggers")
         if doc.get(k)
     ]
-    return stages + [{"monitor": True}]
+    return stages + [MONITOR]
 
 
 @pytest.fixture
@@ -81,7 +84,7 @@ def xp_root(tmp_path, monkeypatch):
     (root / "suites" / "demo" / "functions").mkdir(parents=True)
     (root / "connections").mkdir()
     (root / "suites" / "demo" / "one.json").write_text(json.dumps(_stages(SUITE)))
-    (root / "suites" / "demo" / "two.json").write_text(json.dumps([{"monitor": True}]))
+    (root / "suites" / "demo" / "two.json").write_text(json.dumps([MONITOR]))
     (root / "suites" / "demo" / "notes.json").write_text(
         json.dumps({"_comment": "not a suite"})
     )
@@ -430,7 +433,7 @@ def test_json_stream_carries_steps_and_ends_in_one_ok(xp_root, capsys):
         ]
     )
     assert rc == 0
-    rc = _run(["run-project", "--project", "nope", "--dry-run", "--format", "json"])
+    rc = _run(["run-triggers", "--project", "nope", "--dry-run", "--format", "json"])
     out, _ = capsys.readouterr()
     events = [json.loads(line) for line in out.splitlines()]
     assert all(e["command"] == "xp" for e in events)
@@ -736,7 +739,7 @@ def test_a_failed_transaction_leaves_its_worker_logs_in_the_scratch_dir(
     workers = {"tx-1": [{"id": "w-a", "status": "Failed"}, {"id": "w-b"}]}
     calls = []
 
-    def fake(argv, check, stdin_text=None, env=None):
+    def fake(argv, check, stdin_text=None, env=None, timeout=None):
         args = argv[argv.index("tdk") + 1 :]
         calls.append(args)
         out, rc = "", 0
@@ -752,7 +755,9 @@ def test_a_failed_transaction_leaves_its_worker_logs_in_the_scratch_dir(
         return subprocess.CompletedProcess(argv, rc, out, "")
 
     monkeypatch.setattr(shell, "run_cmd", fake)
-    rc = _run(["monitor-project", "--project", "p1", "--format", "json"])
+    rc = _run(
+        ["monitor-project", "--project", "p1", "--time-out", "1h", "--format", "json"]
+    )
     events = [
         json.loads(line)
         for line in capsys.readouterr().out.splitlines()
@@ -783,10 +788,13 @@ def _fake_monitor(monkeypatch, watches):
     queue = list(watches)
     watched = []
 
-    def fake(argv, check, stdin_text=None, env=None):
+    def fake(argv, check, stdin_text=None, env=None, timeout=None):
         args = argv[argv.index("tdk") + 1 :]
         if args[:2] == ["trx", "list"] and "--monitor" in args:
             seconds, rc = queue.pop(0)
+            if timeout is not None and seconds > timeout:
+                now[0] += timeout
+                raise subprocess.TimeoutExpired(argv, timeout)
             now[0] += seconds
             watched.append(rc)
             return subprocess.CompletedProcess(argv, rc, "", "│ Connection reset │")
@@ -802,8 +810,18 @@ def _fake_monitor(monkeypatch, watches):
     return watched
 
 
-def _monitor_events(capsys):
-    rc = _run(["monitor-project", "--project", "p1", "--format", "json"])
+def _monitor_events(capsys, time_out="1h"):
+    rc = _run(
+        [
+            "monitor-project",
+            "--project",
+            "p1",
+            "--time-out",
+            time_out,
+            "--format",
+            "json",
+        ]
+    )
     return rc, [
         json.loads(line)
         for line in capsys.readouterr().out.splitlines()
@@ -836,6 +854,28 @@ def test_the_monitor_gives_up_once_the_grace_period_is_spent(
     grace = project.MONITOR_OUTAGE_GRACE
     per_try = project.MONITOR_RETRY_PAUSE + 1
     assert len(watched) == int(grace // per_try) + 1
+
+
+def test_the_monitor_fails_the_run_once_its_time_out_passes(
+    xp_root, monkeypatch, capsys
+):
+    """A watch is never without an end: transactions still running at the
+    time_out fail the run, through outages and retries alike."""
+    watched = _fake_monitor(monkeypatch, [(40, 1), (600, 0)])
+    rc, events = _monitor_events(capsys, time_out="2m")
+    err = [e for e in events if e["event"] == "error"][0]
+    assert rc == 1 and watched == [1]
+    assert (
+        "still has transactions running after the monitor's time_out (2m)"
+        in err["message"]
+    )
+
+
+def test_a_monitor_is_never_without_a_time_out(xp_root, capsys):
+    assert _run(["monitor-project", "--project", "p1"]) == 1  # argparse: required
+    assert "required: --time-out" in capsys.readouterr().err
+    rc = _run(["run-triggers", "--project", "p1", "--monitor"])
+    assert rc == 1 and "--time-out <VALUE><UNIT>" in capsys.readouterr().err
 
 
 def test_a_watch_that_reached_the_server_restarts_the_outage_clock(
@@ -1009,7 +1049,7 @@ LIVE = [
 def _live_suite(xp_root, live=LIVE):
     path = xp_root / "suites" / "live" / "one.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_stages(SUITE) + [{"live": live}, {"monitor": True}]))
+    path.write_text(json.dumps(_stages(SUITE) + [{"live": live}, MONITOR]))
     return path
 
 
@@ -1366,7 +1406,7 @@ STAGED = [
     },
     {"domains": calls("fs", "fs")},
     {"triggers": [{"collection": "src", "function": "pub", "detached": True}]},
-    {"monitor": True},
+    MONITOR,
 ]
 
 
@@ -1408,7 +1448,7 @@ def test_the_older_single_object_is_refused_naming_the_list_it_ran(xp_root, caps
     assert suites.is_suite_def(path)
     with pytest.raises(
         state.XpError,
-        match='a single object, a form xp no longer reads.*"monitor": true',
+        match='a single object, a form xp no longer reads.*"monitor": \\{"time_out"',
     ):
         build_instance("i", path)
     assert _run(["list-suites", *_suites_dir(xp_root)]) == 0
@@ -1426,7 +1466,10 @@ def test_the_older_single_object_is_refused_naming_the_list_it_ran(xp_root, caps
             "exactly one of .* \\(has domains, triggers\\)",
         ),
         ([{"deploy": []}], "exactly one of"),
-        ([{"monitor": 5}], "monitor takes true"),
+        ([{"monitor": 5}], "monitor takes"),
+        ([{"monitor": True}], "monitor takes"),
+        ([{"monitor": {}}], "how long it may watch"),
+        ([{"monitor": {"time_out": "30"}}], "time_out: '30' is not"),
         ([{"domains": {}}], "domains takes a list"),
         (
             [

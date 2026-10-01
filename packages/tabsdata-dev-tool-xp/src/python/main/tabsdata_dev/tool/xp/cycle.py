@@ -186,7 +186,7 @@ def cmd_run_suite(args) -> None:
                 elif stage.kind == "triggers":
                     project.fire_triggers(inst, args.project, stage.triggers)
                 elif stage.kind == "monitor":
-                    project.watch(args.project)
+                    project.watch(args.project, stage.monitor)
                 elif stage.kind == "sentinel":
                     project.wait_sentinels(args.project, stage.sentinel)
                 elif stage.kind == "execute":
@@ -265,7 +265,7 @@ def cmd_one_shot(args) -> None:
             state.die(f"{len(dead)} lane(s) failed")
         if args.keep:
             rep().note(
-                f"one-shot: keeping suite run '{name}' and project '{proj}' -- re-run with `tdd xp run-project --project {proj} --monitor{_profile_hint()}`"
+                f"one-shot: keeping suite run '{name}' and project '{proj}' -- re-run with `tdd xp run-triggers --project {proj} --monitor --time-out 30m{_profile_hint()}`"
             )
             return
         rep().note(f"one-shot: tearing down '{name}' (use --keep to preserve)")
@@ -411,7 +411,7 @@ def cmd_bench(args) -> None:
             "fire triggers (all lanes at once)",
             "triggers",
             lambda ln: lanes.child_argv(
-                "run-project",
+                "run-triggers",
                 "--project",
                 ln["project"],
                 *shell.profile_flag(),
@@ -465,7 +465,7 @@ def cmd_bench(args) -> None:
             state.die(f"{len(bad)} of {len(lane_docs)} lane(s) failed")
         if args.keep:
             rep().note(
-                f"bench: keeping '{base}' -- re-run with `tdd xp run-project --project {base} --monitor{_profile_hint()}`"
+                f"bench: keeping '{base}' -- re-run with `tdd xp run-triggers --project {base} --monitor --time-out 30m{_profile_hint()}`"
             )
             return
         rep().note(f"bench: tearing down '{base}' (use --keep to preserve)")

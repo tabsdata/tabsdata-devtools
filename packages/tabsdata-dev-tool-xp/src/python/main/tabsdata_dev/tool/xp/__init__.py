@@ -34,8 +34,8 @@ manifest this tool writes.
     tdd xp create-project   --suite-run R [--project P] [--force] [--profile NAME] ...
     tdd xp destroy-project  --project P [--force] [--profile NAME] ...
     tdd xp destroy-instance --suite-run R
-    tdd xp run-project      --project P [--monitor] [--profile NAME] ...
-    tdd xp monitor-project  --project P [--profile NAME] ...
+    tdd xp run-triggers     --project P [--monitor --time-out T] [--profile NAME] ...
+    tdd xp monitor-project  --project P --time-out T [--profile NAME] ...
     tdd xp live-domains     --suite-run R [--secret-env VAR] [--dry-run] ...
     tdd xp run-suite        --suite-run R [--project P] [--force] [--no-live] [--profile NAME] ...
     tdd xp enable-function  --project P --collection C --function F [--profile NAME]
@@ -142,6 +142,16 @@ def _profile(c):
         metavar="NAME",
         default=None,
         help="the tdk connection profile every tdk call uses (tdk COMMAND --profile NAME), so runs from shells on one account do not share a login (default: tdk's own)",
+    )
+
+
+def _time_out(c, required: bool = False):
+    c.add_argument(
+        "--time-out",
+        required=required,
+        default=None,
+        metavar="T",
+        help="how long the monitor may watch, <VALUE><UNIT> (s, m, h): transactions still running then fail the run",
     )
 
 
@@ -284,22 +294,25 @@ def configure(p: argparse.ArgumentParser) -> None:
     c.set_defaults(func=project.cmd_destroy_instance)
 
     c = sub.add_parser(
-        "run-project", help="trigger the suite run's functions on the project"
+        "run-triggers",
+        help="fire the suite run's triggers on the project, nothing else",
     )
     c.add_argument("--project", required=True)
     c.add_argument(
         "--monitor",
         action="store_true",
-        help="after triggering, watch the transactions until they finish",
+        help="after triggering, watch the transactions until they finish (needs --time-out)",
     )
+    _time_out(c)
     for add in (_profile, _latch, _report, _dry_run, _common):
         add(c)
-    c.set_defaults(func=project.cmd_run_project)
+    c.set_defaults(func=project.cmd_run_triggers)
 
     c = sub.add_parser(
         "monitor-project", help="watch a project's transactions until they finish"
     )
     c.add_argument("--project", required=True)
+    _time_out(c, required=True)
     for add in (_profile, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=project.cmd_monitor_project)
