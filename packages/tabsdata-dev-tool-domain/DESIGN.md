@@ -92,7 +92,8 @@ manifests so a test suite gets the same data on every backend.
   `sentinel-data` take both. `--dry-run` works out the operations and applies none: neither
   the system nor the descriptor is touched, so `--seed AUTO` does not advance and
   `create-data` needs no `--force`; on its own it writes no file. `--emit-ops FILE` APPENDS the
-  operations as CDC-style JSON lines -- `ts`, `domain`, `verb`, `seed` and `trx_mode`
+  operations as CDC-style JSON lines -- `run` (an id per run: two runs of a verb can share
+  a second, and so a `ts`), `ts`, `domain`, `verb`, `seed` and `trx_mode`
   (modify-data), `dry_run`, `txn` (numbered from 0 within the run), `commit` (modify-data: the
   transaction's rank in the run's commit order, which is the order the lines are written in,
   so under `nested` `txn` counts down), `op`, `entity`, then `row` for an insert,

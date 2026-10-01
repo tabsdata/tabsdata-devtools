@@ -86,6 +86,7 @@
             "postgrescdc_pause_resume",
             "--name",
             "postgrescdc_initial_load",
+            "--profile",
             "${td:profile}"
           ]
         }
@@ -153,6 +154,7 @@
             "postgrescdc_pause_resume",
             "--name",
             "postgrescdc_initial_load",
+            "--profile",
             "${td:profile}"
           ]
         }
@@ -187,6 +189,7 @@
             "postgrescdc_pause_resume",
             "--name",
             "postgrescdc_initial_load",
+            "--profile",
             "${td:profile}"
           ]
         }
@@ -254,6 +257,7 @@
             "postgrescdc_pause_resume",
             "--name",
             "postgrescdc_initial_load",
+            "--profile",
             "${td:profile}"
           ]
         }
@@ -288,6 +292,7 @@
             "postgrescdc_pause_resume",
             "--name",
             "postgrescdc_initial_load",
+            "--profile",
             "${td:profile}"
           ]
         }
@@ -355,6 +360,7 @@
             "postgrescdc_pause_resume",
             "--name",
             "postgrescdc_initial_load",
+            "--profile",
             "${td:profile}"
           ]
         }
@@ -443,6 +449,7 @@
             "initial-load",
             "--untracked",
             "audit",
+            "--profile",
             "${td:profile}"
           ]
         }

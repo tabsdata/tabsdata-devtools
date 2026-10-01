@@ -70,11 +70,11 @@ times the phases, `--dry-run` prints the commands.
   tdk argv, appends it last, past the verb; no call can miss it or misplace it; the verbs that reach tdk (`create-`/`destroy-`/`monitor-project`, `run-triggers`,
   `run-suite`, `enable-`/`disable-function`, `one-shot`, `bench`) take it and hand it to their fan-out children. The domain verbs never
   reach tdk and do not take it. **A step that calls tdk itself** (`tdd tdk fn disable`, a check
-  script reading tables) names it `${td:profile}`: an option or param that is exactly that
-  becomes `--profile NAME`, or nothing when the run has no profile -- so the suite works on any
-  connection without saying which, and tdk never sees an empty value. It must be a whole
-  argument (embedded it has nothing to become without a profile) and only in a tdd, exe or
-  python step; both are refused when the suite is read. `${td:...}`, not `${xp:...}`: it is
+  script reading tables) writes `"--profile", "${td:profile}"`: the token is the run's profile name,
+  or the empty string when the run has none, in a tdd, exe or python step's options or params
+  (a domain call refuses it, as it does any other `${td:...}`). tdk reads `--profile ""` as
+  its unnamed profile, even where `tdk set --profile` recorded another -- while xp's own calls,
+  given no profile, pass none and get that recorded one. `${td:...}`, not `${xp:...}`: it is
   tdk's setting, not the run's.
 - **A domain-manifest stage is the batch**: `{"domain-manifest": {"emit_ops": FILE?, "domains":
   [{"name", "system", "model"?, "data"?, "emit"?}]}}` -- an object, not a list, for the setting

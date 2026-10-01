@@ -46,7 +46,8 @@ MODEL = "employeescdc"
 OPS = "${xp:dir}/ops.jsonl"
 VERIFY = "scripts/verify_cdc_ops.py"
 UNTRACKED = ["audit"]
-# The run's `--profile NAME`, or nothing: on every step that reaches tdk itself.
+# The run's profile name, or "" without one: `--profile` on every step that
+# reaches tdk itself.
 PROFILE = "${td:profile}"
 # Every set of a --trx-mode run but serial opens this many transactions at once.
 CONCURRENCY = 8
@@ -202,6 +203,7 @@ def tdk_fn(name: str, verb: str, collection: str, function: str) -> dict:
                 collection,
                 "--name",
                 function,
+                "--profile",
                 PROFILE,
             ],
         }
@@ -230,7 +232,7 @@ def verify(src: Source, name: str, collection: str, start: str, *extra: str, con
     params = [OPS, collection]
     for flag, value in src.logs.items():
         params += [flag, value]
-    params += ["--start", start, *extra, "--untracked", *UNTRACKED, PROFILE]
+    params += ["--start", start, *extra, "--untracked", *UNTRACKED, "--profile", PROFILE]
     body = {"name": name, "tags": ["check"], "script": VERIFY, "params": params}
     if cont:
         body["continue_on_fail"] = True

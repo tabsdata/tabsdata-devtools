@@ -162,6 +162,7 @@
             "tail",
             "--untracked",
             "audit",
+            "--profile",
             "${td:profile}"
           ],
           "continue_on_fail": true
@@ -185,6 +186,7 @@
             "tail",
             "--untracked",
             "audit",
+            "--profile",
             "${td:profile}"
           ],
           "continue_on_fail": true

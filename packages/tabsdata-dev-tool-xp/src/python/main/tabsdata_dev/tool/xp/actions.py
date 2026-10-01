@@ -478,8 +478,10 @@ def _domain_of(options: list[str]) -> str | None:
 def argv_of(a: Action, inst: Instance, project: str | None) -> list[str]:
     b = a.body
     if a.kind == "tdd":
-        return proc.tool_argv(b.tool, b.command, *work.expand_args(b.options, project))
-    params = work.expand_args(b.params, project)
+        return proc.tool_argv(
+            b.tool, b.command, *(work.expand(o, project) for o in b.options)
+        )
+    params = [work.expand(p, project) for p in b.params]
     if a.kind == "exe":
         return [b.program, *params]
     withs = [w for r in b.reqs for w in ("--with", r)]

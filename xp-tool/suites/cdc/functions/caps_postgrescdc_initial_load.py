@@ -100,17 +100,25 @@ _CFG = {
 }
 
 
+# Under live churn: a manifest at most every 30s. The trigger's seconds are also the
+# floor between manifests, and a publisher run takes one manifest, about every 30s
+# on a local server -- a stream closing one every 10s under steady change falls
+# further behind for as long as the churn lasts (a nested lane once had its last
+# manifest published 4.5 minutes after it was staged).
+_LIVE_CFG = {**_CFG, "tabsdata.cdc.trigger.max_secs": unsafe_seconds(30)}
+
+
 # The D0 domain's own replication slot, created with the domain and dropped with it.
 _SLOT = "${D0__REPLICATION_SLOT}"
 
 
-def _source() -> PostgresCdcStreamSrc:
+def _source(cfg: dict = _CFG) -> PostgresCdcStreamSrc:
     return PostgresCdcStreamSrc(
         tables=[*_TABLES, _SENTINEL_TABLE],
         replication_slot=_SLOT,
         replication_slot_behavior="reuse",
         initial_load=True,
-        src_cfg=_CFG,
+        src_cfg=cfg,
     )
 
 
@@ -139,7 +147,7 @@ def postgrescdc_initial_load(
 
 
 @stream_publisher(
-    source=_source(),
+    source=_source(_LIVE_CFG),
     flush_interval_mins=1,
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )

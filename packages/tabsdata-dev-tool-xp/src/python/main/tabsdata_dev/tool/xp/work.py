@@ -17,14 +17,11 @@ before any run. Any other ``${xp:...}`` left once the suite is resolved (see
 ``ids``) is refused when the suite is read.
 
 ``${td:profile}`` is the run's tdk connection, for the steps that call tdk
-themselves (``tdd tdk ...``, a check script): an option or param that is
-exactly ``${td:profile}`` becomes ``--profile NAME`` when the run was given
-``--profile NAME``, and nothing at all when it was not -- tdk then uses its
-default connection, as every call xp makes does. It stands alone, as a whole
-argument: embedded in one (``--profile=${td:profile}``) it would have no value
-to take without a profile, so that is refused when the suite is read, and so is
-any other ``${td:...}``. A separate namespace from ``${xp:...}`` because it is
-tdk's setting, not the run's.
+themselves (``tdd tdk ...``, a check script), written ``"--profile",
+"${td:profile}"``: the name the run was given with ``--profile``, or the empty
+string when it was given none. Any other ``${td:...}`` is refused when the
+suite is read. A separate namespace from ``${xp:...}`` because it is tdk's
+setting, not the run's.
 """
 
 from __future__ import annotations
@@ -32,7 +29,7 @@ from __future__ import annotations
 import pathlib
 import re
 
-from . import shell, state
+from . import state
 from .reporter import scratch
 
 TOKEN_RE = re.compile(r"\$\{xp:([A-Za-z][A-Za-z0-9_-]*(?:\([^)]*\))?)\}")
@@ -58,34 +55,16 @@ def unknown(text: str) -> list[str]:
 
 
 def td_misuse(text: str) -> str | None:
-    """Why `text` may not hold the ``${td:...}`` it holds, or None: an unknown
-    name, or ``${td:profile}`` inside a longer argument."""
+    """Why `text` may not hold the ``${td:...}`` it holds, or None."""
     for name in TD_TOKEN_RE.findall(text):
         if name != "profile":
             return f"${{td:{name}}} is not a token (known: {TD_PROFILE})"
-        if text != TD_PROFILE:
-            return (
-                f"{TD_PROFILE} must be a whole argument, alone -- it becomes "
-                f"'--profile NAME', or nothing without a profile (in {text!r})"
-            )
     return None
 
 
-def expand_args(items: list[str], project: str | None = None) -> list[str]:
-    """`items`, each with its ``${xp:...}`` tokens replaced, and every
-    ``${td:profile}`` replaced by the run's ``--profile NAME`` -- or dropped,
-    when the run has no profile."""
-    out: list[str] = []
-    for item in items:
-        if item == TD_PROFILE:
-            out.extend(shell.profile_flag())
-        else:
-            out.append(expand(item, project))
-    return out
-
-
 def expand(text: str, project: str | None = None) -> str:
-    """`text` with every ``${xp:...}`` token replaced. ``${xp:project}`` where no
+    """`text` with every ``${xp:...}`` token replaced, and ``${td:profile}``
+    by the run's profile name or the empty string. ``${xp:project}`` where no
     project is known -- a phase verb that only reaches the domains -- is an
     error rather than a literal left for a command to trip over."""
 
@@ -97,4 +76,5 @@ def expand(text: str, project: str | None = None) -> str:
             return project
         state.die(f"${{xp:{name}}} has no value here (in {text!r})")
 
+    text = text.replace(TD_PROFILE, state.run.profile or "")
     return TOKEN_RE.sub(one, text)

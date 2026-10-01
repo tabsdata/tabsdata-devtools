@@ -333,6 +333,7 @@
             "initial-load",
             "--untracked",
             "audit",
+            "--profile",
             "${td:profile}"
           ]
         }

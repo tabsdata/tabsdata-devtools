@@ -218,6 +218,15 @@ def _jq_sorted(jsonl: str, dest: Path) -> Path:
     return dest
 
 
+def run_of(o: dict) -> tuple:
+    """The run an operation belongs to: its ``run`` id -- two runs of one verb
+    in the same second share everything else -- or, in a trail from before the
+    id, its second, domain, verb and seed."""
+    if "run" in o:
+        return (o["run"],)
+    return (o["ts"], o["domain"], o["verb"], o.get("seed"))
+
+
 def read_jsonl(file: Path) -> list[dict]:
     return [json.loads(line) for line in file.read_text(encoding="utf-8").splitlines() if line.strip()]
 
@@ -416,7 +425,7 @@ def compare(
     # The trail's transactions: one run of one verb numbers its own from 0.
     trail_txns: dict[tuple, list[dict]] = {}
     for o in trail:
-        trail_txns.setdefault((o["ts"], o["domain"], o["verb"], o["txn"]), []).append(o)
+        trail_txns.setdefault((run_of(o), o["txn"]), []).append(o)
     source_txns: dict[str, list[dict]] = {}
     for c in changes:
         source_txns.setdefault(c["tx"], []).append(c)
@@ -746,7 +755,8 @@ def main() -> int:
         "--profile",
         default=None,
         metavar="NAME",
-        help="the tdk connection to read the stream's output on (default: tdk's own)",
+        help="the tdk connection to read the stream's output on; empty or absent: tdk's "
+        "default (a suite passes --profile ${td:profile}, empty when the run has none)",
     )
     args = parser.parse_args()
     if args.profile:

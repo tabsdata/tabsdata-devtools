@@ -30,6 +30,7 @@ import enum
 import json
 import os
 import random
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib import import_module
@@ -430,7 +431,9 @@ def append_ops(
     commit_order: list[int] | None = None,
 ) -> int:
     """Append `transactions` to `path` as JSON lines, one per change. Every
-    line names its run -- ``ts`` (UTC, to the second), ``domain``, ``verb``,
+    line names its run -- ``run``, an id of its own (two runs of one verb on one
+    domain can fall in the same second, and their transaction numbers would
+    then be one run's), ``ts`` (UTC, to the second), ``domain``, ``verb``,
     ``seed`` and ``trx_mode`` when the verb has them, ``dry_run`` -- and
     numbers its transaction from 0 within that run, so one file can hold the
     trail of many runs and domains. With a `commit_order` (modify-data) the
@@ -441,7 +444,12 @@ def append_ops(
     (a batch's children, a live script's entries) never interleave inside one.
     Returns the number of lines."""
     stamp = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
-    run: dict = {"ts": stamp.isoformat(), "domain": domain, "verb": verb}
+    run: dict = {
+        "run": uuid.uuid4().hex[:12],
+        "ts": stamp.isoformat(),
+        "domain": domain,
+        "verb": verb,
+    }
     if seed is not None:
         run["seed"] = seed
     if trx_mode is not None:

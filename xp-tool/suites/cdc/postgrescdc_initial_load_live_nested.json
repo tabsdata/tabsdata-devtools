@@ -177,6 +177,7 @@
             "readings",
             "--untracked",
             "audit",
+            "--profile",
             "${td:profile}"
           ]
         }

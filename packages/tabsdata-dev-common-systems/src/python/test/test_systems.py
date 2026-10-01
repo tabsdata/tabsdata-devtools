@@ -1513,7 +1513,7 @@ def test_dry_run_touches_nothing_and_emit_ops_appends_the_plan(tmp_path, monkeyp
     def lines(dest):
         return [json.loads(x) for x in dest.read_text().splitlines()]
 
-    run_keys = {"ts", "domain", "verb", "dry_run", "txn", "op", "entity"}
+    run_keys = {"run", "ts", "domain", "verb", "dry_run", "txn", "op", "entity"}
     load = dict(size=1, force=False)
     assert run(dom_create_data, constants.V_CREATE_DATA, None, **load) == 0
     assert list(tmp_path.glob("*.jsonl")) == []  # a dry run alone writes nothing
@@ -1543,9 +1543,13 @@ def test_dry_run_touches_nothing_and_emit_ops_appends_the_plan(tmp_path, monkeyp
     assert len(both) == 2 * len(first)  # appended, not replaced
 
     def untimed(rs):
-        return [{k: v for k, v in r.items() if k != "ts"} for r in rs]
+        return [{k: v for k, v in r.items() if k not in ("ts", "run")} for r in rs]
 
     assert untimed(both[len(first) :]) == untimed(first)  # AUTO did not advance
+    assert len({r["run"] for r in first}) == 1  # one id a run,
+    assert {r["run"] for r in first} != {
+        r["run"] for r in both[len(first) :]
+    }  # its own
     assert {r["seed"] for r in first} == {1}
     assert {r["trx_mode"] for r in first} == {"serial"}
     assert [r["txn"] for r in first] == sorted(r["txn"] for r in first)
