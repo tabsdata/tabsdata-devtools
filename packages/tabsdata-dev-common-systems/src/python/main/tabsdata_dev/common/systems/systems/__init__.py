@@ -7,7 +7,8 @@
 A system is a ``systems/<slug>/`` package whose ``__init__`` exposes the backend
 class. The backend's capability flags (``supports_models`` / ``supports_data`` /
 ``supports_changes`` / ``is_container`` / ``supports_purge``) decide which verbs
-the tool exposes for it; each verb runs the shared implementation in
+the tool exposes for it (``supports_trx_modes``, which options of one: the
+interleaved and nested modes of modify-data); each verb runs the shared implementation in
 ``_common/commands`` unless the system ships its own ``<verb>.py`` override. A new
 system is a new directory here plus one line in ``_SLUGS`` (and, for a SQL
 database, per-model ``domain/models/<model>/<slug>.ddl`` files).

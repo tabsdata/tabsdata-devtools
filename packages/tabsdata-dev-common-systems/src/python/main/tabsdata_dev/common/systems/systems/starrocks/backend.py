@@ -26,6 +26,7 @@ class Starrocks(SqlContainerBackend):
     weight = 2  # heavy all-in-one image — schedule ahead of the light systems
     domain_word = "database"
     max_entity_name_length = 256
+    supports_trx_modes = False  # a load is the transaction; no interleaving of them
 
     image = container_info.STARROCKS.ref
     image_platform = container_info.STARROCKS.platform

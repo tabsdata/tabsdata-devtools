@@ -29,6 +29,7 @@ class MongoDB(SqlContainerBackend):
     supports_models = False
     supports_data = False
     supports_changes = False
+    supports_trx_modes = False
 
     image = container_info.MONGODB.ref
     image_platform = container_info.MONGODB.platform

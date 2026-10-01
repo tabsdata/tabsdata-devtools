@@ -172,7 +172,9 @@ def run(tool: str, argv: list[str] | None = None) -> int:
         return finish(1)
     except render_errors() as exc:
         console.flush_good()
-        out.error(str(exc), log=_log())
+        # What the failing system said (db_failure, container_failure) rides on
+        # the error as `details`: the log's "why", under the terminal's "what".
+        out.error(str(exc), details=getattr(exc, "details", ""), log=_log())
         return finish(1)
     except Exception as exc:  # noqa: BLE001 - one error line, the traceback in the log
         console.flush_good()

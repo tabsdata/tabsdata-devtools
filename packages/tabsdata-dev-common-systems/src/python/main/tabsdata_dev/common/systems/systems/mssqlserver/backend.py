@@ -14,7 +14,11 @@ from __future__ import annotations
 
 from tabsdata_dev.common.systems.shell import docker_exec_check
 from tabsdata_dev.common.systems.systems._common import container_info
-from tabsdata_dev.common.systems.systems._common.sql import Admin, SqlContainerBackend
+from tabsdata_dev.common.systems.systems._common.sql import (
+    LOCK_WAIT_SECONDS,
+    Admin,
+    SqlContainerBackend,
+)
 
 _ODBC = "driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
 
@@ -35,6 +39,12 @@ class Mssqlserver(SqlContainerBackend):
     admin_db = "master"
     admin_autocommit = True
     system_schemas = frozenset({"master", "tempdb", "model", "msdb"})
+
+    def concurrent_session_setup(self) -> list[str]:
+        # Milliseconds. Under the default READ COMMITTED a write that scans a
+        # table (no index to seek) waits on a row another open transaction
+        # inserted; that wait ends here, as an error naming the statement.
+        return [f"SET LOCK_TIMEOUT {LOCK_WAIT_SECONDS * 1000}"]
 
     def sqlalchemy_url(
         self, host: str, port: str, db: str = "", user: str = "", password: str = ""

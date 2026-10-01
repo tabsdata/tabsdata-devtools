@@ -51,12 +51,47 @@ manifests so a test suite gets the same data on every backend.
   current count, and a Mix pass (one row and one seed more) deleted the same row forever. The
   walk assumes the domain's earlier passes were consecutive seeds of the same shape, which is
   what AUTO produces; a descriptor from before `seeded` bounds by its current counts.
+- **modify-data's transactions are serial, interleaved, nested or a mix** (`--trx-mode`,
+  default `serial`), on the SQL engines (`supports_trx_modes`: the container databases and the
+  managed postgres three; a file or kafka domain, a warehouse or an OLAP store refuses anything
+  else). `--trx-concurrency N` (default 4) is how many are open at once. `interleaved` keeps
+  up to N open on connections of their own and runs one statement from each in turn; a
+  transaction commits right after its last statement and the next pending one begins in its
+  place, so commits land between the others' statements and come in start order. `nested`
+  begins each transaction after one statement of the one before it, down to the innermost
+  (N deep), which finishes and commits first; then each enclosing one finishes and commits --
+  commits in reverse start order, every life inside the one begun earlier, the shape a
+  change-data-capture consumer that delivers by commit must reorder. `mix` takes the
+  transactions in groups of N, each group the next of serial, interleaved, nested, round and
+  round -- as `--ops Mix` cycles the verbs over the sets -- so one run leaves every shape
+  behind (the detail log names each group). One thread drives the schedule (`trx.schedule`, a pure function of the
+  plan, so a dry run says exactly what a real one would do; `sql_runner.run_sql_schedule`
+  executes it, every step in the detail log). Rejected: threads -- a real race is not
+  repeatable, and repeatability is what the seeds buy. The one thing one thread cannot do is
+  wait for itself: a statement blocked by a row another of the run's open transactions holds
+  would wait for a commit that cannot come, so a plan that writes one row from two transactions
+  is refused up front (`trx.contention`, which only the update walk wrapping past a table's
+  live rows produces), and every concurrent connection gets the dialect's lock-wait timeout
+  (`concurrent_session_setup`, `LOCK_WAIT_SECONDS`) so anything else -- a parent deleted while
+  a child inserted under it is open, a table scanned for a key it has no index on, another
+  session -- ends as an error naming the statement rather than a hang. MySQL's concurrent
+  connections also run READ COMMITTED: under REPEATABLE READ a write that scans a keyless
+  table (employeescdc's `readings`) locks every row it reads. Oracle has no DML lock-wait
+  timeout, so there only the refusal stands between a contended plan and a wait. Serial is
+  untouched by any of this.
+- **The data verbs report the same shape**: `trx_mode`, `transactions`, `trx_concurrency` and
+  `entities` -- `{name: {insert, update, delete, rows}}`, `rows` the entity's count once the
+  run is applied (absent under `--dry-run`); the view prints one aligned line per entity.
+  create-data is always one serial transaction and says so, so a reader of either report reads
+  one field. The trail (below) carries `trx_mode` and goes out in commit order.
 - **`--dry-run` plans; `--emit-ops FILE` keeps the trail.** `create-data`, `modify-data` and
   `sentinel-data` take both. `--dry-run` works out the operations and applies none: neither
   the system nor the descriptor is touched, so `--seed AUTO` does not advance and
   `create-data` needs no `--force`; on its own it writes no file. `--emit-ops FILE` APPENDS the
-  operations as CDC-style JSON lines -- `ts`, `domain`, `verb`, `seed` (modify-data),
-  `dry_run`, `txn` (numbered from 0 within the run), `op`, `entity`, then `row` for an insert,
+  operations as CDC-style JSON lines -- `ts`, `domain`, `verb`, `seed` and `trx_mode`
+  (modify-data), `dry_run`, `txn` (numbered from 0 within the run), `commit` (modify-data: the
+  transaction's rank in the run's commit order, which is the order the lines are written in,
+  so under `nested` `txn` counts down), `op`, `entity`, then `row` for an insert,
   `key` + `set` for an update, `key` for a delete -- after a real run has applied them, or as
   planned under `--dry-run`. Appending is what lets one file be the trail of a whole live
   script, or of a batch: each run's lines go out in one `O_APPEND` write, so runs sharing the

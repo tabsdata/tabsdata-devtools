@@ -43,7 +43,11 @@ from urllib.parse import quote
 
 from tabsdata_dev.common.systems.systems._common import container_info
 from tabsdata_dev.common.systems.systems._common.host import DEFAULT_HOSTNAME
-from tabsdata_dev.common.systems.systems._common.sql import Admin, SqlContainerBackend
+from tabsdata_dev.common.systems.systems._common.sql import (
+    LOCK_WAIT_SECONDS,
+    Admin,
+    SqlContainerBackend,
+)
 
 
 class Postgres(SqlContainerBackend):
@@ -62,6 +66,10 @@ class Postgres(SqlContainerBackend):
     admin_db = "postgres"
     admin_autocommit = True
     system_schemas = frozenset({"postgres", "template0", "template1"})
+
+    def concurrent_session_setup(self) -> list[str]:
+        # Row locks only, released at commit; nothing else to set.
+        return [f"SET lock_timeout = '{LOCK_WAIT_SECONDS}s'"]
 
     # The family names its networks and spells "database" out, so the shared
     # code in _common/sql.py reads a domain's address and database from these.

@@ -7,7 +7,9 @@
 ``run_sql_text`` runs a whole script in one transaction (commit at end).
 ``run_sql_transactions`` runs each inner list as its own transaction (one commit
 each), preserving the per-transaction boundaries a change-data-capture consumer
-sees as distinct transactions. DBAPI / SQLAlchemy errors are converted to
+sees as distinct transactions. ``run_sql_schedule`` runs them as a ``trx``
+schedule says -- several open at once on connections of their own, their
+statements interleaved and their commits in the schedule's order. DBAPI / SQLAlchemy errors are converted to
 ``TdxError`` so the top-level handler prints the database's own message instead
 of a Python traceback -- carrying the server's full diagnostics (SQLSTATE,
 DETAIL, HINT, the failing statement) as the log's detail block, since the one
@@ -113,5 +115,84 @@ def run_sql_transactions(
             ),
         ) from None
     finally:
+        engine.dispose()
+    return applied
+
+
+def run_sql_schedule(
+    uri: str,
+    transactions: list[list[str]],
+    steps: list,
+    *,
+    setup: list[str],
+    label: str = "changes",
+) -> int:
+    """Run `transactions` as `steps` (``trx.Step``) say: a BEGIN opens a
+    connection of its own and runs `setup` on it, a STATEMENT runs that
+    transaction's next statement there, a COMMIT commits it and closes the
+    connection. One thread moves through the steps, so the statements interleave
+    exactly as scheduled -- and a statement that waits on a lock another open
+    transaction holds waits here, for a commit that cannot come until it
+    returns; the dialect's lock timeout in `setup` is what turns that into an
+    error. Every step goes to the detail log. A failure rolls back whatever is
+    still open. Returns the number of transactions committed."""
+    if not uri:
+        raise TdxError("SQLALCHEMY_URI is empty")
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.exc import SQLAlchemyError
+    from sqlalchemy.pool import NullPool
+
+    from tabsdata_dev.common.systems.trx import Action
+
+    # No pool: a connection per open transaction, as many as the schedule
+    # opens at once, each closed at its commit.
+    engine = create_engine(uri, poolclass=NullPool)
+    open_: dict[int, tuple] = {}
+    applied = 0
+    running = ""
+    current = -1
+    try:
+        for step in steps:
+            current = step.txn
+            if step.action is Action.BEGIN:
+                conn = engine.connect()
+                txn = conn.begin()
+                open_[step.txn] = (conn, txn)
+                print(f">>> txn {step.txn}: begin")
+                for stmt in setup:
+                    running = stmt
+                    conn.exec_driver_sql(stmt)
+            elif step.action is Action.STATEMENT:
+                conn, _ = open_[step.txn]
+                stmt = transactions[step.txn][step.index].rstrip(";").strip()
+                if stmt:
+                    running = stmt
+                    print(f">>> txn {step.txn}: {stmt}")
+                    conn.exec_driver_sql(stmt)
+            else:
+                conn, txn = open_.pop(step.txn)
+                txn.commit()
+                conn.close()
+                applied += 1
+                print(f">>> txn {step.txn}: commit")
+    except SQLAlchemyError as exc:
+        orig = getattr(exc, "orig", None) or exc
+        raise TdxError(
+            f"SQL error while running {label}: {orig}",
+            db_failure(
+                exc,
+                statement=running,
+                url=uri,
+                label=f"{label}, transaction {current} ({len(open_)} open)",
+            ),
+        ) from None
+    finally:
+        for conn, txn in open_.values():
+            try:
+                txn.rollback()
+                conn.close()
+            except Exception:  # noqa: BLE001 - already failing; the first error wins
+                pass
         engine.dispose()
     return applied

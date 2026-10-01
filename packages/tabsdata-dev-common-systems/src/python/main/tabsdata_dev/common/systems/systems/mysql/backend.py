@@ -14,7 +14,10 @@ default (ROW + FULL metadata) so the same container feeds CDC.
 from __future__ import annotations
 
 from tabsdata_dev.common.systems.systems._common import container_info
-from tabsdata_dev.common.systems.systems._common.sql import SqlContainerBackend
+from tabsdata_dev.common.systems.systems._common.sql import (
+    LOCK_WAIT_SECONDS,
+    SqlContainerBackend,
+)
 
 
 class Mysql(SqlContainerBackend):
@@ -44,6 +47,20 @@ class Mysql(SqlContainerBackend):
             "sys",
         }
     )
+
+    def concurrent_session_setup(self) -> list[str]:
+        # Under REPEATABLE READ (the default) an UPDATE or DELETE whose WHERE
+        # has no index to seek locks every row it scans until the transaction
+        # ends -- a table without a key (employeescdc's readings) would block
+        # every other open transaction writing it. READ COMMITTED releases the
+        # rows that did not match, and reads past a row another transaction is
+        # inserting. The binlog is ROW format either way, so a stream sees the
+        # same events. The level is read when the transaction starts, at its
+        # first table access, which comes after this.
+        return [
+            "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED",
+            f"SET SESSION innodb_lock_wait_timeout = {LOCK_WAIT_SECONDS}",
+        ]
 
     def env_vars(self, password: str) -> dict[str, str]:
         return {"MYSQL_ROOT_PASSWORD": password}

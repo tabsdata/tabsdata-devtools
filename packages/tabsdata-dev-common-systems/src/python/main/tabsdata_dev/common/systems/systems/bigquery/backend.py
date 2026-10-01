@@ -30,6 +30,7 @@ class BigQuery:
     supports_models: bool = False
     supports_data: bool = False
     supports_changes: bool = False
+    supports_trx_modes: bool = False
 
     # Both planes go through google-cloud-bigquery / -storage.
     sys_toolset = constants.TOOLSET_SYSTEMS

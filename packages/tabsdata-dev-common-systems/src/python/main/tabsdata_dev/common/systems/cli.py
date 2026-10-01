@@ -319,6 +319,37 @@ def add_emit_ops(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_trx_mode(parser: argparse.ArgumentParser) -> None:
+    from tabsdata_dev.common.systems import trx
+
+    parser.add_argument(
+        constants.OPT_TRX_MODE,
+        dest="trx_mode",
+        default=trx.TrxMode.SERIAL.value,
+        metavar="MODE",
+        help="how the transactions are applied, on a SQL system: serial (one "
+        "at a time), interleaved (open at once, a statement from each in turn, "
+        "each committing after its last), nested (each begun inside the one "
+        "before it, committed inside it too) or mix (groups of --trx-concurrency "
+        "transactions, each group the next of serial, interleaved, nested) "
+        "(default serial)",
+    )
+
+
+def add_trx_concurrency(parser: argparse.ArgumentParser) -> None:
+    from tabsdata_dev.common.systems import trx
+
+    parser.add_argument(
+        constants.OPT_TRX_CONCURRENCY,
+        dest="trx_concurrency",
+        type=int,
+        default=trx.DEFAULT_CONCURRENCY,
+        metavar="N",
+        help="transactions open at once under interleaved, nested and mix "
+        f"(default {trx.DEFAULT_CONCURRENCY}); serial opens one",
+    )
+
+
 def add_latch(parser: argparse.ArgumentParser) -> None:
     # Parsed here so the flag is accepted; the dispatcher reads it from raw argv.
     parser.add_argument(

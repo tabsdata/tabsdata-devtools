@@ -26,6 +26,7 @@ class ServiceBackend:
     supports_models: bool = False
     supports_data: bool = False
     supports_changes: bool = False
+    supports_trx_modes: bool = False
 
     # Credentials in, an HTTPS probe out — no driver either side.
     sys_toolset: str = constants.TOOLSET_SYSTEMS

@@ -24,6 +24,7 @@ class Clickhouse(SqlContainerBackend):
     max_entity_name_length = 255
     login_maxlen = 255  # the owner user is named after the database
     supports_changes = False  # OLAP; the only model (world) has no delta entities
+    supports_trx_modes = False
 
     image = container_info.CLICKHOUSE.ref
     image_platform = container_info.CLICKHOUSE.platform

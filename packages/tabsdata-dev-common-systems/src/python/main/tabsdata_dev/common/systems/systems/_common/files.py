@@ -68,6 +68,9 @@ class FileBackend:
     supports_models: bool = True
     supports_data: bool = True
     supports_changes: bool = True  # insert-only (enforced in apply_changes)
+    supports_trx_modes: bool = (
+        False  # a change set is one staging; nothing to interleave
+    )
 
     # Staging data files needs the frame writer; a local root does not.
     sys_toolset: str = constants.TOOLSET_SYSTEMS
@@ -249,12 +252,18 @@ class FileBackend:
         before: dict[str, int],
         *,
         label: str = "modify-data",
+        schedule=None,
     ) -> dict[str, int]:
         changes = [c for txn in transactions for c in txn]
         if any(c.kind is not OpKind.INSERT for c in changes):
             raise TdxError(
                 f"{self.slug} domains support only inserts for {label} "
                 f"(a change is a new file) — use --ops Insert"
+            )
+        if schedule is not None and schedule.mode.value != "serial":
+            raise TdxError(
+                f"{self.slug} domains apply {label} as one staging: "
+                f"{constants.OPT_TRX_MODE} serial only"
             )
         by_table: dict[str, tuple[list, list]] = {}
         for c in changes:

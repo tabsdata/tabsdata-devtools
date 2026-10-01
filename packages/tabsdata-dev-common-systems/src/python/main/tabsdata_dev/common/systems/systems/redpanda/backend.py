@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 
-from tabsdata_dev.common.systems import datagen, emit, naming, options
+from tabsdata_dev.common.systems import constants, datagen, emit, naming, options
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import (
     container_exists,
@@ -42,6 +42,7 @@ class Redpanda(SqlContainerBackend):
     domain_word = "topic"
     max_entity_name_length = 249  # Kafka topic-name limit
     supports_changes = True  # insert-only (a Kafka log only appends)
+    supports_trx_modes = False  # a batch is produced whole; no transactions to order
 
     image = container_info.REDPANDA.ref
     image_platform = container_info.REDPANDA.platform
@@ -281,12 +282,18 @@ class Redpanda(SqlContainerBackend):
         before: dict[str, int],
         *,
         label: str = "modify-data",
+        schedule=None,
     ) -> dict[str, int]:
         changes = [c for txn in transactions for c in txn]
         if any(c.kind is not datagen.OpKind.INSERT for c in changes):
             raise TdxError(
                 f"{self.slug} topics are append-only for {label} "
                 f"(a change is a new message) — use --ops Insert"
+            )
+        if schedule is not None and schedule.mode.value != "serial":
+            raise TdxError(
+                f"{self.slug} topics take {label} as one batch of messages: "
+                f"{constants.OPT_TRX_MODE} serial only"
             )
         by_table: dict[str, tuple[list, list]] = {}
         for c in changes:

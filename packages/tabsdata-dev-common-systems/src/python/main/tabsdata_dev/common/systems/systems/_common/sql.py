@@ -48,9 +48,21 @@ from tabsdata_dev.common.systems.shell import (
     require_docker,
     validate_name,
 )
-from tabsdata_dev.common.systems.sql_runner import run_sql_text, run_sql_transactions
+from tabsdata_dev.common.systems.sql_runner import (
+    run_sql_schedule,
+    run_sql_text,
+    run_sql_transactions,
+)
 from tabsdata_dev.common.systems.systems._common.host import DEFAULT_HOSTNAME, HostMixin
 from tabsdata_dev.common.systems.systems._common.ports import PortRangeMixin
+
+# How long a statement of a concurrent schedule may wait for a row lock before
+# the dialect gives up on it (where the dialect has such a timeout). The
+# schedule is one thread, so a wait is never for a session that will move:
+# only another of the run's own open transactions can hold the lock, and it
+# cannot commit until the waiting statement returns. Any wait at all is the
+# error; the seconds only have to exceed a statement's own latency.
+LOCK_WAIT_SECONDS = 10
 
 
 @dataclass
@@ -81,6 +93,11 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
     supports_models: bool = True
     supports_data: bool = True
     supports_changes: bool = True
+    # A SQL engine takes concurrent transactions on concurrent connections, so
+    # modify-data's interleaved and nested schedules apply as planned. A
+    # subclass that has no multi-statement transactions, or that locks a whole
+    # table for a write, says False.
+    supports_trx_modes: bool = True
 
     # ---- managed venvs (see _venv) ----
     # Starting and probing a container is docker-only (readiness runs as an
@@ -177,6 +194,17 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         """Statements run first on every data-plane connection (DDL install, load,
         modify-data) — e.g. Oracle sets NLS_*_FORMAT so the ISO date/timestamp
         literals the generator emits parse. Default: nothing."""
+        return []
+
+    def concurrent_session_setup(self) -> list[str]:
+        """Statements run after :meth:`session_setup` on every connection of a
+        concurrent schedule (modify-data's interleaved and nested modes), and
+        nowhere else: the dialect's lock-wait timeout of ``LOCK_WAIT_SECONDS``,
+        so a statement blocked by another of the run's own open transactions
+        fails instead of waiting forever, and whatever else keeps two
+        connections writing different rows of one table out of each other's
+        way. Default: nothing (Oracle: no timeout exists for a DML lock wait;
+        its row locks do not block a scan, so only a shared target waits)."""
         return []
 
     def env_vars(self, password: str) -> dict[str, str]:
@@ -551,13 +579,35 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         before: dict[str, int],
         *,
         label: str = "modify-data",
+        schedule=None,
     ) -> dict[str, int]:
+        from tabsdata_dev.common.systems import trx
+
         rendered = [
-            self.session_setup()
-            + [datagen.render_sql(c, quote=self.sql_quote) for c in txn]
+            [datagen.render_sql(c, quote=self.sql_quote) for c in txn]
             for txn in transactions
         ]
-        run_sql_transactions(uri, rendered, label=label)
+        if schedule is None or schedule.mode is trx.TrxMode.SERIAL:
+            run_sql_transactions(
+                uri, [self.session_setup() + stmts for stmts in rendered], label=label
+            )
+        else:
+            if not self.supports_trx_modes:
+                raise TdxError(
+                    f"{self.label} applies {label} serially only "
+                    f"({constants.OPT_TRX_MODE} {trx.TrxMode.SERIAL.value})"
+                )
+            print(
+                f">>> {schedule.transactions} transaction(s) {schedule.mode.value}, "
+                f"{schedule.concurrency} open at once: {schedule.summary} …"
+            )
+            run_sql_schedule(
+                uri,
+                rendered,
+                schedule.steps,
+                setup=self.session_setup() + self.concurrent_session_setup(),
+                label=label,
+            )
         new = dict(before)
         for table, delta in datagen.net_row_deltas(transactions).items():
             new[table] = max(0, new.get(table, 0) + delta)
@@ -591,6 +641,10 @@ class RemoteSqlBackend(SqlContainerBackend):
     """
 
     is_container = False
+    # A warehouse is no place for a concurrent schedule: Databricks has no
+    # multi-statement transaction at all, and Snowflake's DML takes a lock on
+    # the table, so a second transaction's UPDATE waits for the first's commit.
+    supports_trx_modes = False
     # Nothing to start, so create probes reachability over SQL — the driver is
     # needed from the outside too.
     sys_toolset = constants.TOOLSET_SYSTEMS

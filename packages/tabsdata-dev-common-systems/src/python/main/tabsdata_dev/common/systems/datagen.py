@@ -377,14 +377,18 @@ def _where_sql(where: dict, cols: dict[str, Column], quote: str) -> str:
 # ======================================================================
 
 
-def op_line(run: dict, txn: int, change: Change) -> dict:
+def op_line(run: dict, txn: int, change: Change, commit: int | None = None) -> dict:
     """One change as a CDC-style record: the run's fields (``run``), the
-    transaction's number within the run, ``op`` and ``entity``, then ``row``
-    for an INSERT, ``key`` + ``set`` for an UPDATE, ``key`` for a DELETE. An
-    INSERT carries every value the model generated, ``auto`` columns included,
-    as a file load does: the surrogate keys are what later changes and other
-    entities refer to."""
-    out: dict = {**run, "txn": txn, "op": change.kind.value, "entity": change.table}
+    transaction's number within the run, its rank in the run's commit order
+    when the run has one (``commit``, modify-data), ``op`` and ``entity``, then
+    ``row`` for an INSERT, ``key`` + ``set`` for an UPDATE, ``key`` for a
+    DELETE. An INSERT carries every value the model generated, ``auto`` columns
+    included, as a file load does: the surrogate keys are what later changes
+    and other entities refer to."""
+    out: dict = {**run, "txn": txn}
+    if commit is not None:
+        out["commit"] = commit
+    out.update(op=change.kind.value, entity=change.table)
     if change.kind is OpKind.INSERT:
         assert change.row is not None
         out["row"] = {
@@ -422,23 +426,35 @@ def append_ops(
     *,
     dry_run: bool,
     seed: int | None = None,
+    trx_mode: str | None = None,
+    commit_order: list[int] | None = None,
 ) -> int:
     """Append `transactions` to `path` as JSON lines, one per change. Every
     line names its run -- ``ts`` (UTC, to the second), ``domain``, ``verb``,
-    ``seed`` when the verb has one, ``dry_run`` -- and numbers its transaction
-    from 0 within that run, so one file can hold the trail of many runs and
-    domains. A run's lines go out in one append, so runs sharing the file (a
-    batch's children, a live script's entries) never interleave inside one.
+    ``seed`` and ``trx_mode`` when the verb has them, ``dry_run`` -- and
+    numbers its transaction from 0 within that run, so one file can hold the
+    trail of many runs and domains. With a `commit_order` (modify-data) the
+    transactions are written in that order, the order a change-data-capture
+    consumer receives them, each line carrying its transaction's rank in it as
+    ``commit``; ``txn`` stays the plan's number, so under a nested run it
+    counts down. A run's lines go out in one append, so runs sharing the file
+    (a batch's children, a live script's entries) never interleave inside one.
     Returns the number of lines."""
     stamp = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
     run: dict = {"ts": stamp.isoformat(), "domain": domain, "verb": verb}
     if seed is not None:
         run["seed"] = seed
+    if trx_mode is not None:
+        run["trx_mode"] = trx_mode
     run["dry_run"] = dry_run
+    if commit_order is None:
+        order = [(None, txn) for txn in range(len(transactions))]
+    else:
+        order = list(enumerate(commit_order))
     text = "".join(
-        json.dumps(op_line(run, txn, ch), default=_json_value) + "\n"
-        for txn, changes in enumerate(transactions)
-        for ch in changes
+        json.dumps(op_line(run, txn, ch, commit), default=_json_value) + "\n"
+        for commit, txn in order
+        for ch in transactions[txn]
     )
     if not text:
         return 0
@@ -569,7 +585,30 @@ def op_applies(supports: tuple[OpKind, ...], ops: OpSelector) -> bool:
     return OpKind(ops.value) in supports
 
 
-def iud(insert: int = 0, update: int = 0, delete: int = 0) -> dict[str, int]:
-    """The canonical per-entity counts object for ``--out json``:
-    ``{"insert": .., "update": .., "delete": ..}``."""
-    return {"insert": insert, "update": update, "delete": delete}
+def iud(
+    insert: int = 0, update: int = 0, delete: int = 0, rows: int | None = None
+) -> dict[str, int]:
+    """The canonical per-entity counts object of a data verb's report:
+    ``{"insert": .., "update": .., "delete": ..}``, plus ``rows`` -- the
+    entity's count once the run is applied -- when the run was applied."""
+    out = {"insert": insert, "update": update, "delete": delete}
+    if rows is not None:
+        out["rows"] = rows
+    return out
+
+
+def iud_lines(entities: dict[str, dict]) -> list[str]:
+    """The view of a report's ``entities`` (``{name: iud(...)}``): one aligned
+    line per entity, ``I=`` / ``U=`` / ``D=`` and ``(rows=N)`` when known --
+    create-data and modify-data print the same lines from the same shape."""
+    if not entities:
+        return []
+    width = max(len(name) for name in entities)
+    lines = []
+    for name, per in entities.items():
+        rows = f"  (rows={per['rows']})" if "rows" in per else ""
+        lines.append(
+            f"  {name:<{width}}  I={per['insert']}  U={per['update']}  "
+            f"D={per['delete']}{rows}"
+        )
+    return lines

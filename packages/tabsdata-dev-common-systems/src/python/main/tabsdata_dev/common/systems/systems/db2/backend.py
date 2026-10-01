@@ -20,7 +20,11 @@ import re
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec, docker_exec_check
 from tabsdata_dev.common.systems.systems._common import container_info
-from tabsdata_dev.common.systems.systems._common.sql import Admin, SqlContainerBackend
+from tabsdata_dev.common.systems.systems._common.sql import (
+    LOCK_WAIT_SECONDS,
+    Admin,
+    SqlContainerBackend,
+)
 
 _XP_DB = "XP"  # the one shared database (<= 8 chars, Db2's DB-name limit)
 
@@ -46,6 +50,11 @@ class Db2(SqlContainerBackend):
     def _schema(name: str) -> str:
         # Db2 folds unquoted identifiers to upper case.
         return name.upper()
+
+    def concurrent_session_setup(self) -> list[str]:
+        # The special register, for this connection; the database default is
+        # -1, wait forever.
+        return [f"SET CURRENT LOCK TIMEOUT {LOCK_WAIT_SECONDS}"]
 
     def env_vars(self, password: str) -> dict[str, str]:
         return {"LICENSE": "accept", "DB2INST1_PASSWORD": password}

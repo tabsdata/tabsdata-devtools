@@ -67,7 +67,10 @@ never be read as domains. The container lifecycle, TCP admin over SQLAlchemy, pe
 provisioning, model and data loading and delta application live here once. A model is available
 for a system exactly when `<slug>/domain/models/<model>/<slug>.ddl` exists, which is what lets the
 generic `models`/`create-model`/`create-data`/`modify-data`/`delete-data`/`delete-model` serve
-every dialect.
+every dialect. Two session hooks: `session_setup()` runs first on every data-plane connection
+(Oracle's NLS formats); `concurrent_session_setup()` only on the connections of a modify-data
+`--trx-mode interleaved|nested` schedule (`trx`, `sql_runner.run_sql_schedule`) -- the dialect's
+lock-wait timeout, and for MySQL READ COMMITTED -- see the domain design doc for why.
 
 **A `postgrescdc` domain owns a replication slot**, named after its database (lowercased,
 hashed past 63 characters) and recorded as `REPLICATION_SLOT`: the slot its stream publishers

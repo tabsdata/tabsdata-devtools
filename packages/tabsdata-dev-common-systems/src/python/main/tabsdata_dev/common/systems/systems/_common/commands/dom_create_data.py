@@ -4,6 +4,10 @@
 
 """Generate and load deterministic initial data for the domain's model.
 
+The load is one transaction (one staging, one batch of messages) on every
+backend, and the report says so in the shape modify-data's has: the
+transaction mode, the count, and what each entity got.
+
 ``--dry-run`` plans the load without loading it: the system and the
 descriptor are left alone, so it needs no ``--force`` on a domain that already
 has data. ``--emit-ops FILE`` appends the load's operations to FILE as
@@ -15,7 +19,14 @@ from __future__ import annotations
 import argparse
 import random
 
-from tabsdata_dev.common.systems import cli, console, constants, datagen, descriptor
+from tabsdata_dev.common.systems import (
+    cli,
+    console,
+    constants,
+    datagen,
+    descriptor,
+    trx,
+)
 from tabsdata_dev.common.systems.errors import TdxError
 
 
@@ -63,12 +74,29 @@ def run(ctx: cli.Context) -> int:
     descriptor.record_data(ctx.path, str(a.size), recorded)
     _emit(ctx, tables, dry_run=False)
     rows = sum(len(t.rows) for t in tables)
+    report = _report(
+        {name: datagen.iud(insert=c, rows=c) for name, c in entities.items()}
+    )
     if console.json_mode():
-        report = {name: datagen.iud(insert=count) for name, count in entities.items()}
         console.result(report)
     else:
-        console.good(f"loaded {rows} rows (size x{a.size}) into domain '{ctx.name}'")
+        console.good(
+            f"loaded {rows} rows (size x{a.size}) trx={report['trx_mode']} "
+            f"into domain '{ctx.name}'"
+        )
+        for line in datagen.iud_lines(report["entities"]):
+            console.out(line)
     return 0
+
+
+def _report(entities: dict[str, dict]) -> dict:
+    # One transaction, serially: the only way a load goes on any backend.
+    return {
+        "trx_mode": trx.TrxMode.SERIAL.value,
+        "transactions": 1,
+        "trx_concurrency": 1,
+        "entities": entities,
+    }
 
 
 def _emit(ctx: cli.Context, tables: list, *, dry_run: bool) -> None:
@@ -82,12 +110,16 @@ def _emit(ctx: cli.Context, tables: list, *, dry_run: bool) -> None:
 
 def _dry_run(ctx: cli.Context, tables: list) -> int:
     _emit(ctx, tables, dry_run=True)
+    report = _report({t.name: datagen.iud(insert=len(t.rows)) for t in tables})
     if console.json_mode():
-        console.result({t.name: datagen.iud(insert=len(t.rows)) for t in tables})
+        console.result(report)
     else:
         rows = sum(len(t.rows) for t in tables)
         console.good(
-            f"would load {rows} rows (size x{ctx.args.size}) into domain "
-            f"'{ctx.name}' -- dry run, nothing loaded"
+            f"would load {rows} rows (size x{ctx.args.size}) "
+            f"trx={report['trx_mode']} into domain '{ctx.name}' -- dry run, "
+            f"nothing loaded"
         )
+        for line in datagen.iud_lines(report["entities"]):
+            console.out(line)
     return 0

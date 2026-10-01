@@ -10,17 +10,32 @@ transactions; ``--entity NAME`` applies ``--sets`` rows to that one entity.
 + 1). Insert ordinals derive from the seed, so the same op/set/seed sequence is
 repeatable.
 
+``--trx-mode`` says how the transactions are applied on a SQL system: ``serial``
+(one at a time), ``interleaved`` (up to ``--trx-concurrency`` open at once, a
+statement from each in turn, each committing after its last), ``nested`` (each
+begun inside the one before it and committed inside it too) or ``mix`` (groups
+of ``--trx-concurrency``, each the next of those three) -- see ``trx``. The
+schedule is as deterministic as the plan, and the report says it.
+
 ``--dry-run`` plans the operations without applying them. Neither the system
 nor the descriptor is touched, so ``--seed AUTO`` does not advance and the same
 dry run repeats what the next real run would do. ``--emit-ops FILE`` appends
-the operations to FILE as CDC-style JSON lines, once applied or as planned.
+the operations to FILE as CDC-style JSON lines, once applied or as planned, in
+the order the transactions commit.
 """
 
 from __future__ import annotations
 
 import argparse
 
-from tabsdata_dev.common.systems import cli, console, constants, datagen, descriptor
+from tabsdata_dev.common.systems import (
+    cli,
+    console,
+    constants,
+    datagen,
+    descriptor,
+    trx,
+)
 from tabsdata_dev.common.systems.datagen import ChangeSpec, OpKind, OpSelector
 from tabsdata_dev.common.systems.errors import TdxError
 
@@ -61,6 +76,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         metavar="N|AUTO",
         help="seed number, or AUTO to continue from the last (default AUTO)",
     )
+    cli.add_trx_mode(parser)
+    cli.add_trx_concurrency(parser)
     cli.add_data_dry_run(parser)
     cli.add_emit_ops(parser)
     cli.add_latch(parser)
@@ -84,6 +101,14 @@ def run(ctx: cli.Context) -> int:
     if ops is None:
         raise TdxError(
             f"{constants.OPT_OPS} must be Insert|Update|Delete|Mix (got: {a.ops})"
+        )
+    mode = trx.parse_mode(a.trx_mode)
+    # Read the flag only when it matters: serial is every backend's.
+    if mode is not trx.TrxMode.SERIAL and not sysobj.supports_trx_modes:
+        raise TdxError(
+            f"system type '{ctx.slug}' applies {ctx.verb} serially only "
+            f"({constants.OPT_TRX_MODE} {trx.TrxMode.SERIAL.value}): its changes "
+            f"are not transactions it can interleave"
         )
 
     model_obj = datagen.load_model(model)
@@ -146,47 +171,75 @@ def run(ctx: cli.Context) -> int:
     # `target` addresses seeded rows. A descriptor from before `seeded` was
     # recorded falls back to its current counts.
     txns = datagen.plan(model_obj, spec, info.seeded or counts)
+    concurrency = trx.parse_concurrency(a.trx_concurrency)
+    schedule = trx.schedule([len(t) for t in txns], mode, concurrency)
+    if mode is not trx.TrxMode.SERIAL:
+        clash = trx.contention(txns)
+        if clash:
+            table, key = clash[0]
+            raise TdxError(
+                f"{mode.value} transactions would contend for a row: {table} {key} "
+                f"is updated or deleted by more than one transaction of this run "
+                f"(more changes than the table has seeded rows left) -- fewer "
+                f"{constants.OPT_SETS}, or {constants.OPT_TRX_MODE} "
+                f"{trx.TrxMode.SERIAL.value}"
+            )
     new_entities: dict[str, int] = {}
     if not a.dry_run:
         with sysobj.data_plane_uri(info.meta) as uri:
-            new_entities = sysobj.apply_changes(uri, txns, counts)
+            new_entities = sysobj.apply_changes(uri, txns, counts, schedule=schedule)
         descriptor.record_changes(ctx.path, new_entities, seed=seed if auto else None)
     if a.emit_ops:
         assert ctx.name is not None
         datagen.append_ops(
-            a.emit_ops, ctx.name, ctx.verb, txns, dry_run=a.dry_run, seed=seed
+            a.emit_ops,
+            ctx.name,
+            ctx.verb,
+            txns,
+            dry_run=a.dry_run,
+            seed=seed,
+            trx_mode=mode.value,
+            commit_order=schedule.commit_order,
         )
     applied = len(txns)
-    summary = datagen.op_counts(txns)
+    report = _report(schedule, datagen.op_counts(txns), new_entities)
     if json_mode:
-        report = {
-            table: datagen.iud(
-                insert=per[OpKind.INSERT],
-                update=per[OpKind.UPDATE],
-                delete=per[OpKind.DELETE],
-            )
-            for table, per in summary.items()
-        }
         console.result(report)
     else:
         if a.dry_run:
             console.good(
                 f"would apply {applied} change set(s) [{ops.value}] seed={seed} "
-                f"to domain '{ctx.name}' -- dry run, nothing applied"
+                f"trx={schedule.label} to domain '{ctx.name}' -- dry run, "
+                f"nothing applied"
             )
         else:
             console.good(
                 f"applied {applied} change set(s) [{ops.value}] seed={seed} "
-                f"to domain '{ctx.name}'"
+                f"trx={schedule.label} to domain '{ctx.name}'"
             )
-        if summary:
-            width = max(len(t) for t in summary)
-            for table, per in summary.items():
-                rows = (
-                    f"  (rows={new_entities[table]})" if table in new_entities else ""
-                )
-                console.out(
-                    f"  {table:<{width}}  I={per[OpKind.INSERT]}  "
-                    f"U={per[OpKind.UPDATE]}  D={per[OpKind.DELETE]}{rows}"
-                )
+        for line in datagen.iud_lines(report["entities"]):
+            console.out(line)
     return 0
+
+
+def _report(
+    schedule: trx.Schedule,
+    summary: dict[str, dict[OpKind, int]],
+    rows: dict[str, int],
+) -> dict:
+    """The run's report: how the transactions were applied, and what each
+    entity got -- the shape create-data reports too."""
+    return {
+        "trx_mode": schedule.mode.value,
+        "transactions": schedule.transactions,
+        "trx_concurrency": schedule.concurrency,
+        "entities": {
+            table: datagen.iud(
+                insert=per[OpKind.INSERT],
+                update=per[OpKind.UPDATE],
+                delete=per[OpKind.DELETE],
+                rows=rows.get(table),
+            )
+            for table, per in summary.items()
+        },
+    }

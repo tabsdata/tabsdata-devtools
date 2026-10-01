@@ -39,6 +39,9 @@ class Backend(Protocol):
     supports_models: bool
     supports_data: bool
     supports_changes: bool
+    # modify-data's --trx-mode: the backend applies a run's transactions
+    # interleaved or nested over concurrent connections (the SQL engines).
+    supports_trx_modes: bool
 
     def docker_images(self) -> list[tuple[str, str]]: ...
 
@@ -133,9 +136,12 @@ class Backend(Protocol):
         before: dict[str, int],
         *,
         label: str = "modify-data",
+        schedule=None,
     ) -> dict[str, int]:
         """Apply `transactions` and return the new ``entities`` map (SQL: `before`
         adjusted by the net row deltas; file: `before` plus the new files).
-        `label` is the verb a failure is reported under."""
+        `label` is the verb a failure is reported under. `schedule` (a
+        ``trx.Schedule``) says how the transactions are applied; ``None`` is
+        serial, and a backend without ``supports_trx_modes`` refuses any other."""
 
     def drop_all_tables(self, uri: str) -> None: ...

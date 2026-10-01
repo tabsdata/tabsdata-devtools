@@ -1526,7 +1526,14 @@ def test_dry_run_touches_nothing_and_emit_ops_appends_the_plan(tmp_path, monkeyp
     assert all(r["dry_run"] is True for r in rows)
     assert all(set(r) == run_keys | {"row"} for r in rows)
 
-    opts = dict(entity="ALL", sets=3, ops="Mix", seed="AUTO")
+    opts = dict(
+        entity="ALL",
+        sets=3,
+        ops="Mix",
+        seed="AUTO",
+        trx_mode="serial",
+        trx_concurrency=4,
+    )
     trail = tmp_path / "trail.jsonl"
     assert run(dom_modify_data, constants.V_MODIFY_DATA, trail, **opts) == 0
     first = lines(trail)
@@ -1539,11 +1546,14 @@ def test_dry_run_touches_nothing_and_emit_ops_appends_the_plan(tmp_path, monkeyp
 
     assert untimed(both[len(first) :]) == untimed(first)  # AUTO did not advance
     assert {r["seed"] for r in first} == {1}
+    assert {r["trx_mode"] for r in first} == {"serial"}
     assert [r["txn"] for r in first] == sorted(r["txn"] for r in first)
+    assert all(r["commit"] == r["txn"] for r in first)  # serial: commit order
     by_op = {r["op"]: r for r in first}
     assert set(by_op) == {"insert", "update", "delete"}
-    assert set(by_op["update"]) == run_keys | {"seed", "key", "set"}
-    assert set(by_op["delete"]) == run_keys | {"seed", "key"}
+    change_keys = run_keys | {"seed", "trx_mode", "commit"}
+    assert set(by_op["update"]) == change_keys | {"key", "set"}
+    assert set(by_op["delete"]) == change_keys | {"key"}
 
     assert run(dom_sentinel_data, constants.V_SENTINEL_DATA, trail, key="k1") == 0
     last = lines(trail)[-1]
@@ -2166,3 +2176,437 @@ def test_a_verbatim_name_in_system_that_is_taken_fails_before_writing(
     assert rc == 1 and "'ENT1' already exists in system 'fs1'" in events[-1]["message"]
     rc, events = _run_json(capsys, "domain", "list")
     assert [d["name"] for d in events[-1]["domains"]] == ["a"]
+
+
+# ---------------------------------------------------------------- trx modes
+
+
+def _trace(schedule) -> list[str]:
+    """A schedule as tokens: ``B0`` begins, ``0.1`` is txn 0's statement 1,
+    ``C0`` commits."""
+    from tabsdata_dev.common.systems.trx import Action
+
+    out = []
+    for s in schedule.steps:
+        if s.action is Action.BEGIN:
+            out.append(f"B{s.txn}")
+        elif s.action is Action.COMMIT:
+            out.append(f"C{s.txn}")
+        else:
+            out.append(f"{s.txn}.{s.index}")
+    return out
+
+
+def test_trx_schedules_interleave_and_nest_as_their_names_say():
+    """serial: one at a time. interleaved: a window of transactions open at
+    once, a statement from each in turn, a commit right after a last statement
+    and the next pending transaction begun in its place. nested: each begun
+    after one statement of the one before it and committed before it, so the
+    commits run backwards and every life lies within the one begun earlier.
+    The width is capped at the transactions; serial ignores it."""
+    from tabsdata_dev.common.systems import trx
+    from tabsdata_dev.common.systems.trx import TrxMode
+
+    s = trx.schedule([2, 2], TrxMode.SERIAL, 5)
+    assert _trace(s) == ["B0", "0.0", "0.1", "C0", "B1", "1.0", "1.1", "C1"]
+    assert (s.concurrency, s.transactions, s.label) == (1, 2, "serial")
+    assert s.commit_order == [0, 1]
+
+    s = trx.schedule([2, 2, 2], TrxMode.INTERLEAVED, 3)
+    assert _trace(s) == "B0 B1 B2 0.0 1.0 2.0 0.1 C0 1.1 C1 2.1 C2".split()
+    assert s.commit_order == [0, 1, 2] and s.label == "interleaved(3)"
+    s = trx.schedule([2] * 5, TrxMode.INTERLEAVED, 2)
+    assert (
+        _trace(s)
+        == (
+            "B0 B1 0.0 1.0 0.1 C0 B2 1.1 C1 B3 2.0 3.0 2.1 C2 B4 3.1 C3 4.0 4.1 C4"
+        ).split()
+    )
+    s = trx.schedule([1, 3], TrxMode.INTERLEAVED, 2)
+    assert _trace(s) == "B0 B1 0.0 C0 1.0 1.1 1.2 C1".split()
+
+    s = trx.schedule([2, 2, 2], TrxMode.NESTED, 3)
+    assert _trace(s) == "B0 0.0 B1 1.0 B2 2.0 2.1 C2 1.1 C1 0.1 C0".split()
+    assert s.commit_order == [2, 1, 0] and s.label == "nested(3)"
+    s = trx.schedule([1, 1, 1], TrxMode.NESTED, 2)
+    assert _trace(s) == "B0 0.0 B1 1.0 C1 C0 B2 2.0 C2".split()
+    assert s.commit_order == [1, 0, 2]
+    s = trx.schedule([3, 1], TrxMode.NESTED, 2)
+    assert _trace(s) == "B0 0.0 B1 1.0 C1 0.1 0.2 C0".split()
+    assert trx.schedule([1, 1], TrxMode.NESTED, 10).concurrency == 2
+    assert trx.schedule([], TrxMode.INTERLEAVED, 3).steps == []
+
+    s = trx.schedule([1] * 7, TrxMode.MIX, 3)
+    assert (
+        _trace(s)
+        == (
+            "B0 0.0 C0 B1 1.0 C1 B2 2.0 C2 B3 B4 B5 3.0 C3 4.0 C4 5.0 C5 B6 6.0 C6"
+        ).split()
+    )
+    assert s.parts == [
+        (TrxMode.SERIAL, 3),
+        (TrxMode.INTERLEAVED, 3),
+        (TrxMode.NESTED, 1),
+    ]
+    assert s.summary == "serial 3, interleaved 3, nested 1"
+    assert s.commit_order == list(range(7)) and s.label == "mix(3)"
+    s = trx.schedule([2] * 6, TrxMode.MIX, 2)
+    assert (
+        _trace(s)
+        == (
+            "B0 0.0 0.1 C0 B1 1.0 1.1 C1 "
+            "B2 B3 2.0 3.0 2.1 C2 3.1 C3 "
+            "B4 4.0 B5 5.0 5.1 C5 4.1 C4"
+        ).split()
+    )
+    assert s.commit_order == [0, 1, 2, 3, 5, 4]
+    assert trx.schedule([2, 2], TrxMode.SERIAL, 5).parts == [(TrxMode.SERIAL, 2)]
+    assert trx.schedule([1] * 5, TrxMode.NESTED, 2).parts == [
+        (TrxMode.NESTED, 2)
+    ] * 2 + [(TrxMode.NESTED, 1)]
+
+    assert trx.parse_mode(" Nested ") is TrxMode.NESTED
+    assert trx.parse_mode("MIX") is TrxMode.MIX
+    with pytest.raises(TdxError, match="--trx-mode must be serial|interleaved"):
+        trx.parse_mode("parallel")
+    assert trx.parse_concurrency(" 3 ") == 3 and trx.parse_concurrency(4) == 4
+    with pytest.raises(TdxError, match=">= 1"):
+        trx.parse_concurrency("0")
+    with pytest.raises(TdxError, match="number >= 1"):
+        trx.parse_concurrency("many")
+
+
+def test_trx_contention_names_a_row_two_transactions_would_both_write():
+    from tabsdata_dev.common.systems import trx
+    from tabsdata_dev.common.systems.datagen import Change, OpKind
+
+    cols = datagen.SENTINEL_COLUMNS
+    upd = Change(OpKind.UPDATE, "t", cols, set_values={"x": 1}, where={"id": 1})
+    dele = Change(OpKind.DELETE, "t", cols, where={"id": 1})
+    other = Change(OpKind.DELETE, "t", cols, where={"id": 2})
+    ins = Change(OpKind.INSERT, "t", cols, row={"id": 1})
+    assert trx.contention([[upd], [other], [ins]]) == []
+    assert trx.contention([[upd, dele]]) == []  # one transaction: in order
+    assert trx.contention([[upd], [dele]]) == [("t", {"id": "1"})]
+
+
+def test_run_sql_schedule_drives_one_connection_per_open_transaction(monkeypatch):
+    """Each BEGIN is a connection of its own, set up as the dialect asks; the
+    statements go to their transaction's connection in schedule order; a COMMIT
+    commits and closes. A failure leaves nothing open: every other transaction
+    is rolled back, and the error names the statement and how many were open."""
+    import sqlalchemy
+    from sqlalchemy.exc import OperationalError
+
+    from tabsdata_dev.common.systems import sql_runner, trx
+    from tabsdata_dev.common.systems.trx import TrxMode
+
+    log: list = []
+
+    class Txn:
+        def __init__(self, n):
+            self.n = n
+
+        def commit(self):
+            log.append((self.n, "commit"))
+
+        def rollback(self):
+            log.append((self.n, "rollback"))
+
+    class Conn:
+        def __init__(self, n):
+            self.n = n
+
+        def begin(self):
+            log.append((self.n, "begin"))
+            return Txn(self.n)
+
+        def exec_driver_sql(self, stmt):
+            if stmt == "BOOM":
+                raise OperationalError(stmt, {}, Exception("lock wait timeout"))
+            log.append((self.n, stmt))
+
+        def close(self):
+            log.append((self.n, "close"))
+
+    class Engine:
+        def __init__(self):
+            self.opened = 0
+
+        def connect(self):
+            self.opened += 1
+            return Conn(self.opened)
+
+        def dispose(self):
+            log.append((0, "dispose"))
+
+    def create_engine(uri, **kw):
+        assert kw["poolclass"] is sqlalchemy.pool.NullPool
+        return Engine()
+
+    monkeypatch.setattr(sqlalchemy, "create_engine", create_engine)
+    txns = [["A1", "A2"], ["B1", "B2"], ["C1", "C2"]]
+    sched = trx.schedule([2, 2, 2], TrxMode.NESTED, 3)
+    n = sql_runner.run_sql_schedule(
+        "db://", txns, sched.steps, setup=["SET x"], label="modify-data"
+    )
+    assert n == 3
+    assert log == [
+        (1, "begin"),
+        (1, "SET x"),
+        (1, "A1"),
+        (2, "begin"),
+        (2, "SET x"),
+        (2, "B1"),
+        (3, "begin"),
+        (3, "SET x"),
+        (3, "C1"),
+        (3, "C2"),
+        (3, "commit"),
+        (3, "close"),
+        (2, "B2"),
+        (2, "commit"),
+        (2, "close"),
+        (1, "A2"),
+        (1, "commit"),
+        (1, "close"),
+        (0, "dispose"),
+    ]
+
+    log.clear()
+    txns = [["A1", "A2"], ["BOOM", "B2"], ["C1"]]
+    sched = trx.schedule([2, 2, 1], TrxMode.INTERLEAVED, 3)
+    with pytest.raises(TdxError, match="lock wait timeout") as info:
+        sql_runner.run_sql_schedule("db://", txns, sched.steps, setup=[], label="x")
+    assert "transaction 1 (3 open)" in str(info.value.details)
+    assert "BOOM" in str(info.value.details)
+    assert log[:4] == [(1, "begin"), (2, "begin"), (3, "begin"), (1, "A1")]
+    rolled = {n for n, what in log if what == "rollback"}
+    assert rolled == {1, 2, 3} and not any(what == "commit" for _, what in log)
+    assert log[-1] == (0, "dispose")
+
+
+def test_modify_data_trx_modes_schedule_the_plan_and_say_so(tmp_path, monkeypatch):
+    """--trx-mode reaches the backend as a schedule over the plan; the trail
+    goes out in commit order, each line ranked by `commit`, with `trx_mode`;
+    the report says the mode, the count and how many were open at once, and
+    each entity's rows. A system without the capability refuses anything but
+    serial; a plan whose transactions would write one row twice is refused
+    before anything runs."""
+    import argparse
+    import contextlib
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.common.systems import cli, console, descriptor
+    from tabsdata_dev.common.systems.systems._common.commands import dom_modify_data
+
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-test-secret-long-enough")
+    path = tmp_path / "d1"
+    descriptor.write_domain(
+        path, "postgres", "d1", sys_name="pg", external_name="d1", meta={"DB": "d1"}
+    )
+    descriptor.set_model(path, "employeescdc", datagen.entities_of("employeescdc"))
+    seeded = {"accounts": 100, "ledger": 100, "devices": 100, "readings": 100}
+    descriptor.record_data(path, "1", seeded)
+    got: dict = {}
+
+    class Fake:
+        supports_trx_modes = True
+
+        @contextlib.contextmanager
+        def data_plane_uri(self, meta):
+            yield "fake://"
+
+        def apply_changes(self, uri, txns, before, *, label="modify-data", schedule):
+            got["schedule"] = schedule
+            got["txns"] = txns
+            new = dict(before)
+            for table, delta in datagen.net_row_deltas(txns).items():
+                new[table] = new.get(table, 0) + delta
+            return new
+
+    class Serial(Fake):
+        supports_trx_modes = False
+
+    def run(system, fmt="view", **opts):
+        console.bind(render.Renderer(constants.DOM_TOOL, fmt=fmt))
+        args = dict(
+            entity="ALL",
+            sets=3,
+            ops="Mix",
+            seed="AUTO",
+            trx_mode="serial",
+            trx_concurrency=4,
+            dry_run=False,
+            emit_ops=None,
+        )
+        args.update(opts)
+        return dom_modify_data.run(
+            cli.Context(
+                tool=constants.DOM_TOOL,
+                verb=constants.V_MODIFY_DATA,
+                slug="postgres",
+                system=system,  # type: ignore[arg-type]
+                args=argparse.Namespace(**args),
+                name="d1",
+                info=descriptor.load(path),
+                path=path,
+                store_dir=tmp_path,
+            )
+        )
+
+    trail = tmp_path / "trail.jsonl"
+    assert run(Fake(), "json", trx_mode="nested", emit_ops=str(trail)) == 0
+    sched = got["schedule"]
+    assert sched.mode.value == "nested" and sched.concurrency == 3
+    assert sched.commit_order == [2, 1, 0]
+    report = console.take_result()
+    assert (report["trx_mode"], report["transactions"]) == ("nested", 3)
+    assert report["trx_concurrency"] == 3
+    assert report["entities"]["accounts"] == {
+        "insert": 1,
+        "update": 1,
+        "delete": 1,
+        "rows": 100,
+    }
+    lines = [json.loads(x) for x in trail.read_text().splitlines()]
+    assert {r["trx_mode"] for r in lines} == {"nested"}
+    assert [r["txn"] for r in lines] == [2] * 4 + [1] * 4 + [0] * 4
+    assert [r["commit"] for r in lines] == [0] * 4 + [1] * 4 + [2] * 4
+    assert [r["op"] for r in lines][::4] == ["delete", "update", "insert"]
+
+    assert run(Fake(), "json", trx_mode="Interleaved", trx_concurrency=2) == 0
+    sched = got["schedule"]
+    assert (sched.mode.value, sched.concurrency) == ("interleaved", 2)
+    assert console.take_result()["trx_concurrency"] == 2
+
+    assert run(Fake(), "json", trx_mode="mix", trx_concurrency=1, sets=4) == 0
+    sched = got["schedule"]
+    assert sched.mode.value == "mix" and sched.commit_order == [0, 1, 2, 3]
+    assert sched.summary == "serial 1, interleaved 1, nested 1, serial 1"
+    assert console.take_result()["trx_mode"] == "mix"
+
+    assert run(Fake(), "json", trx_mode="serial", trx_concurrency=2) == 0
+    assert got["schedule"].concurrency == 1  # serial opens one, whatever is asked
+    assert run(Serial(), trx_mode="serial") == 0
+    with pytest.raises(TdxError, match="serially only"):
+        run(Serial(), trx_mode="nested")
+    with pytest.raises(TdxError, match="--trx-mode must be"):
+        run(Fake(), trx_mode="parallel")
+    with pytest.raises(TdxError, match="--trx-concurrency must be"):
+        run(Fake(), trx_mode="nested", trx_concurrency="lots")
+
+    # 150 updates of one entity of 100 seeded rows: the walk wraps, and two
+    # transactions would want the same row.
+    got.clear()
+    with pytest.raises(TdxError, match="would contend for a row: accounts"):
+        run(Fake(), entity="accounts", ops="Update", sets=150, trx_mode="nested")
+    assert not got  # refused before the system was reached
+    assert run(Fake(), entity="accounts", ops="Update", sets=150) == 0  # serial
+
+
+def test_create_data_reports_the_load_in_modify_datas_shape(tmp_path, monkeypatch):
+    import argparse
+    import contextlib
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.common.systems import cli, console, descriptor
+    from tabsdata_dev.common.systems.systems._common.commands import dom_create_data
+
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-test-secret-long-enough")
+    path = tmp_path / "d1"
+    descriptor.write_domain(
+        path, "postgres", "d1", sys_name="pg", external_name="d1", meta={"DB": "d1"}
+    )
+    descriptor.set_model(path, "world", datagen.entities_of("world"))
+
+    class Fake:
+        @contextlib.contextmanager
+        def data_plane_uri(self, meta):
+            yield "fake://"
+
+        def load_tables(self, uri, tables):
+            return {t.name: len(t.rows) for t in tables}
+
+    def run(**opts):
+        console.bind(render.Renderer(constants.DOM_TOOL, fmt="json"))
+        args = dict(size=1, force=False, dry_run=False, emit_ops=None)
+        args.update(opts)
+        return dom_create_data.run(
+            cli.Context(
+                tool=constants.DOM_TOOL,
+                verb=constants.V_CREATE_DATA,
+                slug="postgres",
+                system=Fake(),  # type: ignore[arg-type]
+                args=argparse.Namespace(**args),
+                name="d1",
+                info=descriptor.load(path),
+                path=path,
+                store_dir=tmp_path,
+            )
+        )
+
+    assert run(dry_run=True) == 0
+    planned = console.take_result()
+    assert (planned["trx_mode"], planned["transactions"]) == ("serial", 1)
+    assert planned["trx_concurrency"] == 1
+    assert all(
+        set(e) == {"insert", "update", "delete"} for e in planned["entities"].values()
+    )
+    assert run() == 0
+    loaded = console.take_result()
+    assert loaded["trx_mode"] == "serial"
+    for name, per in loaded["entities"].items():
+        assert per["rows"] == per["insert"] == planned["entities"][name]["insert"]
+        assert per["update"] == per["delete"] == 0
+    lines = datagen.iud_lines({"a": datagen.iud(insert=2, rows=5), "bb": datagen.iud()})
+    assert lines == ["  a   I=2  U=0  D=0  (rows=5)", "  bb  I=0  U=0  D=0"]
+
+
+def test_only_the_transactional_sql_engines_take_a_trx_mode():
+    """The container SQL engines and the managed postgres three apply
+    interleaved and nested schedules; everything else -- files, kafka, the
+    warehouses, the OLAP stores, services -- says so and keeps to serial."""
+    takes = {s for s in systems.all_slugs() if systems.get_class(s).supports_trx_modes}
+    assert takes == {
+        "mysql",
+        "postgres",
+        "mssqlserver",
+        "oracle",
+        "db2",
+        "mysqlcdc",
+        "postgrescdc",
+        "db2cdc",
+        "awspostgres",
+        "gcppostgres",
+        "azpostgres",
+    }
+    for slug in systems.all_slugs():
+        assert isinstance(systems.get_class(slug).supports_trx_modes, bool), slug
+
+
+def test_a_verbs_failure_details_reach_its_detail_log(tmp_path, monkeypatch, capsys):
+    """What the failing system said rides on the TdxError as `details`
+    (db_failure, container_failure); the family's runner must hand it to the
+    renderer, which appends it under the error in the verb's own detail log --
+    the terminal keeps the what, the log the why."""
+    from tabsdata_dev.common.systems import dispatch, main
+
+    monkeypatch.setattr(constants, "LOG_DIR", str(tmp_path))
+
+    def boom(tool, argv):
+        raise TdxError(
+            "SQL error while running modify-data: lock wait", "why: UPDATE t"
+        )
+
+    monkeypatch.setattr(dispatch, "dispatch", boom)
+    rc = main.run(
+        constants.DOM_TOOL,
+        [constants.V_MODIFY_DATA, "--domain", "d", "--format", "json"],
+    )
+    assert rc == 1
+    event = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert event["event"] == "error" and "lock wait" in event["message"]
+    text = pathlib.Path(event["log"]).read_text()
+    assert "error:   SQL error while running modify-data: lock wait" in text
+    assert "details:\nwhy: UPDATE t" in text
