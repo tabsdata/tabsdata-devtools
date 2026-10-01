@@ -5,7 +5,7 @@
   {
     "domains": [
       {
-        "name": "db2cdc_employeescdc_perf",
+        "name": "${xp_name(db2cdc_employeescdc_perf)}",
         "command": "create",
         "options": [
           "--sys",
@@ -13,7 +13,7 @@
         ]
       },
       {
-        "name": "db2cdc_employeescdc_perf",
+        "name": "${xp_name(db2cdc_employeescdc_perf)}",
         "command": "create-model",
         "options": [
           "--model",
@@ -21,7 +21,7 @@
         ]
       },
       {
-        "name": "db2cdc_employeescdc_perf",
+        "name": "${xp_name(db2cdc_employeescdc_perf)}",
         "command": "create-data",
         "options": [
           "--size",
@@ -38,7 +38,7 @@
         "connection_template": "connection-file:connections/db2_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "db2cdc_employeescdc_perf"
+          "D0": "${xp_name(db2cdc_employeescdc_perf)}"
         }
       }
     ]

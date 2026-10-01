@@ -3,12 +3,15 @@
 #
 """The local pointer store: ``<tdd_dir>/data/xp/``.
 
-``create-instance --suite S --instance I`` records ``i-<I>``: for a definition
-file ``{"file": "/abs/path.json"}`` (re-read live on load); for a suite dir one
-member pointer per lane (``i-<I>_<name>``) plus a GROUP pointer
-``{"group": [members], "suite": "/abs/dir"}``. ``create-project`` records
-``p-<P>`` as ``{"instance": "<I>"}`` (or ``{"group": [members]}``), so the later
-commands need only ``--project``.
+``create-instance --suite S --suite-run R`` records the suite run ``i-<R>``:
+for a definition file ``{"file": "/abs/path.json", "xp_id", "xp_short_id"}``
+(the suite re-read live on load, for the run its IDs name); for a suite dir one
+member pointer per lane (``i-<R>_<name>``, each a run with IDs of its own)
+plus a GROUP pointer ``{"group": [members], "suite": "/abs/dir", "xp_id",
+"xp_short_id"}``. R defaults to the run's XP_ID, so a suite run is always a
+file holding its XP_ID. ``create-project`` records ``p-<P>`` as
+``{"instance": "<R>"}`` (or ``{"group": [members]}``), so the later commands
+need only ``--project``.
 """
 
 from __future__ import annotations
@@ -39,14 +42,33 @@ def _write(path: pathlib.Path, doc: dict) -> None:
     path.write_text(json.dumps(doc) + "\n", encoding="utf-8")
 
 
-def write_instance(name: str, definition: pathlib.Path) -> None:
-    _write(instance_file(name), {"file": str(definition.resolve())})
+def write_instance(name: str, definition: pathlib.Path, ids_: tuple[str, str]) -> None:
+    _write(
+        instance_file(name),
+        {"file": str(definition.resolve()), "xp_id": ids_[0], "xp_short_id": ids_[1]},
+    )
 
 
 def write_group_instance(
-    name: str, members: list[str], suite_dir: pathlib.Path
+    name: str, members: list[str], suite_dir: pathlib.Path, ids_: tuple[str, str]
 ) -> None:
-    _write(instance_file(name), {"group": members, "suite": str(suite_dir.resolve())})
+    _write(
+        instance_file(name),
+        {
+            "group": members,
+            "suite": str(suite_dir.resolve()),
+            "xp_id": ids_[0],
+            "xp_short_id": ids_[1],
+        },
+    )
+
+
+def ids_of(name: str) -> tuple[str, str] | None:
+    """The ``(XP_ID, XP_SHORT_ID)`` a suite run's pointer holds, if it holds them."""
+    doc = doc_of(instance_file(name))
+    if doc.get("xp_id") and doc.get("xp_short_id"):
+        return str(doc["xp_id"]), str(doc["xp_short_id"])
+    return None
 
 
 def write_project(project: str, instance: str) -> None:
@@ -70,12 +92,19 @@ def load_instance(name: str) -> Instance:
     path = instance_file(name)
     if not path.exists():
         state.die(
-            f"instance '{name}' not found ({path}); run `create-instance --suite PATH --instance {name}` first"
+            f"suite run '{name}' not found ({path}); run `create-instance --suite PATH --suite-run {name}` first"
         )
     doc = doc_of(path)
     if not doc.get("file"):
-        state.die(f'malformed instance pointer {path}: expected {{"file": "<path>"}}')
-    return build_instance(name, pathlib.Path(doc["file"]))
+        state.die(f'malformed suite run pointer {path}: expected {{"file": "<path>"}}')
+    if not (doc.get("xp_id") and doc.get("xp_short_id")):
+        state.die(
+            f"suite run pointer {path} holds no XP_ID (an older xp wrote it): "
+            f"`destroy-instance --suite-run {name}`, then create it again"
+        )
+    return build_instance(
+        name, pathlib.Path(doc["file"]), doc["xp_id"], doc["xp_short_id"]
+    )
 
 
 def load_project(project: str) -> str:
@@ -83,7 +112,7 @@ def load_project(project: str) -> str:
     path = project_file(project)
     if not path.exists():
         state.die(
-            f"project '{project}' not found ({path}); run `create-project --instance INSTANCE --project {project}` first"
+            f"project '{project}' not found ({path}); run `create-project --suite-run R --project {project}` first"
         )
     doc = doc_of(path)
     if not doc.get("instance"):

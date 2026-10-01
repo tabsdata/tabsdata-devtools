@@ -7,13 +7,13 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "airportdb",
+          "name": "${xp_name(airportdb)}",
           "system": "postgres",
           "model": "airportdb",
           "data": "l"
         },
         {
-          "name": "s3",
+          "name": "${xp_name(s3)}",
           "system": "s3"
         }
       ]
@@ -27,7 +27,7 @@
         "connection_template": "connection-file:connections/postgres_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "airportdb"
+          "D0": "${xp_name(airportdb)}"
         }
       },
       {
@@ -41,7 +41,7 @@
         "connection_template": "connection-file:connections/s3_file_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "s3"
+          "D0": "${xp_name(s3)}"
         }
       }
     ]

@@ -9,12 +9,9 @@ Teardown is one `tdd domain destroy --manifest` over every suite domain.
 
 from __future__ import annotations
 
-import getpass
-import hashlib
 import json
 import os
 import pathlib
-import re
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -28,42 +25,14 @@ from . import lanes, pointers, shell, state, work
 from .reporter import rep, reporting, scratch
 
 
-def run_user() -> str:
-    """The run's user id, as `domain` derives its own names: $TD_BUILD_USER if
-    set, else the OS login, squeezed to an identifier-safe token."""
-    try:
-        login = getpass.getuser()
-    except Exception:  # noqa: BLE001 -- no controlling user (odd CI)
-        login = os.environ.get("USER") or os.environ.get("USERNAME") or "user"
-    user = os.environ.get("TD_BUILD_USER") or login
-    return re.sub(r"[^A-Za-z0-9_]+", "_", user).strip("_") or "x"
-
-
-def name_in_system(inst, name: str, run_ts: str) -> str:
-    """``xp_<user>_<ts>_<tag>_<domain>`` -- the BACKEND name xp gives a domain's
-    create (``--name-in-system``). Short on purpose (Postgres's 63-byte
-    identifier limit); <tag> is 6 hex of the LOGICAL domain name
-    (`<instance>_<domain>`), what makes the name unique across the lanes of a
-    fan-out that start in the same second with the same domain vocabulary. A
-    hash rather than a random tag keeps it stable, so re-running create-domains
-    after a partial failure reuses the container instead of orphaning it."""
-    tag = hashlib.blake2s(
-        inst.domain_full(name).encode("utf-8"), digest_size=3
-    ).hexdigest()
-    return f"xp_{run_user()}_{run_ts}_{tag}_{name}"
-
-
 def call_argv(inst, call, project: str | None = None) -> list[str]:
-    """`tdd domain <command> --domain <instance>_<name> <options...>` for a
-    domain call, its tokens expanded; a create also gets the run's backend name."""
-    from .reporter import RUN_TS
-
+    """`tdd domain <command> --domain <name> <options...>` for a domain call,
+    its tokens expanded; a create also gets the name its container has in the
+    system (`Instance.system_name`)."""
     options = [work.expand(o, project) for o in call.options]
     if call.command == "create":
-        options += ["--name-in-system", name_in_system(inst, call.name, RUN_TS)]
-    return proc.tool_argv(
-        "domain", call.command, "--domain", inst.domain_full(call.name), *options
-    )
+        options += ["--name-in-system", inst.system_name(call.name)]
+    return proc.tool_argv("domain", call.command, "--domain", call.name, *options)
 
 
 def run_call(argv: list[str], action: str, path: str, where: str) -> None:
@@ -203,19 +172,19 @@ def cmd_create_domains(args) -> None:
     with reporting(
         args,
         "create-domains",
-        args.instance,
-        suite=pointers.suite_of_instance(args.instance),
+        args.suite_run,
+        suite=pointers.suite_of_instance(args.suite_run),
     ):
-        members = pointers.instance_group(args.instance)
+        members = pointers.instance_group(args.suite_run)
         if members is not None:
             lanes.dispatch(
-                f"create-domains group '{args.instance}'",
+                f"create-domains group '{args.suite_run}'",
                 [
                     (
                         m,
                         lanes.child_argv(
                             "create-domains",
-                            "--instance",
+                            "--suite-run",
                             m,
                             "--secret-env",
                             state.run.secret_env,
@@ -225,10 +194,10 @@ def cmd_create_domains(args) -> None:
                     for m in members
                 ],
                 phase="domains",
-                base=args.instance,
+                base=args.suite_run,
             )
             return
-        inst = pointers.load_instance(args.instance)
+        inst = pointers.load_instance(args.suite_run)
         require_crypto_key()
         for s in inst.stages:  # every domain stage of either kind, in order
             if s.domain_manifest is not None:
@@ -237,14 +206,14 @@ def cmd_create_domains(args) -> None:
                 create_domains(inst, s.domains)
 
 
-def manifest_entry(inst, d, run_ts: str, emit_file: pathlib.Path | None) -> dict:
+def manifest_entry(inst, d, emit_file: pathlib.Path | None) -> dict:
     """The `tdd domain create --manifest` entry for one domain-manifest domain:
     `name`, `sys`, `name-in-system`, plus `model`/`size` for a seeded one and
     the `emit-ops` file its create-data appends to."""
     entry: dict = {
-        "name": inst.domain_full(d.name),
+        "name": d.name,
         "sys": d.system,
-        "name-in-system": name_in_system(inst, d.name, run_ts),
+        "name-in-system": inst.system_name(d.name),
     }
     if d.model:
         entry["model"] = d.model
@@ -266,15 +235,12 @@ def create_from_manifest(inst, dm, at: int, project: str | None = None) -> None:
     batch is done they are appended to ``emit_ops`` in the order listed, so the
     trail is the same whichever domain finished first. A failed batch appends
     nothing; the per-domain files stay behind to look at."""
-    from .reporter import RUN_TS
-
     rep().plan(len(dm.domains))
     stored = shell.stored_domains()
     todo = []
     for d in dm.domains:
-        full = inst.domain_full(d.name)
-        if full in stored:
-            with rep().step("create-domain", full) as step:
+        if d.name in stored:
+            with rep().step("create-domain", d.name) as step:
                 step["note"] = "exists"
         else:
             todo.append(d)
@@ -288,7 +254,7 @@ def create_from_manifest(inst, dm, at: int, project: str | None = None) -> None:
         if emit_dir is not None and d.model and d.emit:
             emit_file = emit_dir / f"{d.name}.ops.jsonl"
             emits.append(emit_file)
-        entries.append(manifest_entry(inst, d, RUN_TS, emit_file))
+        entries.append(manifest_entry(inst, d, emit_file))
     if emit_dir is not None:
         emit_dir.mkdir(parents=True, exist_ok=True)
     path = write_manifest(f"domains-{at}.yaml", entries)
@@ -323,10 +289,9 @@ def create_domains(inst, calls: list, project: str | None = None) -> None:
         chains.setdefault(c.name, []).append(c)
     todo: dict[str, list] = {}
     for name, chain in chains.items():
-        full = inst.domain_full(name)
-        if chain[0].command == "create" and full in stored:
+        if chain[0].command == "create" and name in stored:
             for c in chain:
-                with rep().step(_action(c.command), full) as step:
+                with rep().step(_action(c.command), name) as step:
                     step["note"] = "exists"
         else:
             todo[name] = chain
@@ -339,7 +304,7 @@ def create_domains(inst, calls: list, project: str | None = None) -> None:
             run_call(
                 call_argv(inst, c, project),
                 _action(c.command),
-                inst.domain_full(name),
+                name,
                 "",
             )
 
@@ -369,19 +334,19 @@ def cmd_destroy_domains(args) -> None:
     with reporting(
         args,
         "destroy-domains",
-        args.instance,
-        suite=pointers.suite_of_instance(args.instance),
+        args.suite_run,
+        suite=pointers.suite_of_instance(args.suite_run),
     ):
-        members = pointers.instance_group(args.instance)
+        members = pointers.instance_group(args.suite_run)
         if members is not None:
             lanes.dispatch(
-                f"destroy-domains group '{args.instance}'",
+                f"destroy-domains group '{args.suite_run}'",
                 [
                     (
                         m,
                         lanes.child_argv(
                             "destroy-domains",
-                            "--instance",
+                            "--suite-run",
                             m,
                             "--secret-env",
                             state.run.secret_env,
@@ -393,23 +358,22 @@ def cmd_destroy_domains(args) -> None:
                 ],
             )
             return
-        inst = pointers.load_instance(args.instance)
+        inst = pointers.load_instance(args.suite_run)
         require_crypto_key()
         rep().plan(len(inst.domains))
         stored = shell.stored_domains()
         todo = []
         for d in inst.domains:
-            full = inst.domain_full(d.name)
             # In dry-run the existence read is skipped: plan the destroy the run
             # WOULD do instead of reporting everything absent.
-            if full in stored or state.run.dry_run:
+            if d.name in stored or state.run.dry_run:
                 todo.append(d)
             else:
-                with rep().step("destroy-domain", full) as step:
+                with rep().step("destroy-domain", d.name) as step:
                     step["note"] = "absent"
         if not todo:
             return
-        names = [inst.domain_full(d.name) for d in todo]
+        names = [d.name for d in todo]
         manifest = write_manifest("domains-destroy.yaml", [{"name": n} for n in names])
         # Without --force, domain fails if the backend teardown fails; with it
         # the descriptor is dropped anyway (warns).

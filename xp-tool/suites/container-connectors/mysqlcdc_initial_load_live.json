@@ -7,7 +7,7 @@
       "emit_ops": "${XP_WORK_DIR}/ops.jsonl",
       "domains": [
         {
-          "name": "mysqlcdc_employeescdc_m",
+          "name": "${xp_name(mysqlcdc_employeescdc_m)}",
           "system": "mysqlcdc",
           "model": "employeescdc",
           "data": "m"
@@ -20,7 +20,7 @@
       {
         "name": "sentinel-loaded",
         "domain": {
-          "name": "mysqlcdc_employeescdc_m",
+          "name": "${xp_name(mysqlcdc_employeescdc_m)}",
           "command": "sentinel-data",
           "options": [
             "--key",
@@ -38,7 +38,7 @@
           {
             "name": "change",
             "domain": {
-              "name": "mysqlcdc_employeescdc_m",
+              "name": "${xp_name(mysqlcdc_employeescdc_m)}",
               "command": "modify-data",
               "options": [
                 "--ops",
@@ -66,7 +66,7 @@
         "connection_template": "connection-file:connections/mysql_cdc_813.yaml",
         "group": "sources",
         "domains": {
-          "D0": "mysqlcdc_employeescdc_m"
+          "D0": "${xp_name(mysqlcdc_employeescdc_m)}"
         }
       }
     ]
@@ -90,7 +90,7 @@
       {
         "name": "sentinel-churned",
         "domain": {
-          "name": "mysqlcdc_employeescdc_m",
+          "name": "${xp_name(mysqlcdc_employeescdc_m)}",
           "command": "sentinel-data",
           "options": [
             "--key",

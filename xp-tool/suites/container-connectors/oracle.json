@@ -6,19 +6,19 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev",
           "model": null,
           "data": null
         },
         {
-          "name": "oracle_world_xs",
+          "name": "${xp_name(oracle_world_xs)}",
           "system": "oracle",
           "model": "world",
           "data": "xs"
         },
         {
-          "name": "oracle",
+          "name": "${xp_name(oracle)}",
           "system": "oracle",
           "model": null,
           "data": null
@@ -34,7 +34,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -43,7 +43,7 @@
         "connection_template": "connection-file:connections/oracle_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "oracle_world_xs"
+          "D0": "${xp_name(oracle_world_xs)}"
         }
       },
       {
@@ -52,7 +52,7 @@
         "connection_template": "connection-file:connections/oracle_sql_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "oracle"
+          "D0": "${xp_name(oracle)}"
         }
       },
       {

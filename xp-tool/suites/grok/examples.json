@@ -6,13 +6,13 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "fs_world_xs",
+          "name": "${xp_name(fs_world_xs)}",
           "system": "fs",
           "model": "world",
           "data": "xs"
         },
         {
-          "name": "fs_out",
+          "name": "${xp_name(fs_out)}",
           "system": "fs",
           "model": null,
           "data": null
@@ -28,7 +28,7 @@
         "connection_template": "connection-file:connections/local_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "fs_world_xs"
+          "D0": "${xp_name(fs_world_xs)}"
         }
       },
       {
@@ -42,7 +42,7 @@
         "connection_template": "connection-file:connections/local_file_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "fs_out"
+          "D0": "${xp_name(fs_out)}"
         }
       }
     ]

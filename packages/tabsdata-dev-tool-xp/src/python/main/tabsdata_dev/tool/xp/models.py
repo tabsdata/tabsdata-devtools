@@ -33,9 +33,14 @@ A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
   ``continue_on_fail`` lets the suite go on past a failed one, still failing
   the run at its end.
 
-``${XP_WORK_DIR}`` / ``${XP_PROJECT}`` in a domain call's options (a domains
-stage's or a live entry's) or an execute entry's params name the run's working
-dir and project (see ``work``).
+A suite is resolved as it is read, for the suite run it is read for (see
+``ids``): ``${xp_name(x)}`` becomes ``<XP_ID>_x`` -- how a suite names a domain
+of its own run -- and ``${XP_ID}`` / ``${XP_SHORT_ID}`` the run's IDs, in every
+string of it. A name written without ``${xp_name(...)}`` is FIXED: used as
+written, in the tdd store and in the system. ``${XP_WORK_DIR}`` /
+``${XP_PROJECT}`` in a domain call's options (a domains stage's or a live
+entry's) or an execute entry's params name the run's working dir and project,
+and are filled in when used (see ``work``).
 
 A duration -- a live ``sleep``, a sentinel's ``time_out`` -- is
 ``"<VALUE><UNIT>"`` with unit ``s``, ``m`` or ``h`` (``"90s"``, ``"2m"``,
@@ -62,7 +67,7 @@ from pydantic import (
     model_validator,
 )
 
-from . import state, suites, work
+from . import ids, state, suites, work
 
 CONN_FILE_SCHEME = "connection-file:"
 
@@ -147,7 +152,7 @@ _LIVE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 
 
 class DomainCall(BaseModel):
-    """One `tdd domain <command> --domain <instance>_<name> <options...>`, the
+    """One `tdd domain <command> --domain <name> <options...>`, the
     options as the words typed -- an entry of a domains stage, and what a live
     domain entry runs. A domain's ``create`` names its system with ``--sys``."""
 
@@ -470,7 +475,11 @@ class Stage(BaseModel):
 
 
 class Instance(BaseModel):
-    name: str  # the instance name
+    name: str  # the suite run's name
+    xp_id: str = ids.PLACEHOLDER[0]
+    short_id: str = ids.PLACEHOLDER[1]
+    # The suite as it was read for this run: every run token resolved.
+    doc: list = []
     type: str  # the suite's type dir name (e.g. 'container-connectors')
     suite_file: str  # the definition, absolute
     source_dir: str  # the dir holding the definition and functions/
@@ -612,9 +621,14 @@ class Instance(BaseModel):
     def domain(self, name: str) -> Domain:
         return next(d for d in self.domains if d.name == name)
 
-    def domain_full(self, domain: str) -> str:
-        """Instance-prefixed (actual) domain name."""
-        return f"{self.name}_{domain}"
+    def system_name(self, domain: str) -> str:
+        """The name a domain's container gets in its system (``--name-in-system``):
+        ``<XP_SHORT_ID>_x`` for a domain of this run (``<XP_ID>_x``), a FIXED one's
+        own name otherwise -- whoever fixed it knows what it is to be called."""
+        prefix = f"{self.xp_id}_"
+        if domain.startswith(prefix):
+            return f"{self.short_id}_{domain[len(prefix) :]}"
+        return domain
 
     def conn_template_path(self, ref: str) -> pathlib.Path:
         if not ref.startswith(CONN_FILE_SCHEME):
@@ -624,18 +638,29 @@ class Instance(BaseModel):
         return pathlib.Path(self.base_dir) / ref[len(CONN_FILE_SCHEME) :]
 
 
-def build_instance(name: str, definition: pathlib.Path) -> Instance:
+def build_instance(
+    name: str,
+    definition: pathlib.Path,
+    xp_id: str | None = None,
+    short_id: str | None = None,
+) -> Instance:
     """Assemble the in-memory Instance from ONE suite definition, read live (so
-    edits are always picked up). source_dir / base_dir derive from the
-    definition's location, so nothing about the definition is stored in the
-    instance pointer (and nothing can drift)."""
+    edits are always picked up), resolved for the run `xp_id` names -- without
+    one (a listing), for a placeholder run of the same shape. source_dir /
+    base_dir derive from the definition's location, so nothing about the
+    definition is stored in the instance pointer (and nothing can drift)."""
     definition = definition.resolve()
     if not definition.is_file():
         state.die(f"suite not found: {definition}")
     try:
-        doc = json.loads(definition.read_text(encoding="utf-8"))
+        raw = json.loads(definition.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         state.die(f"suite {definition} is not valid JSON: {exc}")
+    xp_id, short_id = (xp_id, short_id) if xp_id and short_id else ids.PLACEHOLDER
+    try:
+        doc = ids.resolve(raw, xp_id, short_id, f"suite {definition}")
+    except ValueError as exc:
+        state.die(str(exc))
     stages = stages_of(doc, definition)
     source_dir = definition.parent
 
@@ -645,6 +670,9 @@ def build_instance(name: str, definition: pathlib.Path) -> Instance:
     try:
         return Instance(
             name=name,
+            xp_id=xp_id,
+            short_id=short_id,
+            doc=doc if isinstance(doc, list) else [],
             type=source_dir.name,
             suite_file=str(definition),
             source_dir=str(source_dir),

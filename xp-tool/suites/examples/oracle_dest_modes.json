@@ -7,11 +7,11 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev"
         },
         {
-          "name": "oracle_out",
+          "name": "${xp_name(oracle_out)}",
           "system": "oracle"
         }
       ]
@@ -25,7 +25,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/oracle_sql_out.yaml",
         "domains": {
-          "D0": "oracle_out"
+          "D0": "${xp_name(oracle_out)}"
         }
       }
     ]

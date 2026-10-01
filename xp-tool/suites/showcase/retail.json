@@ -6,19 +6,19 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev"
         },
         {
-          "name": "s3out",
+          "name": "${xp_name(s3out)}",
           "system": "s3"
         },
         {
-          "name": "ch",
+          "name": "${xp_name(ch)}",
           "system": "clickhouse"
         },
         {
-          "name": "ch_stage",
+          "name": "${xp_name(ch_stage)}",
           "system": "s3"
         }
       ]
@@ -32,7 +32,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -46,7 +46,7 @@
         "connection_template": "connection-file:connections/s3_file_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "s3out"
+          "D0": "${xp_name(s3out)}"
         }
       },
       {
@@ -55,8 +55,8 @@
         "connection_template": "connection-file:connections/clickhouse_bulk_out_s3.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "ch",
-          "D1": "ch_stage"
+          "D0": "${xp_name(ch)}",
+          "D1": "${xp_name(ch_stage)}"
         }
       }
     ]

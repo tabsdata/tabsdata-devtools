@@ -7,7 +7,7 @@
       "emit_ops": "${XP_WORK_DIR}/ops.jsonl",
       "domains": [
         {
-          "name": "postgrescdc_employeescdc_xs",
+          "name": "${xp_name(postgrescdc_employeescdc_xs)}",
           "system": "postgrescdc",
           "model": "employeescdc",
           "data": "xs"
@@ -20,7 +20,7 @@
       {
         "name": "sentinel",
         "domain": {
-          "name": "postgrescdc_employeescdc_xs",
+          "name": "${xp_name(postgrescdc_employeescdc_xs)}",
           "command": "sentinel-data",
           "options": [
             "--key",
@@ -40,7 +40,7 @@
         "connection_template": "connection-file:connections/postgres_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "postgrescdc_employeescdc_xs"
+          "D0": "${xp_name(postgrescdc_employeescdc_xs)}"
         }
       }
     ]
@@ -68,7 +68,7 @@
       {
         "name": "change",
         "domain": {
-          "name": "postgrescdc_employeescdc_xs",
+          "name": "${xp_name(postgrescdc_employeescdc_xs)}",
           "command": "modify-data",
           "options": [
             "--ops",
@@ -83,7 +83,7 @@
       {
         "name": "sentinel-changed",
         "domain": {
-          "name": "postgrescdc_employeescdc_xs",
+          "name": "${xp_name(postgrescdc_employeescdc_xs)}",
           "command": "sentinel-data",
           "options": [
             "--key",

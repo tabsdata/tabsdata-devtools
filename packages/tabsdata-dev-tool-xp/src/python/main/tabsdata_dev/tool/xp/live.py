@@ -78,7 +78,7 @@ def count(entries: list[LiveEntry]) -> int:
 
 
 def argv_of(inst: Instance, d: LiveDomain, project: str | None = None) -> list[str]:
-    """`tdd domain <command> --domain <instance>_<name> <options...>`."""
+    """`tdd domain <command> --domain <name> <options...>`."""
     return domains.call_argv(inst, d, project)
 
 
@@ -203,7 +203,7 @@ def _run_entry(
 ) -> None:
     if e.domain is not None:
         d = e.domain
-        _call(argv_of(inst, d, run.project), d.command, inst.domain_full(d.name), label)
+        _call(argv_of(inst, d, run.project), d.command, d.name, label)
         return
     for i in range(1, e.passes + 1):
         if run.stop.is_set():
@@ -283,19 +283,19 @@ def cmd_live_domains(args) -> None:
     with reporting(
         args,
         "live-domains",
-        args.instance,
-        suite=pointers.suite_of_instance(args.instance),
+        args.suite_run,
+        suite=pointers.suite_of_instance(args.suite_run),
     ):
-        members = pointers.instance_group(args.instance)
+        members = pointers.instance_group(args.suite_run)
         if members is not None:
             lanes.dispatch(
-                f"live-domains group '{args.instance}'",
+                f"live-domains group '{args.suite_run}'",
                 [
                     (
                         m,
                         lanes.child_argv(
                             "live-domains",
-                            "--instance",
+                            "--suite-run",
                             m,
                             "--secret-env",
                             state.run.secret_env,
@@ -305,12 +305,12 @@ def cmd_live_domains(args) -> None:
                     for m in members
                 ],
                 phase="live",
-                base=args.instance,
+                base=args.suite_run,
             )
             return
-        inst = pointers.load_instance(args.instance)
+        inst = pointers.load_instance(args.suite_run)
         if not inst.live:
-            rep().note(f"live-domains: suite of '{args.instance}' has no live program")
+            rep().note(f"live-domains: suite of '{args.suite_run}' has no live program")
             return
         domains.require_crypto_key()
         rep().plan(count(inst.live))

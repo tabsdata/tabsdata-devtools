@@ -6,15 +6,15 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev"
         },
         {
-          "name": "azureblob",
+          "name": "${xp_name(azureblob)}",
           "system": "azureblob"
         },
         {
-          "name": "azureblob_world_xs",
+          "name": "${xp_name(azureblob_world_xs)}",
           "system": "azureblob",
           "model": "world",
           "data": "xs"
@@ -30,7 +30,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -39,7 +39,7 @@
         "connection_template": "connection-file:connections/az_file_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "azureblob"
+          "D0": "${xp_name(azureblob)}"
         }
       },
       {
@@ -48,7 +48,7 @@
         "connection_template": "connection-file:connections/az_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "azureblob"
+          "D0": "${xp_name(azureblob)}"
         }
       },
       {
@@ -57,7 +57,7 @@
         "connection_template": "connection-file:connections/az_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "azureblob_world_xs"
+          "D0": "${xp_name(azureblob_world_xs)}"
         }
       },
       {

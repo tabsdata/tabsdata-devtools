@@ -11,9 +11,11 @@ XP root above. The suites ship inside this package and are the default;
 ``--suites-dir DIR`` looks them up elsewhere (``export-suites --dir DIR`` copies
 the built-in ones out). ``--suite <type>/<name>`` names one definition (one
 lane), ``--suite <type>`` a suite DIRECTORY (one lane per definition in it, run
-in parallel). An INSTANCE is a
-named use of a suite (its domains are prefixed with the instance name); a
-PROJECT is created on the server from an instance. Pointers live under
+in parallel). A SUITE RUN is one run of a suite, named ``--suite-run`` (by
+default its XP_ID, ``xp_<user>_<build>_<YYYYMMDD>T<hhmmss>``): the suite is
+resolved for it, so ``${xp_name(x)}`` names its domain ``<XP_ID>_x``; a
+PROJECT is created on the server for it, ``<XP_ID>_<suite>`` unless
+``--project`` names one. Pointers live under
 ``<tdd_dir>/data/xp``; each run's manifests, logs and report land in one
 scratch dir under ``/tmp/tdd-xp/``, announced at startup.
 
@@ -26,19 +28,19 @@ manifest this tool writes.
     tdd xp list-suites [--suites-dir DIR]
     tdd xp export-suites --dir DIR [--force]
     tdd xp list-instances | list-projects
-    tdd xp create-instance  --suite SEL --instance I [--suites-dir DIR]
-    tdd xp create-domains   --instance I [--secret-env VAR] [--latch F] [--report F] [--dry-run]
-    tdd xp destroy-domains  --instance I [--force] ...
-    tdd xp create-project   --instance I --project P [--profile NAME] ...
+    tdd xp create-instance  --suite SEL [--suite-run R] [--suites-dir DIR]
+    tdd xp create-domains   --suite-run R [--secret-env VAR] [--latch F] [--report F] [--dry-run]
+    tdd xp destroy-domains  --suite-run R [--force] ...
+    tdd xp create-project   --suite-run R [--project P] [--force] [--profile NAME] ...
     tdd xp destroy-project  --project P [--force] [--profile NAME] ...
-    tdd xp destroy-instance --instance I
+    tdd xp destroy-instance --suite-run R
     tdd xp run-project      --project P [--monitor] [--profile NAME] ...
     tdd xp monitor-project  --project P [--profile NAME] ...
-    tdd xp live-domains     --instance I [--secret-env VAR] [--dry-run] ...
-    tdd xp run-suite        --instance I --project P [--no-live] [--profile NAME] ...
+    tdd xp live-domains     --suite-run R [--secret-env VAR] [--dry-run] ...
+    tdd xp run-suite        --suite-run R [--project P] [--force] [--no-live] [--profile NAME] ...
     tdd xp enable-function  --project P --collection C --function F [--profile NAME]
     tdd xp disable-function --project P --collection C --function F [--profile NAME]
-    tdd xp one-shot         --suite SEL [--project P] [--keep] [--no-live] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
+    tdd xp one-shot         --suite SEL [--suite-run R] [--project P] [--force] [--keep] [--no-live] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
     tdd xp bench            --suite TYPE [--name N] [--keep] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
 """
 
@@ -56,9 +58,9 @@ from . import cycle, domains, live, project, state
 from .reporter import render_summary
 
 NAME = state.TOOL
-DESCRIPTION = "run tabsdata example suites: instances, domains, projects, triggers, one-shot and bench"
+DESCRIPTION = "run tabsdata example suites: suite runs, domains, projects, triggers, one-shot and bench"
 SUITE_HELP = (
-    "<type>/<name> (one definition) or <type> (a suite dir: one instance/project per *.json "
+    "<type>/<name> (one definition) or <type> (a suite dir: one suite run/project per *.json "
     "in it), under the built-in suites or --suites-dir; a path works too"
 )
 
@@ -143,6 +145,33 @@ def _profile(c):
     )
 
 
+def _suite_run(c, required: bool = True):
+    c.add_argument(
+        "--suite-run",
+        required=required,
+        default=None,
+        metavar="R",
+        help="the suite run (`list-instances` shows them)"
+        if required
+        else "the suite run: a pointer holding its XP_ID, reused when it exists (default: a new XP_ID, xp_<user>_<build>_<YYYYMMDD>T<hhmmss>)",
+    )
+
+
+def _project_opt(c):
+    c.add_argument(
+        "--project",
+        default=None,
+        metavar="P",
+        help="the project (default: <XP_ID>_<suite>); one that exists and is not this suite run's is refused unless --force",
+    )
+    c.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="delete a --project that exists and is not this suite run's, then create it again",
+    )
+
+
 def _suite(c, help_: str):
     c.add_argument("--suite", required=True, metavar="SELECTOR", help=help_)
     _suites_dir(c)
@@ -194,7 +223,7 @@ def configure(p: argparse.ArgumentParser) -> None:
     c.set_defaults(func=project.cmd_export_suites)
 
     c = sub.add_parser(
-        "list-instances", help="list the instances recorded in the pointer store"
+        "list-instances", help="list the suite runs recorded in the pointer store"
     )
     _common(c)
     c.set_defaults(func=project.cmd_list_instances)
@@ -205,25 +234,26 @@ def configure(p: argparse.ArgumentParser) -> None:
     _common(c)
     c.set_defaults(func=project.cmd_list_projects)
 
-    c = sub.add_parser("create-instance", help="materialise an instance from a suite")
-    _suite(c, SUITE_HELP)
-    c.add_argument(
-        "--instance", required=True, help="instance name (group base for a suite dir)"
+    c = sub.add_parser(
+        "create-instance",
+        help="make a suite run of a suite (an existing one is reused, its XP_ID with it)",
     )
+    _suite(c, SUITE_HELP)
+    _suite_run(c, required=False)
     _common(c)
     c.set_defaults(func=project.cmd_create_instance)
 
     c = sub.add_parser(
         "create-domains",
-        help="create the instance's domains (prefixed with the instance name)",
+        help="create the suite run's domains",
     )
-    c.add_argument("--instance", required=True)
+    _suite_run(c)
     for add in (_secret_env, _latch, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=domains.cmd_create_domains)
 
-    c = sub.add_parser("destroy-domains", help="destroy the instance's domains")
-    c.add_argument("--instance", required=True)
+    c = sub.add_parser("destroy-domains", help="destroy the suite run's domains")
+    _suite_run(c)
     for add in (_force, _secret_env, _latch, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=domains.cmd_destroy_domains)
@@ -231,15 +261,15 @@ def configure(p: argparse.ArgumentParser) -> None:
     c = sub.add_parser(
         "create-project", help="create the project, its collections and functions"
     )
-    c.add_argument("--instance", required=True)
-    c.add_argument("--project", required=True)
+    _suite_run(c)
+    _project_opt(c)
     for add in (_secret_env, _profile, _latch, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=project.cmd_create_project)
 
     c = sub.add_parser(
         "destroy-project",
-        help="delete the project (instance resolved from the project pointer)",
+        help="delete the project (its suite run resolved from the project pointer)",
     )
     c.add_argument("--project", required=True)
     for add in (_force, _profile, _latch, _report, _dry_run, _common):
@@ -247,14 +277,14 @@ def configure(p: argparse.ArgumentParser) -> None:
     c.set_defaults(func=project.cmd_destroy_project)
 
     c = sub.add_parser(
-        "destroy-instance", help="remove the local instance pointer (not its domains)"
+        "destroy-instance", help="remove the local suite run pointer (not its domains)"
     )
-    c.add_argument("--instance", required=True)
+    _suite_run(c)
     _common(c)
     c.set_defaults(func=project.cmd_destroy_instance)
 
     c = sub.add_parser(
-        "run-project", help="trigger the instance's functions on the project"
+        "run-project", help="trigger the suite run's functions on the project"
     )
     c.add_argument("--project", required=True)
     c.add_argument(
@@ -278,17 +308,17 @@ def configure(p: argparse.ArgumentParser) -> None:
         "live-domains",
         help="run the suite's live script: named tdd domain data verbs, pauses, waits and repeats, blocking or side by side",
     )
-    c.add_argument("--instance", required=True)
+    _suite_run(c)
     for add in (_secret_env, _latch, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=live.cmd_live_domains)
 
     c = sub.add_parser(
         "run-suite",
-        help="run the instance's stages in the order the suite lists them: domains, collections, functions, triggers, monitor, live",
+        help="run the suite run's stages in the order the suite lists them: domains, collections, functions, triggers, monitor, live",
     )
-    c.add_argument("--instance", required=True)
-    c.add_argument("--project", required=True)
+    _suite_run(c)
+    _project_opt(c)
     c.add_argument(
         "--no-live",
         action="store_true",
@@ -318,15 +348,12 @@ def configure(p: argparse.ArgumentParser) -> None:
         help="create-instance + run-suite (the suite's stages, in order), then tear down (--keep preserves)",
     )
     _suite(c, SUITE_HELP)
-    c.add_argument(
-        "--project",
-        default=None,
-        help="name for the instance/project (default: xp_<ts>_<suite>)",
-    )
+    _suite_run(c, required=False)
+    _project_opt(c)
     c.add_argument(
         "--keep",
         action="store_true",
-        help="leave the instance, project and domains set up afterwards",
+        help="leave the suite run, project and domains set up afterwards",
     )
     c.add_argument(
         "--no-live",
@@ -348,7 +375,7 @@ def configure(p: argparse.ArgumentParser) -> None:
     c.add_argument(
         "--name",
         default=None,
-        help="group base name for the per-lane instances/projects (default xp_<ts>_<suite>)",
+        help="group name for the per-lane suite runs (default: an XP_ID; each lane is a suite run with its own, and its project <XP_ID>_<suite>)",
     )
     c.add_argument(
         "--keep",

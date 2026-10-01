@@ -7,7 +7,7 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "fs_world_xs",
+          "name": "${xp_name(fs_world_xs)}",
           "system": "fs",
           "model": "world",
           "data": "xs"
@@ -23,7 +23,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/local_file_in.yaml",
         "domains": {
-          "D0": "fs_world_xs"
+          "D0": "${xp_name(fs_world_xs)}"
         }
       }
     ]

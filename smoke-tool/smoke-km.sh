@@ -365,7 +365,7 @@ for suite in "${SUITE_LIST[@]}"; do
     XP_PROJECTS="$XP_PROJECTS $project"
     common_stage --continue "xp-$(printf '%s' "$suite" | tr '/' '_')" "xp one-shot $suite as $project (continue on error)"
     # shellcheck disable=SC2086
-    common_run tdd xp one-shot --suite "$suite" --project "$project" --profile "$PROFILE" ${KEEP:+--keep}
+    common_run tdd xp one-shot --suite "$suite" --suite-run "$project" --project "$project" --profile "$PROFILE" ${KEEP:+--keep}
 done
 
 if [ -n "$KEEP" ]; then

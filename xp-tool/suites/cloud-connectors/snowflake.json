@@ -6,11 +6,11 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev"
         },
         {
-          "name": "snowflake",
+          "name": "${xp_name(snowflake)}",
           "system": "snowflake"
         }
       ]
@@ -24,7 +24,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -33,7 +33,7 @@
         "connection_template": "connection-file:connections/snowflake_bulk_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "snowflake"
+          "D0": "${xp_name(snowflake)}"
         }
       }
     ]

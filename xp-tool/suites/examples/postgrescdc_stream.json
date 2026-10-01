@@ -7,7 +7,7 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "postgrescdc_employees_xs",
+          "name": "${xp_name(postgrescdc_employees_xs)}",
           "system": "postgrescdc",
           "model": "employees",
           "data": "xs"
@@ -23,7 +23,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/postgres_cdc.yaml",
         "domains": {
-          "D0": "postgrescdc_employees_xs"
+          "D0": "${xp_name(postgrescdc_employees_xs)}"
         }
       },
       {
@@ -32,7 +32,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/postgres_cdc.yaml",
         "domains": {
-          "D0": "postgrescdc_employees_xs"
+          "D0": "${xp_name(postgrescdc_employees_xs)}"
         }
       },
       {
@@ -41,7 +41,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/postgres_cdc.yaml",
         "domains": {
-          "D0": "postgrescdc_employees_xs"
+          "D0": "${xp_name(postgrescdc_employees_xs)}"
         }
       },
       {
@@ -50,7 +50,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/postgres_cdc.yaml",
         "domains": {
-          "D0": "postgrescdc_employees_xs"
+          "D0": "${xp_name(postgrescdc_employees_xs)}"
         }
       }
     ]

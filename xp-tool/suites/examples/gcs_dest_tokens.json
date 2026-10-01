@@ -7,11 +7,11 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev"
         },
         {
-          "name": "gcs_out",
+          "name": "${xp_name(gcs_out)}",
           "system": "gcs"
         }
       ]
@@ -25,7 +25,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/gcs_file_out.yaml",
         "domains": {
-          "D0": "gcs_out"
+          "D0": "${xp_name(gcs_out)}"
         }
       }
     ]

@@ -7,7 +7,7 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "azureblob_world_xs",
+          "name": "${xp_name(azureblob_world_xs)}",
           "system": "azureblob",
           "model": "world",
           "data": "xs"
@@ -23,7 +23,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/az_file_in.yaml",
         "domains": {
-          "D0": "azureblob_world_xs"
+          "D0": "${xp_name(azureblob_world_xs)}"
         }
       }
     ]

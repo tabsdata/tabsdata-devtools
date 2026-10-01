@@ -571,7 +571,7 @@ for suite in "${SUITE_LIST[@]}"; do
     # suites; a suite started over a dead one fails lane by lane as "not logged in"
     common_kubeportforward_ensure || continue
     # shellcheck disable=SC2086
-    common_run tdd xp one-shot --suite "$suite" --project "$project" --profile "$PROFILE" ${KEEP:+--keep}
+    common_run tdd xp one-shot --suite "$suite" --suite-run "$project" --project "$project" --profile "$PROFILE" ${KEEP:+--keep}
 done
 
 if [ -n "$KEEP" ]; then

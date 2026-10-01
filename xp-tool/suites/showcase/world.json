@@ -6,17 +6,17 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "world_pg",
+          "name": "${xp_name(world_pg)}",
           "system": "postgres",
           "model": "world",
           "data": "xs"
         },
         {
-          "name": "out",
+          "name": "${xp_name(out)}",
           "system": "fs"
         },
         {
-          "name": "snow",
+          "name": "${xp_name(snow)}",
           "system": "snowflake"
         }
       ]
@@ -30,7 +30,7 @@
         "connection_template": "connection-file:connections/postgres_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "world_pg"
+          "D0": "${xp_name(world_pg)}"
         }
       },
       {
@@ -44,7 +44,7 @@
         "connection_template": "connection-file:connections/local_file_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "out"
+          "D0": "${xp_name(out)}"
         }
       },
       {
@@ -53,7 +53,7 @@
         "connection_template": "connection-file:connections/snowflake_bulk_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "snow"
+          "D0": "${xp_name(snow)}"
         }
       }
     ]

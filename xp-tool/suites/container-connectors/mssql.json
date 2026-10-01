@@ -6,17 +6,17 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev"
         },
         {
-          "name": "mssqlserver_world_xs",
+          "name": "${xp_name(mssqlserver_world_xs)}",
           "system": "mssqlserver",
           "model": "world",
           "data": "xs"
         },
         {
-          "name": "mssqlserver",
+          "name": "${xp_name(mssqlserver)}",
           "system": "mssqlserver"
         }
       ]
@@ -30,7 +30,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -39,7 +39,7 @@
         "connection_template": "connection-file:connections/mssql_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "mssqlserver_world_xs"
+          "D0": "${xp_name(mssqlserver_world_xs)}"
         }
       },
       {
@@ -48,7 +48,7 @@
         "connection_template": "connection-file:connections/mssql_sql_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "mssqlserver"
+          "D0": "${xp_name(mssqlserver)}"
         }
       },
       {

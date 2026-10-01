@@ -6,47 +6,47 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "mysql_bronze_xs",
+          "name": "${xp_name(mysql_bronze_xs)}",
           "system": "mysql",
           "model": "bronze",
           "data": "xs"
         },
         {
-          "name": "postgres_bronze_xs",
+          "name": "${xp_name(postgres_bronze_xs)}",
           "system": "postgres",
           "model": "bronze",
           "data": "xs"
         },
         {
-          "name": "oracle_bronze_xs",
+          "name": "${xp_name(oracle_bronze_xs)}",
           "system": "oracle",
           "model": "bronze",
           "data": "xs"
         },
         {
-          "name": "db2_bronze_xs",
+          "name": "${xp_name(db2_bronze_xs)}",
           "system": "db2",
           "model": "bronze",
           "data": "xs"
         },
         {
-          "name": "mssqlserver_bronze_xs",
+          "name": "${xp_name(mssqlserver_bronze_xs)}",
           "system": "mssqlserver",
           "model": "bronze",
           "data": "xs"
         },
         {
-          "name": "databricks_bronze_xs",
+          "name": "${xp_name(databricks_bronze_xs)}",
           "system": "databricks",
           "model": "bronze",
           "data": "xs"
         },
         {
-          "name": "snowflake",
+          "name": "${xp_name(snowflake)}",
           "system": "snowflake"
         },
         {
-          "name": "databricks",
+          "name": "${xp_name(databricks)}",
           "system": "databricks"
         }
       ]
@@ -60,7 +60,7 @@
         "connection_template": "connection-file:connections/mysql_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "mysql_bronze_xs"
+          "D0": "${xp_name(mysql_bronze_xs)}"
         }
       },
       {
@@ -84,7 +84,7 @@
         "connection_template": "connection-file:connections/mysql_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "mysql_bronze_xs"
+          "D0": "${xp_name(mysql_bronze_xs)}"
         }
       },
       {
@@ -93,7 +93,7 @@
         "connection_template": "connection-file:connections/postgres_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "postgres_bronze_xs"
+          "D0": "${xp_name(postgres_bronze_xs)}"
         }
       },
       {
@@ -117,7 +117,7 @@
         "connection_template": "connection-file:connections/postgres_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "postgres_bronze_xs"
+          "D0": "${xp_name(postgres_bronze_xs)}"
         }
       },
       {
@@ -126,7 +126,7 @@
         "connection_template": "connection-file:connections/oracle_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "oracle_bronze_xs"
+          "D0": "${xp_name(oracle_bronze_xs)}"
         }
       },
       {
@@ -150,7 +150,7 @@
         "connection_template": "connection-file:connections/db2_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "db2_bronze_xs"
+          "D0": "${xp_name(db2_bronze_xs)}"
         }
       },
       {
@@ -174,7 +174,7 @@
         "connection_template": "connection-file:connections/db2_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "db2_bronze_xs"
+          "D0": "${xp_name(db2_bronze_xs)}"
         }
       },
       {
@@ -183,7 +183,7 @@
         "connection_template": "connection-file:connections/mssql_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "mssqlserver_bronze_xs"
+          "D0": "${xp_name(mssqlserver_bronze_xs)}"
         }
       },
       {
@@ -207,7 +207,7 @@
         "connection_template": "connection-file:connections/databricks_bulk_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "databricks_bronze_xs"
+          "D0": "${xp_name(databricks_bronze_xs)}"
         }
       },
       {
@@ -231,7 +231,7 @@
         "connection_template": "connection-file:connections/databricks_bulk_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "databricks_bronze_xs"
+          "D0": "${xp_name(databricks_bronze_xs)}"
         }
       },
       {
@@ -240,7 +240,7 @@
         "connection_template": "connection-file:connections/snowflake_bulk_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "snowflake"
+          "D0": "${xp_name(snowflake)}"
         }
       },
       {

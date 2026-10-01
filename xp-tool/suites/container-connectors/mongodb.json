@@ -6,11 +6,11 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev"
         },
         {
-          "name": "mongodb",
+          "name": "${xp_name(mongodb)}",
           "system": "mongodb"
         }
       ]
@@ -24,7 +24,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -33,7 +33,7 @@
         "connection_template": "connection-file:connections/mongodb_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "mongodb"
+          "D0": "${xp_name(mongodb)}"
         }
       }
     ]

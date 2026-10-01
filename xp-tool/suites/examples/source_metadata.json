@@ -7,13 +7,13 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "fs_world_xs",
+          "name": "${xp_name(fs_world_xs)}",
           "system": "fs",
           "model": "world",
           "data": "xs"
         },
         {
-          "name": "postgres_world_xs",
+          "name": "${xp_name(postgres_world_xs)}",
           "system": "postgres",
           "model": "world",
           "data": "xs"
@@ -29,7 +29,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/local_file_in.yaml",
         "domains": {
-          "D0": "fs_world_xs"
+          "D0": "${xp_name(fs_world_xs)}"
         }
       },
       {
@@ -38,7 +38,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/postgres_sql_in.yaml",
         "domains": {
-          "D0": "postgres_world_xs"
+          "D0": "${xp_name(postgres_world_xs)}"
         }
       }
     ]

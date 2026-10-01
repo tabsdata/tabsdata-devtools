@@ -6,31 +6,31 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev"
         },
         {
-          "name": "clickhouse_s3",
+          "name": "${xp_name(clickhouse_s3)}",
           "system": "clickhouse"
         },
         {
-          "name": "clickhouse_az",
+          "name": "${xp_name(clickhouse_az)}",
           "system": "clickhouse"
         },
         {
-          "name": "clickhouse_gcs",
+          "name": "${xp_name(clickhouse_gcs)}",
           "system": "clickhouse"
         },
         {
-          "name": "s3",
+          "name": "${xp_name(s3)}",
           "system": "s3"
         },
         {
-          "name": "gcs",
+          "name": "${xp_name(gcs)}",
           "system": "gcs"
         },
         {
-          "name": "azureblob",
+          "name": "${xp_name(azureblob)}",
           "system": "azureblob"
         }
       ]
@@ -44,7 +44,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -53,8 +53,8 @@
         "connection_template": "connection-file:connections/clickhouse_bulk_out_s3.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "clickhouse_s3",
-          "D1": "s3"
+          "D0": "${xp_name(clickhouse_s3)}",
+          "D1": "${xp_name(s3)}"
         }
       },
       {
@@ -63,8 +63,8 @@
         "connection_template": "connection-file:connections/clickhouse_bulk_out_az.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "clickhouse_az",
-          "D1": "azureblob"
+          "D0": "${xp_name(clickhouse_az)}",
+          "D1": "${xp_name(azureblob)}"
         }
       },
       {
@@ -73,8 +73,8 @@
         "connection_template": "connection-file:connections/clickhouse_bulk_out_gcs.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "clickhouse_gcs",
-          "D1": "gcs"
+          "D0": "${xp_name(clickhouse_gcs)}",
+          "D1": "${xp_name(gcs)}"
         }
       }
     ]

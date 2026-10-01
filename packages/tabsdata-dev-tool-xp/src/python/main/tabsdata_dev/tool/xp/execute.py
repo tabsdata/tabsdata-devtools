@@ -16,7 +16,7 @@ deleted after the step whether the script passed or not. The prefix finds what
 a killed run left behind (``tdd venv list``).
 
 It is handed what it needs to reach the run: ``XP_WORK_DIR``, ``XP_PROJECT``,
-``XP_INSTANCE`` and ``XP_SUITE_DIR`` in its environment, and ``tdd-exe`` on its
+``XP_ID``, ``XP_SHORT_ID``, ``XP_SUITE_RUN`` and ``XP_SUITE_DIR`` in its environment, and ``tdd-exe`` on its
 PATH (``tdd`` is a shell function and cannot be exec'd).
 
 A line the script prints starting ``xp-note:`` (``tdd.note()`` prints one) is
@@ -74,7 +74,9 @@ def script_env(inst: Instance, project: str | None) -> dict:
         "PATH": os.pathsep.join([str(tdd_exe), os.environ.get("PATH", "")]),
         "XP_WORK_DIR": str(work.work_dir()),
         "XP_PROJECT": project or "",
-        "XP_INSTANCE": inst.name,
+        "XP_ID": inst.xp_id,
+        "XP_SHORT_ID": inst.short_id,
+        "XP_SUITE_RUN": inst.name,
         "XP_SUITE_DIR": inst.source_dir,
     }
 

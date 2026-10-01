@@ -7,10 +7,24 @@ import pathlib
 
 import pytest
 
+#: The suite run's IDs under the fixture's clock and build identity: the first
+#: run a test makes; each next one is a second on.
+XP_ID = "xp_tucu_0_20261001T093012"
+XP_SHORT = "tuc00_0e2aec"
+#: What a suite read with no run behind it (`build_instance` without IDs) names
+#: its own domains by.
+PH = "xp_user_0_20260101T000000"
+
+
+def N(name):
+    """A suite's own domain, as a suite names it: `<XP_ID>_<name>` once read."""
+    return "${xp_name(%s)}" % name
+
 
 def calls(name, system, model=None, size=None, *data_opts):
     """A domain as a domains stage writes it: its create and, seeded, its
     create-model and create-data."""
+    name = N(name)
     out = [{"name": name, "command": "create", "options": ["--sys", system]}]
     if model:
         out.append(
@@ -34,7 +48,7 @@ SUITE = {
             "type": "local_file_in",
             "connection_template": "connection-file:connections/local_file_in.yaml",
             "group": "sources",
-            "domains": {"D0": "world"},
+            "domains": {"D0": N("world")},
         },
         {"name": "ops", "type": "transform", "group": "ops"},
     ],
@@ -80,7 +94,22 @@ def xp_root(tmp_path, monkeypatch):
     monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
     monkeypatch.delenv("_TDD_XP_SCRATCH", raising=False)
     monkeypatch.delenv("_TDD_XP_PARENT", raising=False)
+    _run_the_clock(monkeypatch)
     return root
+
+
+def _run_the_clock(monkeypatch):
+    """Run IDs from a clock the test owns: XP_ID first, a second on each next."""
+    from datetime import datetime, timezone
+
+    from tabsdata_dev.tool.xp import ids
+
+    monkeypatch.setenv("TD_BUILD_USER", "tucu")
+    monkeypatch.setenv("TD_BUILD_NUMBER", "0")
+    now = [datetime(2026, 10, 1, 9, 30, 12, tzinfo=timezone.utc).timestamp()]
+    monkeypatch.setattr(ids, "clock", lambda: now[0])
+    monkeypatch.setattr(ids, "sleep", lambda s: now.__setitem__(0, now[0] + max(s, 0)))
+    monkeypatch.setattr(ids, "_last", -1)
 
 
 def _run(argv):
@@ -152,7 +181,7 @@ def test_pointers_live_under_the_tdd_data_dir(xp_root, tmp_path):
     from tabsdata_dev.tool.xp import pointers, suites
 
     one = xp_root / "suites" / "demo" / "one.json"
-    pointers.write_instance("i1", one)
+    pointers.write_instance("i1", one, (XP_ID, XP_SHORT))
     assert pointers.store() == tmp_path / "tdd" / "data" / "xp"
     inst = pointers.load_instance("i1")
     assert (
@@ -160,13 +189,17 @@ def test_pointers_live_under_the_tdd_data_dir(xp_root, tmp_path):
         and inst.base_dir == str(xp_root)
         and inst.type == "demo"
     )
-    assert inst.domain_full("fs") == "i1_fs"
+    # the suite read for the run the pointer holds: its domains are the run's
+    assert [d.name for d in inst.domains] == [f"{XP_ID}_fs", f"{XP_ID}_world"]
+    assert pointers.ids_of("i1") == (XP_ID, XP_SHORT)
     pointers.write_project("p1", "i1")
     assert (
         pointers.load_project("p1") == "i1"
         and pointers.suite_of_project("p1") == "demo/one"
     )
-    pointers.write_group_instance("g", ["g_one", "g_two"], one.parent)
+    pointers.write_group_instance(
+        "g", ["g_one", "g_two"], one.parent, (XP_ID, XP_SHORT)
+    )
     assert (
         pointers.instance_group("g") == ["g_one", "g_two"]
         and pointers.suite_of_instance("g") == "demo"
@@ -209,21 +242,64 @@ def test_connection_prep_resolves_secrets_and_interpolates(xp_root, monkeypatch)
         conn.interpolate("${D0__NOPE}", {}, "here")
 
 
-def test_a_creates_backend_name_is_per_run_and_stable_within_one(xp_root):
-    """xp names the backend object itself (`--name-in-system`): the user, the
-    run's timestamp and a tag of the logical domain -- the same for the same
-    run, so a partial failure re-run reuses the container."""
-    from tabsdata_dev.tool.xp import domains
+def test_a_runs_domain_is_named_by_its_ids_and_a_fixed_one_as_written(xp_root):
+    """`${xp_name(x)}` is the run's domain, `<XP_ID>_x` in the store and
+    `<XP_SHORT_ID>_x` in the system -- short, because a system's identifiers
+    are. A name written plainly is fixed, the same in both."""
     from tabsdata_dev.tool.xp.models import build_instance
 
-    inst = build_instance("i1", xp_root / "suites" / "demo" / "one.json")
-    assert [(d.name, d.system) for d in inst.domains] == [("fs", "fs"), ("world", "fs")]
-    name = domains.name_in_system(inst, "world", "20260829T000000")
-    assert name.startswith("xp_") and name.endswith(
-        "_20260829T000000_" + name.split("_")[-2] + "_world"
+    inst = build_instance(
+        "r", xp_root / "suites" / "demo" / "one.json", XP_ID, XP_SHORT
     )
-    assert name == domains.name_in_system(inst, "world", "20260829T000000")
-    assert name != domains.name_in_system(inst, "fs", "20260829T000000")
+    assert [(d.name, d.system) for d in inst.domains] == [
+        (f"{XP_ID}_fs", "fs"),
+        (f"{XP_ID}_world", "fs"),
+    ]
+    assert inst.system_name(f"{XP_ID}_world") == f"{XP_SHORT}_world"
+    assert inst.system_name("pinned") == "pinned"
+    assert inst.collections[0].domains == {"D0": f"{XP_ID}_world"}
+
+
+def test_a_run_id_is_its_build_identity_and_second_and_the_short_one_fits_12():
+    from tabsdata_dev.tool.xp import ids
+
+    t = 1790847012  # 2026-10-01T09:30:12Z
+    assert ids.make("tucu", "0", t) == (XP_ID, XP_SHORT)
+    assert ids.make("Al", "build_1234", t) == (
+        "xp_Al_build_1234_20261001T093012",
+        "alx34_0e2aec",
+    )
+    # 2094 is where six base-36 digits run out; the width holds until then
+    assert len(ids.make("u", "7", t + 60 * 365 * 86400)[1]) == 12
+    with pytest.raises(ValueError, match="before 2026-01-01"):
+        ids.make("u", "0", t - 400 * 86400)
+
+
+def test_two_runs_one_process_starts_are_a_second_apart(xp_root):
+    from tabsdata_dev.tool.xp import ids
+
+    first, second = ids.new(), ids.new()
+    assert first == (XP_ID, XP_SHORT)
+    assert second[0] == "xp_tucu_0_20261001T093013" and second[1] != first[1]
+
+
+@pytest.mark.parametrize(
+    "value, why",
+    [
+        ("${xp_name()}", "a name is a letter or digit"),
+        ("${xp_name(a b)}", "a name is a letter or digit"),
+        ("${xp_name(pg}", "does not close"),
+    ],
+)
+def test_a_malformed_xp_name_is_refused(value, why):
+    from tabsdata_dev.tool.xp import ids
+
+    with pytest.raises(ValueError, match=why):
+        ids.resolve({"name": value}, XP_ID, XP_SHORT)
+    assert ids.resolve(["${XP_ID}/${XP_SHORT_ID}", "${XP_WORK_DIR}"], "a", "b") == [
+        "a/b",
+        "${XP_WORK_DIR}",
+    ]
 
 
 def test_dry_run_one_shot_prints_the_tdd_commands_and_touches_no_server(
@@ -245,12 +321,12 @@ def test_dry_run_one_shot_prints_the_tdd_commands_and_touches_no_server(
     lines = [line for line in out.splitlines() if line.startswith("tdd ")]
     # a domains stage is its calls, as written: each domain's create first
     assert lines[0].startswith(
-        "tdd domain create --domain p_fs --sys fs --name-in-system "
+        f"tdd domain create --domain {XP_ID}_fs --sys fs --name-in-system {XP_SHORT}_fs"
     )
-    assert lines[1].startswith("tdd domain create --domain p_world --sys fs ")
+    assert lines[1].startswith(f"tdd domain create --domain {XP_ID}_world --sys fs ")
     assert lines[2:4] == [
-        "tdd domain create-model --domain p_world --model world",
-        "tdd domain create-data --domain p_world --size 10",
+        f"tdd domain create-model --domain {XP_ID}_world --model world",
+        f"tdd domain create-data --domain {XP_ID}_world --size 10",
     ]
     assert "tdd tdk project create --name p" in "\n".join(lines)
     assert (
@@ -347,7 +423,7 @@ def test_json_stream_carries_steps_and_ends_in_one_ok(xp_root, capsys):
             "--suite",
             "demo/one",
             *_suites_dir(xp_root),
-            "--instance",
+            "--suite-run",
             "i2",
             "--format",
             "json",
@@ -409,14 +485,14 @@ def test_the_login_probe_does_not_open_an_unlabelled_reporter(
                 "--suite",
                 "demo/one",
                 *_suites_dir(xp_root),
-                "--instance",
+                "--suite-run",
                 "lbl",
             ]
         )
         == 0
     )
     capsys.readouterr()
-    assert _run(["create-domains", "--instance", "lbl", "--dry-run"]) == 0
+    assert _run(["create-domains", "--suite-run", "lbl", "--dry-run"]) == 0
     out, err = capsys.readouterr()
     assert any(
         line.startswith("demo/one - [1/4] - create-domain") for line in err.splitlines()
@@ -830,7 +906,7 @@ def test_lanes_share_their_columns_from_the_first_line(
         code = "import json\n" + "".join(
             f"print(json.dumps({s!r}))\n" for s in [*steps, done]
         )
-        return (lane, [sys.executable, "-c", code, "--instance", lane])
+        return (lane, [sys.executable, "-c", code, "--suite-run", lane])
 
     state.bind(render.Renderer(state.TOOL), argparse_ns())
     plans = {"a": lanes.LanePlan(12, ("postgres_cdc",)), "b": lanes.LanePlan(3)}
@@ -888,7 +964,7 @@ def _live_instance(xp_root, script):
 
 
 def _dom(name, command, *options):
-    doc = {"name": name, "command": command}
+    doc = {"name": N(name), "command": command}
     if options:
         doc["options"] = list(options)
     return doc
@@ -945,7 +1021,7 @@ def _instance(xp_root, name="i"):
                 "--suite",
                 "live/one",
                 *_suites_dir(xp_root),
-                "--instance",
+                "--suite-run",
                 name,
             ]
         )
@@ -1059,23 +1135,23 @@ def test_dry_run_live_domains_prints_the_script_in_order(xp_root, capsys):
     _live_suite(xp_root)
     _instance(xp_root)
     capsys.readouterr()
-    rc = _run(["live-domains", "--instance", "i", "--dry-run"])
+    rc = _run(["live-domains", "--suite-run", "i", "--dry-run"])
     out, err = capsys.readouterr()
     assert rc == 0, err
     lines = [ln for ln in out.splitlines() if ln.startswith(("tdd ", "sleep "))]
-    first = lines[: lines.index("tdd domain delete-model --domain i_world") + 2]
+    first = lines[: lines.index(f"tdd domain delete-model --domain {XP_ID}_world") + 2]
     # a live call runs as written: nothing is filled in from the domains stage
-    assert first[0] == "tdd domain create-data --domain i_world"
+    assert first[0] == f"tdd domain create-data --domain {XP_ID}_world"
     assert first[1:4] == [
         "sleep 1",
-        "tdd domain modify-data --domain i_world --entity city --ops Insert",
-        "tdd domain modify-data --domain i_fs",
+        f"tdd domain modify-data --domain {XP_ID}_world --entity city --ops Insert",
+        f"tdd domain modify-data --domain {XP_ID}_fs",
     ]
     assert first[4] == "sleep 1"  # the inner loop's next pass
     assert first[-3:] == [
-        "tdd domain delete-data --domain i_world",
-        "tdd domain delete-model --domain i_world",
-        "tdd domain create-model --domain i_world --force --model world",
+        f"tdd domain delete-data --domain {XP_ID}_world",
+        f"tdd domain delete-model --domain {XP_ID}_world",
+        f"tdd domain create-model --domain {XP_ID}_world --force --model world",
     ]
     assert len([ln for ln in lines if ln.startswith("tdd ")]) == 3 * 24
     # each call is a step, labelled with the entries and passes it is under
@@ -1101,17 +1177,17 @@ def test_dry_run_marks_what_goes_to_the_background_and_what_waits(xp_root, capsy
     )
     _instance(xp_root)
     capsys.readouterr()
-    rc = _run(["live-domains", "--instance", "i", "--dry-run"])
+    rc = _run(["live-domains", "--suite-run", "i", "--dry-run"])
     out, err = capsys.readouterr()
     assert rc == 0, err
     assert out.splitlines()[:7] == [
-        "tdd domain create-data --domain i_world",
+        f"tdd domain create-data --domain {XP_ID}_world",
         "# churn: starts in the background",
-        "tdd domain modify-data --domain i_world",
-        "tdd domain modify-data --domain i_world",
+        f"tdd domain modify-data --domain {XP_ID}_world",
+        f"tdd domain modify-data --domain {XP_ID}_world",
         "# churn: ends",
         "# settle: wait for churn",
-        "tdd domain delete-data --domain i_world",
+        f"tdd domain delete-data --domain {XP_ID}_world",
     ]
 
 
@@ -1253,11 +1329,11 @@ def test_one_shot_runs_the_live_script_after_the_triggers_unless_told_not_to(
         return [ln for ln in out.splitlines() if ln.startswith("tdd ")]
 
     ran = lines()
-    live_at = ran.index("tdd domain modify-data --domain p_world")
+    live_at = ran.index(f"tdd domain modify-data --domain {XP_ID}_world")
     monitors = [i for i, ln in enumerate(ran) if ln.startswith("tdd tdk trx list")]
     # watched once for the triggers, then again for what the changes started
     assert monitors[0] < live_at < monitors[1]
-    assert "tdd domain modify-data --domain p_world" not in lines("--no-live")
+    assert f"tdd domain modify-data --domain {XP_ID}_world" not in lines("--no-live")
 
 
 STAGED = [
@@ -1318,7 +1394,7 @@ def test_a_suite_is_an_ordered_list_of_stages(xp_root):
         "monitor",
     ]
     # every entry of a kind, across its stages, for the phase verbs
-    assert [d.name for d in inst.domains] == ["world", "fs"]
+    assert [d.name for d in inst.domains] == [f"{PH}_world", f"{PH}_fs"]
     assert inst.functions[0].enabled is False
 
 
@@ -1356,12 +1432,17 @@ def test_the_older_single_object_is_refused_naming_the_list_it_ran(xp_root, caps
             [
                 {
                     "collections": [
-                        {"name": "c", "type": "t", "group": "g", "domains": {"D0": "d"}}
+                        {
+                            "name": "c",
+                            "type": "t",
+                            "group": "g",
+                            "domains": {"D0": N("d")},
+                        }
                     ]
                 },
                 {"domains": calls("d", "fs")},
             ],
-            "collection 'c' names domain 'd', created by a later stage",
+            f"collection 'c' names domain '{PH}_d', created by a later stage",
         ),
         (
             [
@@ -1379,7 +1460,7 @@ def test_the_older_single_object_is_refused_naming_the_list_it_ran(xp_root, caps
                 {"live": [{"name": "x", "domain": _dom("d", "delete-data")}]},
                 {"domains": calls("d", "fs")},
             ],
-            "live entry 'x' names domain 'd', created by a later stage",
+            f"live entry 'x' names domain '{PH}_d', created by a later stage",
         ),
     ],
 )
@@ -1399,13 +1480,13 @@ def test_run_suite_runs_the_stages_in_the_order_listed(xp_root, capsys):
             "--suite",
             "staged/one",
             *_suites_dir(xp_root),
-            "--instance",
+            "--suite-run",
             "i",
         ]
     )
     assert rc == 0
     capsys.readouterr()
-    rc = _run(["run-suite", "--instance", "i", "--project", "p", "--dry-run"])
+    rc = _run(["run-suite", "--suite-run", "i", "--project", "p", "--dry-run"])
     out, err = capsys.readouterr()
     assert rc == 0, err
     lines = [ln for ln in out.splitlines() if ln.startswith("tdd ")]
@@ -1414,9 +1495,9 @@ def test_run_suite_runs_the_stages_in_the_order_listed(xp_root, capsys):
         return next(i for i, ln in enumerate(lines) if ln.startswith(prefix))
 
     order = [
-        at("tdd domain create --domain i_world --sys fs"),  # stage 1: world
+        at(f"tdd domain create --domain {XP_ID}_world --sys fs"),  # stage 1: world
         at(
-            "tdd domain modify-data --domain i_world --ops Insert"
+            f"tdd domain modify-data --domain {XP_ID}_world --ops Insert"
         ),  # live, before the project
         at("tdd tdk project create --name p"),  # the first project stage creates it
         at("tdd tdk collection create --proj p --name src"),
@@ -1426,7 +1507,7 @@ def test_run_suite_runs_the_stages_in_the_order_listed(xp_root, capsys):
     ]
     assert order == sorted(order)
     # the second domains stage runs where it stands, between them
-    assert order[4] < at("tdd domain create --domain i_fs --sys fs") < order[5]
+    assert order[4] < at(f"tdd domain create --domain {XP_ID}_fs --sys fs") < order[5]
     # "enabled": false registers it disabled
     assert lines[order[4]].endswith(" --disabled")
 
@@ -1444,14 +1525,14 @@ def test_every_step_of_a_suite_counts_out_of_the_whole_suite(xp_root, capsys):
                 "--suite",
                 "staged/one",
                 *_suites_dir(xp_root),
-                "--instance",
+                "--suite-run",
                 "i",
             ]
         )
         == 0
     )
     capsys.readouterr()
-    assert _run(["run-suite", "--instance", "i", "--project", "p", "--dry-run"]) == 0
+    assert _run(["run-suite", "--suite-run", "i", "--project", "p", "--dry-run"]) == 0
     _, err = capsys.readouterr()
     counts = [
         (int(n), int(m))
@@ -1469,7 +1550,7 @@ def test_the_note_column_is_as_wide_as_the_longest_note_a_suite_knows(xp_root, c
     _live_suite(xp_root)
     _instance(xp_root)
     capsys.readouterr()
-    assert _run(["run-suite", "--instance", "i", "--project", "p", "--dry-run"]) == 0
+    assert _run(["run-suite", "--suite-run", "i", "--project", "p", "--dry-run"]) == 0
     _, err = capsys.readouterr()
     notes = [
         line.split(" - ")[5]
@@ -1846,13 +1927,13 @@ def test_run_suite_dry_run_shows_the_sentinel_after_the_stages_before_it(
             "--suite",
             "staged/one",
             *_suites_dir(xp_root),
-            "--instance",
+            "--suite-run",
             "i",
         ]
     )
     assert rc == 0
     capsys.readouterr()
-    rc = _run(["run-suite", "--instance", "i", "--project", "p", "--dry-run"])
+    rc = _run(["run-suite", "--suite-run", "i", "--project", "p", "--dry-run"])
     out, err = capsys.readouterr()
     assert rc == 0, err
     lines = out.splitlines()
@@ -1910,10 +1991,12 @@ def test_a_domain_call_expands_its_tokens_and_a_create_gets_its_backend_name(
     ]
     inst = build_instance("i", _staged_suite(xp_root, doc))
     create, model, data = inst.stages[0].domains
-    assert [d.name for d in inst.domains] == ["d"] and inst.domains[0].system == "fs"
+    assert [d.name for d in inst.domains] == [f"{PH}_d"] and inst.domains[
+        0
+    ].system == "fs"
     argv = domains.call_argv(inst, create)
-    assert argv[-6:-2] == ["--domain", "i_d", "--sys", "fs"]
-    assert argv[-2] == "--name-in-system" and argv[-1].endswith("_d")
+    assert argv[-6:-2] == ["--domain", f"{PH}_d", "--sys", "fs"]
+    assert argv[-2:] == ["--name-in-system", "use00_000000_d"]
     assert domains.call_argv(inst, data)[-2:] == [
         "--emit-ops",
         f"{work.work_dir()}/ops.jsonl",
@@ -1942,7 +2025,10 @@ def test_a_domain_call_expands_its_tokens_and_a_create_gets_its_backend_name(
             ],
             "create-data on 'd' before any create of it",
         ),
-        ([{"domains": calls("d", "fs") + calls("d", "fs")}], "'d' is created twice"),
+        (
+            [{"domains": calls("d", "fs") + calls("d", "fs")}],
+            f"'{PH}_d' is created twice",
+        ),
         (
             [
                 {
@@ -2044,7 +2130,8 @@ def test_an_execute_script_gets_its_params_env_and_path(xp_root, launcher):
         xp_root,
         "import json, os, sys\n"
         f"json.dump({{'argv': sys.argv[1:], 'cwd': os.getcwd(), "
-        "'env': {k: os.environ[k] for k in ('XP_WORK_DIR', 'XP_PROJECT', 'XP_INSTANCE')}, "
+        "'env': {k: os.environ[k] for k in ('XP_WORK_DIR', 'XP_PROJECT', 'XP_ID', "
+        "'XP_SHORT_ID', 'XP_SUITE_RUN')}, "
         "'venv': os.environ.get('_TDD_XP_EXECUTE_VENV'), "
         f"'path0': os.environ['PATH'].split(os.pathsep)[0]}}, open({str(out)!r}, 'w'))\n",
     )
@@ -2067,7 +2154,9 @@ def test_an_execute_script_gets_its_params_env_and_path(xp_root, launcher):
     assert seen["env"] == {
         "XP_WORK_DIR": str(work.work_dir()),
         "XP_PROJECT": "proj",
-        "XP_INSTANCE": "i",
+        "XP_ID": PH,
+        "XP_SHORT_ID": "use00_000000",
+        "XP_SUITE_RUN": "i",
     }
     assert seen["path0"] == "/fake/tdd/bin" and seen["venv"] is None
 
@@ -2255,23 +2344,28 @@ def _dm(*domains, emit_ops=None):
     return {"domain-manifest": body}
 
 
-PG = {"name": "pg", "system": "postgres", "model": "world", "data": "s"}
-FS = {"name": "fs", "system": "fs"}
+PG = {"name": N("pg"), "system": "postgres", "model": "world", "data": "s"}
+FS = {"name": N("fs"), "system": "fs"}
 
 
 def test_a_domain_manifest_stage_reads_its_domains_and_emit_settings(xp_root):
     from tabsdata_dev.tool.xp.models import build_instance
 
     doc = [
-        _dm(PG, FS, {**PG, "name": "quiet", "emit": False}, emit_ops="${XP_WORK_DIR}/o")
+        _dm(
+            PG,
+            FS,
+            {**PG, "name": N("quiet"), "emit": False},
+            emit_ops="${XP_WORK_DIR}/o",
+        )
     ]
     inst = build_instance("i", _staged_suite(xp_root, doc))
     [stage] = inst.stages
     assert stage.kind == "domain-manifest"
     assert [(d.name, d.system) for d in inst.domains] == [
-        ("pg", "postgres"),
-        ("fs", "fs"),
-        ("quiet", "postgres"),
+        (f"{PH}_pg", "postgres"),
+        (f"{PH}_fs", "fs"),
+        (f"{PH}_quiet", "postgres"),
     ]
     dm = stage.domain_manifest
     assert dm.emit_ops == "${XP_WORK_DIR}/o" and [d.emit for d in dm.domains] == [
@@ -2290,7 +2384,7 @@ def test_a_domain_manifest_stage_reads_its_domains_and_emit_settings(xp_root):
         ([_dm({"name": "x", "system": "fs", "data": "xs"})], "data needs a model"),
         ([_dm(PG, emit_ops="${XP_WORKDIR}/o")], r"\$\{XP_WORKDIR\} is not a token"),
         ([_dm({**PG, "name_in_system": "pinned"})], "Extra inputs"),
-        ([_dm(PG), {"domains": calls("pg", "fs")}], "'pg' is created twice"),
+        ([_dm(PG), {"domains": calls("pg", "fs")}], f"'{PH}_pg' is created twice"),
         ([{"domain-manifest": {"domains": []}}], "names no domains"),
     ],
 )
@@ -2331,8 +2425,8 @@ def test_a_domain_manifest_seeds_to_files_of_their_own_then_joins_them_in_order(
         _dm(
             PG,
             FS,
-            {**PG, "name": "quiet", "emit": False},
-            {**PG, "name": "pg2"},
+            {**PG, "name": N("quiet"), "emit": False},
+            {**PG, "name": N("pg2")},
             emit_ops="${XP_WORK_DIR}/ops.jsonl",
         )
     ]
@@ -2340,12 +2434,12 @@ def test_a_domain_manifest_seeds_to_files_of_their_own_then_joins_them_in_order(
     final = work.work_dir() / "ops.jsonl"
     final.write_text("earlier\n")
     domains.create_from_manifest(inst, inst.stages[0].domain_manifest, 1)
-    by = {e["name"]: e for e in seen["entries"]}
-    assert set(by) == {"i_pg", "i_fs", "i_quiet", "i_pg2"}
-    assert "emit-ops" not in by["i_fs"] and "emit-ops" not in by["i_quiet"]
-    assert by["i_pg"]["emit-ops"] != by["i_pg2"]["emit-ops"]  # one file each
-    assert by["i_pg"]["size"] == 10 and by["i_pg"]["name-in-system"].endswith("_pg")
-    assert final.read_text() == "earlier\ni_pg\ni_pg2\n"
+    by = {e["name"][len(PH) + 1 :]: e for e in seen["entries"]}
+    assert set(by) == {"pg", "fs", "quiet", "pg2"}
+    assert "emit-ops" not in by["fs"] and "emit-ops" not in by["quiet"]
+    assert by["pg"]["emit-ops"] != by["pg2"]["emit-ops"]  # one file each
+    assert by["pg"]["size"] == 10 and by["pg"]["name-in-system"] == "use00_000000_pg"
+    assert final.read_text() == f"earlier\n{PH}_pg\n{PH}_pg2\n"
 
 
 def test_a_domain_manifest_without_emit_ops_captures_nothing(xp_root, monkeypatch):
@@ -2367,7 +2461,7 @@ def test_a_domain_manifest_without_emit_ops_captures_nothing(xp_root, monkeypatc
     )
     inst = build_instance("i", _staged_suite(xp_root, [_dm(PG)]))
     domains.create_from_manifest(inst, inst.stages[0].domain_manifest, 1)
-    assert [e["name"] for e in seen] == ["i_pg"] and "emit-ops" not in seen[0]
+    assert [e["name"] for e in seen] == [f"{PH}_pg"] and "emit-ops" not in seen[0]
 
 
 def test_list_suites_counts_domains_of_both_stage_kinds():
@@ -2383,3 +2477,90 @@ def test_list_suites_counts_domains_of_both_stage_kinds():
     ]
     assert suites._count(doc, "domains") == 3
     assert suites._count(doc, "collections") == 1
+
+
+def test_a_suite_run_is_named_by_its_xp_id_and_reused_when_named_again(xp_root, capsys):
+    from tabsdata_dev.tool.xp import pointers
+
+    assert _run(["create-instance", "--suite", "demo/one", *_suites_dir(xp_root)]) == 0
+    assert pointers.ids_of(XP_ID) == (XP_ID, XP_SHORT)
+    # named again: the same run, its IDs kept -- how a failed run is finished
+    args = ["create-instance", "--suite", "demo/one", *_suites_dir(xp_root)]
+    assert _run([*args, "--suite-run", XP_ID]) == 0
+    assert pointers.ids_of(XP_ID) == (XP_ID, XP_SHORT)
+    assert "reusing it, and its XP_ID" in capsys.readouterr().err
+    # ...but never repointed at another suite
+    rc = _run(
+        [
+            "create-instance",
+            "--suite",
+            "demo/two",
+            *_suites_dir(xp_root),
+            "--suite-run",
+            XP_ID,
+        ]
+    )
+    assert rc == 1 and f"suite run '{XP_ID}' exists for" in capsys.readouterr().err
+
+
+def test_a_suite_dirs_lanes_are_suite_runs_with_ids_of_their_own(xp_root):
+    from tabsdata_dev.tool.xp import pointers
+
+    assert (
+        _run(
+            [
+                "create-instance",
+                "--suite",
+                "demo",
+                *_suites_dir(xp_root),
+                "--suite-run",
+                "g",
+            ]
+        )
+        == 0
+    )
+    assert pointers.instance_group("g") == ["g_one", "g_two"]
+    assert pointers.ids_of("g")[0] == XP_ID
+    assert pointers.ids_of("g_one")[0] == "xp_tucu_0_20261001T093013"
+    assert pointers.ids_of("g_two")[0] == "xp_tucu_0_20261001T093014"
+    one = pointers.load_instance("g_one")
+    assert one.domains[0].name == "xp_tucu_0_20261001T093013_fs"
+
+
+def test_the_project_is_the_runs_xp_id_and_suite_unless_named(xp_root, capsys):
+    rc = _run(["one-shot", "--suite", "demo/one", *_suites_dir(xp_root), "--dry-run"])
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    assert f"tdd tdk project create --name {XP_ID}_demo_one" in out
+    assert f"xp id {XP_ID}, short id {XP_SHORT}" in err
+
+
+def test_a_project_that_is_not_the_runs_is_refused_unless_forced(xp_root, monkeypatch):
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import pointers, project, shell, state
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    monkeypatch.setattr(shell, "project_exists", lambda p: True)
+    deleted = []
+    monkeypatch.setattr(project, "delete_project", lambda p, force: deleted.append(p))
+    with pytest.raises(state.XpError, match="exists and is not suite run 'r''s"):
+        project.claim_project("p", "r", force=False)
+    # this run's own: continued, as a rerun after a failure is
+    pointers.write_project("p", "r")
+    project.claim_project("p", "r", force=False)
+    assert deleted == []
+    # someone else's, forced: deleted, so it is made again from nothing
+    project.claim_project("p", "other", force=True)
+    assert deleted == ["p"]
+
+
+def test_run_suite_leaves_the_suite_as_it_resolved_it(xp_root, capsys):
+    from tabsdata_dev.tool.xp import state
+
+    assert _run(["create-instance", "--suite", "demo/one", *_suites_dir(xp_root)]) == 0
+    assert _run(["run-suite", "--suite-run", XP_ID, "--dry-run"]) == 0
+    capsys.readouterr()
+    resolved = pathlib.Path(state.run.summary["scratch"]) / "suite.resolved.json"
+    doc = json.loads(resolved.read_text())
+    assert doc[0]["domains"][0]["name"] == f"{XP_ID}_fs"
+    assert doc[1]["collections"][0]["domains"] == {"D0": f"{XP_ID}_world"}

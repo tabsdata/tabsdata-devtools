@@ -252,11 +252,10 @@ def collection_descriptor(inst, c) -> dict:
     """Every backing domain's (prefixed) descriptor merged into one values dict."""
     merged: dict = {}
     for prefix, dname in c.domains.items():
-        full = inst.domain_full(dname)
-        info = domain_descriptor(full, prefix)
+        info = domain_descriptor(dname, prefix)
         if info is None:
             state.die(
-                f"domain {full} not found -- run `create-domains --instance {inst.name}`"
+                f"domain {dname} not found -- run `create-domains --suite-run {inst.name}`"
             )
         merged.update(info)
     return merged

@@ -3474,11 +3474,23 @@ def as_stages(doc: dict) -> list:
     gathered; the order is what the stages are."""
     notes = {k: v for k, v in doc.items() if k.startswith("_")}
     stages = [notes] if notes else []
+    # A suite's domains are its run's own: ${xp_name(x)} is <XP_ID>_x once read.
+    own = "${xp_name(%s)}".__mod__
     if doc.get("domains"):
-        stages.append({"domain-manifest": {"domains": doc["domains"]}})
+        domains = [{**d, "name": own(d["name"])} for d in doc["domains"]]
+        stages.append({"domain-manifest": {"domains": domains}})
     for kind in ("collections", "functions", "triggers"):
-        if doc.get(kind):
-            stages.append({kind: doc[kind]})
+        if not doc.get(kind):
+            continue
+        entries = doc[kind]
+        if kind == "collections":
+            entries = [
+                {**c, "domains": {k: own(v) for k, v in c["domains"].items()}}
+                if c.get("domains")
+                else c
+                for c in entries
+            ]
+        stages.append({kind: entries})
     stages.append({"monitor": True})
     return stages
 

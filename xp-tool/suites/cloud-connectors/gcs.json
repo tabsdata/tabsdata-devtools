@@ -6,15 +6,15 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev"
         },
         {
-          "name": "gcs",
+          "name": "${xp_name(gcs)}",
           "system": "gcs"
         },
         {
-          "name": "gcs_world_xs",
+          "name": "${xp_name(gcs_world_xs)}",
           "system": "gcs",
           "model": "world",
           "data": "xs"
@@ -30,7 +30,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -39,7 +39,7 @@
         "connection_template": "connection-file:connections/gcs_file_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "gcs"
+          "D0": "${xp_name(gcs)}"
         }
       },
       {
@@ -48,7 +48,7 @@
         "connection_template": "connection-file:connections/gcs_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "gcs"
+          "D0": "${xp_name(gcs)}"
         }
       },
       {
@@ -57,7 +57,7 @@
         "connection_template": "connection-file:connections/gcs_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "gcs_world_xs"
+          "D0": "${xp_name(gcs_world_xs)}"
         }
       },
       {
