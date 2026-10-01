@@ -544,7 +544,7 @@ def fire_triggers(inst, project: str, triggers: list) -> None:
 
     def _trigger(t):
         with rep().step("trigger-fn", f"{project}/{t.collection}/{t.function}") as step:
-            plan = plan_name(ts, inst.name, project, t.function)
+            plan = plan_name(ts, project, t.function)
             cmd = [
                 "fn",
                 "trigger",
@@ -918,14 +918,16 @@ def trigger_batches(triggers: list) -> list[list]:
 PLAN_NAME_MAX = 100
 
 
-def plan_name(ts: str, instance: str, project: str, function: str) -> str:
-    """The `--plan-name` for one trigger: when it ran, what ran, and enough of
-    where to tell two runs apart -- inside tabsdata's 100 characters.
+def plan_name(ts: str, project: str, function: str) -> str:
+    """The `--plan-name` for one trigger: when it ran, what ran, and where --
+    inside tabsdata's 100 characters.
 
-    xp names a project `<instance>_<lane>`, so naming both spends the instance
-    twice; a smoke run, whose names carry a timestamp of their own, went two
-    characters over the limit that way. The instance is therefore named only
-    when the project does not already start with it.
+    Where is the project alone: it carries the run's XP_ID (or is the name
+    `--project` gave, and then the timestamp still tells two runs apart). The
+    suite run's name beside it says the same thing again -- a lane's project is
+    `<XP_ID>_<dir>_<lane>`, its suite run `<XP_ID>_<lane>` -- and pushed every
+    plan of a suite dir past the limit; a smoke run went two characters over
+    that way before the IDs.
 
     That alone is no guarantee -- a long `--project` or function name can still
     overflow -- so the result is capped. What identifies a plan to a person sits
@@ -933,7 +935,7 @@ def plan_name(ts: str, instance: str, project: str, function: str) -> str:
     gives way, and a digest of the full name takes its place: two plans
     truncated to the same prefix must not come out with the same name.
     """
-    where = project if project.startswith(instance) else f"{instance}_{project}"
+    where = project
     name = f"{ts}_{where}_{function}"
     if len(name) <= PLAN_NAME_MAX:
         return name

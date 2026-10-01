@@ -73,7 +73,7 @@ def suite_notes(inst, project_name: str, sel: actions.Selection) -> list[str]:
     notes: list[str] = []
     for s in inst.stages:
         notes += [
-            f"plan={project.plan_name(ts, inst.name, project_name, t.function)}"
+            f"plan={project.plan_name(ts, project_name, t.function)}"
             + ("" if t.detached else ", gated")
             for t in s.triggers
         ]

@@ -691,32 +691,20 @@ def test_list_systems_reports_each_required_system_and_fails_on_a_missing_one(
 
 def test_a_plan_name_fits_tabsdatas_hundred_characters():
     """tabsdata's ExecutionName is max_len 100 and the trigger is refused
-    outright above it. xp names a project `<instance>_<lane>`, so putting both
-    in spent the instance twice -- which is what took a real EKS smoke run two
-    characters over and failed the only xp stage of an otherwise green run."""
+    outright above it. A plan is named by its project, which carries the run's
+    XP_ID: a suite dir's lane named its suite run beside it as well, saying the
+    run twice and going over."""
     from tabsdata_dev.tool.xp.project import PLAN_NAME_MAX, plan_name
 
-    ts = "20260908_204308"
-    # a one-shot lane: `pointers.load_instance(load_project(...))` gives the
-    # lane's own instance, which carries the project's name exactly
-    project = "sm_t210a__xp_20260908T204250_test_test"
-    instance = project
-
-    # the run that failed, at 102 characters the old way
-    assert len(f"{ts}_{instance}_{project}_test_pub") > PLAN_NAME_MAX
-    name = plan_name(ts, instance, project, "test_pub")
-    assert len(name) <= PLAN_NAME_MAX
-    assert name == f"{ts}_{project}_test_pub"  # the instance is not repeated
-    assert len(name) == 63 and project in name and "test_pub" in name
-
-    # an instance that is not a prefix of the project is still named
-    other = plan_name(ts, "inst", "proj", "fn")
-    assert other == f"{ts}_inst_proj_fn"
+    ts = "20261001_124926"
+    project = f"{XP_ID}_medallion_xsuite"
+    name = plan_name(ts, project, "pub_period_snapshot")
+    assert name == f"{ts}_{project}_pub_period_snapshot" and len(name) <= PLAN_NAME_MAX
 
     # and a name that overflows anyway keeps the ends and stays unique
-    long_project = f"{instance}_" + "x" * 200
-    a = plan_name(ts, instance, long_project, "fn_one")
-    b = plan_name(ts, instance, long_project + "y", "fn_one")
+    long_project = f"{project}_" + "x" * 200
+    a = plan_name(ts, long_project, "fn_one")
+    b = plan_name(ts, long_project + "y", "fn_one")
     assert len(a) <= PLAN_NAME_MAX and len(b) <= PLAN_NAME_MAX
     assert a.startswith(ts) and a.endswith("fn_one")
     assert a != b, "two truncated plans must not collide"
@@ -2784,3 +2772,24 @@ def test_an_older_tokens_spelling_is_refused_naming_the_one_it_is_now(old, new):
         ids.resolve([old], XP_ID, XP_SHORT)
     with pytest.raises(ValueError, match=re.escape("a token is ${xp:...} now")):
         ids.resolve(["${XP_NOPE}"], XP_ID, XP_SHORT)
+
+
+def test_a_runs_summary_counts_every_phases_lane_steps_and_its_lanes_once(tmp_path):
+    """A one-shot over a suite dir dispatches its lanes in phases -- run-suite,
+    destroy-project, destroy-domains -- each naming a lane its own way (a
+    project's name, a suite run's). Each phase's steps count; the lanes are
+    the suite dir's."""
+    from tabsdata_dev.tool.xp.reporter import Reporter, render_summary
+
+    r = Reporter("demo", "one-shot", "x", tmp_path)
+    for lane in ("p_one", "p_two"):
+        r.absorb_lane("run-suite", lane, {"steps": 10, "failed": 0})
+        r.absorb_lane("destroy-project", lane, {"steps": 3, "failed": 0})
+    for lane in ("r_one", "r_two"):
+        r.absorb_lane("destroy-domains", lane, {"steps": 2, "failed": 1})
+    doc = r.summary()
+    assert (doc["lanes_total"], doc["lane_steps"], doc["lane_failed"]) == (2, 30, 2)
+    assert (
+        " - summary - 30 step(s) over 2 lane(s), 28 ok, 2 failed in "
+        in render_summary(doc)
+    )
