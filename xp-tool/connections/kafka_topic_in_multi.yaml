@@ -4,7 +4,7 @@
 
 # Connection template for: kafka-topic-in (stream-src) — consumer group '<prefix>_multi'
 # For a publisher subscribed to SEVERAL topics by a regex topic ('^<prefix>\.(a|b|c)$',
-# see suites/container-connectors/functions/caps_kafka_topics.py). Like the other kafka
+# see suites/kafka/functions/caps_kafka_topics.py). Like the other kafka
 # templates it differs from kafka_topic_in.yaml in group_id -- each concurrently-registered
 # kafka collection needs a group of its own -- and it asks for a short metadata refresh:
 # a regex subscription matches the topics the consumer's metadata lists, refreshed every

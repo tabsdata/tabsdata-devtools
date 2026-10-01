@@ -56,7 +56,7 @@ options:
                       <type>/<name> for one definition, <type> for every
                       definition in that dir -- see `tdd xp list-suites`
                       (default: test,tableframe_api,dataquality,grok,
-                      container-connectors,cdc,cloud-connectors)
+                      container-connectors,cdc,kafka,cloud-connectors)
   --llm-domain SYSTEM
                       create a domain on that system (sm_NAME__<system>; the system
                       must be in the tdd store), read its API key and hand it to
@@ -102,7 +102,7 @@ PORT="10000"             # --port: the instance's base port. One per script
                          # (km 10000, eks 11000, aks 12000, gke 13000): the ports a run holds on
                          # this machine are the one thing two runs can collide on.
 UV_INDEX_URI=""
-SUITES="test,tableframe_api,dataquality,grok,container-connectors,cdc,cloud-connectors"
+SUITES="test,tableframe_api,dataquality,grok,container-connectors,cdc,kafka,cloud-connectors"
 FORCE=""                 # 1 with --force; empty otherwise
 KEEP=""                  # 1 with --keep; empty otherwise (so ${KEEP:+--keep} works)
 LOG=""

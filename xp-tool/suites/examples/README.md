@@ -28,7 +28,7 @@ are optimised for reading.
 
 ```bash
 tdx-xp oneshot --suite examples/postgres_src_incremental --keep   # one concern
-tdx-xp oneshot --suite examples                                   # all 58 lanes
+tdx-xp oneshot --suite examples                                   # all 56 lanes
 python suites/examples/validate.py                                # offline check
 python suites/examples/gen_examples.py                            # regenerate
 ```
@@ -53,7 +53,7 @@ files.
 
 ## Generated vs hand-written
 
-Forty-nine of the 58 suites are **generated** by `gen_examples.py` from a
+Forty-nine of the 56 suites are **generated** by `gen_examples.py` from a
 per-connector table plus one description of each concern. That is what keeps
 full coverage honest: when the shared explanation is wrong it is wrong in one
 place, and when a connector genuinely differs — `FETCH FIRST` vs `LIMIT`,
@@ -61,10 +61,13 @@ uppercase identifiers, a warehouse that cannot create its target — the differe
 is a field in a table rather than a paragraph someone forgot to update in eleven
 files. Edit the generator, re-run it, and every affected suite moves together.
 
-Nine are **hand-written**, because they have nothing to be repetitive with, and
-the generator never touches them: `kafka_src`, `kafka_registry`,
-`salesforce_soql`, `salesforce_report`, `grok_logs`, `dataquality_checks`,
-`tableframe_ops`, `triggers_scheduling`, `source_metadata`.
+Seven are **hand-written**, because they have nothing to be repetitive with, and
+the generator never touches them: `salesforce_soql`, `salesforce_report`,
+`grok_logs`, `dataquality_checks`, `tableframe_ops`, `triggers_scheduling`,
+`source_metadata`. The two Kafka examples, `kafka_src` (payload formats, the
+buffer and trigger keys, dead-letter topics) and `kafka_registry` (a Confluent
+schema registry and its wire format), live with the other Kafka suites in
+`suites/kafka/`.
 
 ## The index
 
@@ -97,8 +100,6 @@ the generator never touches them: `kafka_src`, `kafka_registry`,
 | `postgrescdc_stream` | slots, `start_from`, `columns_format` × `flatten_columns`, buffer/trigger thresholds |
 | `mysqlcdc_stream` | the same, on `server_id` instead of a slot, with a `head` that really replays |
 | `db2cdc_stream` | the same, on ASN CD tables — `tables` names the shadow tables, not the source ones. **Needs no other db2cdc domain standing** (see below) |
-| `kafka_src` | json / avro / protobuf payloads, the buffer and trigger keys, dead-letter topics |
-| `kafka_registry` | a Confluent schema registry, the Confluent wire format, and why a plain message fails on such a topic |
 
 ### Destinations
 

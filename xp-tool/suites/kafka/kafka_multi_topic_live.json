@@ -1,7 +1,7 @@
 [
   {
     "_copyright": "Copyright 2026 Tabsdata Inc.",
-    "_comment": "CAPABILITY suite: ONE Kafka stream publisher consuming THREE topics, TWO of them written and ONE never. Functions in functions/caps_kafka_topics.py::kafka_two_of_three: its topic is the regex ^<prefix>\\.(departments|employees|titles)$, every frame routed to its topic's table by its columns (kafka_departments, kafka_employees, kafka_titles), anything else to kafka_unrouted. The silent topic EXISTS -- a redpanda domain's create-model creates every entity's topic -- so the subscription holds it from the start and it simply carries nothing. STAGES: (1) domains -- a redpanda domain with the employees model and no seed (create-data would write every topic); (2) actions, tagged live -- `produce` in the background: 6 passes 15s apart of `modify-data --entity departments,employees`, each appended to ${xp:dir}/ops.jsonl, running while (3) the collection is created and (4) the publisher registered, which STARTS it; (5) actions -- wait for produce, then scripts/verify_kafka.py, tagged check: every message of departments and employees in its table exactly once (polling, at most 5m), and kafka_titles and kafka_unrouted without a row; (6) monitor. Run: `tdd xp one-shot --suite container-connectors/kafka_multi_topic_silent --keep`."
+    "_comment": "CAPABILITY suite: ONE Kafka stream publisher consuming THREE topics while FOUR are written, the messages produced as tabsdata consumes them. Functions in functions/caps_kafka_topics.py::kafka_three_of_four: its topic is a regex, ^<prefix>\\.(departments|employees|dept_emp)$, which librdkafka subscribes to as a pattern; every frame lands in the one slot and is routed to its topic's table by the columns it has (kafka_departments, kafka_employees, kafka_dept_emp), anything else to kafka_unrouted. STAGES: (1) domains -- a redpanda domain with the employees model, create-model --up-to-partitions 4 creating every topic up front (departments 1 partition, employees 2, dept_emp 3, salaries 2), then the xs seed to departments, employees, dept_emp and salaries alone (--entity), its messages appended to ${xp:dir}/ops.jsonl; (2) actions, tagged live -- `produce` in the background: 8 passes 15s apart of `modify-data --entity departments,employees,dept_emp,salaries`, a fresh batch to each of the four topics, still running while (3) the collection is created and (4) the publisher registered, which STARTS it (no trigger; it reads from the earliest offset, so the seed and every pass arrive); salaries is written and not subscribed to; (5) actions -- wait for produce, then scripts/verify_kafka.py, tagged check: every message of the three topics in its table exactly once, nothing in kafka_unrouted -- a salaries message routed anywhere would be there -- polling until they arrived (at most 5m); (6) monitor. Run: `tdd xp one-shot --suite kafka/kafka_multi_topic_live --keep`."
   },
   {
     "domains": [
@@ -13,7 +13,19 @@
       {
         "name": "${xp:name(redpanda)}",
         "command": "create-model",
-        "options": ["--model", "employees"]
+        "options": ["--model", "employees", "--up-to-partitions", "4"]
+      },
+      {
+        "name": "${xp:name(redpanda)}",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1",
+          "--entity",
+          "departments,employees,dept_emp,salaries",
+          "--emit-ops",
+          "${xp:dir}/ops.jsonl"
+        ]
       }
     ]
   },
@@ -27,7 +39,7 @@
             {
               "loop": {
                 "name": "produce-pass",
-                "repeat": 6,
+                "repeat": 8,
                 "actions": [
                   {
                     "tdd": {
@@ -38,7 +50,7 @@
                         "--domain",
                         "${xp:name(redpanda)}",
                         "--entity",
-                        "departments,employees",
+                        "departments,employees,dept_emp,salaries",
                         "--emit-ops",
                         "${xp:dir}/ops.jsonl"
                       ]
@@ -75,7 +87,7 @@
     "functions": [
       {
         "collection": "kafka_topics",
-        "functionpath": "functions/caps_kafka_topics.py::kafka_two_of_three"
+        "functionpath": "functions/caps_kafka_topics.py::kafka_three_of_four"
       }
     ]
   },
@@ -100,8 +112,9 @@
             "kafka_departments=departments",
             "--expect",
             "kafka_employees=employees",
+            "--expect",
+            "kafka_dept_emp=dept_emp",
             "--empty",
-            "kafka_titles",
             "kafka_unrouted",
             "--time-out",
             "5m"

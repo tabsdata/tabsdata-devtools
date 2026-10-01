@@ -35,7 +35,11 @@ times the phases, `--dry-run` prints the commands.
   three times -- written by `cdc/gen_suites.py` for each of postgrescdc, mysqlcdc and db2cdc
   (a `Source` each: its publishers, its connections -- one MySQL server_id per collection that
   may run beside another -- what its log carries and how its head start is checked). Every one changes a table its
-  stream does not track (`employeescdc`'s `audit`). `performance` holds the CDC ingestion suites (`gen_suites.py`
+  stream does not track (`employeescdc`'s `audit`). `kafka` holds every Kafka stream
+  source suite over a redpanda domain -- the connector's variants, the two examples
+  (`kafka_src`, `kafka_registry`, hand-written, so the examples generator never knew them)
+  and the topic, partition and schema-change suites -- with their functions and
+  `verify_kafka.py`. `performance` holds the CDC ingestion suites (`gen_suites.py`
   writes them: per source an initial load and a changes run over a million rows loaded
   before the stream starts, so it reads a backlog). `scripts/cdc_throughput.py` measures
   the rows the stream writes to its files per second -- off the worker log's `Buffer flush`
@@ -250,8 +254,8 @@ comment). Kinds repeat, in any order the dependencies allow:
   run over `employeescdc`, a model made for them: a primary key every update changes, a
   composite one, a table with only a unique index and one with no key at all -- and `audit`,
   a plain-keyed table every data command changes and no suite's stream tracks.
-- **The Kafka suites and their check**, `container-connectors/kafka_*.json` over
-  `functions/caps_kafka_topics.py`, checked by `scripts/verify_kafka.py` (a python step tagged
+- **The Kafka suites and their check**, `kafka/kafka_*.json` over
+  `kafka/functions/caps_kafka_topics.py`, checked by `kafka/scripts/verify_kafka.py` (a python step tagged
   `check`). A `KafkaStreamSrc` reads one topic string, which librdkafka subscribes to as a regex
   when it starts with `^`: that is how one publisher reads several topics. Its frames share one
   slot and say the pattern, not the topic, so the function routes each frame to its topic's table

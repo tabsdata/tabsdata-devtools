@@ -31,7 +31,7 @@ WHAT IT EMITS, per suite
 
 WHAT IT DOES NOT EMIT
     The one-off suites, which are hand-written because they have nothing to be
-    repetitive with: ``kafka_*``, ``salesforce_*``, ``grok_logs``,
+    repetitive with: ``salesforce_*``, ``grok_logs``,
     ``dataquality_checks``, ``tableframe_ops``. This generator never touches
     their files.
 
@@ -55,8 +55,6 @@ COPYRIGHT = "#\n# Copyright 2026 Tabsdata Inc.\n#\n"
 
 # Suites that are hand-written; the generator leaves them alone.
 HANDWRITTEN = {
-    "kafka_src",
-    "kafka_registry",
     "salesforce_soql",
     "salesforce_report",
     "grok_logs",

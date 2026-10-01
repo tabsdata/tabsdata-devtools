@@ -6,7 +6,7 @@
 # One of three templates that differ ONLY in group_id: every registered stream publisher
 # joins its group_id's consumer group, and a redpanda domain's topics have ONE partition,
 # so two consumers sharing a group would leave one of them idle. Each concurrently-
-# registered kafka collection therefore needs its own group (see suites/connectors/kafka.json).
+# registered kafka collection therefore needs its own group (see suites/kafka/kafka.json).
 # Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
 # A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
 # '${D<n>__<KEY>}' reads the same bag but interpolates the value PLAIN and inline — for a name rather than a credential.
