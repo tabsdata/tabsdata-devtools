@@ -50,6 +50,28 @@ with per-system DDL. The tools `system`, `domain` and `domain-sf` are thin entry
 - Docker containers are named from one constant (`DOCKER_CONTAINER_PREFIX`, `tdd`), which is what
   `clean-docker` matches; `tdx2` survives only where it means the legacy descriptor format.
 
+## redpanda: topics, partitions and the shape of a message
+
+A redpanda domain is a topic prefix; its data plane produces one JSON message per row to
+`<prefix>.<entity>`, keyed by the row's first field so a row lands on the same partition run to
+run. Its own `create-model`, `create-data` and `modify-data` (`redpanda/domain/`, the rules in
+`redpanda/shape.py`, pure so a dry run plans what a real run does):
+
+- **`create-model` creates every entity's topic**, before anything is produced. A producer
+  creating a topic gets the broker's default partitions, and a regex subscription -- how one
+  stream publisher reads several topics -- sees only the topics that exist when it looks.
+  `--up-to-partitions N` gives the i-th entity `i mod N + 1` partitions, so topics side by side
+  differ; the counts are kept in the domain's meta (`PARTITIONS`), which a create-data reload
+  makes the topics again from.
+- **`--entity A,B`** on create-data and modify-data writes those topics alone, so a topic can
+  exist and stay silent.
+- **`--schema-changes [add,drop,retype|ALL]`** varies the messages row by row: row j as the
+  model made it when `j mod (k+1) == 0`, else the next of the k kinds -- an extra `xp_extra`
+  field, the last field left out, the first field another JSON type. The `--emit-ops` trail holds
+  each row as sent, so a check reads what the consumer was given. The shared create-data takes the
+  reshaping as a `prepare` function from the system's own module rather than a backend hook: a dry
+  run must not reach the system, and a test pins that it does not.
+
 ## The two backend bases
 
 All five postgres types hand a new domain's owner the `public` schema of its own database

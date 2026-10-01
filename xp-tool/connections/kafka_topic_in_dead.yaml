@@ -1,0 +1,32 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: kafka-topic-in (stream-src) — consumer group '<prefix>_dead'
+# For the publisher that reads a run's dead-letter topic back ('<prefix>.dead'), so a check
+# can account for every message another publisher refused. A group of its own, as every
+# concurrently-registered kafka collection needs (see kafka_topic_in.yaml).
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+# '${D<n>__<KEY>}' reads the same bag but interpolates the value PLAIN and inline — for a name rather than a credential.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.kafka:KafkaStreamSrcConn
+spec:
+
+  # accepts: <value> | secret:<value>
+  # the redpanda domain's broker list (meta KAFKA_BROKERS, e.g. localhost:19092)
+  #
+  servers: '$secret:D0__KAFKA_BROKERS'
+
+  # accepts: <value> | secret:<value>
+  # A per-collection group, prefixed by the domain so it is per-run as well.
+  #
+  group_id: '${D0__DB}_dead'
+
+  # The dead-letter topic is created by the first message refused, after this consumer
+  # subscribed: re-read the topic list every 10s rather than the default 5 minutes.
+  conn_cfg:
+    topic.metadata.refresh.interval.ms: 10000
+  # credentials  (optional, default: none) -- OMITTED: the redpanda domain runs without SASL
+  # schema_registry  (optional, default: none) -- left off, as in kafka_topic_in.yaml

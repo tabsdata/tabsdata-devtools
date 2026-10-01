@@ -250,6 +250,19 @@ comment). Kinds repeat, in any order the dependencies allow:
   run over `employeescdc`, a model made for them: a primary key every update changes, a
   composite one, a table with only a unique index and one with no key at all -- and `audit`,
   a plain-keyed table every data command changes and no suite's stream tracks.
+- **The Kafka suites and their check**, `container-connectors/kafka_*.json` over
+  `functions/caps_kafka_topics.py`, checked by `scripts/verify_kafka.py` (a python step tagged
+  `check`). A `KafkaStreamSrc` reads one topic string, which librdkafka subscribes to as a regex
+  when it starts with `^`: that is how one publisher reads several topics. Its frames share one
+  slot and say the pattern, not the topic, so the function routes each frame to its topic's table
+  by its columns, the rest to a `kafka_unrouted` the check expects empty. The suites build their
+  domain with a domains stage, for redpanda's `--up-to-partitions`/`--entity`/
+  `--schema-changes`, and produce in a background loop while the publishers start. The check
+  takes each table's messages from the trail, polls until every one has arrived exactly once --
+  in its table or as a dead letter -- and fails at `--time-out`: separate publishers carry no
+  ordering a sentinel could stand on. `T1+T2=E` is two publishers in one consumer group, where a
+  rebalance may hand a partition over before its offsets were committed; `--allow-duplicates`
+  counts those instead of failing on them.
 - **`"enabled": false`** on a function registers it with `tdk fn register --disabled`: a stream
   publisher does not start until `enable-function --project P --collection C --function F`
   (tdk's `fn enable`); `disable-function` stops one. A group project is refused -- its lanes'

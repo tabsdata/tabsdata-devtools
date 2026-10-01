@@ -11,6 +11,8 @@ sets the batch multiplier (as in create-data); successive runs advance the seed 
 models with random data vary (fixed reference models re-emit the same rows).
 ``--dry-run`` plans the batch without producing it and leaves the seed where it
 was; ``--emit-ops FILE`` appends the batch to FILE as CDC-style JSON lines.
+``--entity A,B`` pushes to those topics alone and ``--schema-changes`` varies
+the messages' shape, as create-data's do (``redpanda.shape``).
 """
 
 from __future__ import annotations
@@ -20,12 +22,16 @@ import random
 
 from tabsdata_dev.common.systems import cli, console, constants, datagen, descriptor
 from tabsdata_dev.common.systems.errors import TdxError
+from tabsdata_dev.common.systems.systems.redpanda import shape
+from tabsdata_dev.common.systems.systems.redpanda.domain import create_data
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     cli.add_domain(parser)
     cli.add_domain_dir(parser)
     cli.add_size(parser)
+    create_data.add_entity(parser)
+    create_data.add_schema_changes(parser)
     cli.add_data_dry_run(parser)
     cli.add_emit_ops(parser)
     cli.add_latch(parser)
@@ -44,6 +50,9 @@ def run(ctx: cli.Context) -> int:
     n = datagen.BASE_SIZE * a.size
     tables = datagen.load_model(info.model).build_initial(
         random.Random(datagen.INITIAL_SEED + seed), n
+    )
+    tables = shape.vary_tables(
+        shape.select_tables(tables, a.entity), shape.parse_kinds(a.schema_changes)
     )
     if a.dry_run:
         _emit(ctx, tables, seed, dry_run=True)

@@ -1,0 +1,149 @@
+[
+  {
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "CAPABILITY suite: a Kafka stream publisher over messages whose SHAPE VARIES, and the dead-letter topic that takes the ones its schema refuses. The redpanda domain's create-data and modify-data run with --schema-changes: within each batch row j is sent as the model made it when j mod 4 is 0, with an extra xp_extra field when 1, without its last field when 2, and with its first field another JSON type when 3 (a number as its string, a string as a one-element list) -- and the trail in ${xp:dir}/ops.jsonl holds each row as sent. Functions in functions/caps_kafka_topics.py: kafka_varied (collection varied, kafka_topic_in_multi.yaml) reads departments and employees by the regex ^<prefix>\\.(departments|employees)$ with typed schemas that require only each entity's first field, so an extra or a missing field validates -- the encoder starts a new frame for a message whose fields are not the frame's, and diagonal_relaxed folds them into one table, the missing values null -- while a retyped first field is refused and produced to <prefix>.dead; kafka_dead (collection dead, kafka_topic_in_dead.yaml) reads <prefix>.dead back into kafka_dead. STAGES: (1) domains -- the domain, the employees model (--up-to-partitions 2: departments 1 partition, employees 2) and the xs seed to departments and employees, varied; (2) actions, tagged live -- `produce` in the background: 4 varied passes 15s apart, running while (3) the collections are created and (4) the publishers registered; (5) actions -- wait for produce, then scripts/verify_kafka.py, tagged check: every message sent arrives exactly once, in its table or as a dead letter, at least one was refused (--require-dead), and kafka_unrouted holds nothing (polling, at most 5m); (6) monitor. Run: `tdd xp one-shot --suite container-connectors/kafka_schema_changes --keep`."
+  },
+  {
+    "domains": [
+      {
+        "name": "${xp:name(redpanda)}",
+        "command": "create",
+        "options": ["--sys", "redpanda"]
+      },
+      {
+        "name": "${xp:name(redpanda)}",
+        "command": "create-model",
+        "options": ["--model", "employees", "--up-to-partitions", "2"]
+      },
+      {
+        "name": "${xp:name(redpanda)}",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1",
+          "--entity",
+          "departments,employees",
+          "--schema-changes",
+          "ALL",
+          "--emit-ops",
+          "${xp:dir}/ops.jsonl"
+        ]
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "background": {
+          "name": "produce",
+          "tags": ["live"],
+          "actions": [
+            {
+              "loop": {
+                "name": "produce-pass",
+                "repeat": 4,
+                "actions": [
+                  {
+                    "tdd": {
+                      "name": "push",
+                      "tool": "domain",
+                      "command": "modify-data",
+                      "options": [
+                        "--domain",
+                        "${xp:name(redpanda)}",
+                        "--entity",
+                        "departments,employees",
+                        "--schema-changes",
+                        "ALL",
+                        "--emit-ops",
+                        "${xp:dir}/ops.jsonl"
+                      ]
+                    }
+                  },
+                  {
+                    "sleep": {
+                      "name": "pause",
+                      "time": "15s"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "varied",
+        "type": "kafka_topic_in",
+        "connection_template": "connection-file:connections/kafka_topic_in_multi.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "${xp:name(redpanda)}"
+        }
+      },
+      {
+        "name": "dead",
+        "type": "kafka_topic_in",
+        "connection_template": "connection-file:connections/kafka_topic_in_dead.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "${xp:name(redpanda)}"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "varied",
+        "functionpath": "functions/caps_kafka_topics.py::kafka_varied"
+      },
+      {
+        "collection": "dead",
+        "functionpath": "functions/caps_kafka_topics.py::kafka_dead"
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "wait": {
+          "name": "produced",
+          "tags": ["live"],
+          "for": ["produce"]
+        }
+      },
+      {
+        "python": {
+          "name": "verify-varied",
+          "tags": ["check"],
+          "script": "scripts/verify_kafka.py",
+          "params": [
+            "${xp:dir}/ops.jsonl",
+            "varied",
+            "--expect",
+            "kafka_departments=departments",
+            "--expect",
+            "kafka_employees=employees",
+            "--empty",
+            "kafka_unrouted",
+            "--dead",
+            "dead/kafka_dead",
+            "--require-dead",
+            "--time-out",
+            "5m"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "monitor": {
+      "time_out": "30m"
+    }
+  }
+]

@@ -1,0 +1,36 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: kafka-topic-in (stream-src) — consumer group '<prefix>_multi'
+# For a publisher subscribed to SEVERAL topics by a regex topic ('^<prefix>\.(a|b|c)$',
+# see suites/container-connectors/functions/caps_kafka_topics.py). Like the other kafka
+# templates it differs from kafka_topic_in.yaml in group_id -- each concurrently-registered
+# kafka collection needs a group of its own -- and it asks for a short metadata refresh:
+# a regex subscription matches the topics the consumer's metadata lists, refreshed every
+# 5 minutes by default, so a matching topic created after it subscribed would wait that
+# long. A redpanda domain's create-model makes every topic before any publisher starts;
+# the refresh covers one that comes later.
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+# '${D<n>__<KEY>}' reads the same bag but interpolates the value PLAIN and inline — for a name rather than a credential.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.kafka:KafkaStreamSrcConn
+spec:
+
+  # accepts: <value> | secret:<value>
+  # the redpanda domain's broker list (meta KAFKA_BROKERS, e.g. localhost:19092)
+  #
+  servers: '$secret:D0__KAFKA_BROKERS'
+
+  # accepts: <value> | secret:<value>
+  # A per-collection group, prefixed by the domain so it is per-run as well.
+  #
+  group_id: '${D0__DB}_multi'
+
+  # forwarded to confluent_kafka.Consumer: re-read the topic list every 10s
+  conn_cfg:
+    topic.metadata.refresh.interval.ms: 10000
+  # credentials  (optional, default: none) -- OMITTED: the redpanda domain runs without SASL
+  # schema_registry  (optional, default: none) -- left off, as in kafka_topic_in.yaml

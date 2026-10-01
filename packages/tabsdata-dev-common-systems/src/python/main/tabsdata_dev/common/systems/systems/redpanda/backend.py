@@ -9,9 +9,12 @@ kafka listeners, and the Confluent-compatible schema registry published on a
 host port), so ``provision_system`` is bespoke; readiness is ``rpk cluster
 info``. A domain is a topic managed through the confluent-kafka AdminClient
 (there is no per-topic auth). The data plane produces a model's rows as JSON
-messages, one per row, to a ``<domain>.<entity>`` topic per entity (topics
-auto-created on produce); ``modify-data`` is insert-only (a Kafka log only
-appends). ``entities`` records the produced topics and their message counts.
+messages, one per row, keyed by the row's first field, to a
+``<domain>.<entity>`` topic per entity. ``create-model`` creates those topics,
+each with the partitions ``--up-to-partitions`` gave it (``shape``), so a
+consumer can subscribe before anything is produced and a topic nothing writes
+still exists; ``modify-data`` is insert-only (a Kafka log only appends).
+``entities`` records the produced topics and their message counts.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from tabsdata_dev.common.systems.shell import (
 )
 from tabsdata_dev.common.systems.systems._common import container_info
 from tabsdata_dev.common.systems.systems._common.sql import SqlContainerBackend
+from tabsdata_dev.common.systems.systems.redpanda import shape
 
 _REGISTRY_INTERNAL_PORT = 8081
 
@@ -237,13 +241,43 @@ class Redpanda(SqlContainerBackend):
     def install_schema(
         self, meta: dict[str, str], model: str, *, force: bool = False
     ) -> None:
-        # topics are auto-created on produce; on reload clear the per-entity
-        # topics (keep the domain topic itself) so messages don't duplicate.
+        # On reload clear the per-entity topics (keep the domain topic itself)
+        # so messages don't duplicate; then create every entity's topic with its
+        # recorded partitions. Created here rather than on produce: a producer
+        # creating a topic gets the broker's default partitions, and a regex
+        # subscription sees only the topics that exist when it looks.
+        client = self._admin_client(meta)
+        prefix = meta.get("DB", "")
         if force:
-            self._delete_topics(
-                self._admin_client(meta), meta.get("DB", ""), include_root=False
-            )
-        print(">>> kafka domain: topics auto-created on produce")
+            self._delete_topics(client, prefix, include_root=False)
+        self._create_entity_topics(client, prefix, model, meta)
+
+    def _create_entity_topics(
+        self, client, prefix: str, model: str, meta: dict[str, str]
+    ) -> None:
+        from confluent_kafka.admin import NewTopic
+
+        counts = shape.partitions_of(meta)
+        existing = set(self._topics(client))
+        wanted = {
+            f"{prefix}.{name}": counts.get(name, 1)
+            for name in datagen.entities_of(model)
+        }
+        todo = [
+            NewTopic(topic, num_partitions=n, replication_factor=1)
+            for topic, n in wanted.items()
+            if topic not in existing
+        ]
+        if todo:
+            for topic, future in client.create_topics(todo).items():
+                try:
+                    future.result()
+                except Exception as exc:  # noqa: BLE001
+                    raise TdxError(
+                        f"kafka create topic '{topic}' failed: {exc}"
+                    ) from exc
+        layout = ", ".join(f"{t.rsplit('.', 1)[-1]}={n}" for t, n in wanted.items())
+        print(f">>> kafka domain: {len(wanted)} topic(s), partitions {layout}")
 
     def _produce(
         self, brokers: str, prefix: str, tables: list[emit.Table]
@@ -254,12 +288,12 @@ class Redpanda(SqlContainerBackend):
         counts: dict[str, int] = {}
         for tbl in tables:
             topic = f"{prefix}.{tbl.name}"
-            cols = [c for c in tbl.columns if not c.auto]
             for row in tbl.rows:
-                record = {c.name: row.get(c.name) for c in cols}
+                record = shape.record(row, tbl.columns)
                 producer.produce(
                     topic,
                     json.dumps(record, default=str, separators=(",", ":")).encode(),
+                    key=shape.message_key(row, tbl.columns),
                 )
                 producer.poll(0)
             counts[topic] = len(tbl.rows)

@@ -1,0 +1,131 @@
+[
+  {
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "CAPABILITY suite: ONE Kafka stream publisher consuming THREE topics while FOUR are written, the messages produced as tabsdata consumes them. Functions in functions/caps_kafka_topics.py::kafka_three_of_four: its topic is a regex, ^<prefix>\\.(departments|employees|dept_emp)$, which librdkafka subscribes to as a pattern; every frame lands in the one slot and is routed to its topic's table by the columns it has (kafka_departments, kafka_employees, kafka_dept_emp), anything else to kafka_unrouted. STAGES: (1) domains -- a redpanda domain with the employees model, create-model --up-to-partitions 4 creating every topic up front (departments 1 partition, employees 2, dept_emp 3, salaries 2), then the xs seed to departments, employees, dept_emp and salaries alone (--entity), its messages appended to ${xp:dir}/ops.jsonl; (2) actions, tagged live -- `produce` in the background: 8 passes 15s apart of `modify-data --entity departments,employees,dept_emp,salaries`, a fresh batch to each of the four topics, still running while (3) the collection is created and (4) the publisher registered, which STARTS it (no trigger; it reads from the earliest offset, so the seed and every pass arrive); salaries is written and not subscribed to; (5) actions -- wait for produce, then scripts/verify_kafka.py, tagged check: every message of the three topics in its table exactly once, nothing in kafka_unrouted -- a salaries message routed anywhere would be there -- polling until they arrived (at most 5m); (6) monitor. Run: `tdd xp one-shot --suite container-connectors/kafka_multi_topic_live --keep`."
+  },
+  {
+    "domains": [
+      {
+        "name": "${xp:name(redpanda)}",
+        "command": "create",
+        "options": ["--sys", "redpanda"]
+      },
+      {
+        "name": "${xp:name(redpanda)}",
+        "command": "create-model",
+        "options": ["--model", "employees", "--up-to-partitions", "4"]
+      },
+      {
+        "name": "${xp:name(redpanda)}",
+        "command": "create-data",
+        "options": [
+          "--size",
+          "1",
+          "--entity",
+          "departments,employees,dept_emp,salaries",
+          "--emit-ops",
+          "${xp:dir}/ops.jsonl"
+        ]
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "background": {
+          "name": "produce",
+          "tags": ["live"],
+          "actions": [
+            {
+              "loop": {
+                "name": "produce-pass",
+                "repeat": 8,
+                "actions": [
+                  {
+                    "tdd": {
+                      "name": "push",
+                      "tool": "domain",
+                      "command": "modify-data",
+                      "options": [
+                        "--domain",
+                        "${xp:name(redpanda)}",
+                        "--entity",
+                        "departments,employees,dept_emp,salaries",
+                        "--emit-ops",
+                        "${xp:dir}/ops.jsonl"
+                      ]
+                    }
+                  },
+                  {
+                    "sleep": {
+                      "name": "pause",
+                      "time": "15s"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "collections": [
+      {
+        "name": "kafka_topics",
+        "type": "kafka_topic_in",
+        "connection_template": "connection-file:connections/kafka_topic_in_multi.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "${xp:name(redpanda)}"
+        }
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "kafka_topics",
+        "functionpath": "functions/caps_kafka_topics.py::kafka_three_of_four"
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "wait": {
+          "name": "produced",
+          "tags": ["live"],
+          "for": ["produce"]
+        }
+      },
+      {
+        "python": {
+          "name": "verify-topics",
+          "tags": ["check"],
+          "script": "scripts/verify_kafka.py",
+          "params": [
+            "${xp:dir}/ops.jsonl",
+            "kafka_topics",
+            "--expect",
+            "kafka_departments=departments",
+            "--expect",
+            "kafka_employees=employees",
+            "--expect",
+            "kafka_dept_emp=dept_emp",
+            "--empty",
+            "kafka_unrouted",
+            "--time-out",
+            "5m"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "monitor": {
+      "time_out": "30m"
+    }
+  }
+]
