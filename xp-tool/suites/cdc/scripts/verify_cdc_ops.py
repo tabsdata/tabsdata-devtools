@@ -5,11 +5,17 @@
 
     verify_cdc_ops.py OPS_FILE COLLECTION --cascades logged|unlogged --noops logged|unlogged
                       --start initial-load|head|tail [--check ops|state [--keyless ENTITY...]]
+                      [--untracked ENTITY...] [--profile NAME]
 
 OPS_FILE is the trail ``tdd domain create-data/modify-data/sentinel-data
---emit-ops`` appended, one JSON line per operation, in the order the operations
-were applied. COLLECTION holds the stream publisher's output, one
-``<entity>_changes`` table per source table. The project is ``$XP_PROJECT``;
+--emit-ops`` appended, one JSON line per operation, in the order the
+transactions committed. COLLECTION holds the stream publisher's output, one
+``<entity>_changes`` table per source table, read through tdk on the
+connection ``--profile`` names (the suite passes ``${td:profile}``: the run's,
+or tdk's default). ``--untracked`` names the tables
+the domain changes and the stream does not track: their operations are left out
+of the trail, which is what the stream must then match -- a stream that carried
+one would show it as an operation nothing expected, in its transaction. The project is ``$XP_PROJECT``;
 every file this makes goes under ``$XP_WORK_DIR/cdc/COLLECTION/``, left there to
 read.
 
@@ -33,9 +39,12 @@ head                 the log from its start: the seed create-data loaded, as
 tail                 nothing: the changes after the stream attached, the first
                      of them wherever that was.
 
-Everything after it is changes, grouped by source transaction (an xid, a GTID
-ordered by its sequence, db2's commit sequence) and ordered by the position in
-it. The trail's transactions pair with those by what they hold: the first the
+Everything after it is changes, grouped by source transaction (an xid, a GTID,
+db2's commit sequence), the transactions in the order they committed -- the
+stream's ``seg``, which every source stamps with its commit position (postgres'
+commit LSN, mysql's GTID sequence, db2's commit sequence), not the transaction's
+id, which for postgres is the order transactions began -- and each ordered by
+the position in it. The trail's transactions pair with those by what they hold: the first the
 stream delivered is where the load ends, and from there each of the trail's
 operations must appear in its source transaction, in order -- operation, table,
 key and values -- with its whole row images: an update's and a delete's
@@ -102,7 +111,8 @@ CHANGED, SAME, ABSENT = "changed", "same", "absent"
 # What is checked: the stream's operations one by one, or the state they leave.
 OPS, STATE = "ops", "state"
 
-# A stream row -> the trail's shape: `op` and `entity`, the source `tx` and `sq`,
+# A stream row -> the trail's shape: `op` and `entity`, the source `tx`, its
+# commit position `seg` (kept a string: db2's runs to 38 digits) and `sq`,
 # `row` (the new values, the user's columns only) and `old` (the before-image).
 # A delete carries the row it removed in the data columns and leaves the
 # before-image empty: the row is its before-image. LOAD rows only mark where a
@@ -114,33 +124,45 @@ _TO_OPS = r"""
   | ($r | with_entries(select(.key | startswith("@td.cdc.data.col.old."))
                        | .key |= ltrimstr("@td.cdc.data.col.old."))) as $old
   | {"i": "insert", "u": "update", "d": "delete"}[$r["@td.cdc.meta.op"]] as $op
-  | {op: $op, entity: $entity, tx: $r["@td.cdc.meta.tx"], sq: ($r["@td.cdc.meta.sq"] | tonumber),
+  | {op: $op, entity: $entity, tx: $r["@td.cdc.meta.tx"], seg: ($r["@td.cdc.meta.seg"] // ""),
+     sq: ($r["@td.cdc.meta.sq"] | tonumber),
      row: $new,
      old: (if $op == "delete" and ($old | [.[]] | all(. == "")) then $new else $old end)}
 """
-# The snapshot first, then the changes by source transaction and position. A
-# source transaction is a number (postgres' xid), a GTID, `<server uuid>:<n>`
-# (mysql), ordered by its n -- every change comes from the one server -- or
-# db2's 32 hex digits, which order as they read: fixed width, so as a string,
-# and never through tonumber, which would round 32 digits and leave the ones
-# with a-f in them strings, sorted after every number.
+# The snapshot first, then the changes in commit order and by position within
+# a transaction. The commit order is `seg`, a non-negative integer padded to 40
+# digits and sorted as a string -- never through tonumber, which rounds past 2^53
+# and db2's commit sequence goes well beyond. A stream without `seg` falls back
+# to its source transaction: a number (postgres' xid), a GTID, `<server
+# uuid>:<n>` (mysql), ordered by its n -- every change comes from the one server
+# -- or db2's 32 hex digits, which order as they read: fixed width, so as a
+# string. A postgres xid is the order transactions BEGAN, which is not the order
+# they commit once several are open at once (modify-data --trx-mode).
 _IN_ORDER = r"""
+  def pad: ("0000000000000000000000000000000000000000"[0:(40 - length)]) + .;
   def txkey: if test("^[0-9a-fA-F]{32}$") then ascii_downcase
              elif test("^[0-9]+$") then tonumber
              elif test(":[0-9]+$") then (split(":") | last | tonumber)
              else . end;
-  sort_by([.tx != "initial-load", (if .tx == "initial-load" then 0 else (.tx | txkey) end), .sq]) | .[]
+  sort_by([.tx != "initial-load",
+           (if .tx != "initial-load" and (.seg | test("^[0-9]+$")) then (.seg | pad) else "" end),
+           (if .tx == "initial-load" then 0 else (.tx | txkey) end),
+           .sq]) | .[]
 """
 
 
 # ---------------------------------------------------------------- tools ----
+
+#: `--profile NAME` for every tdk call, or nothing: tdk takes it on each command,
+#: after the verb's own options.
+PROFILE: list[str] = []
 
 
 def get_table_versions(proj: str, coll: str, table: str) -> list[str]:
     """The ids of `table`'s versions that changed data, oldest first."""
     versions = json.loads(
         tdd("tdk", "table", "versions", "--proj", proj, "--coll", coll, "--name", table,
-            "--max-result", "0", "--format", "json")
+            "--max-result", "0", "--format", "json", *PROFILE)
     )
     changed = sorted((v for v in versions if v.get("data_changed")), key=lambda v: v.get("created_at") or 0)
     return [v["id"] for v in changed]
@@ -152,7 +174,7 @@ def get_table_data(proj: str, coll: str, table: str, versions: list[str], work: 
     for n, version in enumerate(versions):
         f = work / f"{table}.{n:03d}.{version}.parquet"
         tdd("tdk", "table", "download", "--proj", proj, "--coll", coll, "--name", table,
-            "--version", version, "--file", str(f))
+            "--version", version, "--file", str(f), *PROFILE)
         files.append(f)
     return files
 
@@ -712,7 +734,23 @@ def main() -> int:
         help="with --check state: the tables the connector does not deduplicate, those "
         "without a primary key, where a change the snapshot holds may arrive again",
     )
+    parser.add_argument(
+        "--untracked",
+        nargs="+",
+        default=[],
+        metavar="ENTITY",
+        help="the tables the domain changes and the stream does not track: left out of "
+        "the trail, and read from no output table",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        metavar="NAME",
+        help="the tdk connection to read the stream's output on (default: tdk's own)",
+    )
     args = parser.parse_args()
+    if args.profile:
+        PROFILE[:] = ["--profile", args.profile]
     if args.check == STATE and args.start == TAIL:
         parser.error("--check state needs the state the stream starts from; a tail start has none")
     if args.keyless and args.check != STATE:
@@ -723,7 +761,14 @@ def main() -> int:
     work = Path(os.environ["XP_WORK_DIR"]) / "cdc" / coll
     work.mkdir(parents=True, exist_ok=True)
 
-    trail = fold([o for o in read_jsonl(trail_file) if not o.get("dry_run")])
+    untracked = {e.lower() for e in args.untracked}
+    trail = fold(
+        [
+            o
+            for o in read_jsonl(trail_file)
+            if not o.get("dry_run") and o["entity"].lower() not in untracked
+        ]
+    )
     entities = list(dict.fromkeys(o["entity"] for o in trail))
 
     # The stream's output: every changed version of every table, as operations.

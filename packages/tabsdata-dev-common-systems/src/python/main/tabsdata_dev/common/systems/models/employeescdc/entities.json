@@ -16,6 +16,10 @@
     "sizeable": true
   },
   {
+    "name": "audit",
+    "sizeable": true
+  },
+  {
     "name": "xp_sentinel",
     "sizeable": false
   }

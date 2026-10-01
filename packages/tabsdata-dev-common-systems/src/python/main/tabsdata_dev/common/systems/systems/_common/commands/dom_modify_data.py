@@ -5,7 +5,9 @@
 """Apply deterministic changes to a domain's data (Insert / Update / Delete / Mix).
 
 ``--entity ALL`` applies each model entity's per-set row count across ``--sets``
-transactions; ``--entity NAME`` applies ``--sets`` rows to that one entity.
+transactions; ``--entity NAME`` applies ``--sets`` rows to that one entity;
+``--entity A,B,...`` is ALL narrowed to those -- how a run changes every table
+but one, which then sees no change for as long as the runs leave it out.
 ``--seed N`` is reproducible; ``--seed AUTO`` continues from the last seed (last
 + 1). Insert ordinals derive from the seed, so the same op/set/seed sequence is
 repeatable.
@@ -53,8 +55,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         constants.OPT_ENTITY,
         default=constants.ENTITY_ALL,
-        metavar="NAME|ALL",
-        help="entity to change, or ALL (default ALL)",
+        metavar="NAME[,NAME...]|ALL",
+        help="entity to change, a comma list of them, or ALL (default ALL); a "
+        "list takes each entity's per-set rows, as ALL does",
     )
     parser.add_argument(
         constants.OPT_SETS,
@@ -131,19 +134,29 @@ def run(ctx: cli.Context) -> int:
         if fixed and not json_mode:
             console.out(f"no modify-data support (skipped): {', '.join(fixed)}")
     else:
-        ent = a.entity
-        if ent not in by:
+        names = list(dict.fromkeys(n.strip() for n in a.entity.split(",") if n.strip()))
+        if not names:
             raise TdxError(
-                f"unknown entity '{ent}' "
-                f"(this model changes: {', '.join(by) or 'none'})"
+                f"{constants.OPT_ENTITY} names no entity (got: {a.entity!r})"
             )
-        if ops is not OpSelector.MIX and OpKind(ops.value) not in by[ent].supports:
-            supported = ", ".join(k.value for k in by[ent].supports)
-            raise TdxError(
-                f"entity '{ent}' does not support {ops.value} (supports: {supported})"
-            )
-        entities = [ent]
-        rows_per_entity = {ent: 1}  # single entity: --sets is the row count
+        for ent in names:
+            if ent not in by:
+                raise TdxError(
+                    f"unknown entity '{ent}' "
+                    f"(this model changes: {', '.join(by) or 'none'})"
+                )
+            if ops is not OpSelector.MIX and OpKind(ops.value) not in by[ent].supports:
+                supported = ", ".join(k.value for k in by[ent].supports)
+                raise TdxError(
+                    f"entity '{ent}' does not support {ops.value} "
+                    f"(supports: {supported})"
+                )
+        # Model order, parents first, whatever order they were named in.
+        entities = [e.table for e in model_obj.entities if e.table in names]
+        if len(entities) == 1:
+            rows_per_entity = {entities[0]: 1}  # one entity: --sets is the row count
+        else:
+            rows_per_entity = {t: by[t].rows_per_set for t in entities}
 
     auto = str(a.seed).strip().upper() == constants.SEED_AUTO
     if auto:

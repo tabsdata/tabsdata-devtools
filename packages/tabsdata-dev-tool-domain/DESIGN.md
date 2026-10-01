@@ -42,6 +42,10 @@ manifests so a test suite gets the same data on every backend.
   registrations). `delete-model` drops the entities and forgets the model through the backend's
   `uninstall_schema`; the domain itself stays for `destroy`. Both refuse a domain with no model
   and neither minds one with no data, so a loop may delete on every pass.
+- **`--entity` is ALL, one entity, or a comma list** -- ALL narrowed to those, each taking its
+  per-set rows as ALL does -- so a run can change every table but one, and that table sees no
+  change for as long as the runs leave it out (`cdc/<source>_quiet_table`). One entity keeps
+  its meaning: `--sets` is its row count.
 - **modify-data's targets are the seeded rows**, the ones `Entity.target` addresses, counted
   by what create-data loaded (`seeded` in the descriptor) rather than today's counts, which
   drift with every insert and delete. DELETEs walk in from the tail, each seed taking its own

@@ -50,7 +50,7 @@ THE CURSOR: CAPTURE-TABLE WATERMARK
 
     EACH DOMAIN HAS ITS OWN CD TABLES, named after its schema, so any number
     of db2cdc domains carrying the same model share a system -- this suite
-    and `container-connectors/db2cdc` can be up together.
+    and `cdc/db2cdc` can be up together.
 
     A DESTROY CLEANS UP -- `Db2Cdc.destroy_domain` deregisters every
     table it finds in `ASN.IBMSNAP_REGISTER` under the domain's schema before

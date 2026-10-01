@@ -28,7 +28,13 @@ times the phases, `--dry-run` prints the commands.
   systems) and `cloud-connectors` (lanes needing a cloud store or warehouse: az, bigquery,
   databricks, gcs, s3, snowflake). clickhouse and starrocks are container-connectors although
   they stage through s3/az/gcs: the aks/eks/gke smoke runs take `cloud-connectors`, and those
-  two are not to run there. `performance` holds the CDC ingestion suites (`gen_suites.py`
+  two are not to run there. `cdc` holds the CDC stream sources' suites, the scenarios a source
+  must survive, one suite each -- from an empty database, an initial load, an initial load
+  under churn whose transactions run `--trx-mode serial|interleaved|nested|mix`, a tracked
+  table left quiet for several rollovers, every key shape, the publisher disabled and enabled
+  three times -- written by `cdc/gen_suites.py` per source (postgres so far; mysql and db2
+  keep their hand-written three until they get the same set). Every one changes a table its
+  stream does not track (`employeescdc`'s `audit`). `performance` holds the CDC ingestion suites (`gen_suites.py`
   writes them: per source an initial load and a changes run over a million rows loaded
   before the stream starts, so it reads a backlog). `scripts/cdc_throughput.py` measures
   the rows the stream writes to its files per second -- off the worker log's `Buffer flush`
@@ -63,7 +69,13 @@ times the phases, `--dry-run` prints the commands.
   P login` is refused, `tdk login --profile P` works -- so `shell.tdk_argv`, which builds every
   tdk argv, appends it last, past the verb; no call can miss it or misplace it; the verbs that reach tdk (`create-`/`destroy-`/`monitor-project`, `run-triggers`,
   `run-suite`, `enable-`/`disable-function`, `one-shot`, `bench`) take it and hand it to their fan-out children. The domain verbs never
-  reach tdk and do not take it.
+  reach tdk and do not take it. **A step that calls tdk itself** (`tdd tdk fn disable`, a check
+  script reading tables) names it `${td:profile}`: an option or param that is exactly that
+  becomes `--profile NAME`, or nothing when the run has no profile -- so the suite works on any
+  connection without saying which, and tdk never sees an empty value. It must be a whole
+  argument (embedded it has nothing to become without a profile) and only in a tdd, exe or
+  python step; both are refused when the suite is read. `${td:...}`, not `${xp:...}`: it is
+  tdk's setting, not the run's.
 - **A domain-manifest stage is the batch**: `{"domain-manifest": {"emit_ops": FILE?, "domains":
   [{"name", "system", "model"?, "data"?, "emit"?}]}}` -- an object, not a list, for the setting
   beside its entries. xp writes the entries as a manifest (`domains-<n>.yaml`: `name`, `sys`,
@@ -214,22 +226,29 @@ comment). Kinds repeat, in any order the dependencies allow:
   other `${xp:...}` is refused when the suite is read, and so is an older spelling (`${XP_WORK_DIR}`, `${xp_name(x)}`, ...), naming the one it is now. `--emit-ops ${xp:dir}/ops.jsonl` on
   every data call, the seed's create-data included, is one trail of every operation a run
   applied, for a script to check against what came out the other end.
-- **The CDC check**, `container-connectors/scripts/verify_cdc_ops.py`, a python step tagged
+- **The CDC check**, `cdc/scripts/verify_cdc_ops.py`, a python step tagged
   `check`: the CDC stream's output against the trail, the snapshot as the state the operations
   before it leave, and the changes after it one by one in the same source transactions
   (cascades replayed before the snapshot; transactions paired by content, so one lost or extra is
   reported alone; what the database logs besides the trail -- the rows a cascade takes, an update
   that changed nothing -- is the suite's to say, `--cascades`/`--noops logged|unlogged`, with no
   default: a check that accepts either lets a stream drop what it should carry). Column names are
-  compared without case -- db2 reports them upper-cased, the trail has the model's -- and a source
-  transaction orders by what it is: a postgres xid, a mysql GTID's sequence, db2's 32 hex digits
-  as a string. Every change is checked by its whole row images -- the before-image all columns
+  compared without case -- db2 reports them upper-cased, the trail has the model's -- and the stream is
+  read in commit order -- its `seg`, the commit position every source stamps (postgres' commit
+  LSN, mysql's GTID sequence, db2's commit sequence), padded and compared as a string since
+  db2's passes what jq's numbers hold -- and the trail is written in commit order too (`tdd
+  domain modify-data` writes a `--trx-mode` run's transactions as they committed). Ordering by
+  transaction id was right until transactions overlapped: a postgres xid is the order they
+  began, and a nested run commits backwards. `--untracked ENTITY...` leaves out of the trail
+  the tables the domain changes and the stream does not track, so a stream that carried one
+  shows it as an operation nothing expected. Every change is checked by its whole row images -- the before-image all columns
   of the row as the trail left it, an update's row all columns after it -- since a table without
   a key is known to a stream by nothing less; an update that sets a key column moves the row to
   its new key. `--start initial-load|head|tail` says what precedes the changes: a snapshot, the
   seed replayed from the log's head (checked as a snapshot is), or nothing. The CDC suites all
   run over `employeescdc`, a model made for them: a primary key every update changes, a
-  composite one, a table with only a unique index and one with no key at all.
+  composite one, a table with only a unique index and one with no key at all -- and `audit`,
+  a plain-keyed table every data command changes and no suite's stream tracks.
 - **`"enabled": false`** on a function registers it with `tdk fn register --disabled`: a stream
   publisher does not start until `enable-function --project P --collection C --function F`
   (tdk's `fn enable`); `disable-function` stops one. A group project is refused -- its lanes'

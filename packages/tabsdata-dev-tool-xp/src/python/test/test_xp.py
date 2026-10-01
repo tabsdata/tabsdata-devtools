@@ -2441,7 +2441,7 @@ def test_every_built_in_suite_reads(tmp_path, monkeypatch):
     for f in files:
         assert build_instance("i", f).stages, f
     staged = build_instance(
-        "i", root / "container-connectors" / "postgrescdc_initial_load_live.json"
+        "i", root / "cdc" / "postgrescdc_initial_load_live_serial.json"
     )
     assert [s.kind for s in staged.stages] == [
         "domain-manifest",
@@ -2793,3 +2793,56 @@ def test_a_runs_summary_counts_every_phases_lane_steps_and_its_lanes_once(tmp_pa
         " - summary - 30 step(s) over 2 lane(s), 28 ok, 2 failed in "
         in render_summary(doc)
     )
+
+
+def test_td_profile_is_the_runs_tdk_connection_or_nothing(xp_root, monkeypatch):
+    """`${td:profile}`, a whole argument of a tdd, exe or python step, becomes
+    `--profile NAME` when the run has one and nothing when it does not, so a
+    step calling tdk talks to the run's connection either way. Embedded in a
+    longer argument, in a domain call, or as any other `${td:...}`, it is
+    refused when the suite is read."""
+    from tabsdata_dev.tool.xp import actions, state, work
+
+    fn = {
+        "tdd": {
+            "name": "off",
+            "tool": "tdk",
+            "command": "fn",
+            "options": ["disable", "--proj", "${xp:project}", "${td:profile}"],
+        }
+    }
+    check = {
+        "python": {
+            "name": "check",
+            "script": "scripts/check.py",
+            "params": ["${xp:dir}/ops.jsonl", "${td:profile}"],
+        }
+    }
+    _script(xp_root, "pass\n")
+    inst = _python_suite(xp_root, [fn, check])
+    off, chk = inst.actions
+
+    monkeypatch.setattr(state.run, "profile", None)
+    assert actions.argv_of(off, inst, "P")[-3:] == ["disable", "--proj", "P"]
+    assert actions.argv_of(chk, inst, "P")[-1].endswith("ops.jsonl")
+    monkeypatch.setattr(state.run, "profile", "dev")
+    assert actions.argv_of(off, inst, "P")[-5:] == [
+        "disable",
+        "--proj",
+        "P",
+        "--profile",
+        "dev",
+    ]
+    assert actions.argv_of(chk, inst, "P")[-2:] == ["--profile", "dev"]
+    assert work.expand_args(["a", "${td:profile}"]) == ["a", "--profile", "dev"]
+
+    for bad, why in [
+        (dict(fn["tdd"], options=["--profile=${td:profile}"]), "whole argument"),
+        (dict(fn["tdd"], options=["${td:conn}"]), r"\$\{td:conn\} is not a token"),
+    ]:
+        with pytest.raises(Exception, match=why):
+            _python_suite(xp_root, [{"tdd": bad}])
+    from tabsdata_dev.tool.xp import models
+
+    with pytest.raises(ValueError, match="for a tdd, exe or python step"):
+        models._refuse_unknown_tokens("${td:profile}", "domain call")

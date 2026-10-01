@@ -3194,7 +3194,7 @@ CDC = {
             "    weight of this connector sits.\n\n"
             "    EACH DOMAIN HAS ITS OWN CD TABLES, named after its schema, so any number\n"
             "    of db2cdc domains carrying the same model share a system -- this suite\n"
-            "    and `container-connectors/db2cdc` can be up together.\n\n"
+            "    and `cdc/db2cdc` can be up together.\n\n"
             "    A DESTROY CLEANS UP -- `Db2Cdc.destroy_domain` deregisters every\n"
             "    table it finds in `ASN.IBMSNAP_REGISTER` under the domain's schema before\n"
             "    dropping that schema (CAPSTOP, delete the REGISTER and PRUNCNTL rows,\n"

@@ -16,7 +16,9 @@ The suite tracks every table of the ``employeescdc`` model -- one table per way 
 identified: ``accounts`` (a primary key every update CHANGES), ``ledger`` (a composite
 primary key), ``devices`` (no primary key, a unique index), ``readings`` (no primary
 key and no index) -- and its xp_sentinel, so ``tdd domain modify-data`` on the backing
-domain produces inserts, updates and deletes by each. The postgrescdc system already
+domain produces inserts, updates and deletes by each. The model's ``audit`` table is
+changed too and tracked by none of them (suite ``postgrescdc_keys``, checked
+``--untracked audit``). The postgrescdc system already
 runs ``wal_level=logical``, installs wal2json, grants the domain owner REPLICATION and
 sets REPLICA IDENTITY FULL on every model table: that is what lets the two tables
 without a primary key log their updates and deletes at all, and gives every change a

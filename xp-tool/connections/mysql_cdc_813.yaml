@@ -6,7 +6,7 @@
 # One of the 81x templates, which differ ONLY in server_id: MySQL admits a single replica
 # per server id, and every registered CDC stream publisher attaches its own replica, so
 # each concurrently-registered mysql-cdc collection needs a distinct id. The 81x block is
-# reserved for container-connectors/mysqlcdc_initial_load (812) and _live (813), clear of
+# reserved for cdc/mysqlcdc_initial_load (812) and _live (813), clear of
 # the 51x, 61x and demo (712) ids, so every mysql-cdc suite can run at the same time.
 # Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
 # A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.

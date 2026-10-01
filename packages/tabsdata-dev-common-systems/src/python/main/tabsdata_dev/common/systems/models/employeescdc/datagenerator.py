@@ -17,12 +17,15 @@ single-column key that never changes. Here each table is one way a row is named:
   * ``readings`` -- no primary key and no index at all; ``reading_id`` is unique
     only because this generator makes it so, and the database knows nothing of
     it.
+  * ``audit``    -- a plain primary key, changed like the others but tracked by no
+    stream the CDC suites register: the database is busy with a table the stream
+    must leave out, and a stream that carries it, or stalls on it, is wrong.
 
 No table references another, so a key change is never refused by a foreign key
 and a delete cascades nowhere: what the stream carries is exactly the trail.
 
 Every entity takes inserts, updates and deletes, one row per set, so a ``--ops
-Mix`` set is one transaction touching all four tables with one verb. A seeded
+Mix`` set is one transaction touching all five tables with one verb. A seeded
 row ``i`` (0-based) is named by ``target``; inserted rows take keys from their
 own range (``_INSERT_BASE`` on), which no seeded key reaches, and a rekeyed
 account moves ``_REKEY_OFFSET`` up, past both.
@@ -44,6 +47,7 @@ _REKEY_OFFSET = 50_000_000
 _ENTRIES_PER_CODE = 10
 _EPOCH = date(2020, 1, 1)
 _STATUSES = ("active", "idle", "retired")
+_ACTIONS = ("login", "logout", "export", "approve")
 
 _ACCOUNTS_COLS = [
     Column("account_id", "int", nullable=False),
@@ -63,6 +67,12 @@ _DEVICES_COLS = [
     Column("model", "varchar(20)", nullable=False),
     Column("status", "varchar(10)", nullable=False),
     Column("firmware", "int", nullable=False),
+]
+_AUDIT_COLS = [
+    Column("audit_id", "int", nullable=False),
+    Column("actor", "varchar(40)", nullable=False),
+    Column("action", "varchar(20)", nullable=False),
+    Column("noted_on", "date", nullable=False),
 ]
 _READINGS_COLS = [
     Column("reading_id", "int", nullable=False),
@@ -179,6 +189,39 @@ class _Readings(Entity):
         return {"reading": _reading(rng)}
 
 
+class _Audit(Entity):
+    """A plain key, on a table no CDC suite's stream tracks."""
+
+    table = "audit"
+    columns = _AUDIT_COLS
+
+    def new_row(self, rng: random.Random, i: int) -> dict:
+        return {
+            "audit_id": _INSERT_BASE + i,
+            "actor": f"actor {i}"[:40],
+            "action": _ACTIONS[i % len(_ACTIONS)],
+            "noted_on": _EPOCH,
+        }
+
+    def target(self, i: int, existing: int) -> dict:
+        return {"audit_id": _SEED_BASE + i}
+
+    def mutate(self, rng: random.Random, i: int, existing: int) -> dict:
+        return {"action": _ACTIONS[(i + 1) % len(_ACTIONS)], "actor": f"reviewed {i}"}
+
+
+def _gen_audit(rng: random.Random, n: int) -> list[dict]:
+    return [
+        {
+            "audit_id": _SEED_BASE + i,
+            "actor": f"actor {i}",
+            "action": _ACTIONS[i % len(_ACTIONS)],
+            "noted_on": _EPOCH + timedelta(days=i % 700),
+        }
+        for i in range(n)
+    ]
+
+
 def _gen_accounts(rng: random.Random, n: int) -> list[dict]:
     return [
         {
@@ -229,7 +272,7 @@ def _gen_readings(rng: random.Random, n: int) -> list[dict]:
 
 
 class _EmployeesCdcModel(Model):
-    entities = [_Accounts(), _Ledger(), _Devices(), _Readings()]
+    entities = [_Accounts(), _Ledger(), _Devices(), _Readings(), _Audit()]
 
     def build_initial(self, rng: random.Random, n: int) -> list[Table]:
         return [
@@ -237,6 +280,7 @@ class _EmployeesCdcModel(Model):
             Table("ledger", _LEDGER_COLS, _gen_ledger(rng, n)),
             Table("devices", _DEVICES_COLS, _gen_devices(rng, n)),
             Table("readings", _READINGS_COLS, _gen_readings(rng, n)),
+            Table("audit", _AUDIT_COLS, _gen_audit(rng, n)),
         ]
 
 

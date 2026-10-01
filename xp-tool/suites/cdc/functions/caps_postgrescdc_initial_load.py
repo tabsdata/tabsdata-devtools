@@ -4,10 +4,12 @@
 
 """caps_postgrescdc_initial_load — the PostgreSQL CDC stream source with ``initial_load``.
 
-A stream publisher over EVERY table of the ``employeescdc`` model -- one table per way a
+A stream publisher over the tables of the ``employeescdc`` model -- one table per way a
 row is identified: ``accounts`` (a primary key every update CHANGES), ``ledger`` (a
 composite primary key), ``devices`` (no primary key, a unique index), ``readings``
-(no primary key and no index) -- and its xp_sentinel, started with
+(no primary key and no index) -- and its xp_sentinel, but NOT ``audit``, which every
+data command changes too: the database is busy with a table the stream must leave
+out (``verify_cdc_ops.py --untracked audit``). Started with
 ``initial_load=True``: the stream first emits a full snapshot of each tracked table --
 its rows as inserts (``@td.cdc.meta.op`` = ``i``), preceded by a LOAD control row per
 table -- and then captures changes from the exact position the snapshot is consistent
@@ -29,15 +31,22 @@ not exist yet, and one the suite would then have to drop itself.
 domain sentinel-data`` and waits for them to arrive in ``xp_sentinel_changes`` (an xp
 ``sentinel`` stage), which is how it knows the changes before a key have flushed.
 
-Two functions, one per suite, identical -- each suite's domain brings its own slot:
+Two functions, identical -- each suite's domain brings its own slot, and each suite
+its own project, so one function serves several (``gen_suites.py`` writes them):
 
-- ``postgrescdc_initial_load``      : suite ``postgrescdc_initial_load`` -- the seed is
-                                      loaded, then the snapshot is taken over quiet
-                                      tables: the load is the whole seed, and one
-                                      modify-data pass follows it.
-- ``postgrescdc_initial_load_live`` : suite ``postgrescdc_initial_load_live`` -- a live
+- ``postgrescdc_initial_load``      : the snapshot is taken over quiet tables --
+                                      ``postgrescdc_initial_load`` (over the seed),
+                                      ``postgrescdc_from_empty`` (over empty tables,
+                                      the seed arriving as a change),
+                                      ``postgrescdc_quiet_table`` and
+                                      ``postgrescdc_pause_resume`` (disabled and
+                                      enabled three times: the stream state records
+                                      the load as done, so it is not taken again, and
+                                      capture resumes from the saved offset).
+- ``postgrescdc_initial_load_live`` : ``postgrescdc_initial_load_live_<mode>`` -- a live
                                       stage keeps changing the tables (modify-data Mix,
-                                      20 passes) from before the project exists, so the
+                                      20 passes, ``--trx-mode serial|interleaved|nested|
+                                      mix``) from before the project exists, so the
                                       snapshot is taken over tables changing under it
                                       and the changes after it arrive as CDC rows. A
                                       second sentinel, written once the churn has ended,

@@ -38,6 +38,16 @@ CREATE TABLE readings (
     taken_on        DATE            NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- A plain primary key, on a table no CDC suite's stream tracks: changed by every
+-- data verb, carried by no stream.
+CREATE TABLE audit (
+    audit_id        INT             NOT NULL,
+    actor           VARCHAR(40)     NOT NULL,
+    action          VARCHAR(20)     NOT NULL,
+    noted_on        DATE            NOT NULL,
+    PRIMARY KEY (audit_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
 CREATE TABLE xp_sentinel (
     sentinel_key     VARCHAR(255)    NOT NULL,

@@ -1404,6 +1404,7 @@ def test_employeescdc_changes_a_key_and_every_table_by_its_own_kind_of_key():
         "ledger": ["account_code", "entry_no"],
         "devices": ["serial"],
         "readings": ["reading_id"],
+        "audit": ["audit_id"],
     }
     tables = model.build_initial(
         random.Random(datagen.INITIAL_SEED), 100 * datagen.BASE_SIZE
@@ -2406,7 +2407,7 @@ def test_modify_data_trx_modes_schedule_the_plan_and_say_so(tmp_path, monkeypatc
         path, "postgres", "d1", sys_name="pg", external_name="d1", meta={"DB": "d1"}
     )
     descriptor.set_model(path, "employeescdc", datagen.entities_of("employeescdc"))
-    seeded = {"accounts": 100, "ledger": 100, "devices": 100, "readings": 100}
+    seeded = {t: 100 for t in datagen.entities_of("employeescdc")}
     descriptor.record_data(path, "1", seeded)
     got: dict = {}
 
@@ -2471,9 +2472,10 @@ def test_modify_data_trx_modes_schedule_the_plan_and_say_so(tmp_path, monkeypatc
     }
     lines = [json.loads(x) for x in trail.read_text().splitlines()]
     assert {r["trx_mode"] for r in lines} == {"nested"}
-    assert [r["txn"] for r in lines] == [2] * 4 + [1] * 4 + [0] * 4
-    assert [r["commit"] for r in lines] == [0] * 4 + [1] * 4 + [2] * 4
-    assert [r["op"] for r in lines][::4] == ["delete", "update", "insert"]
+    tables = len(datagen.load_model("employeescdc").entities)  # one change each a set
+    assert [r["txn"] for r in lines] == [2] * tables + [1] * tables + [0] * tables
+    assert [r["commit"] for r in lines] == [0] * tables + [1] * tables + [2] * tables
+    assert [r["op"] for r in lines][::tables] == ["delete", "update", "insert"]
 
     assert run(Fake(), "json", trx_mode="Interleaved", trx_concurrency=2) == 0
     sched = got["schedule"]
@@ -2610,3 +2612,81 @@ def test_a_verbs_failure_details_reach_its_detail_log(tmp_path, monkeypatch, cap
     text = pathlib.Path(event["log"]).read_text()
     assert "error:   SQL error while running modify-data: lock wait" in text
     assert "details:\nwhy: UPDATE t" in text
+
+
+def test_modify_data_entity_lists_leave_the_unnamed_tables_alone(tmp_path, monkeypatch):
+    """`--entity A,B` is ALL narrowed to those: each takes its per-set rows,
+    in model order whatever order they were named in, and a table left out
+    gets nothing -- how a suite keeps one table quiet for several rollovers.
+    One name keeps its meaning (--sets is its row count); an unknown or an
+    empty name is refused."""
+    import argparse
+    import contextlib
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.common.systems import cli, console, descriptor
+    from tabsdata_dev.common.systems.systems._common.commands import dom_modify_data
+
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-test-secret-long-enough")
+    path = tmp_path / "d1"
+    descriptor.write_domain(
+        path, "postgres", "d1", sys_name="pg", external_name="d1", meta={"DB": "d1"}
+    )
+    descriptor.set_model(path, "employeescdc", datagen.entities_of("employeescdc"))
+    tables = ["accounts", "ledger", "devices", "readings", "audit"]
+    descriptor.record_data(path, "1", {t: 100 for t in tables})
+    got: list = []
+
+    class Fake:
+        supports_trx_modes = True
+
+        @contextlib.contextmanager
+        def data_plane_uri(self, meta):
+            yield "fake://"
+
+        def apply_changes(self, uri, txns, before, *, label="modify-data", schedule):
+            got[:] = txns
+            return dict(before)
+
+    def run(entity, sets=3):
+        console.bind(render.Renderer(constants.DOM_TOOL, fmt="json"))
+        args = argparse.Namespace(
+            entity=entity,
+            sets=sets,
+            ops="Mix",
+            seed="AUTO",
+            trx_mode="serial",
+            trx_concurrency=4,
+            dry_run=False,
+            emit_ops=None,
+        )
+        return dom_modify_data.run(
+            cli.Context(
+                tool=constants.DOM_TOOL,
+                verb=constants.V_MODIFY_DATA,
+                slug="postgres",
+                system=Fake(),  # type: ignore[arg-type]
+                args=args,
+                name="d1",
+                info=descriptor.load(path),
+                path=path,
+                store_dir=tmp_path,
+            )
+        )
+
+    assert run("audit, devices,ledger,accounts") == 0
+    assert len(got) == 3
+    for txn in got:
+        assert [c.table for c in txn] == ["accounts", "ledger", "devices", "audit"]
+    assert set(console.take_result()["entities"]) == {
+        "accounts",
+        "ledger",
+        "devices",
+        "audit",
+    }
+    assert run("readings", sets=4) == 0
+    assert [[c.table for c in txn] for txn in got] == [["readings"]] * 4
+    with pytest.raises(TdxError, match="unknown entity 'nope'"):
+        run("accounts,nope")
+    with pytest.raises(TdxError, match="names no entity"):
+        run(" , ")

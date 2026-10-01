@@ -94,7 +94,16 @@ class Domain(BaseModel):
     system: str
 
 
-def _refuse_unknown_tokens(text: str, where: str) -> None:
+def _refuse_unknown_tokens(text: str, where: str, td: bool = False) -> None:
+    """`td`: whether ``${td:profile}`` may stand here -- in a step's options or
+    params, the arguments of a program that may call tdk."""
+    misuse = work.td_misuse(text)
+    if misuse is None and not td and work.TD_TOKEN_RE.search(text):
+        misuse = (
+            f"{work.TD_PROFILE} is for a tdd, exe or python step, which may call tdk"
+        )
+    if misuse:
+        raise ValueError(f"{where}: {misuse}")
     bad = work.unknown(text)
     if bad:
         raise ValueError(
@@ -290,7 +299,7 @@ class TddStep(_Entry):
             )
         self.options = [str(o) for o in self.options]
         for o in self.options:
-            _refuse_unknown_tokens(o, f"tdd step {self.name!r}")
+            _refuse_unknown_tokens(o, f"tdd step {self.name!r}", td=True)
         return self
 
 
@@ -308,7 +317,7 @@ class ExeStep(_Entry):
             raise ValueError(f"exe step {self.name!r} names no program")
         self.params = [str(p) for p in self.params]
         for p in self.params:
-            _refuse_unknown_tokens(p, f"exe step {self.name!r}")
+            _refuse_unknown_tokens(p, f"exe step {self.name!r}", td=True)
         return self
 
 
@@ -332,7 +341,7 @@ class PythonStep(_Entry):
             )
         self.params = [str(p) for p in self.params]
         for p in self.params:
-            _refuse_unknown_tokens(p, f"python step {self.name!r}")
+            _refuse_unknown_tokens(p, f"python step {self.name!r}", td=True)
         return self
 
 
