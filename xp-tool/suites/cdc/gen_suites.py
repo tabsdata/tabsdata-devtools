@@ -1,7 +1,8 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""Generate the CDC scenario suites: the same scenarios for every source in SOURCES.
+"""Generate the CDC scenario suites: the same scenarios for every source in SOURCES --
+postgrescdc, mysqlcdc and db2cdc.
 
     python suites/cdc/gen_suites.py
 
@@ -56,6 +57,9 @@ TRX_MODES = ("serial", "interleaved", "nested", "mix")
 QUIET = "readings"
 BUSY = ["accounts", "ledger", "devices", "audit"]
 QUIET_PASSES = 3
+# The model's table with no key and no index: an UPDATE or DELETE scans it whole.
+SCANNED = "readings"
+SCANNED_REST = ["accounts", "ledger", "devices", "audit"]
 PAUSES = 3
 
 
@@ -67,26 +71,38 @@ class Source:
         slug: str,
         system: str,
         ctype: str,
-        conn: str,
+        conns: dict[str, str],
         functions: str,
         initial_load: str,
         initial_load_live: str,
         keys: dict[str, str],
         logs: dict[str, str],
         keyless: list[str],
+        head_start: str,
+        head_note: str,
         about: str,
+        scan_locks: bool = False,
     ):
         self.slug = slug
         self.system = system
         self.ctype = ctype
-        self.conn = conn
+        self.conns = conns  # collection -> connection template; "*" for the rest
         self.functions = functions  # the keys variants' module
         self.initial_load = initial_load  # module::function, over a quiet start
         self.initial_load_live = initial_load_live  # module::function, under churn
         self.keys = keys  # collection -> module::function of the keys variants
         self.logs = logs  # verify_cdc_ops --cascades/--noops
-        self.keyless = keyless
+        self.keyless = keyless  # --check state's --keyless; none where loads never repeat
+        self.head_start = head_start  # how the keys suite's head variant is checked
+        self.head_note = head_note
         self.about = about
+        # A DELETE locks every row it scans (`tdd domain` refuses a schedule
+        # that would wait on its own run): the interleaved and mix churns change
+        # SCANNED in a serial pass of its own, after the concurrent one.
+        self.scan_locks = scan_locks
+
+    def conn(self, collection: str) -> str:
+        return self.conns.get(collection, self.conns["*"])
 
 
 SOURCES = {
@@ -94,7 +110,7 @@ SOURCES = {
         slug="postgrescdc",
         system="postgrescdc",
         ctype="postgres_cdc",
-        conn="postgres_cdc.yaml",
+        conns={"*": "postgres_cdc.yaml"},
         functions="functions/caps_postgrescdc.py",
         initial_load="functions/caps_postgrescdc_initial_load.py::postgrescdc_initial_load",
         initial_load_live="functions/caps_postgrescdc_initial_load.py::postgrescdc_initial_load_live",
@@ -106,6 +122,11 @@ SOURCES = {
         },
         logs={"--cascades": "logged", "--noops": "logged"},
         keyless=["devices", "readings"],
+        head_start="tail",
+        head_note=(
+            "as a tail too: each variant creates its own slot when it registers, and logical "
+            "decoding keeps no WAL from before a slot, so its head is where it attached"
+        ),
         about=(
             "PostgreSQL CDC over logical decoding (wal2json) of the domain's own replication "
             "slot (created with the domain, named after it, reused by the publisher); every "
@@ -114,6 +135,84 @@ SOURCES = {
             "CASCADE takes and an UPDATE that sets the values a row has: --cascades logged "
             "--noops logged"
         ),
+    ),
+    "mysqlcdc": Source(
+        slug="mysqlcdc",
+        system="mysqlcdc",
+        ctype="mysql_cdc",
+        # MySQL admits one replica per server_id and every registered publisher is one,
+        # so every collection that may run beside another has an id of its own: the
+        # keys variants 512-515, the single-collection suites the 81x block.
+        conns={
+            "*": "mysql_cdc.yaml",
+            "mysqlcdc_head": "mysql_cdc_513.yaml",
+            "mysqlcdc_struct": "mysql_cdc_514.yaml",
+            "mysqlcdc_map": "mysql_cdc_515.yaml",
+            "mysqlcdc_initial_load": "mysql_cdc_812.yaml",
+            "mysqlcdc_initial_load_live_serial": "mysql_cdc_813.yaml",
+            "mysqlcdc_initial_load_live_interleaved": "mysql_cdc_814.yaml",
+            "mysqlcdc_initial_load_live_nested": "mysql_cdc_815.yaml",
+            "mysqlcdc_initial_load_live_mix": "mysql_cdc_816.yaml",
+            "mysqlcdc_from_empty": "mysql_cdc_817.yaml",
+            "mysqlcdc_quiet_table": "mysql_cdc_818.yaml",
+            "mysqlcdc_pause_resume": "mysql_cdc_819.yaml",
+        },
+        functions="functions/caps_mysqlcdc.py",
+        initial_load="functions/caps_mysqlcdc_initial_load.py::mysqlcdc_initial_load",
+        initial_load_live="functions/caps_mysqlcdc_initial_load.py::mysqlcdc_initial_load_live",
+        keys={
+            "mysqlcdc_in": "functions/caps_mysqlcdc.py::mysqlcdc_in",
+            "mysqlcdc_head": "functions/caps_mysqlcdc.py::mysqlcdc_in_head",
+            "mysqlcdc_struct": "functions/caps_mysqlcdc.py::mysqlcdc_in_struct",
+            "mysqlcdc_map": "functions/caps_mysqlcdc.py::mysqlcdc_in_map",
+        },
+        logs={"--cascades": "unlogged", "--noops": "unlogged"},
+        keyless=[],
+        head_start="head",
+        head_note=(
+            "from the head: it replays the binlog, the create-data seed first, so the seed "
+            "is checked as a snapshot is"
+        ),
+        about=(
+            "MySQL CDC over the binlog (ROW format, FULL row images, gtid_mode=ON), each "
+            "publisher a replica with a server_id of its own; a change to a keyless table "
+            "names its row by every column. The binlog has no row for what an ON DELETE "
+            "CASCADE takes and no event for an UPDATE that changes nothing: --cascades "
+            "unlogged --noops unlogged. An initial load pins its GTID position under a brief "
+            "global read lock, so no change is both loaded and replayed"
+        ),
+        scan_locks=True,
+    ),
+    "db2cdc": Source(
+        slug="db2cdc",
+        system="db2cdc",
+        ctype="db2_cdc",
+        conns={"*": "db2_cdc.yaml"},
+        functions="functions/caps_db2cdc.py",
+        initial_load="functions/caps_db2cdc_initial_load.py::db2cdc_initial_load",
+        initial_load_live="functions/caps_db2cdc_initial_load.py::db2cdc_initial_load_live",
+        keys={
+            "db2cdc_in": "functions/caps_db2cdc.py::db2cdc_in",
+            "db2cdc_head": "functions/caps_db2cdc.py::db2cdc_in_head",
+            "db2cdc_struct": "functions/caps_db2cdc.py::db2cdc_in_struct",
+            "db2cdc_map": "functions/caps_db2cdc.py::db2cdc_in_map",
+        },
+        logs={"--cascades": "logged", "--noops": "unlogged"},
+        keyless=["devices", "readings"],
+        head_start="head",
+        head_note=(
+            "from the head: it replays each CD table from its origin, the create-data seed "
+            "first (the tables are registered before it is loaded)"
+        ),
+        about=(
+            "Db2 CDC over the ASN SQL-Replication CD tables the db2cdc system registers for "
+            "every model table, asncap copying each change a moment after it commits; "
+            "column names arrive upper-cased and are matched without case. The CD tables "
+            "carry the rows an ON DELETE CASCADE takes but not an UPDATE that changes "
+            "nothing: --cascades logged --noops unlogged. Db2 has no snapshot isolation, so "
+            "an initial load under changes may load a change and replay it too"
+        ),
+        scan_locks=True,
     ),
 }
 
@@ -153,7 +252,7 @@ def collections(src: Source, domain: str, names: list[str]) -> dict:
             {
                 "name": n,
                 "type": src.ctype,
-                "connection_template": f"connection-file:connections/{src.conn}",
+                "connection_template": f"connection-file:connections/{src.conn(n)}",
                 "group": "sources",
                 "domains": {"D0": domain},
             }
@@ -333,6 +432,43 @@ def initial_load_live(src: Source, mode: str) -> list:
         f"committed inside it too -- commits in reverse start order",
         "mix": f"groups of {CONCURRENCY}, each the next of serial, interleaved, nested",
     }[mode]
+    if src.keyless:
+        keyless = (
+            f"on the keyless tables ({', '.join(src.keyless)}) a change the load already "
+            f"holds may arrive again, counted, not refused"
+        )
+        keyless_args = ["--keyless", *src.keyless]
+    else:
+        keyless = "no change the load holds arrives again, on any table"
+        keyless_args = []
+    split = src.scan_locks and mode in ("interleaved", "mix")
+
+    def change(name: str, *options: str) -> dict:
+        return {
+            "tdd": {
+                "name": name,
+                "tool": "domain",
+                "command": "modify-data",
+                "options": ["--domain", d, "--ops", "Mix", *options, "--emit-ops", OPS],
+            }
+        }
+
+    if split:
+        pass_steps = [
+            change("change", "--sets", "250", "--entity", ",".join(SCANNED_REST), *trx),
+            change("change-scanned", "--sets", "250", "--entity", SCANNED),
+        ]
+        how = (
+            f"`modify-data --ops Mix --sets 250 --entity {','.join(SCANNED_REST)} "
+            f"{' '.join(trx)}`, then `modify-data --ops Mix --sets 250 --entity {SCANNED}` "
+            f"serially -- {SCANNED} has no key and no index, a DELETE scans it whole, and "
+            f"this source locks every row a DELETE scans, so one beside another open "
+            f"transaction's writes there would wait on its own run (nested never meets one: "
+            f"its transactions all begin on accounts)"
+        )
+    else:
+        pass_steps = [change("change", "--sets", "250", *trx)]
+        how = f"`modify-data --ops Mix --sets 250 {' '.join(trx)}`"
     churn = {
         "background": {
             "name": "churn",
@@ -342,27 +478,7 @@ def initial_load_live(src: Source, mode: str) -> list:
                     "loop": {
                         "name": "churn-pass",
                         "repeat": 20,
-                        "actions": [
-                            {
-                                "tdd": {
-                                    "name": "change",
-                                    "tool": "domain",
-                                    "command": "modify-data",
-                                    "options": [
-                                        "--domain",
-                                        d,
-                                        "--ops",
-                                        "Mix",
-                                        "--sets",
-                                        "250",
-                                        *trx,
-                                        "--emit-ops",
-                                        OPS,
-                                    ],
-                                }
-                            },
-                            {"sleep": {"name": "pause", "time": "1s"}},
-                        ],
+                        "actions": [*pass_steps, {"sleep": {"name": "pause", "time": "1s"}}],
                     }
                 }
             ],
@@ -375,8 +491,8 @@ def initial_load_live(src: Source, mode: str) -> list:
             f"STAGES: (1) domains -- create the {src.system} domain, install {MODEL}, load the "
             f"m seed (10k rows a table), its operations appended to {OPS}; (2) actions, tagged "
             f"live -- `sentinel-data --key after-create-data`, then `churn` in the background: "
-            f"20 passes a second apart of `modify-data --ops Mix --sets 250 {' '.join(trx)}`, "
-            f"every set one transaction of one verb over all five tables -- inserts, updates "
+            f"20 passes a second apart of {how}, "
+            f"every set one transaction of one verb over its tables -- inserts, updates "
             f"(accounts' moving its key), deletes; it keeps running through the stages below; "
             f"(3) collections and (4) functions -- register {_fn_name(src.initial_load_live)} "
             f"(initial_load=True), which STARTS it: its load is taken over tables changing "
@@ -384,8 +500,7 @@ def initial_load_live(src: Source, mode: str) -> list:
             f"after-churn`; (6) sentinel -- hold until both keys arrive; (7) actions, tagged "
             f"check -- {VERIFY} --check state: the load plus every change applied in commit "
             f"order as the connector deduplicates must leave each table as the whole trail "
-            f"does; on the keyless tables ({', '.join(src.keyless)}) a change the load already "
-            f"holds may arrive again, counted, not refused; nothing of {', '.join(UNTRACKED)}; "
+            f"does; {keyless}; nothing of {', '.join(UNTRACKED)}; "
             f"(8) monitor. {_run(name)}"
         ),
         manifest(d, src.system, "m"),
@@ -397,9 +512,7 @@ def initial_load_live(src: Source, mode: str) -> list:
             sentinel_data("sentinel-churned", d, "after-churn"),
         ),
         sentinel(name, "after-create-data", "after-churn"),
-        actions(
-            verify(src, "verify-ops", name, "initial-load", "--check", "state", "--keyless", *src.keyless)
-        ),
+        actions(verify(src, "verify-ops", name, "initial-load", "--check", "state", *keyless_args)),
         monitor(),
     ]
 
@@ -473,8 +586,9 @@ def keys(src: Source) -> list:
             f"moving its key, ledger's by both columns of its key, devices' by its unique "
             f"index, readings' by every column -- and deletes), then `sentinel-data --key "
             f"after-changes`; (5) sentinel -- hold until after-changes is in {checked[0]} and "
-            f"{checked[1]}; (6) actions, tagged check -- {VERIFY} checks both from the tail, "
-            f"one change at a time with its whole before-image and the row it leaves, nothing "
+            f"{checked[1]}; (6) actions, tagged check -- {VERIFY} checks {checked[0]} from the "
+            f"tail and {checked[1]} {src.head_note}, one change at a time with its whole "
+            f"before-image and the row it leaves, nothing "
             f"of {', '.join(UNTRACKED)} (each its own lane: one failing does not hide the "
             f"other); {colls[2]} and {colls[3]} run over the same changes, unchecked: their "
             f"rows nest the values the check reads flat; (7) monitor. {_run(name)}"
@@ -488,7 +602,10 @@ def keys(src: Source) -> list:
             sentinel_data("sentinel-changed", d, "after-changes"),
         ),
         {"sentinel": [s for c in checked for s in sentinel(c, "after-changes")["sentinel"]]},
-        actions(*(verify(src, f"verify-{c}", c, "tail", cont=True) for c in checked)),
+        actions(
+            verify(src, f"verify-{checked[0]}", checked[0], "tail", cont=True),
+            verify(src, f"verify-{checked[1]}", checked[1], src.head_start, cont=True),
+        ),
         monitor(),
     ]
 

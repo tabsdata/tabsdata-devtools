@@ -98,6 +98,11 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
     # subclass that has no multi-statement transactions, or that locks a whole
     # table for a write, says False.
     supports_trx_modes: bool = True
+    # The dialect's DELETE locks every row it scans, not only the rows it removes
+    # (MySQL InnoDB, Db2): on a table with no key and no unique index it scans it
+    # all, and waits on any row another open transaction wrote. Postgres reads row versions and waits only on the rows
+    # its WHERE matches, so it says False.
+    scan_locks: bool = False
 
     # ---- managed venvs (see _venv) ----
     # Starting and probing a container is docker-only (readiness runs as an
@@ -597,6 +602,8 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
                     f"{self.label} applies {label} serially only "
                     f"({constants.OPT_TRX_MODE} {trx.TrxMode.SERIAL.value})"
                 )
+            if self.scan_locks:
+                self._refuse_scan_waits(uri, transactions, schedule, label)
             print(
                 f">>> {schedule.transactions} transaction(s) {schedule.mode.value}, "
                 f"{schedule.concurrency} open at once: {schedule.summary} …"
@@ -612,6 +619,62 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         for table, delta in datagen.net_row_deltas(transactions).items():
             new[table] = max(0, new.get(table, 0) + delta)
         return new
+
+    def reflect_schema(self, uri: str) -> str | None:
+        """The schema a domain's tables are reflected in; None is the
+        connection's default, right wherever the domain is a database."""
+        return None
+
+    def keyless_tables(self, uri: str, tables: set[str]) -> set[str]:
+        """Those of `tables` with no primary key and no unique index or
+        constraint -- the ones an UPDATE or DELETE has to scan whole."""
+        from sqlalchemy import create_engine, inspect
+
+        engine = create_engine(uri)
+        schema = self.reflect_schema(uri)
+        out: set[str] = set()
+        try:
+            insp = inspect(engine)
+            for t in sorted(tables):
+                if insp.get_pk_constraint(t, schema=schema).get("constrained_columns"):
+                    continue
+                if any(i.get("unique") for i in insp.get_indexes(t, schema=schema)):
+                    continue
+                try:
+                    if insp.get_unique_constraints(t, schema=schema):
+                        continue
+                except NotImplementedError:  # a dialect that reports them as indexes
+                    pass
+                out.add(t)
+        except Exception as exc:  # noqa: BLE001 - surface the database's own message
+            raise TdxError(
+                f"{self.label}: cannot read the tables' keys: {exc}",
+                db_failure(exc, statement="(reflection)", url=uri, label="keys"),
+            ) from exc
+        finally:
+            engine.dispose()
+        return out
+
+    def _refuse_scan_waits(self, uri: str, transactions: list, schedule, label: str):
+        """Refuse a schedule that would wait on its own run before it starts:
+        the one thread cannot commit what a statement waits for, so the
+        dialect's lock timeout would end it half applied, after seconds."""
+        from tabsdata_dev.common.systems import trx
+
+        written = {c.table for txn in transactions for c in txn}
+        hit = trx.scan_waits(transactions, schedule, self.keyless_tables(uri, written))
+        if hit is None:
+            return
+        txn, table, other = hit
+        raise TdxError(
+            f"{self.label} cannot apply this {label} as {schedule.label}: transaction "
+            f"{txn} deletes from {table}, which has no key or unique index, so "
+            f"{self.label} scans it whole and locks every row it reads -- and transaction "
+            f"{other}, open beside it, has written rows there it cannot commit until the "
+            f"statement returns. Leave {table} out of this run ({constants.OPT_ENTITY}) "
+            f"and change it in a serial one, or use {constants.OPT_TRX_MODE} serial or "
+            f"nested"
+        )
 
     def drop_all_tables(self, uri: str) -> None:
         from sqlalchemy import MetaData, create_engine

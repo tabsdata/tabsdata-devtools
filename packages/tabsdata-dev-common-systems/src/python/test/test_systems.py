@@ -2694,3 +2694,50 @@ def test_modify_data_entity_lists_leave_the_unnamed_tables_alone(tmp_path, monke
         run("accounts,nope")
     with pytest.raises(TdxError, match="names no entity"):
         run(" , ")
+
+
+def test_scan_waits_finds_the_statement_that_would_wait_on_its_own_run():
+    """On a dialect that locks every row a DELETE scans, a DELETE of a keyless
+    table waits for any other open transaction that wrote there -- the
+    statement both real runs stopped at (an UPDATE passes such rows by). An
+    interleaved Mix run meets one in its first round; a nest never does, its
+    transactions all beginning on another table; serial cannot; and a run that
+    leaves the keyless table out has nothing to scan."""
+    from tabsdata_dev.common.systems import trx
+    from tabsdata_dev.common.systems.datagen import ChangeSpec, OpSelector
+    from tabsdata_dev.common.systems.trx import TrxMode
+
+    model = datagen.load_model("employeescdc")
+
+    def plan(tables):
+        spec = ChangeSpec(
+            entities=tables,
+            ops=OpSelector.MIX,
+            sets=250,
+            rows_per_entity={t: 1 for t in tables},
+            seed=1,
+            insert_base=1000,
+        )
+        return datagen.plan(model, spec, {e.table: 10000 for e in model.entities})
+
+    every = [e.table for e in model.entities]
+    txns = plan(every)
+    sizes = [len(t) for t in txns]
+    hit = trx.scan_waits(
+        txns, trx.schedule(sizes, TrxMode.INTERLEAVED, 8), {"readings"}
+    )
+    assert hit == (2, "readings", 0)  # txn 2's delete behind txn 0's insert
+    assert trx.scan_waits(txns, trx.schedule(sizes, TrxMode.MIX, 8), {"readings"})
+    assert (
+        trx.scan_waits(txns, trx.schedule(sizes, TrxMode.NESTED, 8), {"readings"})
+        is None
+    )
+    assert (
+        trx.scan_waits(txns, trx.schedule(sizes, TrxMode.SERIAL), {"readings"}) is None
+    )
+    assert (
+        trx.scan_waits(txns, trx.schedule(sizes, TrxMode.INTERLEAVED, 8), set()) is None
+    )
+    rest = plan([t for t in every if t != "readings"])
+    sched = trx.schedule([len(t) for t in rest], TrxMode.INTERLEAVED, 8)
+    assert trx.scan_waits(rest, sched, {"readings"}) is None

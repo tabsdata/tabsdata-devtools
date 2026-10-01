@@ -32,8 +32,9 @@ times the phases, `--dry-run` prints the commands.
   must survive, one suite each -- from an empty database, an initial load, an initial load
   under churn whose transactions run `--trx-mode serial|interleaved|nested|mix`, a tracked
   table left quiet for several rollovers, every key shape, the publisher disabled and enabled
-  three times -- written by `cdc/gen_suites.py` per source (postgres so far; mysql and db2
-  keep their hand-written three until they get the same set). Every one changes a table its
+  three times -- written by `cdc/gen_suites.py` for each of postgrescdc, mysqlcdc and db2cdc
+  (a `Source` each: its publishers, its connections -- one MySQL server_id per collection that
+  may run beside another -- what its log carries and how its head start is checked). Every one changes a table its
   stream does not track (`employeescdc`'s `audit`). `performance` holds the CDC ingestion suites (`gen_suites.py`
   writes them: per source an initial load and a changes run over a million rows loaded
   before the stream starts, so it reads a backlog). `scripts/cdc_throughput.py` measures

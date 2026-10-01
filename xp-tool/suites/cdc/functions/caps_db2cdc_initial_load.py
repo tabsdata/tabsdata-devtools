@@ -4,7 +4,8 @@
 
 """caps_db2cdc_initial_load — the Db2 CDC stream source with ``initial_load``.
 
-A stream publisher over EVERY table of the ``employeescdc`` model -- one table per way a
+A stream publisher over every table of the ``employeescdc`` model but ``audit`` (which
+every data command changes too: ``verify_cdc_ops.py --untracked audit``) -- one table per way a
 row is identified: ``accounts`` (a primary key every update CHANGES), ``ledger`` (a
 composite primary key), ``devices`` (no primary key, a unique index), ``readings``
 (no primary key and no index) -- and its xp_sentinel, started with
@@ -14,20 +15,26 @@ row per table -- and then reads the CD tables from the commit sequence the snaps
 consistent at. ``start_from`` is not allowed with it. ``tables`` still names the CD
 tables (``${D0__CD_TABLE_PREFIX}<TABLE>``, the domain's own, which the db2cdc system
 registers for every model table); the source behind each is resolved through
-``ASN.IBMSNAP_REGISTER``, and the snapshot reads it, locking it briefly while the
-capture position is read.
+``ASN.IBMSNAP_REGISTER``, and the snapshot reads it under cursor stability, locking no
+table: the log position is read first, so a change committed while the rows are read
+may be both loaded and replayed, never lost.
 
 ``xp_sentinel`` is the model's sentinel entity: a suite writes keys into it with ``tdd
 domain sentinel-data`` and waits for them to arrive in ``xp_sentinel_changes`` (an xp
 ``sentinel`` stage), which is how it knows the changes before a key have flushed.
 
-Two functions, one per suite, identical -- each suite's domain brings its own CD tables:
+Two functions, identical but for the live one's 30s trigger -- each suite's domain
+brings its own CD tables, so one function serves several (``gen_suites.py`` writes them):
 
-- ``db2cdc_initial_load``      : suite ``db2cdc_initial_load`` -- the snapshot is taken
-                                 over quiet tables: the load is the whole seed and the
-                                 changes after it are one modify-data pass.
-- ``db2cdc_initial_load_live`` : suite ``db2cdc_initial_load_live`` -- modify-data keeps
-                                 changing the tables from before the project exists,
+- ``db2cdc_initial_load``      : the snapshot is taken over quiet tables --
+                                 ``db2cdc_initial_load`` (over the seed),
+                                 ``db2cdc_from_empty`` (over empty tables),
+                                 ``db2cdc_quiet_table`` and ``db2cdc_pause_resume``
+                                 (enabled again, it resumes each CD table from its
+                                 saved commit sequence; the load is not taken again).
+- ``db2cdc_initial_load_live`` : ``db2cdc_initial_load_live_<mode>`` -- modify-data
+                                 keeps changing the tables from before the project
+                                 exists, ``--trx-mode serial|interleaved|nested|mix``,
                                  so the snapshot is taken over tables changing under
                                  it and the changes after it arrive as CDC rows.
 
@@ -82,11 +89,18 @@ _CFG = {
 }
 
 
-def _source() -> Db2CdcStreamSrc:
+# Under live churn: a manifest at most every 30s. The trigger's seconds are also the
+# floor between manifests, and a publisher run takes one manifest, about every 30s
+# on a local server -- a stream closing one every 10s under steady change falls
+# further behind for as long as the churn lasts.
+_LIVE_CFG = {**_CFG, "tabsdata.cdc.trigger.max_secs": unsafe_seconds(30)}
+
+
+def _source(cfg: dict = _CFG) -> Db2CdcStreamSrc:
     return Db2CdcStreamSrc(
         tables=[*_TABLES, _SENTINEL_TABLE],
         initial_load=True,
-        src_cfg=_CFG,
+        src_cfg=cfg,
     )
 
 
@@ -115,7 +129,7 @@ def db2cdc_initial_load(
 
 
 @stream_publisher(
-    source=_source(),
+    source=_source(_LIVE_CFG),
     flush_interval_mins=1,
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )

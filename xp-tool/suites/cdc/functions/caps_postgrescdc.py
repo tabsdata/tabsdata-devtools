@@ -32,8 +32,14 @@ them; they carry no execution plan or transaction).
 REPLICATION SLOTS: every variant declares its OWN slot with
 ``replication_slot_behavior="create"`` (create, no-op if it exists). A slot admits ONE
 active consumer, and all four variants run concurrently, so the per-variant slots are
-what keeps them from fighting (each variant also sits in its own collection). A slot
-holds WAL until consumed; destroying the domain drops every slot on its database.
+what keeps them from fighting (each variant also sits in its own collection). Each is
+named after the domain's own slot (``${D0__REPLICATION_SLOT}``, its database's name) with
+the variant's suffix: slot names are server-wide, and a fixed name (``td_cdc_base``, as
+these were) is held by whichever run on the system took it first -- a kept run's
+publisher left the next run's tail stream with nothing ("replication slot ... is active
+for PID ..."). The suffix keeps a name inside Postgres's 63 bytes for any database name
+under 56. A slot holds WAL until consumed; destroying the domain drops every slot on its
+database, these with it.
 
 Variants:
 - ``postgrescdc_in``        : base — ``start_from="tail"``, ``columns_format="columns"``
@@ -83,6 +89,9 @@ _CFG = {
     "postgres.cdc.blocking_timeout_seconds": 5,
 }
 
+# The D0 domain's own replication slot's name, a stem for the variants' own slots.
+_SLOT = "${D0__REPLICATION_SLOT}"
+
 _Out = tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]
 
 
@@ -92,7 +101,7 @@ _Out = tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec, Tab
 @stream_publisher(
     source=PostgresCdcStreamSrc(
         tables=_TABLES,
-        replication_slot="td_cdc_base",
+        replication_slot=f"{_SLOT}_tail",
         replication_slot_behavior="create",
         start_from="tail",
         src_cfg=_CFG,
@@ -113,7 +122,7 @@ def postgrescdc_in(
 @stream_publisher(
     source=PostgresCdcStreamSrc(
         tables=_TABLES,
-        replication_slot="td_cdc_head",
+        replication_slot=f"{_SLOT}_head",
         replication_slot_behavior="create",
         start_from="head",
         src_cfg=_CFG,
@@ -135,7 +144,7 @@ def postgrescdc_in_head(
 @stream_publisher(
     source=PostgresCdcStreamSrc(
         tables=_TABLES,
-        replication_slot="td_cdc_struct",
+        replication_slot=f"{_SLOT}_struct",
         replication_slot_behavior="create",
         start_from="tail",
         columns_format="struct",
@@ -159,7 +168,7 @@ def postgrescdc_in_struct(
 @stream_publisher(
     source=PostgresCdcStreamSrc(
         tables=_TABLES,
-        replication_slot="td_cdc_map",
+        replication_slot=f"{_SLOT}_map",
         replication_slot_behavior="create",
         start_from="tail",
         columns_format="map",

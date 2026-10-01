@@ -186,7 +186,7 @@ db2cdc system names it after the domain: `ASN.TD_<tag of the schema>__<TABLE>`. 
 domain records the prefix as `CD_TABLE_PREFIX`, and `db2cdc_stream`'s functions name
 their tables `${D0__CD_TABLE_PREFIX}EMPLOYEES`, which xp fills in when it registers
 them. Any number of db2cdc domains of one model share a system -- this suite and
-`cdc/db2cdc` can be up together.
+the `cdc/db2cdc_*` suites can be up together.
 
 `Db2Cdc.destroy_domain` deregisters every table under the domain's schema before
 dropping it, which is why a db2cdc teardown takes minutes rather than a second.

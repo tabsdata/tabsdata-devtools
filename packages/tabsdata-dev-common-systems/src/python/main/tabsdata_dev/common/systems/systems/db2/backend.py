@@ -44,12 +44,19 @@ class Db2(SqlContainerBackend):
     admin_db = _XP_DB
     ready_timeout = 600
     extra_run_flags = ["--privileged"]
+    scan_locks = True  # a searched DELETE locks the rows it scans
     system_schemas = frozenset({"nullid", "sqlj", "db2inst1", "db2gse", "db2qp"})
 
     @staticmethod
     def _schema(name: str) -> str:
         # Db2 folds unquoted identifiers to upper case.
         return name.upper()
+
+    def reflect_schema(self, uri: str) -> str | None:
+        # Reflection's default is the login's schema (db2inst1); the domain's
+        # tables are where the connection's currentSchema puts them.
+        m = re.search(r"currentSchema=([^&]+)", uri)
+        return m.group(1) if m else None
 
     def concurrent_session_setup(self) -> list[str]:
         # The special register, for this connection; the database default is

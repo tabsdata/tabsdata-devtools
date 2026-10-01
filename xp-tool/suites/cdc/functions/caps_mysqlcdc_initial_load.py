@@ -4,7 +4,8 @@
 
 """caps_mysqlcdc_initial_load — the MySQL CDC stream source with ``initial_load``.
 
-A stream publisher over EVERY table of the ``employeescdc`` model -- one table per way a
+A stream publisher over every table of the ``employeescdc`` model but ``audit`` (which
+every data command changes too: ``verify_cdc_ops.py --untracked audit``) -- one table per way a
 row is identified: ``accounts`` (a primary key every update CHANGES), ``ledger`` (a
 composite primary key), ``devices`` (no primary key, a unique index), ``readings``
 (no primary key and no index) -- and its xp_sentinel, started with
@@ -22,19 +23,24 @@ without a key still names its row by every column.
 domain sentinel-data`` and waits for them to arrive in ``xp_sentinel_changes`` (an xp
 ``sentinel`` stage), which is how it knows the changes before a key have flushed.
 
-Two functions, one per suite, identical but for the collection that holds each -- and
-so its connection: ``server_id`` lives on the connection and MySQL admits one replica
-per id, so the two suites use their own (mysql_cdc_812.yaml, mysql_cdc_813.yaml) and
-can run at the same time:
+Two functions, identical but for the live one's 30s trigger, each serving several suites
+(``gen_suites.py`` writes them). Every suite's collection has a connection of its own:
+``server_id`` lives on the connection and MySQL admits one replica per id, so each
+uses one of the 81x templates (mysql_cdc_812.yaml to mysql_cdc_819.yaml) and all can
+run at the same time:
 
-- ``mysqlcdc_initial_load``      : suite ``mysqlcdc_initial_load`` -- the snapshot is
-                                   taken over quiet tables: the load is the whole seed
-                                   and the changes after it are one modify-data pass.
-- ``mysqlcdc_initial_load_live`` : suite ``mysqlcdc_initial_load_live`` -- modify-data
+- ``mysqlcdc_initial_load``      : the snapshot is taken over quiet tables --
+                                   ``mysqlcdc_initial_load`` (over the seed),
+                                   ``mysqlcdc_from_empty`` (over empty tables),
+                                   ``mysqlcdc_quiet_table`` and
+                                   ``mysqlcdc_pause_resume`` (enabled again, it
+                                   resumes from its saved GTID set; the load is not
+                                   taken again).
+- ``mysqlcdc_initial_load_live`` : ``mysqlcdc_initial_load_live_<mode>`` -- modify-data
                                    keeps changing the tables from before the project
-                                   exists, so the snapshot is taken over tables
-                                   changing under it and the changes after it arrive
-                                   as CDC rows.
+                                   exists, ``--trx-mode serial|interleaved|nested|mix``,
+                                   so the snapshot is taken over tables changing under
+                                   it and the changes after it arrive as CDC rows.
 
 Registering a stream publisher STARTS it (no trigger); the snapshot is its first work.
 """
@@ -72,11 +78,18 @@ _CFG = {
 }
 
 
-def _source() -> MySQLCdcStreamSrc:
+# Under live churn: a manifest at most every 30s. The trigger's seconds are also the
+# floor between manifests, and a publisher run takes one manifest, about every 30s
+# on a local server -- a stream closing one every 10s under steady change falls
+# further behind for as long as the churn lasts.
+_LIVE_CFG = {**_CFG, "tabsdata.cdc.trigger.max_secs": unsafe_seconds(30)}
+
+
+def _source(cfg: dict = _CFG) -> MySQLCdcStreamSrc:
     return MySQLCdcStreamSrc(
         tables=[*_TABLES, _SENTINEL_TABLE],
         initial_load=True,
-        src_cfg=_CFG,
+        src_cfg=cfg,
     )
 
 
@@ -105,7 +118,7 @@ def mysqlcdc_initial_load(
 
 
 @stream_publisher(
-    source=_source(),
+    source=_source(_LIVE_CFG),
     flush_interval_mins=1,
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )

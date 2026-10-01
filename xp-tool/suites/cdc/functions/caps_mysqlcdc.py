@@ -15,7 +15,9 @@ The suite tracks every table of the ``employeescdc`` model -- one table per way 
 identified: ``accounts`` (a primary key every update CHANGES), ``ledger`` (a composite
 primary key), ``devices`` (no primary key, a unique index), ``readings`` (no primary
 key and no index) -- and its xp_sentinel, so ``tdd domain modify-data`` on the backing
-domain produces inserts, updates and deletes by each for the stream to capture.
+domain produces inserts, updates and deletes by each for the stream to capture. The model's
+``audit`` table is changed too and tracked by none of them (suite ``mysqlcdc_keys``,
+checked ``--untracked audit``).
 
 NO TRIGGER IS INVOLVED: registering a stream publisher STARTS it. The worker comes up
 seconds after ``create-project`` and runs until the function is disabled or deleted, so

@@ -80,7 +80,16 @@ manifests so a test suite gets the same data on every backend.
   a child inserted under it is open, a table scanned for a key it has no index on, another
   session -- ends as an error naming the statement rather than a hang. MySQL's concurrent
   connections also run READ COMMITTED: under REPEATABLE READ a write that scans a keyless
-  table (employeescdc's `readings`) locks every row it reads. Oracle has no DML lock-wait
+  table (employeescdc's `readings`) locks every row it reads. Even under READ COMMITTED a
+  DELETE on such a table still locks each row it scans, on MySQL and on Db2 (`scan_locks`),
+  so it waits on any row another open transaction wrote there: before such a schedule runs,
+  the backend reflects which written tables have neither a key nor a unique index (Db2 in the
+  domain's `currentSchema`) and replays the schedule (`trx.scan_waits`), refusing the first
+  DELETE that would wait, by table and transactions. A nest never meets one -- its
+  transactions all begin on another table -- an interleaved run does in its first round; an
+  UPDATE passes such rows by (it reads their last committed version), so only DELETE counts.
+  The CDC suites change that table in a serial pass of its own beside an interleaved or mix
+  churn there. Oracle has no DML lock-wait
   timeout, so there only the refusal stands between a contended plan and a wait. Serial is
   untouched by any of this.
 - **The data verbs report the same shape**: `trx_mode`, `transactions`, `trx_concurrency` and

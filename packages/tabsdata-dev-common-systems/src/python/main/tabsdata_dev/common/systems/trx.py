@@ -30,7 +30,8 @@ One thread drives a schedule, each open transaction on a connection of its
 own: that is what makes the interleaving exact. It is also why two open
 transactions must never want the same row -- the second would wait for a
 commit that cannot come until it returns -- so :func:`contention` is checked
-before a concurrent schedule runs.
+before a concurrent schedule runs, and, on a dialect that locks every row a
+DELETE scans, :func:`scan_waits` over its tables without a key.
 """
 
 from __future__ import annotations
@@ -225,3 +226,36 @@ def contention(transactions: list[Transaction]) -> list[tuple[str, dict]]:
             key = (ch.table, tuple(sorted((k, str(v)) for k, v in ch.where.items())))
             seen.setdefault(key, set()).add(t)
     return [(table, dict(key)) for (table, key), txns in seen.items() if len(txns) > 1]
+
+
+def scan_waits(
+    transactions: list[Transaction], sched: Schedule, scanned: set[str]
+) -> tuple[int, str, int] | None:
+    """The first statement of `sched` that would wait on its own run, on a
+    dialect whose DELETE locks every row it scans (MySQL, Db2): a DELETE of a
+    table in `scanned` -- one with no key and no unique index, so the
+    statement reads all of it -- while another open transaction has already
+    written that table and holds its rows until it commits, which the one
+    thread cannot reach. An UPDATE does not wait there: both read the last
+    committed version of a row another transaction holds and pass it by when
+    it does not match (MySQL's semi-consistent read), and one that matches is
+    the same row, which :func:`contention` refuses. Returns (txn, table, blocker)
+    or None. The schedule's order decides it: a nest whose transactions all
+    begin on another table never meets one (the innermost writes the scanned
+    table with nothing else open on it), an interleaved run soon does."""
+    if not scanned:
+        return None
+    written: dict[int, set[str]] = {}
+    for step in sched.steps:
+        if step.action is Action.BEGIN:
+            written[step.txn] = set()
+        elif step.action is Action.COMMIT:
+            written.pop(step.txn, None)
+        else:
+            ch = transactions[step.txn][step.index]
+            if ch.table in scanned and ch.kind is OpKind.DELETE:
+                for other, tables in written.items():
+                    if other != step.txn and ch.table in tables:
+                        return step.txn, ch.table, other
+            written[step.txn].add(ch.table)
+    return None

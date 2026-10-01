@@ -32,6 +32,7 @@ class Mysql(SqlContainerBackend):
     root_user = "root"
     driver = "mysql+mysqlconnector"
     sql_quote = "`"
+    scan_locks = True  # InnoDB locks every row a DELETE scans
     cmd_args = [
         "--server-id=1",
         "--log-bin=mysql-bin",

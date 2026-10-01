@@ -1,0 +1,45 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: mysql-cdc (stream-src) — server_id 814
+# One of the 81x templates, which differ ONLY in server_id: MySQL admits a single replica
+# per server id, and every registered CDC stream publisher attaches its own replica, so
+# each concurrently-registered mysql-cdc collection needs a distinct id. The 81x block is
+# reserved for the single-collection cdc/mysqlcdc_* suites (cdc/gen_suites.py):
+# initial_load 812, initial_load_live_serial 813, _interleaved 814, _nested 815, _mix 816,
+# from_empty 817, quiet_table 818, pause_resume 819 -- clear of the 51x (cdc/mysqlcdc_keys),
+# 61x (examples), demo (712) and performance (91x) ids, so every mysql-cdc suite can run at
+# the same time.
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.mysql:MySQLCdcStreamSrcConn
+spec:
+
+  # accepts: <value> | secret:<value>
+  # replace <value> with the actual uri
+  #
+  uri: '$secret:D0__URI'
+  credentials:
+    kind: userPasswordCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.common.types:UserPassword
+    spec:
+
+      # replace <value> with the actual user
+      #
+      user: '$secret:D0__USER'
+
+      # replace <value> with the actual password
+      #
+      password: '$secret:D0__PASSWORD'
+
+  # optional (default: 512)
+  #
+  server_id: 814
+  # entity_whitelist  (optional, default: none) -- a list
+  # entity_whitelist: []
+  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
+  # conn_cfg: {}
