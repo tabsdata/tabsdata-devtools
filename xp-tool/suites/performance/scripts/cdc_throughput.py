@@ -15,8 +15,11 @@ The files are read off the stream worker's log (``tdk worker list --proj
 $XP_PROJECT`` for COLLECTION's streaming worker, then ``tdk worker logs``), where
 the ledger logs every one it writes -- always, its logger pinned to DEBUG:
 
-    <ts> DEBUG tabsdatak.conn.common._stream._ledger: Buffer flush: writen
-         <table> → <file> (<rows> rows & <bytes> bytes)
+    <ts> DEBUG tabsdatak.conn.common._stream._ledger: Wrote <rows> row(s) and
+         <bytes> byte(s) of <table> to <file>
+
+(an older tabsdata worded it ``Buffer flush: writen <table> → <file> (<rows>
+rows & <bytes> bytes)``, which is read too).
 
 The clock starts when the worker invokes the source plugin's ``run()`` -- the
 line the streamer logs before it connects -- and stops at the last file
@@ -50,9 +53,15 @@ from tdd import TddError, note, tdd  # on the path: xp runs a python step with i
 _STREAMING = "ST"  # tdk's worker_type of a stream publisher's worker
 _TS = r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?)Z?"
 _STARTED = re.compile(_TS + r" \w+ \S+run_streamer\S*: Invoking \S+\.run\(\)")
+# The ledger's line for a file it wrote, as tabsdata words it now and as it
+# did: a script reading the old wording alone counted nothing and said PARTIAL.
 _WRITTEN = re.compile(
-    _TS + r" \w+ \S+_ledger: Buffer flush: writen (\S+) \S+ (\S+) "
-    r"\((\d+) rows & (\d+) bytes\)"
+    _TS + r" \w+ \S+_ledger: Wrote (?P<rows>\d+) row\(s\) and (?P<bytes>\d+) "
+    r"byte\(s\) of (?P<table>\S+) to (?P<file>\S+)"
+)
+_WRITTEN_OLD = re.compile(
+    _TS + r" \w+ \S+_ledger: Buffer flush: writen (?P<table>\S+) \S+ (?P<file>\S+) "
+    r"\((?P<rows>\d+) rows & (?P<bytes>\d+) bytes\)"
 )
 
 
@@ -86,10 +95,10 @@ def parse(logs: list[str]) -> tuple[float | None, list[dict]]:
         for line in log.splitlines():
             if m := _STARTED.search(line):
                 started = _at(m.group(1)) if started is None else started
-            elif m := _WRITTEN.search(line):
+            elif m := _WRITTEN.search(line) or _WRITTEN_OLD.search(line):
                 files.append(
-                    {"at": _at(m.group(1)), "table": m.group(2), "file": m.group(3),
-                     "rows": int(m.group(4)), "bytes": int(m.group(5))}
+                    {"at": _at(m.group(1)), "table": m["table"], "file": m["file"],
+                     "rows": int(m["rows"]), "bytes": int(m["bytes"])}
                 )
     return started, files
 
