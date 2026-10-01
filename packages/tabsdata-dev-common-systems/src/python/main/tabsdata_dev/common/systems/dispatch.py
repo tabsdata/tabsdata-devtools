@@ -12,7 +12,7 @@
     tdd system create  --type ALL|t1,t2 [--sys-prefix P]         # one per type
     tdd system destroy --sys NAME|s1,s2|ALL | --manifest FILE [--force] [--dry-run]
     tdd system status  --sys NAME|list|ALL | --manifest FILE
-    tdd system purge   --sys NAME|list|ALL [--external-prefix PREFIX] [--force]
+    tdd system purge   --sys NAME|list|ALL --external-prefix PREFIX [--force]
     tdd system restart --sys NAME|list|ALL | --manifest FILE
     tdd system fetch-bin [--type TYPE|t1,t2|ALL]
     tdd system connect --remote-sys [user@]HOST:PATH --remote-secret-env VAR --sys NAME

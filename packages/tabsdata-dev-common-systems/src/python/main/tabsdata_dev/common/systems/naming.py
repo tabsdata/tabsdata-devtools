@@ -78,9 +78,7 @@ def fit_entity_name(name: str, max_len: int, existing: set[str]) -> str:
     )
 
 
-def purge_match(name: str, prefix: str | None) -> bool:
+def purge_match(name: str, prefix: str) -> bool:
     """Whether entity `name` matches the purge prefix (case-insensitive
-    ``startswith``). ``prefix is None`` -> the default ``d_<user>_<build>_``
-    (this run's own containers); ``""`` -> every container; else the raw prefix."""
-    eff = default_domain_prefix() if prefix is None else prefix
-    return name.lower().startswith(eff.lower())
+    ``startswith``); ``""`` matches every container."""
+    return name.lower().startswith(prefix.lower())
