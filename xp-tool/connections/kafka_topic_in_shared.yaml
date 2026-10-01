@@ -27,5 +27,9 @@ spec:
   group_id: '${D0__DB}_shared'
   # credentials  (optional, default: none) -- OMITTED: the redpanda domain runs without SASL
   # schema_registry  (optional, default: none) -- left off, as in kafka_topic_in.yaml
-  # conn_cfg  (optional, default: none) -- a dict (str-keyed)
-  # conn_cfg: {}
+
+  # forwarded to confluent_kafka.Consumer. Cooperative rebalancing moves only the
+  # partitions that change owner when a member joins; the default (eager) revokes every
+  # partition from every member and hands them out again.
+  conn_cfg:
+    partition.assignment.strategy: cooperative-sticky
