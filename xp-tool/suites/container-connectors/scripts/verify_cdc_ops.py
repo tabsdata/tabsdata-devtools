@@ -91,7 +91,7 @@ import sys
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from tdd import TddError, tdd  # put on the path by `tdd _xp-execute`
+from tdd import TddError, tdd  # on the path: xp runs a python step with it
 
 LOAD_TX = "initial-load"
 LOGGED, UNLOGGED = "logged", "unlogged"

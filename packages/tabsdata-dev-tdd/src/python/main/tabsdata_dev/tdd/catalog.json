@@ -1,5 +1,5 @@
 {
-  "fingerprint": "31a0f648f81d635f",
+  "fingerprint": "529c079f1672a438",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
@@ -39,11 +39,6 @@
       "tabsdata-dev-deps-xp",
       "tabsdata-dev-tool-pqt",
       "tabsdata-dev-tool-xp"
-    ],
-    "xp-execute": [
-      "tabsdata-dev-common-core",
-      "tabsdata-dev-deps-xp-execute",
-      "tabsdata-dev-tool-xp-execute"
     ]
   },
   "python": {
@@ -130,17 +125,6 @@
       ],
       "summary": "plumbing of tdd venv: create, delete, list and describe managed venvs (no activation)",
       "toolset": "launchers"
-    },
-    "_xp-execute": {
-      "commons": [
-        "tabsdata-dev-common-core"
-      ],
-      "hidden": false,
-      "launcher": true,
-      "package": "tabsdata-dev-tool-xp-execute",
-      "reqs": [],
-      "summary": "run an xp suite's check script with the tdd module on its path (plumbing of xp's execute stage)",
-      "toolset": "xp-execute"
     },
     "apidoc": {
       "commons": [
@@ -354,7 +338,6 @@
     "pypi",
     "salesforce",
     "systems",
-    "xp",
-    "xp-execute"
+    "xp"
   ]
 }

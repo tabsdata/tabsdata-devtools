@@ -2697,3 +2697,74 @@ def test_run_suite_leaves_the_suite_as_it_resolved_it(xp_root, capsys):
     doc = json.loads(resolved.read_text())
     assert doc[0]["domains"][0]["name"] == f"{XP_ID}_fs"
     assert doc[1]["collections"][0]["domains"] == {"D0": f"{XP_ID}_world"}
+
+
+def _fake_tdd_exe(bin_dir: pathlib.Path) -> None:
+    """A tdd-exe that echoes its arguments, and fails on `boom`."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    exe = bin_dir / "tdd-exe"
+    exe.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = boom ]; then echo "it broke" >&2; exit 3; fi\n'
+        'echo "args: $*"\n'
+    )
+    exe.chmod(0o755)
+
+
+def test_the_tdd_module_runs_tdd_exe_and_says_how_it_failed(tmp_path, monkeypatch):
+    """`from tdd import tdd`, as a python step has it: `tdd()` is tdd-exe, its
+    output back and its failure a TddError carrying status and what it said."""
+    import os
+    import subprocess
+    import sys
+
+    from tabsdata_dev.tool.xp import actions
+
+    _fake_tdd_exe(tmp_path / "bin")
+    script = tmp_path / "check.py"
+    script.write_text(
+        "from tdd import tdd, note, TddError\n"
+        "print(tdd('pqt', 'csv', 'f.parquet').strip())\n"
+        "try:\n"
+        "    tdd('boom')\n"
+        "except TddError as exc:\n"
+        "    print('failed', exc.status, exc.output.strip())\n"
+        "note('812 rows,\\n  3 rows/s')\n"
+    )
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+        "PYTHONPATH": str(actions.tdd_module_dir()),
+    }
+    done = subprocess.run(
+        [sys.executable, str(script)], env=env, capture_output=True, text=True
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.splitlines() == [
+        "args: pqt csv f.parquet",
+        "failed 3 it broke",
+        "xp-note: 812 rows, 3 rows/s",
+    ]
+    # its directory holds it alone: nothing else lands on a step's path
+    assert [
+        p.name for p in actions.tdd_module_dir().iterdir() if p.suffix == ".py"
+    ] == ["tdd.py"]
+
+
+def test_the_tdd_module_is_standard_library_only():
+    """It runs in whatever environment a step's reqs make, so it imports
+    nothing else."""
+    import ast
+
+    from tabsdata_dev.tool.xp import actions
+
+    tree = ast.parse((actions.tdd_module_dir() / "tdd.py").read_text())
+    imported = {
+        (node.module or "").split(".")[0]
+        if isinstance(node, ast.ImportFrom)
+        else alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    }
+    assert imported <= {"__future__", "subprocess", "sys", "pathlib"}, imported
