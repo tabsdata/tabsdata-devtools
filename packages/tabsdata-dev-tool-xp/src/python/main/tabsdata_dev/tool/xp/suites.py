@@ -32,8 +32,10 @@ SECTIONS = {
     "functions",
     "triggers",
     "monitor",
-    "live",
+    "actions",
     "sentinel",
+    # retired, still recognised so a suite holding one fails loudly when read
+    "live",
     "execute",
 }
 

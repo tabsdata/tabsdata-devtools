@@ -76,17 +76,27 @@
     ]
   },
   {
-    "live": [
+    "actions": [
       {
-        "name": "attach",
-        "sleep": "30s"
+        "sleep": {
+          "name": "attach",
+          "tags": [
+            "live"
+          ],
+          "time": "30s"
+        }
       },
       {
-        "name": "change",
-        "domain": {
-          "name": "${xp_name(mysqlcdc_employeescdc_xs)}",
+        "tdd": {
+          "name": "change",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
           "command": "modify-data",
           "options": [
+            "--domain",
+            "${xp_name(mysqlcdc_employeescdc_xs)}",
             "--ops",
             "Mix",
             "--sets",
@@ -97,11 +107,16 @@
         }
       },
       {
-        "name": "sentinel-changed",
-        "domain": {
-          "name": "${xp_name(mysqlcdc_employeescdc_xs)}",
+        "tdd": {
+          "name": "sentinel-changed",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
           "command": "sentinel-data",
           "options": [
+            "--domain",
+            "${xp_name(mysqlcdc_employeescdc_xs)}",
             "--key",
             "after-changes",
             "--emit-ops",
@@ -128,36 +143,46 @@
     ]
   },
   {
-    "execute": [
+    "actions": [
       {
-        "name": "verify-mysqlcdc_in",
-        "py_script": "scripts/verify_cdc_ops.py",
-        "params": [
-          "${XP_WORK_DIR}/ops.jsonl",
-          "mysqlcdc_in",
-          "--cascades",
-          "unlogged",
-          "--noops",
-          "unlogged",
-          "--start",
-          "tail"
-        ],
-        "continue_on_fail": true
+        "python": {
+          "name": "verify-mysqlcdc_in",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_cdc_ops.py",
+          "params": [
+            "${XP_WORK_DIR}/ops.jsonl",
+            "mysqlcdc_in",
+            "--cascades",
+            "unlogged",
+            "--noops",
+            "unlogged",
+            "--start",
+            "tail"
+          ],
+          "continue_on_fail": true
+        }
       },
       {
-        "name": "verify-mysqlcdc_head",
-        "py_script": "scripts/verify_cdc_ops.py",
-        "params": [
-          "${XP_WORK_DIR}/ops.jsonl",
-          "mysqlcdc_head",
-          "--cascades",
-          "unlogged",
-          "--noops",
-          "unlogged",
-          "--start",
-          "head"
-        ],
-        "continue_on_fail": true
+        "python": {
+          "name": "verify-mysqlcdc_head",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_cdc_ops.py",
+          "params": [
+            "${XP_WORK_DIR}/ops.jsonl",
+            "mysqlcdc_head",
+            "--cascades",
+            "unlogged",
+            "--noops",
+            "unlogged",
+            "--start",
+            "head"
+          ],
+          "continue_on_fail": true
+        }
       }
     ]
   },

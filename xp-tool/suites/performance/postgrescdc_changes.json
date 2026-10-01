@@ -52,17 +52,22 @@
     ]
   },
   {
-    "execute": [
+    "actions": [
       {
-        "name": "throughput",
-        "py_script": "scripts/cdc_throughput.py",
-        "params": [
-          "postgrescdc_changes",
-          "--expect",
-          "1000000",
-          "--time-out",
-          "10m"
-        ]
+        "python": {
+          "name": "throughput",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/cdc_throughput.py",
+          "params": [
+            "postgrescdc_changes",
+            "--expect",
+            "1000000",
+            "--time-out",
+            "10m"
+          ]
+        }
       }
     ]
   },

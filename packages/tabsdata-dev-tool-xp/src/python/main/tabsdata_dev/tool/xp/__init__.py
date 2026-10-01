@@ -5,7 +5,7 @@
 """xp -- run tabsdata example suites (the tabsdata-xp repo's tdx-xp, ported).
 
 A SUITE is a JSON definition -- an ordered list of stages: domains,
-collections, functions, triggers, monitor, live -- living in a dir with its
+collections, functions, triggers, monitor, actions -- living in a dir with its
 ``functions/``; ``connections/`` templates sit at the
 XP root above. The suites ship inside this package and are the default;
 ``--suites-dir DIR`` looks them up elsewhere (``export-suites --dir DIR`` copies
@@ -36,11 +36,11 @@ manifest this tool writes.
     tdd xp destroy-instance --suite-run R
     tdd xp run-triggers     --project P [--monitor --time-out T] [--profile NAME] ...
     tdd xp monitor-project  --project P --time-out T [--profile NAME] ...
-    tdd xp live-domains     --suite-run R [--secret-env VAR] [--dry-run] ...
-    tdd xp run-suite        --suite-run R [--project P] [--force] [--no-live] [--profile NAME] ...
+    tdd xp run-actions      --suite-run R [--project P] [--tags T,...] [--skip-tags T,...] [--dry-run] ...
+    tdd xp run-suite        --suite-run R [--project P] [--force] [--tags T,...] [--skip-tags T,...] [--no-actions] [--profile NAME] ...
     tdd xp enable-function  --project P --collection C --function F [--profile NAME]
     tdd xp disable-function --project P --collection C --function F [--profile NAME]
-    tdd xp one-shot         --suite SEL [--suite-run R] [--project P] [--force] [--keep] [--no-live] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
+    tdd xp one-shot         --suite SEL [--suite-run R] [--project P] [--force] [--keep] [--tags T,...] [--skip-tags T,...] [--no-actions] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
     tdd xp bench            --suite TYPE [--name N] [--keep] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
 """
 
@@ -54,7 +54,7 @@ from tabsdata_dev.common.core import cli
 from tabsdata_dev.common.core import latch as core_latch
 from tabsdata_dev.common.core import render
 
-from . import cycle, domains, live, project, state
+from . import actions, cycle, domains, project, state
 from .reporter import render_summary
 
 NAME = state.TOOL
@@ -143,6 +143,27 @@ def _profile(c):
         default=None,
         help="the tdk connection profile every tdk call uses (tdk COMMAND --profile NAME), so runs from shells on one account do not share a login (default: tdk's own)",
     )
+
+
+def _selection(c, no_actions: bool = True):
+    c.add_argument(
+        "--tags",
+        default=None,
+        metavar="T,...",
+        help="run only the actions steps tagged with one of these (a block's tags are its steps')",
+    )
+    c.add_argument(
+        "--skip-tags",
+        default=None,
+        metavar="T,...",
+        help="skip the actions steps tagged with one of these",
+    )
+    if no_actions:
+        c.add_argument(
+            "--no-actions",
+            action="store_true",
+            help="run no actions stage at all",
+        )
 
 
 def _time_out(c, required: bool = False):
@@ -318,25 +339,28 @@ def configure(p: argparse.ArgumentParser) -> None:
     c.set_defaults(func=project.cmd_monitor_project)
 
     c = sub.add_parser(
-        "live-domains",
-        help="run the suite's live script: named tdd domain data verbs, pauses, waits and repeats, blocking or side by side",
+        "run-actions",
+        help="run the suite run's actions stages, in order, as one script -- and nothing else",
     )
     _suite_run(c)
+    c.add_argument(
+        "--project",
+        default=None,
+        metavar="P",
+        help="the project ${XP_PROJECT} names (default: <XP_ID>_<suite>)",
+    )
+    _selection(c, no_actions=False)
     for add in (_secret_env, _latch, _report, _dry_run, _common):
         add(c)
-    c.set_defaults(func=live.cmd_live_domains)
+    c.set_defaults(func=actions.cmd_run_actions)
 
     c = sub.add_parser(
         "run-suite",
-        help="run the suite run's stages in the order the suite lists them: domains, collections, functions, triggers, monitor, live",
+        help="run the suite run's stages in the order the suite lists them: domains, collections, functions, triggers, monitor, actions, sentinel",
     )
     _suite_run(c)
     _project_opt(c)
-    c.add_argument(
-        "--no-live",
-        action="store_true",
-        help="skip the suite's live stages",
-    )
+    _selection(c)
     for add in (_fail_fast, _secret_env, _profile, _latch, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=cycle.cmd_run_suite)
@@ -368,11 +392,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="leave the suite run, project and domains set up afterwards",
     )
-    c.add_argument(
-        "--no-live",
-        action="store_true",
-        help="skip the suite's live stages",
-    )
+    _selection(c)
     for add in (_fail_fast, _secret_env, _profile, _latch, _report, _dry_run, _common):
         add(c)
     c.set_defaults(func=cycle.cmd_one_shot)

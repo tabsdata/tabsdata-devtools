@@ -19,11 +19,10 @@ from datetime import datetime, timezone
 from tabsdata_dev.common.core import batch as core_batch
 
 from . import (
+    actions,
     domains,
-    execute,
     ids,
     lanes,
-    live,
     pointers,
     project,
     shell,
@@ -44,10 +43,10 @@ def _profile_hint() -> str:
 _PROJECT_STAGES = ("collections", "functions", "triggers", "monitor", "sentinel")
 
 
-def suite_steps(inst, no_live: bool) -> int:
+def suite_steps(inst, sel: actions.Selection) -> int:
     """How many steps run-suite reports over `inst`'s stages: what each stage's
-    phase plans, the project it creates, and the live calls, which no phase
-    plans."""
+    phase plans, the project it creates, and the actions' steps that run,
+    which no phase plans."""
     steps = int(any(s.kind in _PROJECT_STAGES for s in inst.stages))
     for s in inst.stages:
         if s.kind == "domain-manifest":
@@ -57,17 +56,17 @@ def suite_steps(inst, no_live: bool) -> int:
             steps += len(groups) + len(s.collections)
         elif s.kind == "monitor":
             steps += 1
-        elif s.kind == "live":
-            steps += 0 if no_live else live.count(s.live)
+        elif s.kind == "actions":
+            steps += actions.count(s.actions, sel)
         else:
             steps += len(getattr(s, s.kind))
     return steps
 
 
-def suite_notes(inst, project_name: str, no_live: bool) -> list[str]:
+def suite_notes(inst, project_name: str, sel: actions.Selection) -> list[str]:
     """The notes run-suite's steps over `inst` are known to carry before they
-    run: the live calls' labels, the collections' types, the sentinels' keys,
-    a disabled function's, a check's that goes on failing and a trigger's plan,
+    run: the actions' labels, the collections' types, the sentinels' keys,
+    a disabled function's and a trigger's plan,
     named by a timestamp of the length its own will have. What a step finds out
     as it runs is known only then."""
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -78,21 +77,20 @@ def suite_notes(inst, project_name: str, no_live: bool) -> list[str]:
             + ("" if t.detached else ", gated")
             for t in s.triggers
         ]
-        if s.kind == "live" and not no_live:
-            notes += live.labels(s.live)
+        if s.kind == "actions":
+            notes += actions.labels(s.actions, sel)
         notes += [c.type for c in s.collections]
         notes += [x.wait_for_key for x in s.sentinel]
         notes += ["disabled" for f in s.functions if not f.enabled]
-        notes += ["continue_on_fail" for e in s.execute if e.continue_on_fail]
     return notes
 
 
 def cmd_run_suite(args) -> None:
-    """Run the instance's stages in the order the suite lists them. A live
-    stage's background entries keep running through the stages after it; the
+    """Run the suite run's stages in the order the suite lists them. An actions
+    stage's background blocks keep running through the stages after it; the
     suite's end waits for them. A suite dir runs one lane per definition, each
     through its own stages, in parallel."""
-    no_live = bool(getattr(args, "no_live", False))
+    sel = actions.selection_of(args)
     force = bool(getattr(args, "force", False))
     if not getattr(args, "project", None):
         args.project = project.default_project(args.suite_run)
@@ -119,8 +117,8 @@ def cmd_run_suite(args) -> None:
                     # its lane fails on the same, and is counted if it reports.
                     continue
                 plans[mp] = lanes.LanePlan(
-                    suite_steps(member, no_live),
-                    tuple(suite_notes(member, mp, no_live)),
+                    suite_steps(member, sel),
+                    tuple(suite_notes(member, mp, sel)),
                 )
             lanes.dispatch(
                 f"run-suite group '{args.project}'",
@@ -135,7 +133,7 @@ def cmd_run_suite(args) -> None:
                             mp,
                             "--secret-env",
                             state.run.secret_env,
-                            *(["--no-live"] if no_live else []),
+                            *sel.flags(),
                             *(["--force"] if force else []),
                             *shell.profile_flag(),
                             *shell.dry_flag(),
@@ -156,16 +154,13 @@ def cmd_run_suite(args) -> None:
         )
         # A check script reads the project through tdk, so it needs the login
         # too -- but not the project made on its account.
-        if any(s.kind in (*_PROJECT_STAGES, "execute") for s in inst.stages):
+        if any(s.kind in (*_PROJECT_STAGES, "actions") for s in inst.stages):
             shell.require_login()
             project.claim_project(args.project, args.suite_run, force)
         pointers.write_project(args.project, args.suite_run)
-        session = live.Session(inst, args.project)
-        rep().reserve(
-            suite_steps(inst, no_live), suite_notes(inst, args.project, no_live)
-        )
+        session = actions.Session(inst, args.project, sel)
+        rep().reserve(suite_steps(inst, sel), suite_notes(inst, args.project, sel))
         made = False
-        deferred = 0  # scripts that failed with continue_on_fail
         try:
             for stage in inst.stages:
                 i = stage.at
@@ -189,22 +184,20 @@ def cmd_run_suite(args) -> None:
                     project.watch(args.project, stage.monitor)
                 elif stage.kind == "sentinel":
                     project.wait_sentinels(args.project, stage.sentinel)
-                elif stage.kind == "execute":
-                    deferred += execute.run_scripts(inst, args.project, stage.execute)
-                elif no_live:
-                    rep().note(f"stage {i}: live skipped (--no-live)")
+                elif sel.none:
+                    rep().note(f"stage {i}: actions skipped (--no-actions)")
                 else:
-                    session.stage(stage.live)
+                    session.stage(stage.actions)
         except BaseException as exc:
             session.abort(exc)
             raise
         session.finish()
         rep().release()
         _say_ids(inst)
-        if deferred:
+        if session.deferred:
             state.die(
-                f"{deferred} check script(s) failed (continue_on_fail let the "
-                "suite run on) -- see the execute steps above"
+                f"{session.deferred} step(s) failed (continue_on_fail let the "
+                "suite run on) -- see the failed steps above"
             )
 
 
@@ -247,7 +240,9 @@ def cmd_one_shot(args) -> None:
                 project=proj,
                 secret_env=senv,
                 force=getattr(args, "force", False),
-                no_live=getattr(args, "no_live", False),
+                tags=getattr(args, "tags", None),
+                skip_tags=getattr(args, "skip_tags", None),
+                no_actions=getattr(args, "no_actions", False),
             )
         )
 

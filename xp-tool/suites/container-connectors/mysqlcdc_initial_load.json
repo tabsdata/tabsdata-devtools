@@ -16,13 +16,18 @@
     }
   },
   {
-    "live": [
+    "actions": [
       {
-        "name": "sentinel",
-        "domain": {
-          "name": "${xp_name(mysqlcdc_employeescdc_xs)}",
+        "tdd": {
+          "name": "sentinel",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
           "command": "sentinel-data",
           "options": [
+            "--domain",
+            "${xp_name(mysqlcdc_employeescdc_xs)}",
             "--key",
             "after-create-data",
             "--emit-ops",
@@ -64,13 +69,18 @@
     ]
   },
   {
-    "live": [
+    "actions": [
       {
-        "name": "change",
-        "domain": {
-          "name": "${xp_name(mysqlcdc_employeescdc_xs)}",
+        "tdd": {
+          "name": "change",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
           "command": "modify-data",
           "options": [
+            "--domain",
+            "${xp_name(mysqlcdc_employeescdc_xs)}",
             "--ops",
             "Mix",
             "--sets",
@@ -81,11 +91,16 @@
         }
       },
       {
-        "name": "sentinel-changed",
-        "domain": {
-          "name": "${xp_name(mysqlcdc_employeescdc_xs)}",
+        "tdd": {
+          "name": "sentinel-changed",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
           "command": "sentinel-data",
           "options": [
+            "--domain",
+            "${xp_name(mysqlcdc_employeescdc_xs)}",
             "--key",
             "after-changes",
             "--emit-ops",
@@ -106,20 +121,25 @@
     ]
   },
   {
-    "execute": [
+    "actions": [
       {
-        "name": "verify-ops",
-        "py_script": "scripts/verify_cdc_ops.py",
-        "params": [
-          "${XP_WORK_DIR}/ops.jsonl",
-          "mysqlcdc_initial_load",
-          "--cascades",
-          "unlogged",
-          "--noops",
-          "unlogged",
-          "--start",
-          "initial-load"
-        ]
+        "python": {
+          "name": "verify-ops",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_cdc_ops.py",
+          "params": [
+            "${XP_WORK_DIR}/ops.jsonl",
+            "mysqlcdc_initial_load",
+            "--cascades",
+            "unlogged",
+            "--noops",
+            "unlogged",
+            "--start",
+            "initial-load"
+          ]
+        }
       }
     ]
   },

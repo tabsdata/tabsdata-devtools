@@ -16,13 +16,18 @@
     }
   },
   {
-    "live": [
+    "actions": [
       {
-        "name": "sentinel-loaded",
-        "domain": {
-          "name": "${xp_name(postgrescdc_employeescdc_m)}",
+        "tdd": {
+          "name": "sentinel-loaded",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
           "command": "sentinel-data",
           "options": [
+            "--domain",
+            "${xp_name(postgrescdc_employeescdc_m)}",
             "--key",
             "after-create-data",
             "--emit-ops",
@@ -31,30 +36,45 @@
         }
       },
       {
-        "name": "churn",
-        "blocking": false,
-        "repeat": 20,
-        "live": [
-          {
-            "name": "change",
-            "domain": {
-              "name": "${xp_name(postgrescdc_employeescdc_m)}",
-              "command": "modify-data",
-              "options": [
-                "--ops",
-                "Mix",
-                "--sets",
-                "250",
-                "--emit-ops",
-                "${XP_WORK_DIR}/ops.jsonl"
-              ]
+        "background": {
+          "name": "churn",
+          "tags": [
+            "live"
+          ],
+          "actions": [
+            {
+              "loop": {
+                "name": "churn-pass",
+                "repeat": 20,
+                "actions": [
+                  {
+                    "tdd": {
+                      "name": "change",
+                      "tool": "domain",
+                      "command": "modify-data",
+                      "options": [
+                        "--domain",
+                        "${xp_name(postgrescdc_employeescdc_m)}",
+                        "--ops",
+                        "Mix",
+                        "--sets",
+                        "250",
+                        "--emit-ops",
+                        "${XP_WORK_DIR}/ops.jsonl"
+                      ]
+                    }
+                  },
+                  {
+                    "sleep": {
+                      "name": "pause",
+                      "time": "1s"
+                    }
+                  }
+                ]
+              }
             }
-          },
-          {
-            "name": "pause",
-            "sleep": "1s"
-          }
-        ]
+          ]
+        }
       }
     ]
   },
@@ -80,19 +100,29 @@
     ]
   },
   {
-    "live": [
+    "actions": [
       {
-        "name": "settle-wait",
-        "wait": [
-          "churn"
-        ]
+        "wait": {
+          "name": "settle-wait",
+          "tags": [
+            "live"
+          ],
+          "for": [
+            "churn"
+          ]
+        }
       },
       {
-        "name": "sentinel-churned",
-        "domain": {
-          "name": "${xp_name(postgrescdc_employeescdc_m)}",
+        "tdd": {
+          "name": "sentinel-churned",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
           "command": "sentinel-data",
           "options": [
+            "--domain",
+            "${xp_name(postgrescdc_employeescdc_m)}",
             "--key",
             "after-churn",
             "--emit-ops",
@@ -119,25 +149,30 @@
     ]
   },
   {
-    "execute": [
+    "actions": [
       {
-        "name": "verify-ops",
-        "py_script": "scripts/verify_cdc_ops.py",
-        "params": [
-          "${XP_WORK_DIR}/ops.jsonl",
-          "postgrescdc_initial_load_live",
-          "--cascades",
-          "logged",
-          "--noops",
-          "logged",
-          "--start",
-          "initial-load",
-          "--check",
-          "state",
-          "--keyless",
-          "devices",
-          "readings"
-        ]
+        "python": {
+          "name": "verify-ops",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_cdc_ops.py",
+          "params": [
+            "${XP_WORK_DIR}/ops.jsonl",
+            "postgrescdc_initial_load_live",
+            "--cascades",
+            "logged",
+            "--noops",
+            "logged",
+            "--start",
+            "initial-load",
+            "--check",
+            "state",
+            "--keyless",
+            "devices",
+            "readings"
+          ]
+        }
       }
     ]
   },
