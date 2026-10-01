@@ -14,7 +14,7 @@
           "system": "gcs"
         },
         {
-          "name": "${xp:name(gcs_world_xs)}",
+          "name": "${xp:name(world_xs)}",
           "system": "gcs",
           "model": "world",
           "data": "xs"
@@ -57,7 +57,7 @@
         "connection_template": "connection-file:connections/gcs_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp:name(gcs_world_xs)}"
+          "D0": "${xp:name(world_xs)}"
         }
       },
       {

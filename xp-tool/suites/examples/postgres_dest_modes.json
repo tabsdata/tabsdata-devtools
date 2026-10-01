@@ -11,7 +11,7 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(postgres_out)}",
+          "name": "${xp:name(out)}",
           "system": "postgres"
         }
       ]
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/postgres_sql_out.yaml",
         "domains": {
-          "D0": "${xp:name(postgres_out)}"
+          "D0": "${xp:name(out)}"
         }
       }
     ]

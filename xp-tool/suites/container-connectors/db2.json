@@ -12,7 +12,7 @@
           "data": null
         },
         {
-          "name": "${xp:name(db2_world_xs)}",
+          "name": "${xp:name(world_xs)}",
           "system": "db2",
           "model": "world",
           "data": "xs"
@@ -43,7 +43,7 @@
         "connection_template": "connection-file:connections/db2_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp:name(db2_world_xs)}"
+          "D0": "${xp:name(world_xs)}"
         }
       },
       {

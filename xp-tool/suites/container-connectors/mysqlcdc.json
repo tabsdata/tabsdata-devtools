@@ -7,7 +7,7 @@
       "emit_ops": "${xp:dir}/ops.jsonl",
       "domains": [
         {
-          "name": "${xp:name(mysqlcdc_employeescdc_xs)}",
+          "name": "${xp:name(employeescdc_xs)}",
           "system": "mysqlcdc",
           "model": "employeescdc",
           "data": "xs"
@@ -23,7 +23,7 @@
         "connection_template": "connection-file:connections/mysql_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp:name(mysqlcdc_employeescdc_xs)}"
+          "D0": "${xp:name(employeescdc_xs)}"
         }
       },
       {
@@ -32,7 +32,7 @@
         "connection_template": "connection-file:connections/mysql_cdc_513.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp:name(mysqlcdc_employeescdc_xs)}"
+          "D0": "${xp:name(employeescdc_xs)}"
         }
       },
       {
@@ -41,7 +41,7 @@
         "connection_template": "connection-file:connections/mysql_cdc_514.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp:name(mysqlcdc_employeescdc_xs)}"
+          "D0": "${xp:name(employeescdc_xs)}"
         }
       },
       {
@@ -50,7 +50,7 @@
         "connection_template": "connection-file:connections/mysql_cdc_515.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp:name(mysqlcdc_employeescdc_xs)}"
+          "D0": "${xp:name(employeescdc_xs)}"
         }
       }
     ]
@@ -96,7 +96,7 @@
           "command": "modify-data",
           "options": [
             "--domain",
-            "${xp:name(mysqlcdc_employeescdc_xs)}",
+            "${xp:name(employeescdc_xs)}",
             "--ops",
             "Mix",
             "--sets",
@@ -116,7 +116,7 @@
           "command": "sentinel-data",
           "options": [
             "--domain",
-            "${xp:name(mysqlcdc_employeescdc_xs)}",
+            "${xp:name(employeescdc_xs)}",
             "--key",
             "after-changes",
             "--emit-ops",

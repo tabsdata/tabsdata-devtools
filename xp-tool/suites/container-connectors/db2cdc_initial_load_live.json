@@ -7,7 +7,7 @@
       "emit_ops": "${xp:dir}/ops.jsonl",
       "domains": [
         {
-          "name": "${xp:name(db2cdc_employeescdc_m)}",
+          "name": "${xp:name(employeescdc_m)}",
           "system": "db2cdc",
           "model": "employeescdc",
           "data": "m"
@@ -27,7 +27,7 @@
           "command": "sentinel-data",
           "options": [
             "--domain",
-            "${xp:name(db2cdc_employeescdc_m)}",
+            "${xp:name(employeescdc_m)}",
             "--key",
             "after-create-data",
             "--emit-ops",
@@ -54,7 +54,7 @@
                       "command": "modify-data",
                       "options": [
                         "--domain",
-                        "${xp:name(db2cdc_employeescdc_m)}",
+                        "${xp:name(employeescdc_m)}",
                         "--ops",
                         "Mix",
                         "--sets",
@@ -86,7 +86,7 @@
         "connection_template": "connection-file:connections/db2_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp:name(db2cdc_employeescdc_m)}"
+          "D0": "${xp:name(employeescdc_m)}"
         }
       }
     ]
@@ -122,7 +122,7 @@
           "command": "sentinel-data",
           "options": [
             "--domain",
-            "${xp:name(db2cdc_employeescdc_m)}",
+            "${xp:name(employeescdc_m)}",
             "--key",
             "after-churn",
             "--emit-ops",

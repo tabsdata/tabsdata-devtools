@@ -10,7 +10,7 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(mssqlserver_world_xs)}",
+          "name": "${xp:name(world_xs)}",
           "system": "mssqlserver",
           "model": "world",
           "data": "xs"
@@ -39,7 +39,7 @@
         "connection_template": "connection-file:connections/mssql_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp:name(mssqlserver_world_xs)}"
+          "D0": "${xp:name(world_xs)}"
         }
       },
       {

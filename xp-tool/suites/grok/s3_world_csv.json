@@ -6,7 +6,7 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp:name(s3_world_xs)}",
+          "name": "${xp:name(world_xs)}",
           "system": "s3",
           "model": "world",
           "data": "xs"
@@ -28,7 +28,7 @@
         "connection_template": "connection-file:connections/s3_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp:name(s3_world_xs)}"
+          "D0": "${xp:name(world_xs)}"
         }
       },
       {

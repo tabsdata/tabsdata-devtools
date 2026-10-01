@@ -7,7 +7,7 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "${xp:name(mysql_world_xs)}",
+          "name": "${xp:name(world_xs)}",
           "system": "mysql",
           "model": "world",
           "data": "xs"
@@ -23,7 +23,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/mysql_sql_in.yaml",
         "domains": {
-          "D0": "${xp:name(mysql_world_xs)}"
+          "D0": "${xp:name(world_xs)}"
         }
       }
     ]

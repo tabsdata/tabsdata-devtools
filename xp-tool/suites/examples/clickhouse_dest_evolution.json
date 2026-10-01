@@ -11,7 +11,7 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(clickhouse_out)}",
+          "name": "${xp:name(out)}",
           "system": "clickhouse"
         },
         {
@@ -38,7 +38,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/clickhouse_bulk_out_s3.yaml",
         "domains": {
-          "D0": "${xp:name(clickhouse_out)}",
+          "D0": "${xp:name(out)}",
           "D1": "${xp:name(stage_store)}"
         }
       }

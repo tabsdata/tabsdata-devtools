@@ -11,7 +11,7 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(s3_files)}",
+          "name": "${xp:name(files)}",
           "system": "s3"
         }
       ]
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/s3_file_out.yaml",
         "domains": {
-          "D0": "${xp:name(s3_files)}"
+          "D0": "${xp:name(files)}"
         }
       },
       {
@@ -43,7 +43,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/s3_file_in.yaml",
         "domains": {
-          "D0": "${xp:name(s3_files)}"
+          "D0": "${xp:name(files)}"
         }
       }
     ]

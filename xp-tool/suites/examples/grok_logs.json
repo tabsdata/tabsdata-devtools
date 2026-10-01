@@ -11,7 +11,7 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(fs_logs)}",
+          "name": "${xp:name(logs)}",
           "system": "fs"
         }
       ]
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/local_file_out.yaml",
         "domains": {
-          "D0": "${xp:name(fs_logs)}"
+          "D0": "${xp:name(logs)}"
         }
       },
       {
@@ -43,7 +43,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/local_file_in.yaml",
         "domains": {
-          "D0": "${xp:name(fs_logs)}"
+          "D0": "${xp:name(logs)}"
         }
       },
       {

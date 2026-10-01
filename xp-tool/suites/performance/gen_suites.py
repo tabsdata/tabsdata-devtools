@@ -77,7 +77,7 @@ def own(name: str) -> str:
 def suite(source: str, kind: str) -> list:
     system, ctype, conns, reads = SOURCES[source]
     name = f"{source}_{kind}"
-    domain = own(f"{source}_{MODEL}_perf")
+    domain = own(f"{MODEL}_perf")
     per_table = BASE_SIZE * SIZE
     rows = per_table * len(TABLES)
     how = (

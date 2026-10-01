@@ -11,7 +11,7 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(snowflake_out)}",
+          "name": "${xp:name(out)}",
           "system": "snowflake"
         }
       ]
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/snowflake_bulk_out.yaml",
         "domains": {
-          "D0": "${xp:name(snowflake_out)}"
+          "D0": "${xp:name(out)}"
         }
       }
     ]

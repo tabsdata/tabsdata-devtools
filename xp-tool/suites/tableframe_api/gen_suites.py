@@ -168,6 +168,25 @@ def build(comment: str, stems: list[str]) -> dict:
     }
 
 
+def short_names(domains: list[dict]) -> dict[str, str]:
+    """Each domain's name without its system's prefix (``postgres_world_xs`` ->
+    ``world_xs``) where that leaves one unique in the suite -- a system's
+    domains all together or none, so two of a kind read alike."""
+    names = [d["name"] for d in domains]
+    systems = {d["name"]: d["system"] for d in domains}
+    cut = {}
+    for n, s in systems.items():
+        p = f"{s}_"
+        cut[n] = n[len(p) :] if n.startswith(p) and len(n) > len(p) else n
+    ok = {n: list(cut.values()).count(c) == 1 and (c == n or c not in names) for n, c in cut.items()}
+    for s in set(systems.values()):
+        group = [n for n in systems if systems[n] == s]
+        if not all(ok[n] for n in group):
+            for n in group:
+                ok[n] = False
+    return {n: cut[n] if ok[n] else n for n in names}
+
+
 def as_stages(doc: dict) -> list:
     """The suite as xp reads it: an ordered list of stages -- the ``_``
     annotations, then the domains (a domain-manifest, created in one parallel
@@ -177,7 +196,11 @@ def as_stages(doc: dict) -> list:
     notes = {k: v for k, v in doc.items() if k.startswith("_")}
     stages = [notes] if notes else []
     # A suite's domains are its run's own: ${xp:name(x)} is <XP_ID>_x once read.
-    own = "${xp:name(%s)}".__mod__
+    short = short_names(doc.get("domains") or [])
+
+    def own(name: str) -> str:
+        return "${xp:name(%s)}" % short.get(name, name)
+
     if doc.get("domains"):
         domains = [{**d, "name": own(d["name"])} for d in doc["domains"]]
         stages.append({"domain-manifest": {"domains": domains}})

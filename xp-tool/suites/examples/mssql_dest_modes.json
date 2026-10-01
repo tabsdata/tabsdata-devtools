@@ -11,7 +11,7 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(mssqlserver_out)}",
+          "name": "${xp:name(out)}",
           "system": "mssqlserver"
         }
       ]
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/mssql_sql_out.yaml",
         "domains": {
-          "D0": "${xp:name(mssqlserver_out)}"
+          "D0": "${xp:name(out)}"
         }
       }
     ]

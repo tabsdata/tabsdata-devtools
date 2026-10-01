@@ -11,7 +11,7 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(mysql_out)}",
+          "name": "${xp:name(out)}",
           "system": "mysql"
         }
       ]
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/mysql_sql_out.yaml",
         "domains": {
-          "D0": "${xp:name(mysql_out)}"
+          "D0": "${xp:name(out)}"
         }
       }
     ]

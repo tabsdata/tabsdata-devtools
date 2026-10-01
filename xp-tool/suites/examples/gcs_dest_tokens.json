@@ -11,7 +11,7 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(gcs_out)}",
+          "name": "${xp:name(out)}",
           "system": "gcs"
         }
       ]
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/gcs_file_out.yaml",
         "domains": {
-          "D0": "${xp:name(gcs_out)}"
+          "D0": "${xp:name(out)}"
         }
       }
     ]

@@ -11,7 +11,7 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(oracle_out)}",
+          "name": "${xp:name(out)}",
           "system": "oracle"
         }
       ]
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/oracle_sql_out.yaml",
         "domains": {
-          "D0": "${xp:name(oracle_out)}"
+          "D0": "${xp:name(out)}"
         }
       }
     ]

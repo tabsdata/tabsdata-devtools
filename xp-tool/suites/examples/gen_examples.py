@@ -945,7 +945,7 @@ def emit_file_src_lastmodified(key: str, c: dict) -> tuple[str, dict]:
     1. `tdd xp one-shot --suite examples/{suite} --keep`
     2. Stage a NEW file into the domain (the data plane is insert-only: every
        `modify-data` writes a new, freshly stamped file next to the seed):
-           tdd domain modify-data --domain <XP_ID>_{c["system"]}_world_xs \\\\
+           tdd domain modify-data --domain <XP_ID>_world_xs \\\\
                --entity city --ops Insert --sets 5
     3. `tdd xp run-triggers --project <project> --monitor --time-out 30m`'''
 
@@ -1055,7 +1055,7 @@ def read_every_run(city: TableFramesSpec) -> TableFrameSpec:
         f"None and NO version is published — versus returning an empty frame, which "
         f"publishes a real empty version and does trigger downstream), read_every_run "
         f"(no cutoff -> full reload). RUN IT TWICE to see the point: "
-        f"`tdd domain modify-data --domain <XP_ID>_{c['system']}_world_xs --entity "
+        f"`tdd domain modify-data --domain <XP_ID>_world_xs --entity "
         f"city --ops Insert --sets 5` stages a new timestamped file, then run-triggers "
         f"again. One function per file under functions/{suite}/. "
         f"Run: `tdd xp one-shot --suite examples/{suite} --keep`.",
@@ -3466,6 +3466,25 @@ def build_names() -> list[str]:
     return sorted(names)
 
 
+def short_names(domains: list[dict]) -> dict[str, str]:
+    """Each domain's name without its system's prefix (``postgres_world_xs`` ->
+    ``world_xs``) where that leaves one unique in the suite -- a system's
+    domains all together or none, so two of a kind read alike."""
+    names = [d["name"] for d in domains]
+    systems = {d["name"]: d["system"] for d in domains}
+    cut = {}
+    for n, s in systems.items():
+        p = f"{s}_"
+        cut[n] = n[len(p) :] if n.startswith(p) and len(n) > len(p) else n
+    ok = {n: list(cut.values()).count(c) == 1 and (c == n or c not in names) for n, c in cut.items()}
+    for s in set(systems.values()):
+        group = [n for n in systems if systems[n] == s]
+        if not all(ok[n] for n in group):
+            for n in group:
+                ok[n] = False
+    return {n: cut[n] if ok[n] else n for n in names}
+
+
 def as_stages(doc: dict) -> list:
     """The suite as xp reads it: an ordered list of stages -- the ``_``
     annotations, then the domains (a domain-manifest, created in one parallel
@@ -3475,7 +3494,11 @@ def as_stages(doc: dict) -> list:
     notes = {k: v for k, v in doc.items() if k.startswith("_")}
     stages = [notes] if notes else []
     # A suite's domains are its run's own: ${xp:name(x)} is <XP_ID>_x once read.
-    own = "${xp:name(%s)}".__mod__
+    short = short_names(doc.get("domains") or [])
+
+    def own(name: str) -> str:
+        return "${xp:name(%s)}" % short.get(name, name)
+
     if doc.get("domains"):
         domains = [{**d, "name": own(d["name"])} for d in doc["domains"]]
         stages.append({"domain-manifest": {"domains": domains}})

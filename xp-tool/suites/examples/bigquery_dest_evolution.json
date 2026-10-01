@@ -11,7 +11,7 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(bigquery_out)}",
+          "name": "${xp:name(out)}",
           "system": "bigquery"
         }
       ]
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/bigquery_bulk_out.yaml",
         "domains": {
-          "D0": "${xp:name(bigquery_out)}"
+          "D0": "${xp:name(out)}"
         }
       }
     ]

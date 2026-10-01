@@ -11,7 +11,7 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(starrocks_world_xs)}",
+          "name": "${xp:name(world_xs)}",
           "system": "starrocks",
           "model": "world",
           "data": "xs"
@@ -40,7 +40,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/starrocks_bulk_out_s3.yaml",
         "domains": {
-          "D0": "${xp:name(starrocks_world_xs)}",
+          "D0": "${xp:name(world_xs)}",
           "D1": "${xp:name(stage_store)}"
         }
       }

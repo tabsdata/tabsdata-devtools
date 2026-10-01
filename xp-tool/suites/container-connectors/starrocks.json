@@ -10,19 +10,19 @@
           "system": "dev"
         },
         {
-          "name": "${xp:name(starrocks_world_xs_s3)}",
+          "name": "${xp:name(world_xs_s3)}",
           "system": "starrocks",
           "model": "world",
           "data": "xs"
         },
         {
-          "name": "${xp:name(starrocks_world_xs_az)}",
+          "name": "${xp:name(world_xs_az)}",
           "system": "starrocks",
           "model": "world",
           "data": "xs"
         },
         {
-          "name": "${xp:name(starrocks_world_xs_gcs)}",
+          "name": "${xp:name(world_xs_gcs)}",
           "system": "starrocks",
           "model": "world",
           "data": "xs"
@@ -59,7 +59,7 @@
         "connection_template": "connection-file:connections/starrocks_bulk_out_s3.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "${xp:name(starrocks_world_xs_s3)}",
+          "D0": "${xp:name(world_xs_s3)}",
           "D1": "${xp:name(s3)}"
         }
       },
@@ -69,7 +69,7 @@
         "connection_template": "connection-file:connections/starrocks_bulk_out_az.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "${xp:name(starrocks_world_xs_az)}",
+          "D0": "${xp:name(world_xs_az)}",
           "D1": "${xp:name(azureblob)}"
         }
       },
@@ -79,7 +79,7 @@
         "connection_template": "connection-file:connections/starrocks_bulk_out_gcs.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "${xp:name(starrocks_world_xs_gcs)}",
+          "D0": "${xp:name(world_xs_gcs)}",
           "D1": "${xp:name(gcs)}"
         }
       }

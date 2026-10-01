@@ -14,7 +14,7 @@
           "system": "azureblob"
         },
         {
-          "name": "${xp:name(azureblob_world_xs)}",
+          "name": "${xp:name(world_xs)}",
           "system": "azureblob",
           "model": "world",
           "data": "xs"
@@ -57,7 +57,7 @@
         "connection_template": "connection-file:connections/az_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "${xp:name(azureblob_world_xs)}"
+          "D0": "${xp:name(world_xs)}"
         }
       },
       {
