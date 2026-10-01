@@ -1,13 +1,13 @@
 [
   {
-    "_comment": "CAPABILITY suite for the PostgreSQL CDC stream source with initial_load UNDER LIVE CHANGES, over every table of the employeescdc model -- one table per way a row is identified: accounts (a primary key every update CHANGES: the before-image must carry the old key, the row the new), ledger (a composite primary key), devices (no primary key, a unique index), readings (no primary key and no index) -- and its xp_sentinel (functions/caps_postgrescdc_initial_load.py::postgrescdc_initial_load_live). STAGES, in order: (1) domains -- create the postgrescdc domain, install the employeescdc model, load the m seed (10k rows a table), its operations appended to ${XP_WORK_DIR}/ops.jsonl (--emit-ops) -- as every data command below appends its own; (2) live -- `tdd domain sentinel-data --key after-create-data` (one xp_sentinel row stamped after the seed, so the snapshot carries it), then start `churn` in the background: 20 passes a second apart, `tdd domain modify-data --ops Mix --sets 250` -- ~1000 CDC rows each: every set one transaction of one verb over all four tables, inserts, updates (accounts' moving its key) and deletes; nothing cascades; it keeps running through the stages below; (3) collections -- the project and one postgres_cdc source collection; (4) functions -- register the @stream_publisher, which STARTS it: its initial_load snapshot is taken over tables changing under it, and every change after the snapshot's position arrives as a CDC row, none missed; over the domain's own replication slot (replication_slot_behavior=reuse) the snapshot is a transaction of its own, so a change committing as it is taken is both in it and in the stream -- deduplicated on the keyed tables, arriving again on devices and readings; (5) live -- wait for churn to finish, then `sentinel-data --key after-churn`, written after the last change; (6) sentinel -- hold until both keys are in versions of xp_sentinel_changes (at most 5m each): after-churn arriving means every change before it has flushed; (7) execute -- scripts/verify_cdc_ops.py --check state checks what a target would hold: the snapshot plus every <table>_changes applied in order as the connector deduplicates (an insert when its key has no row, an update or delete when it has one), each table ending as the whole ops.jsonl leaves it -- a snapshot taken under changes has no one point the trail splits at, so the changes are not paired one by one; devices and readings have no primary key, so the connector does not deduplicate them and a change the snapshot holds may arrive again (--keyless): it is discarded by the column that names their rows (serial, reading_id), counted and listed, and on the keyed tables any such change fails the check; (8) monitor. The run takes ~5 min. With a pause between passes (a `pause` of 30s) each flush carries one pass and the stream falls behind -- after-churn then lands minutes late. The slot pins WAL until the domain is destroyed, which drops it. Run: `tdd xp one-shot --suite container-connectors/postgrescdc_initial_load_live --keep`. verify-ops runs with --cascades logged --noops logged: wal2json carries the rows an ON DELETE CASCADE takes, and an UPDATE that sets the values a row has, so each must arrive."
+    "_comment": "CAPABILITY suite for the PostgreSQL CDC stream source with initial_load UNDER LIVE CHANGES, over every table of the employeescdc model -- one table per way a row is identified: accounts (a primary key every update CHANGES: the before-image must carry the old key, the row the new), ledger (a composite primary key), devices (no primary key, a unique index), readings (no primary key and no index) -- and its xp_sentinel (functions/caps_postgrescdc_initial_load.py::postgrescdc_initial_load_live). STAGES, in order: (1) domains -- create the postgrescdc domain, install the employeescdc model, load the m seed (10k rows a table), its operations appended to ${XP_WORK_DIR}/ops.jsonl (--emit-ops) -- as every data command below appends its own; (2) actions, tagged live -- `tdd domain sentinel-data --key after-create-data` (one xp_sentinel row stamped after the seed, so the snapshot carries it), then start `churn` in the background: 20 passes a second apart, `tdd domain modify-data --ops Mix --sets 250` -- ~1000 CDC rows each: every set one transaction of one verb over all four tables, inserts, updates (accounts' moving its key) and deletes; nothing cascades; it keeps running through the stages below; (3) collections -- the project and one postgres_cdc source collection; (4) functions -- register the @stream_publisher, which STARTS it: its initial_load snapshot is taken over tables changing under it, and every change after the snapshot's position arrives as a CDC row, none missed; over the domain's own replication slot (replication_slot_behavior=reuse) the snapshot is a transaction of its own, so a change committing as it is taken is both in it and in the stream -- deduplicated on the keyed tables, arriving again on devices and readings; (5) actions, tagged live -- wait for churn to finish, then `sentinel-data --key after-churn`, written after the last change; (6) sentinel -- hold until both keys are in versions of xp_sentinel_changes (at most 5m each): after-churn arriving means every change before it has flushed; (7) actions, tagged check -- scripts/verify_cdc_ops.py --check state checks what a target would hold: the snapshot plus every <table>_changes applied in order as the connector deduplicates (an insert when its key has no row, an update or delete when it has one), each table ending as the whole ops.jsonl leaves it -- a snapshot taken under changes has no one point the trail splits at, so the changes are not paired one by one; devices and readings have no primary key, so the connector does not deduplicate them and a change the snapshot holds may arrive again (--keyless): it is discarded by the column that names their rows (serial, reading_id), counted and listed, and on the keyed tables any such change fails the check; (8) monitor. The run takes ~5 min. With a pause between passes (a `pause` of 30s) each flush carries one pass and the stream falls behind -- after-churn then lands minutes late. The slot pins WAL until the domain is destroyed, which drops it. Run: `tdd xp one-shot --suite container-connectors/postgrescdc_initial_load_live --keep`. verify-ops runs with --cascades logged --noops logged: wal2json carries the rows an ON DELETE CASCADE takes, and an UPDATE that sets the values a row has, so each must arrive."
   },
   {
     "domain-manifest": {
       "emit_ops": "${XP_WORK_DIR}/ops.jsonl",
       "domains": [
         {
-          "name": "postgrescdc_employeescdc_m",
+          "name": "${xp_name(postgrescdc_employeescdc_m)}",
           "system": "postgrescdc",
           "model": "employeescdc",
           "data": "m"
@@ -16,13 +16,18 @@
     }
   },
   {
-    "live": [
+    "actions": [
       {
-        "name": "sentinel-loaded",
-        "domain": {
-          "name": "postgrescdc_employeescdc_m",
+        "tdd": {
+          "name": "sentinel-loaded",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
           "command": "sentinel-data",
           "options": [
+            "--domain",
+            "${xp_name(postgrescdc_employeescdc_m)}",
             "--key",
             "after-create-data",
             "--emit-ops",
@@ -31,30 +36,45 @@
         }
       },
       {
-        "name": "churn",
-        "blocking": false,
-        "repeat": 20,
-        "live": [
-          {
-            "name": "change",
-            "domain": {
-              "name": "postgrescdc_employeescdc_m",
-              "command": "modify-data",
-              "options": [
-                "--ops",
-                "Mix",
-                "--sets",
-                "250",
-                "--emit-ops",
-                "${XP_WORK_DIR}/ops.jsonl"
-              ]
+        "background": {
+          "name": "churn",
+          "tags": [
+            "live"
+          ],
+          "actions": [
+            {
+              "loop": {
+                "name": "churn-pass",
+                "repeat": 20,
+                "actions": [
+                  {
+                    "tdd": {
+                      "name": "change",
+                      "tool": "domain",
+                      "command": "modify-data",
+                      "options": [
+                        "--domain",
+                        "${xp_name(postgrescdc_employeescdc_m)}",
+                        "--ops",
+                        "Mix",
+                        "--sets",
+                        "250",
+                        "--emit-ops",
+                        "${XP_WORK_DIR}/ops.jsonl"
+                      ]
+                    }
+                  },
+                  {
+                    "sleep": {
+                      "name": "pause",
+                      "time": "1s"
+                    }
+                  }
+                ]
+              }
             }
-          },
-          {
-            "name": "pause",
-            "sleep": "1s"
-          }
-        ]
+          ]
+        }
       }
     ]
   },
@@ -66,7 +86,7 @@
         "connection_template": "connection-file:connections/postgres_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "postgrescdc_employeescdc_m"
+          "D0": "${xp_name(postgrescdc_employeescdc_m)}"
         }
       }
     ]
@@ -80,19 +100,29 @@
     ]
   },
   {
-    "live": [
+    "actions": [
       {
-        "name": "settle-wait",
-        "wait": [
-          "churn"
-        ]
+        "wait": {
+          "name": "settle-wait",
+          "tags": [
+            "live"
+          ],
+          "for": [
+            "churn"
+          ]
+        }
       },
       {
-        "name": "sentinel-churned",
-        "domain": {
-          "name": "postgrescdc_employeescdc_m",
+        "tdd": {
+          "name": "sentinel-churned",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
           "command": "sentinel-data",
           "options": [
+            "--domain",
+            "${xp_name(postgrescdc_employeescdc_m)}",
             "--key",
             "after-churn",
             "--emit-ops",
@@ -119,29 +149,36 @@
     ]
   },
   {
-    "execute": [
+    "actions": [
       {
-        "name": "verify-ops",
-        "py_script": "scripts/verify_cdc_ops.py",
-        "params": [
-          "${XP_WORK_DIR}/ops.jsonl",
-          "postgrescdc_initial_load_live",
-          "--cascades",
-          "logged",
-          "--noops",
-          "logged",
-          "--start",
-          "initial-load",
-          "--check",
-          "state",
-          "--keyless",
-          "devices",
-          "readings"
-        ]
+        "python": {
+          "name": "verify-ops",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_cdc_ops.py",
+          "params": [
+            "${XP_WORK_DIR}/ops.jsonl",
+            "postgrescdc_initial_load_live",
+            "--cascades",
+            "logged",
+            "--noops",
+            "logged",
+            "--start",
+            "initial-load",
+            "--check",
+            "state",
+            "--keyless",
+            "devices",
+            "readings"
+          ]
+        }
       }
     ]
   },
   {
-    "monitor": true
+    "monitor": {
+      "time_out": "30m"
+    }
   }
 ]

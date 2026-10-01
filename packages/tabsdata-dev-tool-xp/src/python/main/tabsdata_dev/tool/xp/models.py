@@ -11,8 +11,8 @@ A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
   --manifest`, in parallel; each seeded domain with ``emit`` (default true)
   appends its seed's operations to a file of its own, and they are appended to
   ``emit_ops`` in the listed order once the batch is done;
-* ``domains`` -- `tdd domain` calls, ``{"name", "command", "options"}`` as a
-  live domain entry spells one: a domain's ``create`` (``--sys SYSTEM``) and
+* ``domains`` -- `tdd domain` calls, ``{"name", "command", "options"}``: a
+  domain's ``create`` (``--sys SYSTEM``) and
   then what fills it (``create-model``, ``create-data``, ...), each domain's
   calls in order and the domains side by side;
 * ``collections`` -- one per connection: a connection template plus the
@@ -21,23 +21,28 @@ A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
 * ``functions`` -- ``functions/<file>.py::<symbol>`` relative to the suite dir,
   registered in order, ``"enabled": false`` to register one disabled;
 * ``triggers`` -- functions to fire;
-* ``monitor`` -- ``true``: watch the project's transactions until they finish;
-* ``live`` -- a script of named entries (`tdd domain` data verbs, pauses,
-  waits, repeated nested scripts), blocking or side by side; its background
-  entries keep running through the stages after it (see ``live``);
+* ``monitor`` -- ``{"time_out": "<VALUE><UNIT>"}``: watch the project's
+  transactions until they finish, failing the run if they have not by then;
+* ``actions`` -- a script of named steps (``tdd``, ``exe``, ``python``,
+  ``sleep``, ``wait``) and blocks (``background``, ``parallel``, ``loop``,
+  ``timeout``), tagged to be picked or skipped; every actions stage of a suite
+  is one script, so a background block keeps running through the stages after
+  it and a later wait finds it (see ``actions``);
 * ``sentinel`` -- latches: each holds until a key shows up in some version of
   a project table (``tdd domain sentinel-data`` wrote it at the source), or
   fails when its ``time_out`` runs out;
-* ``execute`` -- python scripts in the suite dir (``scripts/``), run in order,
-  each passing when it exits 0: checks a run makes of what it produced.
-  ``continue_on_fail`` lets the suite go on past a failed one, still failing
-  the run at its end.
 
-``${XP_WORK_DIR}`` / ``${XP_PROJECT}`` in a domain call's options (a domains
-stage's or a live entry's) or an execute entry's params name the run's working
-dir and project (see ``work``).
+A suite is resolved as it is read, for the suite run it is read for (see
+``ids``): ``${xp_name(x)}`` becomes ``<XP_ID>_x`` -- how a suite names a domain
+of its own run -- and ``${XP_ID}`` / ``${XP_SHORT_ID}`` the run's IDs, in every
+string of it. A name written without ``${xp_name(...)}`` is FIXED: used as
+written, in the tdd store and in the system. ``${XP_WORK_DIR}`` /
+``${XP_PROJECT}`` in a domain call's options or an action's options and params
+name the run's working dir and project, and are filled in when used (see
+``work``).
 
-A duration -- a live ``sleep``, a sentinel's ``time_out`` -- is
+A duration -- a ``sleep``'s or ``timeout``'s ``time``, a sentinel's or
+monitor's ``time_out`` -- is
 ``"<VALUE><UNIT>"`` with unit ``s``, ``m`` or ``h`` (``"90s"``, ``"2m"``,
 ``"1.5h"``); a bare number is refused, since nothing says what it counts.
 
@@ -58,11 +63,12 @@ from typing import Any, ClassVar
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     ValidationError,
     model_validator,
 )
 
-from . import state, suites, work
+from . import ids, state, suites, work
 
 CONN_FILE_SCHEME = "connection-file:"
 
@@ -81,7 +87,7 @@ def seconds_of(value: Any, what: str) -> float:
 
 class Domain(BaseModel):
     """A suite domain, as its ``create`` call names it: what the rest of xp --
-    collections, live entries, teardown, list-systems -- refers to. Not written
+    collections, teardown, list-systems -- refers to. Not written
     in a suite; built from the domains stages' calls."""
 
     name: str
@@ -127,9 +133,8 @@ class Trigger(BaseModel):
     detached: bool = False
 
 
-# The `tdd domain` verbs a live script may run: the ones that change a domain's
-# data or model, never create/destroy -- the domain's lifecycle is xp's own.
-LIVE_COMMANDS = (
+# The `tdd domain` verbs that change a domain's data or model.
+DATA_COMMANDS = (
     "create-model",
     "create-data",
     "modify-data",
@@ -138,18 +143,18 @@ LIVE_COMMANDS = (
     "delete-model",
 )
 # The verbs a domains stage may run: a domain's create, then what fills it.
-DOMAIN_COMMANDS = ("create", *LIVE_COMMANDS)
+DOMAIN_COMMANDS = ("create", *DATA_COMMANDS)
 # Options xp sets itself on every call.
-LIVE_RESERVED = {"--domain", "--domain-dir", "--format", "--latch", "--verbose", "-v"}
+RESERVED = {"--domain", "--domain-dir", "--format", "--latch", "--verbose", "-v"}
 # ...and on create: the backend name, per run, so two runs never share one.
 CREATE_RESERVED = {"--name-in-system"}
-_LIVE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 
 
 class DomainCall(BaseModel):
-    """One `tdd domain <command> --domain <instance>_<name> <options...>`, the
-    options as the words typed -- an entry of a domains stage, and what a live
-    domain entry runs. A domain's ``create`` names its system with ``--sys``."""
+    """One `tdd domain <command> --domain <name> <options...>`, the
+    options as the words typed -- an entry of a domains stage. A domain's
+    ``create`` names its system with ``--sys``."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -168,7 +173,7 @@ class DomainCall(BaseModel):
                 f"{self.where} command {self.command!r} is not one of {', '.join(self.allowed)}"
             )
         self.options = [str(o) for o in self.options]
-        own = LIVE_RESERVED | (CREATE_RESERVED if self.command == "create" else set())
+        own = RESERVED | (CREATE_RESERVED if self.command == "create" else set())
         reserved = sorted({o.split("=", 1)[0] for o in self.options} & own)
         if reserved:
             raise ValueError(
@@ -195,105 +200,23 @@ class DomainCall(BaseModel):
         return None
 
 
-class LiveDomain(DomainCall):
-    """A live domain entry's call: the data verbs only -- a domain's lifecycle
-    (create/destroy) is xp's own."""
-
-    allowed: ClassVar[tuple[str, ...]] = LIVE_COMMANDS
-    where: ClassVar[str] = "live"
-
-
-class LiveEntry(BaseModel):
-    """One entry of a ``live`` script, named, in one of four kinds:
-
-    * ``{"name", "domain": {"name", "command", "options": [...]}, "blocking"}``
-      -- one `tdd domain` data verb against a suite domain;
-    * ``{"name", "sleep": "<VALUE><UNIT>"}`` -- a pause;
-    * ``{"name", "wait": [NAMES]}`` -- hold until those entries have finished;
-    * ``{"name", "repeat": N, "live": [...], "blocking"}`` -- a nested script,
-      run N times, each pass complete when everything it started has finished.
-
-    ``blocking`` (domain and repeat entries; default true) runs the entry to
-    the end before the script goes on; false starts it and goes straight on, so
-    it runs side by side with what follows until a wait names it or its
-    enclosing script ends.
-    """
+class Monitor(BaseModel):
+    """A monitor stage: watch the project's transactions until they finish,
+    for at most ``time_out`` -- given, never assumed: a watch with no end is
+    what a run that hangs looks like."""
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str
-    domain: LiveDomain | None = None
-    # A duration, "<VALUE><UNIT>" (see `seconds_of`). Typed loosely so a number
-    # reaches that check and is refused naming the form, not as "not a string".
-    sleep: Any = None
-    wait: list[str] | None = None
-    live: list[LiveEntry] | None = None
-    repeat: int | None = None
-    blocking: bool | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _one_wait_name(cls, data: Any) -> Any:
-        if isinstance(data, dict) and isinstance(data.get("wait"), str):
-            data = {**data, "wait": [data["wait"]]}
-        return data
+    time_out: Any  # "<VALUE><UNIT>", checked by `seconds_of` (see `sleep`)
 
     @model_validator(mode="after")
-    def _one_kind(self) -> LiveEntry:
-        if not _LIVE_NAME.match(self.name):
-            raise ValueError(
-                f"live name {self.name!r}: a letter, then letters, digits, '_' or '-'"
-            )
-        kinds = [
-            k
-            for k, v in (
-                ("domain", self.domain),
-                ("sleep", self.sleep),
-                ("wait", self.wait),
-                ("live", self.live),
-            )
-            if v is not None
-        ]
-        if len(kinds) != 1:
-            raise ValueError(
-                f"live entry {self.name!r} needs exactly one of 'domain', 'sleep', "
-                f"'wait' or 'live' (has {', '.join(kinds) or 'none'})"
-            )
-        if self.repeat is not None and self.live is None:
-            raise ValueError(f"live entry {self.name!r}: 'repeat' goes with 'live'")
-        if self.repeat is not None and self.repeat < 1:
-            raise ValueError(f"live entry {self.name!r}: repeat must be >= 1")
-        if self.blocking is not None and self.domain is None and self.live is None:
-            raise ValueError(
-                f"live entry {self.name!r}: only a 'domain' or 'live' entry can be non-blocking"
-            )
-        if self.sleep is not None:
-            seconds_of(self.sleep, f"live entry {self.name!r}: sleep")
-        if self.wait is not None and not self.wait:
-            raise ValueError(f"live entry {self.name!r}: 'wait' names nothing")
+    def _a_duration(self) -> Monitor:
+        seconds_of(self.time_out, "monitor: time_out")
         return self
 
     @property
-    def kind(self) -> str:
-        if self.domain is not None:
-            return "domain"
-        if self.sleep is not None:
-            return "sleep"
-        if self.wait is not None:
-            return "wait"
-        return "live"
-
-    @property
-    def sleep_seconds(self) -> float:
-        return seconds_of(self.sleep, "sleep")
-
-    @property
-    def is_blocking(self) -> bool:
-        return self.blocking is not False
-
-    @property
-    def passes(self) -> int:
-        return self.repeat or 1
+    def seconds(self) -> float:
+        return seconds_of(self.time_out, "time_out")
 
 
 class Sentinel(BaseModel):
@@ -319,68 +242,230 @@ class Sentinel(BaseModel):
         return seconds_of(self.time_out, "time_out")
 
 
-_REQUIREMENT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9._,-]+\])?$")
+# ------------------------------------------------------------- actions ----
+#: Tools `tdd` runs as shell functions, in the user's shell: `tdd-exe` cannot
+#: reach them, so a step naming one could only fail when it ran.
+SHELL_TOOLS = ("venv", "env", "_tdd-env")
+_TAG = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 
 
-class Requirement(BaseModel):
-    """A library an execute script needs: ``name`` (a PyPI name, extras
-    allowed), ``version`` an exact pin, or absent for the latest."""
+class _Entry(BaseModel):
+    """What every action has: a name, unique across the suite, and its tags."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     name: str
-    version: str | None = None
+    tags: list[str] = []
 
     @model_validator(mode="after")
-    def _a_name_and_a_pin(self) -> Requirement:
-        if not _REQUIREMENT_NAME.match(self.name):
-            raise ValueError(f"requirement {self.name!r} is not a package name")
-        if self.version is not None and not re.fullmatch(
-            r"[A-Za-z0-9.+!_-]+", self.version
-        ):
+    def _a_name_and_tags(self):
+        if not _NAME.match(self.name):
             raise ValueError(
-                f"requirement {self.name!r}: version {self.version!r} is an exact version, "
-                "e.g. 1.44.1 (not a specifier)"
+                f"action name {self.name!r}: a letter, then letters, digits, '_' or '-'"
             )
+        for t in self.tags:
+            if not _TAG.match(t):
+                raise ValueError(
+                    f"action {self.name!r}: tag {t!r} is a letter, then letters, digits, '_' or '-'"
+                )
         return self
 
-    @property
-    def spec(self) -> str:
-        return f"{self.name}=={self.version}" if self.version else self.name
 
+class TddStep(_Entry):
+    """``tdd-exe TOOL COMMAND OPTIONS...``: any of tdd's Python tools, as typed."""
 
-class Execute(BaseModel):
-    """A check script: ``py_script`` (a path in the suite dir, by convention
-    under ``scripts/``) run by ``tdd _xp-execute`` -- a bare venv of its own,
-    the ``tdd`` module in reach -- with ``params`` as its argv. With
-    ``requirements`` it runs in a one-off venv holding them instead. Exit 0
-    passes; anything else fails the step, and the run -- at once, or, with
-    ``continue_on_fail``, once the suite's stages have all run."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    py_script: str
-    params: list[str] = []
-    requirements: list[Requirement] = []
+    tool: str
+    command: str
+    options: list[str] = []
     continue_on_fail: bool = False
 
     @model_validator(mode="after")
-    def _a_script_in_the_suite(self) -> Execute:
-        if not _LIVE_NAME.match(self.name):
+    def _a_python_tool(self) -> TddStep:
+        if self.tool in SHELL_TOOLS:
             raise ValueError(
-                f"execute name {self.name!r}: a letter, then letters, digits, '_' or '-'"
+                f"tdd step {self.name!r}: {self.tool!r} is a shell function of tdd, "
+                "which a step cannot reach (tdd-exe runs the Python tools)"
             )
-        script = pathlib.PurePosixPath(self.py_script)
+        self.options = [str(o) for o in self.options]
+        for o in self.options:
+            _refuse_unknown_tokens(o, f"tdd step {self.name!r}")
+        return self
+
+
+class ExeStep(_Entry):
+    """``PROGRAM PARAMS...``: any program on the PATH -- having it is the
+    suite's business."""
+
+    program: str
+    params: list[str] = []
+    continue_on_fail: bool = False
+
+    @model_validator(mode="after")
+    def _a_program(self) -> ExeStep:
+        if not self.program.strip():
+            raise ValueError(f"exe step {self.name!r} names no program")
+        self.params = [str(p) for p in self.params]
+        for p in self.params:
+            _refuse_unknown_tokens(p, f"exe step {self.name!r}")
+        return self
+
+
+class PythonStep(_Entry):
+    """``uv run --no-project --with REQ... SCRIPT PARAMS...`` from the suite
+    dir, the ``tdd`` module on its path. ``reqs`` are requirement strings, as
+    uv takes them."""
+
+    script: str
+    params: list[str] = []
+    reqs: list[str] = []
+    continue_on_fail: bool = False
+
+    @model_validator(mode="after")
+    def _a_script_in_the_suite(self) -> PythonStep:
+        script = pathlib.PurePosixPath(self.script)
         if script.is_absolute() or ".." in script.parts or script.suffix != ".py":
             raise ValueError(
-                f"execute {self.name!r}: py_script {self.py_script!r} must be a .py "
+                f"python step {self.name!r}: script {self.script!r} must be a .py "
                 "path inside the suite dir (e.g. scripts/check.py)"
             )
         self.params = [str(p) for p in self.params]
         for p in self.params:
-            _refuse_unknown_tokens(p, f"execute {self.name!r}")
+            _refuse_unknown_tokens(p, f"python step {self.name!r}")
         return self
+
+
+class SleepStep(_Entry):
+    # A duration, "<VALUE><UNIT>" (see `seconds_of`). Typed loosely so a number
+    # reaches that check and is refused naming the form, not as "not a string".
+    time: Any
+
+    @model_validator(mode="after")
+    def _a_duration(self) -> SleepStep:
+        seconds_of(self.time, f"sleep {self.name!r}: time")
+        return self
+
+    @property
+    def seconds(self) -> float:
+        return seconds_of(self.time, "time")
+
+
+class WaitStep(_Entry):
+    for_: list[str] = Field(alias="for")
+
+    @model_validator(mode="after")
+    def _names_something(self) -> WaitStep:
+        if not self.for_:
+            raise ValueError(f"wait {self.name!r} names nothing to wait for")
+        return self
+
+
+class _Block(_Entry):
+    actions: list[Action]
+
+    @model_validator(mode="after")
+    def _holds_something(self):
+        if not self.actions:
+            raise ValueError(f"{type(self).__name__} {self.name!r} holds no actions")
+        return self
+
+
+class BackgroundBlock(_Block):
+    """Its actions off the main path: started, and the script goes on."""
+
+
+class ParallelBlock(_Block):
+    """Its actions side by side, joined at its end; ``lanes`` bounds how many
+    run at once (0: all of them)."""
+
+    lanes: int = 0
+
+    @model_validator(mode="after")
+    def _lanes(self) -> ParallelBlock:
+        if self.lanes < 0:
+            raise ValueError(f"parallel {self.name!r}: lanes is 0 (all) or more")
+        return self
+
+
+class LoopBlock(_Block):
+    repeat: int
+
+    @model_validator(mode="after")
+    def _passes(self) -> LoopBlock:
+        if self.repeat < 1:
+            raise ValueError(f"loop {self.name!r}: repeat must be >= 1")
+        return self
+
+
+class TimeoutBlock(_Block):
+    """Its actions for at most ``time``; then the run fails
+    (``stop_on_timeout``, the default) or goes on, leaving them running."""
+
+    time: Any
+    stop_on_timeout: bool = True
+
+    @model_validator(mode="after")
+    def _a_duration(self) -> TimeoutBlock:
+        seconds_of(self.time, f"timeout {self.name!r}: time")
+        return self
+
+    @property
+    def seconds(self) -> float:
+        return seconds_of(self.time, "time")
+
+
+STEP_KINDS = ("tdd", "exe", "python", "sleep", "wait")
+BLOCK_KINDS = ("background", "parallel", "loop", "timeout")
+
+
+class Action(BaseModel):
+    """One entry of an ``actions`` stage: exactly one of the step kinds
+    (``tdd``, ``exe``, ``python``, ``sleep``, ``wait``) or the blocks
+    (``background``, ``parallel``, ``loop``, ``timeout``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tdd: TddStep | None = None
+    exe: ExeStep | None = None
+    python: PythonStep | None = None
+    sleep: SleepStep | None = None
+    wait: WaitStep | None = None
+    background: BackgroundBlock | None = None
+    parallel: ParallelBlock | None = None
+    loop: LoopBlock | None = None
+    timeout: TimeoutBlock | None = None
+
+    @model_validator(mode="after")
+    def _one_kind(self) -> Action:
+        kinds = [k for k in (*STEP_KINDS, *BLOCK_KINDS) if getattr(self, k) is not None]
+        if len(kinds) != 1:
+            raise ValueError(
+                "an action is exactly one of "
+                + ", ".join((*STEP_KINDS, *BLOCK_KINDS))
+                + f" (has {', '.join(kinds) or 'none'})"
+            )
+        return self
+
+    @property
+    def kind(self) -> str:
+        return next(
+            k for k in (*STEP_KINDS, *BLOCK_KINDS) if getattr(self, k) is not None
+        )
+
+    @property
+    def body(self):
+        return getattr(self, self.kind)
+
+    @property
+    def name(self) -> str:
+        return self.body.name
+
+    @property
+    def children(self) -> list[Action]:
+        return self.body.actions if self.kind in BLOCK_KINDS else []
+
+
+for _model in (BackgroundBlock, ParallelBlock, LoopBlock, TimeoutBlock):
+    _model.model_rebuild()
 
 
 # A domain-manifest entry's `data` size LABEL -> `create-data --size` multiplier
@@ -444,15 +529,16 @@ STAGE_KINDS = (
     "functions",
     "triggers",
     "monitor",
-    "live",
+    "actions",
     "sentinel",
-    "execute",
 )
+#: Stage kinds an older xp read, and what took their place.
+RETIRED_KINDS = {"live": "actions", "execute": "actions"}
 
 
 class Stage(BaseModel):
     """One step of the suite's ordered list: its kind, and the entries of that
-    kind it holds (none for ``monitor``)."""
+    kind it holds (a monitor's settings for ``monitor``)."""
 
     kind: str
     # Its position in the suite's list, counting comment entries: the number a
@@ -464,13 +550,17 @@ class Stage(BaseModel):
     collections: list[Collection] = []
     functions: list[Function] = []
     triggers: list[Trigger] = []
-    live: list[LiveEntry] = []
+    actions: list[Action] = []
     sentinel: list[Sentinel] = []
-    execute: list[Execute] = []
+    monitor: Monitor | None = None
 
 
 class Instance(BaseModel):
-    name: str  # the instance name
+    name: str  # the suite run's name
+    xp_id: str = ids.PLACEHOLDER[0]
+    short_id: str = ids.PLACEHOLDER[1]
+    # The suite as it was read for this run: every run token resolved.
+    doc: list = []
     type: str  # the suite's type dir name (e.g. 'container-connectors')
     suite_file: str  # the definition, absolute
     source_dir: str  # the dir holding the definition and functions/
@@ -479,14 +569,16 @@ class Instance(BaseModel):
     collections: list[Collection] = []
     functions: list[Function] = []
     triggers: list[Trigger] = []
-    live: list[LiveEntry] = []
+    # Every actions stage's entries, in suite order: one script, as run-actions
+    # runs them.
+    actions: list[Action] = []
     stages: list[Stage] = []
 
     @model_validator(mode="after")
     def _stages_in_dependency_order(self) -> Instance:
         """What a stage names must not come from a LATER stage: a collection's
-        domains, a function's collection, a live entry's domain. A name
-        defined nowhere is left to the stage that uses it, as it always was."""
+        domains, a function's collection. A name defined nowhere is left to the
+        stage that uses it, as it always was."""
         later_domains = {d.name for d in self.domains}
         later_colls = {c.name for c in self.collections}
         for stage in self.stages:
@@ -508,17 +600,6 @@ class Instance(BaseModel):
                         f"stage {i}: sentinel {s.wait_for_key!r} reads collection {s.collection!r}, created by a later stage"
                     )
 
-            def domains_of(entries: list[LiveEntry]):
-                for e in entries:
-                    if e.domain is not None:
-                        yield e.name, e.domain.name
-                    yield from domains_of(e.live or [])
-
-            for name, dom in domains_of(stage.live):
-                if dom in later_domains:
-                    raise ValueError(
-                        f"stage {i}: live entry {name!r} names domain {dom!r}, created by a later stage"
-                    )
             later_domains -= {d.name for d in stage.domains}
             if stage.domain_manifest is not None:
                 later_domains -= {d.name for d in stage.domain_manifest.domains}
@@ -526,43 +607,58 @@ class Instance(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _live_script_holds_together(self) -> Instance:
-        """Names unique across the whole script; a domain entry names a suite
-        domain; a wait names a domain or live entry that comes BEFORE it in its
-        own list or in an enclosing one -- an entry the script has started by
-        the time it gets there, on the same thread. A name inside another
-        entry's nested live is out of reach (it may not have started, or may
-        start again), and so is an entry that contains the wait (it would
-        wait for itself)."""
-        known = {d.name for d in self.domains}
+    def _actions_hold_together(self) -> Instance:
+        """Across every actions stage, as one script: names unique; a wait
+        names an entry BEFORE it, in its own list or an enclosing one -- an
+        earlier stage's included, whose top level is the script's -- and not a
+        sleep or a wait, which there is nothing to wait for in. A name inside
+        another entry's block is out of reach (it may not have started, or may
+        start again), and so is a block holding the wait (it would wait for
+        itself). A bounded parallel holds no wait: lanes waiting would starve
+        the lanes they wait for. A python step's script is there."""
         seen: set[str] = set()
 
-        def walk(entries: list[LiveEntry], scope: dict[str, str]) -> None:
+        def walk(entries: list[Action], scope: dict[str, str], bounded: str | None):
             visible = dict(scope)
-            for e in entries:
-                if e.name in seen:
-                    raise ValueError(f"live name {e.name!r} is used twice")
-                seen.add(e.name)
-                if e.domain is not None and e.domain.name not in known:
-                    raise ValueError(
-                        f"live entry {e.name!r} names domain {e.domain.name!r}, which the suite does not define"
-                    )
-                for ref in e.wait or []:
-                    if ref not in visible:
+            for a in entries:
+                if a.name in seen:
+                    raise ValueError(f"action name {a.name!r} is used twice")
+                seen.add(a.name)
+                if a.kind == "wait":
+                    if bounded:
                         raise ValueError(
-                            f"live wait {e.name!r} names {ref!r}, which is not an entry before it "
-                            "in its own live list or an enclosing one"
+                            f"wait {a.name!r} is inside parallel {bounded!r}, which bounds "
+                            "its lanes: a lane waiting can starve the lane it waits for"
                         )
-                    if visible[ref] not in ("domain", "live"):
+                    for ref in a.wait.for_:
+                        if ref not in visible:
+                            raise ValueError(
+                                f"wait {a.name!r} names {ref!r}, which is not an action "
+                                "before it in its own list or an enclosing one"
+                            )
+                        if visible[ref] in ("sleep", "wait"):
+                            raise ValueError(
+                                f"wait {a.name!r} names {ref!r}, a {visible[ref]}: there "
+                                "is nothing in it to wait for"
+                            )
+                if a.kind == "python":
+                    script = pathlib.Path(self.source_dir) / a.python.script
+                    if not script.is_file():
                         raise ValueError(
-                            f"live wait {e.name!r} names {ref!r}, a {visible[ref]} entry: only a "
-                            "'domain' or 'live' entry runs long enough to wait for"
+                            f"python step {a.name!r}: no script {a.python.script!r} "
+                            f"in {self.source_dir}"
                         )
-                if e.live is not None:
-                    walk(e.live, visible)
-                visible[e.name] = e.kind
+                if a.children:
+                    inner = bounded
+                    if a.kind == "parallel" and a.parallel.lanes:
+                        inner = a.name
+                    walk(a.children, visible, inner)
+                visible[a.name] = a.kind
+            return visible
 
-        walk(self.live, {})
+        scope: dict[str, str] = {}
+        for stage in self.stages:
+            scope = walk(stage.actions, scope, None)
         return self
 
     @model_validator(mode="after")
@@ -591,30 +687,17 @@ class Instance(BaseModel):
                     )
         return self
 
-    @model_validator(mode="after")
-    def _scripts_are_there(self) -> Instance:
-        """Execute names unique across the suite, and each script present in
-        the suite dir -- a missing one is found when the suite is read, not
-        after the stages before it have run."""
-        seen: set[str] = set()
-        for stage in self.stages:
-            for e in stage.execute:
-                if e.name in seen:
-                    raise ValueError(f"execute name {e.name!r} is used twice")
-                seen.add(e.name)
-                if not (pathlib.Path(self.source_dir) / e.py_script).is_file():
-                    raise ValueError(
-                        f"stage {stage.at}: execute {e.name!r}: no script "
-                        f"{e.py_script!r} in {self.source_dir}"
-                    )
-        return self
-
     def domain(self, name: str) -> Domain:
         return next(d for d in self.domains if d.name == name)
 
-    def domain_full(self, domain: str) -> str:
-        """Instance-prefixed (actual) domain name."""
-        return f"{self.name}_{domain}"
+    def system_name(self, domain: str) -> str:
+        """The name a domain's container gets in its system (``--name-in-system``):
+        ``<XP_SHORT_ID>_x`` for a domain of this run (``<XP_ID>_x``), a FIXED one's
+        own name otherwise -- whoever fixed it knows what it is to be called."""
+        prefix = f"{self.xp_id}_"
+        if domain.startswith(prefix):
+            return f"{self.short_id}_{domain[len(prefix) :]}"
+        return domain
 
     def conn_template_path(self, ref: str) -> pathlib.Path:
         if not ref.startswith(CONN_FILE_SCHEME):
@@ -624,18 +707,29 @@ class Instance(BaseModel):
         return pathlib.Path(self.base_dir) / ref[len(CONN_FILE_SCHEME) :]
 
 
-def build_instance(name: str, definition: pathlib.Path) -> Instance:
+def build_instance(
+    name: str,
+    definition: pathlib.Path,
+    xp_id: str | None = None,
+    short_id: str | None = None,
+) -> Instance:
     """Assemble the in-memory Instance from ONE suite definition, read live (so
-    edits are always picked up). source_dir / base_dir derive from the
-    definition's location, so nothing about the definition is stored in the
-    instance pointer (and nothing can drift)."""
+    edits are always picked up), resolved for the run `xp_id` names -- without
+    one (a listing), for a placeholder run of the same shape. source_dir /
+    base_dir derive from the definition's location, so nothing about the
+    definition is stored in the instance pointer (and nothing can drift)."""
     definition = definition.resolve()
     if not definition.is_file():
         state.die(f"suite not found: {definition}")
     try:
-        doc = json.loads(definition.read_text(encoding="utf-8"))
+        raw = json.loads(definition.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         state.die(f"suite {definition} is not valid JSON: {exc}")
+    xp_id, short_id = (xp_id, short_id) if xp_id and short_id else ids.PLACEHOLDER
+    try:
+        doc = ids.resolve(raw, xp_id, short_id, f"suite {definition}")
+    except ValueError as exc:
+        state.die(str(exc))
     stages = stages_of(doc, definition)
     source_dir = definition.parent
 
@@ -645,6 +739,9 @@ def build_instance(name: str, definition: pathlib.Path) -> Instance:
     try:
         return Instance(
             name=name,
+            xp_id=xp_id,
+            short_id=short_id,
+            doc=doc if isinstance(doc, list) else [],
             type=source_dir.name,
             suite_file=str(definition),
             source_dir=str(source_dir),
@@ -653,7 +750,7 @@ def build_instance(name: str, definition: pathlib.Path) -> Instance:
             collections=every("collections"),
             functions=every("functions"),
             triggers=every("triggers"),
-            live=every("live"),
+            actions=every("actions"),
             stages=stages,
         )
     except ValidationError as exc:
@@ -690,7 +787,7 @@ def stages_of(doc, definition: pathlib.Path) -> list[dict]:
             f"suite {definition} is a single object, a form xp no longer reads: a "
             "suite is a list of stages -- "
             '[{"domains": [...]}, {"collections": [...]}, {"functions": [...]}, '
-            '{"triggers": [...]}, {"monitor": true}] is what it ran'
+            '{"triggers": [...]}, {"monitor": {"time_out": "30m"}}] is what it ran'
         )
     if not isinstance(doc, list):
         state.die(f"suite {definition} must be a JSON list of stages")
@@ -703,17 +800,26 @@ def stages_of(doc, definition: pathlib.Path) -> list[dict]:
         keys = [k for k in element if not k.startswith("_")]
         if not keys:
             continue
-        if len(keys) != 1 or keys[0] not in STAGE_KINDS:
+        if len(keys) != 1 or keys[0] not in (*STAGE_KINDS, *RETIRED_KINDS):
             state.die(
                 f"suite {definition}: stage {i} must hold exactly one of "
                 f"{', '.join(STAGE_KINDS)} (has {', '.join(keys) or 'none'})"
             )
         kind = keys[0]
         value = element[kind]
+        if kind in RETIRED_KINDS:
+            state.die(
+                f"suite {definition}: stage {i}: '{kind}' is no longer read -- it is an "
+                f"'{RETIRED_KINDS[kind]}' stage now (see xp's DESIGN.md, the actions stage)"
+            )
         if kind == "monitor":
-            if value not in (True, {}):
-                state.die(f"suite {definition}: stage {i}: monitor takes true")
-            stages.append({"kind": kind, "at": i})
+            # `true` was the whole stage once; it watched for as long as it took.
+            if not isinstance(value, dict) or "time_out" not in value:
+                state.die(
+                    f"suite {definition}: stage {i}: monitor takes "
+                    '{"time_out": "<VALUE><UNIT>"}, how long it may watch (e.g. "30m")'
+                )
+            stages.append({"kind": kind, "at": i, "monitor": value})
         elif kind == "domain-manifest":
             # An object, not a list: its domains beside a setting of its own.
             if not isinstance(value, dict):

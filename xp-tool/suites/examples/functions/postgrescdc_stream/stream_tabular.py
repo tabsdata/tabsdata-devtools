@@ -84,8 +84,8 @@ WHEN A BATCH CLOSES: `src_cfg`
     responsive; production wants larger batches and fewer, bigger files.
 
 DRIVING IT
-    tdx-xp oneshot --suite examples/postgrescdc_stream --keep      # the streams start
-    tdx-domain modify-data --domain <instance>_postgrescdc_employees_xs \\
+    tdd xp one-shot --suite examples/postgrescdc_stream --keep      # the streams start
+    tdd domain modify-data --domain <XP_ID>_postgrescdc_employees_xs \\
         --entity employees --ops Mix --sets 5
 
     `--ops` takes ONE of `Insert` / `Update` / `Delete` / `Mix` — not a list.

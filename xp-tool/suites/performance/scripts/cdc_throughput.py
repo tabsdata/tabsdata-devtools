@@ -45,7 +45,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from tdd import TddError, note, tdd  # put on the path by `tdd _xp-execute`
+from tdd import TddError, note, tdd  # on the path: xp runs a python step with it
 
 _STREAMING = "ST"  # tdk's worker_type of a stream publisher's worker
 _TS = r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?)Z?"

@@ -6,7 +6,7 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "d_dev",
+          "name": "${xp_name(d_dev)}",
           "system": "dev",
           "model": null,
           "data": null
@@ -22,7 +22,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "d_dev"
+          "D0": "${xp_name(d_dev)}"
         }
       }
     ]
@@ -45,6 +45,8 @@
     ]
   },
   {
-    "monitor": true
+    "monitor": {
+      "time_out": "30m"
+    }
   }
 ]

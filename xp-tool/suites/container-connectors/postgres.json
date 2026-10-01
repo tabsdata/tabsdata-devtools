@@ -6,19 +6,19 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev",
           "model": null,
           "data": null
         },
         {
-          "name": "postgres_world_xs",
+          "name": "${xp_name(postgres_world_xs)}",
           "system": "postgres",
           "model": "world",
           "data": "xs"
         },
         {
-          "name": "postgres",
+          "name": "${xp_name(postgres)}",
           "system": "postgres",
           "model": null,
           "data": null
@@ -34,7 +34,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -43,7 +43,7 @@
         "connection_template": "connection-file:connections/postgres_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "postgres_world_xs"
+          "D0": "${xp_name(postgres_world_xs)}"
         }
       },
       {
@@ -52,7 +52,7 @@
         "connection_template": "connection-file:connections/postgres_sql_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "postgres"
+          "D0": "${xp_name(postgres)}"
         }
       },
       {
@@ -149,6 +149,8 @@
     ]
   },
   {
-    "monitor": true
+    "monitor": {
+      "time_out": "30m"
+    }
   }
 ]

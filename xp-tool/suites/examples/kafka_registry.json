@@ -7,7 +7,7 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "redpanda",
+          "name": "${xp_name(redpanda)}",
           "system": "redpanda",
           "model": "employees",
           "data": "xs"
@@ -23,7 +23,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/kafka_topic_in_registry.yaml",
         "domains": {
-          "D0": "redpanda"
+          "D0": "${xp_name(redpanda)}"
         }
       }
     ]
@@ -37,6 +37,8 @@
     ]
   },
   {
-    "monitor": true
+    "monitor": {
+      "time_out": "30m"
+    }
   }
 ]

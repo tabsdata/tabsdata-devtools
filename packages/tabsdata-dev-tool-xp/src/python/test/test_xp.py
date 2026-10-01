@@ -7,10 +7,27 @@ import pathlib
 
 import pytest
 
+#: The suite run's IDs under the fixture's clock and build identity: the first
+#: run a test makes; each next one is a second on.
+XP_ID = "xp_tucu_0_20261001T093012"
+XP_SHORT = "tuc00_0e2aec"
+#: What a suite read with no run behind it (`build_instance` without IDs) names
+#: its own domains by.
+PH = "xp_user_0_20260101T000000"
+
+
+MONITOR = {"monitor": {"time_out": "30m"}}
+
+
+def N(name):
+    """A suite's own domain, as a suite names it: `<XP_ID>_<name>` once read."""
+    return "${xp_name(%s)}" % name
+
 
 def calls(name, system, model=None, size=None, *data_opts):
     """A domain as a domains stage writes it: its create and, seeded, its
     create-model and create-data."""
+    name = N(name)
     out = [{"name": name, "command": "create", "options": ["--sys", system]}]
     if model:
         out.append(
@@ -34,7 +51,7 @@ SUITE = {
             "type": "local_file_in",
             "connection_template": "connection-file:connections/local_file_in.yaml",
             "group": "sources",
-            "domains": {"D0": "world"},
+            "domains": {"D0": N("world")},
         },
         {"name": "ops", "type": "transform", "group": "ops"},
     ],
@@ -58,7 +75,7 @@ def _stages(doc: dict) -> list:
         for k in ("domains", "collections", "functions", "triggers")
         if doc.get(k)
     ]
-    return stages + [{"monitor": True}]
+    return stages + [MONITOR]
 
 
 @pytest.fixture
@@ -67,7 +84,7 @@ def xp_root(tmp_path, monkeypatch):
     (root / "suites" / "demo" / "functions").mkdir(parents=True)
     (root / "connections").mkdir()
     (root / "suites" / "demo" / "one.json").write_text(json.dumps(_stages(SUITE)))
-    (root / "suites" / "demo" / "two.json").write_text(json.dumps([{"monitor": True}]))
+    (root / "suites" / "demo" / "two.json").write_text(json.dumps([MONITOR]))
     (root / "suites" / "demo" / "notes.json").write_text(
         json.dumps({"_comment": "not a suite"})
     )
@@ -80,7 +97,22 @@ def xp_root(tmp_path, monkeypatch):
     monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
     monkeypatch.delenv("_TDD_XP_SCRATCH", raising=False)
     monkeypatch.delenv("_TDD_XP_PARENT", raising=False)
+    _run_the_clock(monkeypatch)
     return root
+
+
+def _run_the_clock(monkeypatch):
+    """Run IDs from a clock the test owns: XP_ID first, a second on each next."""
+    from datetime import datetime, timezone
+
+    from tabsdata_dev.tool.xp import ids
+
+    monkeypatch.setenv("TD_BUILD_USER", "tucu")
+    monkeypatch.setenv("TD_BUILD_NUMBER", "0")
+    now = [datetime(2026, 10, 1, 9, 30, 12, tzinfo=timezone.utc).timestamp()]
+    monkeypatch.setattr(ids, "clock", lambda: now[0])
+    monkeypatch.setattr(ids, "sleep", lambda s: now.__setitem__(0, now[0] + max(s, 0)))
+    monkeypatch.setattr(ids, "_last", -1)
 
 
 def _run(argv):
@@ -152,7 +184,7 @@ def test_pointers_live_under_the_tdd_data_dir(xp_root, tmp_path):
     from tabsdata_dev.tool.xp import pointers, suites
 
     one = xp_root / "suites" / "demo" / "one.json"
-    pointers.write_instance("i1", one)
+    pointers.write_instance("i1", one, (XP_ID, XP_SHORT))
     assert pointers.store() == tmp_path / "tdd" / "data" / "xp"
     inst = pointers.load_instance("i1")
     assert (
@@ -160,13 +192,17 @@ def test_pointers_live_under_the_tdd_data_dir(xp_root, tmp_path):
         and inst.base_dir == str(xp_root)
         and inst.type == "demo"
     )
-    assert inst.domain_full("fs") == "i1_fs"
+    # the suite read for the run the pointer holds: its domains are the run's
+    assert [d.name for d in inst.domains] == [f"{XP_ID}_fs", f"{XP_ID}_world"]
+    assert pointers.ids_of("i1") == (XP_ID, XP_SHORT)
     pointers.write_project("p1", "i1")
     assert (
         pointers.load_project("p1") == "i1"
         and pointers.suite_of_project("p1") == "demo/one"
     )
-    pointers.write_group_instance("g", ["g_one", "g_two"], one.parent)
+    pointers.write_group_instance(
+        "g", ["g_one", "g_two"], one.parent, (XP_ID, XP_SHORT)
+    )
     assert (
         pointers.instance_group("g") == ["g_one", "g_two"]
         and pointers.suite_of_instance("g") == "demo"
@@ -209,21 +245,64 @@ def test_connection_prep_resolves_secrets_and_interpolates(xp_root, monkeypatch)
         conn.interpolate("${D0__NOPE}", {}, "here")
 
 
-def test_a_creates_backend_name_is_per_run_and_stable_within_one(xp_root):
-    """xp names the backend object itself (`--name-in-system`): the user, the
-    run's timestamp and a tag of the logical domain -- the same for the same
-    run, so a partial failure re-run reuses the container."""
-    from tabsdata_dev.tool.xp import domains
+def test_a_runs_domain_is_named_by_its_ids_and_a_fixed_one_as_written(xp_root):
+    """`${xp_name(x)}` is the run's domain, `<XP_ID>_x` in the store and
+    `<XP_SHORT_ID>_x` in the system -- short, because a system's identifiers
+    are. A name written plainly is fixed, the same in both."""
     from tabsdata_dev.tool.xp.models import build_instance
 
-    inst = build_instance("i1", xp_root / "suites" / "demo" / "one.json")
-    assert [(d.name, d.system) for d in inst.domains] == [("fs", "fs"), ("world", "fs")]
-    name = domains.name_in_system(inst, "world", "20260829T000000")
-    assert name.startswith("xp_") and name.endswith(
-        "_20260829T000000_" + name.split("_")[-2] + "_world"
+    inst = build_instance(
+        "r", xp_root / "suites" / "demo" / "one.json", XP_ID, XP_SHORT
     )
-    assert name == domains.name_in_system(inst, "world", "20260829T000000")
-    assert name != domains.name_in_system(inst, "fs", "20260829T000000")
+    assert [(d.name, d.system) for d in inst.domains] == [
+        (f"{XP_ID}_fs", "fs"),
+        (f"{XP_ID}_world", "fs"),
+    ]
+    assert inst.system_name(f"{XP_ID}_world") == f"{XP_SHORT}_world"
+    assert inst.system_name("pinned") == "pinned"
+    assert inst.collections[0].domains == {"D0": f"{XP_ID}_world"}
+
+
+def test_a_run_id_is_its_build_identity_and_second_and_the_short_one_fits_12():
+    from tabsdata_dev.tool.xp import ids
+
+    t = 1790847012  # 2026-10-01T09:30:12Z
+    assert ids.make("tucu", "0", t) == (XP_ID, XP_SHORT)
+    assert ids.make("Al", "build_1234", t) == (
+        "xp_Al_build_1234_20261001T093012",
+        "alx34_0e2aec",
+    )
+    # 2094 is where six base-36 digits run out; the width holds until then
+    assert len(ids.make("u", "7", t + 60 * 365 * 86400)[1]) == 12
+    with pytest.raises(ValueError, match="before 2026-01-01"):
+        ids.make("u", "0", t - 400 * 86400)
+
+
+def test_two_runs_one_process_starts_are_a_second_apart(xp_root):
+    from tabsdata_dev.tool.xp import ids
+
+    first, second = ids.new(), ids.new()
+    assert first == (XP_ID, XP_SHORT)
+    assert second[0] == "xp_tucu_0_20261001T093013" and second[1] != first[1]
+
+
+@pytest.mark.parametrize(
+    "value, why",
+    [
+        ("${xp_name()}", "a name is a letter or digit"),
+        ("${xp_name(a b)}", "a name is a letter or digit"),
+        ("${xp_name(pg}", "does not close"),
+    ],
+)
+def test_a_malformed_xp_name_is_refused(value, why):
+    from tabsdata_dev.tool.xp import ids
+
+    with pytest.raises(ValueError, match=why):
+        ids.resolve({"name": value}, XP_ID, XP_SHORT)
+    assert ids.resolve(["${XP_ID}/${XP_SHORT_ID}", "${XP_WORK_DIR}"], "a", "b") == [
+        "a/b",
+        "${XP_WORK_DIR}",
+    ]
 
 
 def test_dry_run_one_shot_prints_the_tdd_commands_and_touches_no_server(
@@ -245,12 +324,12 @@ def test_dry_run_one_shot_prints_the_tdd_commands_and_touches_no_server(
     lines = [line for line in out.splitlines() if line.startswith("tdd ")]
     # a domains stage is its calls, as written: each domain's create first
     assert lines[0].startswith(
-        "tdd domain create --domain p_fs --sys fs --name-in-system "
+        f"tdd domain create --domain {XP_ID}_fs --sys fs --name-in-system {XP_SHORT}_fs"
     )
-    assert lines[1].startswith("tdd domain create --domain p_world --sys fs ")
+    assert lines[1].startswith(f"tdd domain create --domain {XP_ID}_world --sys fs ")
     assert lines[2:4] == [
-        "tdd domain create-model --domain p_world --model world",
-        "tdd domain create-data --domain p_world --size 10",
+        f"tdd domain create-model --domain {XP_ID}_world --model world",
+        f"tdd domain create-data --domain {XP_ID}_world --size 10",
     ]
     assert "tdd tdk project create --name p" in "\n".join(lines)
     assert (
@@ -347,14 +426,14 @@ def test_json_stream_carries_steps_and_ends_in_one_ok(xp_root, capsys):
             "--suite",
             "demo/one",
             *_suites_dir(xp_root),
-            "--instance",
+            "--suite-run",
             "i2",
             "--format",
             "json",
         ]
     )
     assert rc == 0
-    rc = _run(["run-project", "--project", "nope", "--dry-run", "--format", "json"])
+    rc = _run(["run-triggers", "--project", "nope", "--dry-run", "--format", "json"])
     out, _ = capsys.readouterr()
     events = [json.loads(line) for line in out.splitlines()]
     assert all(e["command"] == "xp" for e in events)
@@ -409,14 +488,14 @@ def test_the_login_probe_does_not_open_an_unlabelled_reporter(
                 "--suite",
                 "demo/one",
                 *_suites_dir(xp_root),
-                "--instance",
+                "--suite-run",
                 "lbl",
             ]
         )
         == 0
     )
     capsys.readouterr()
-    assert _run(["create-domains", "--instance", "lbl", "--dry-run"]) == 0
+    assert _run(["create-domains", "--suite-run", "lbl", "--dry-run"]) == 0
     out, err = capsys.readouterr()
     assert any(
         line.startswith("demo/one - [1/4] - create-domain") for line in err.splitlines()
@@ -660,7 +739,7 @@ def test_a_failed_transaction_leaves_its_worker_logs_in_the_scratch_dir(
     workers = {"tx-1": [{"id": "w-a", "status": "Failed"}, {"id": "w-b"}]}
     calls = []
 
-    def fake(argv, check, stdin_text=None, env=None):
+    def fake(argv, check, stdin_text=None, env=None, timeout=None):
         args = argv[argv.index("tdk") + 1 :]
         calls.append(args)
         out, rc = "", 0
@@ -676,7 +755,9 @@ def test_a_failed_transaction_leaves_its_worker_logs_in_the_scratch_dir(
         return subprocess.CompletedProcess(argv, rc, out, "")
 
     monkeypatch.setattr(shell, "run_cmd", fake)
-    rc = _run(["monitor-project", "--project", "p1", "--format", "json"])
+    rc = _run(
+        ["monitor-project", "--project", "p1", "--time-out", "1h", "--format", "json"]
+    )
     events = [
         json.loads(line)
         for line in capsys.readouterr().out.splitlines()
@@ -707,10 +788,13 @@ def _fake_monitor(monkeypatch, watches):
     queue = list(watches)
     watched = []
 
-    def fake(argv, check, stdin_text=None, env=None):
+    def fake(argv, check, stdin_text=None, env=None, timeout=None):
         args = argv[argv.index("tdk") + 1 :]
         if args[:2] == ["trx", "list"] and "--monitor" in args:
             seconds, rc = queue.pop(0)
+            if timeout is not None and seconds > timeout:
+                now[0] += timeout
+                raise subprocess.TimeoutExpired(argv, timeout)
             now[0] += seconds
             watched.append(rc)
             return subprocess.CompletedProcess(argv, rc, "", "│ Connection reset │")
@@ -726,8 +810,18 @@ def _fake_monitor(monkeypatch, watches):
     return watched
 
 
-def _monitor_events(capsys):
-    rc = _run(["monitor-project", "--project", "p1", "--format", "json"])
+def _monitor_events(capsys, time_out="1h"):
+    rc = _run(
+        [
+            "monitor-project",
+            "--project",
+            "p1",
+            "--time-out",
+            time_out,
+            "--format",
+            "json",
+        ]
+    )
     return rc, [
         json.loads(line)
         for line in capsys.readouterr().out.splitlines()
@@ -760,6 +854,28 @@ def test_the_monitor_gives_up_once_the_grace_period_is_spent(
     grace = project.MONITOR_OUTAGE_GRACE
     per_try = project.MONITOR_RETRY_PAUSE + 1
     assert len(watched) == int(grace // per_try) + 1
+
+
+def test_the_monitor_fails_the_run_once_its_time_out_passes(
+    xp_root, monkeypatch, capsys
+):
+    """A watch is never without an end: transactions still running at the
+    time_out fail the run, through outages and retries alike."""
+    watched = _fake_monitor(monkeypatch, [(40, 1), (600, 0)])
+    rc, events = _monitor_events(capsys, time_out="2m")
+    err = [e for e in events if e["event"] == "error"][0]
+    assert rc == 1 and watched == [1]
+    assert (
+        "still has transactions running after the monitor's time_out (2m)"
+        in err["message"]
+    )
+
+
+def test_a_monitor_is_never_without_a_time_out(xp_root, capsys):
+    assert _run(["monitor-project", "--project", "p1"]) == 1  # argparse: required
+    assert "required: --time-out" in capsys.readouterr().err
+    rc = _run(["run-triggers", "--project", "p1", "--monitor"])
+    assert rc == 1 and "--time-out <VALUE><UNIT>" in capsys.readouterr().err
 
 
 def test_a_watch_that_reached_the_server_restarts_the_outage_clock(
@@ -830,7 +946,7 @@ def test_lanes_share_their_columns_from_the_first_line(
         code = "import json\n" + "".join(
             f"print(json.dumps({s!r}))\n" for s in [*steps, done]
         )
-        return (lane, [sys.executable, "-c", code, "--instance", lane])
+        return (lane, [sys.executable, "-c", code, "--suite-run", lane])
 
     state.bind(render.Renderer(state.TOOL), argparse_ns())
     plans = {"a": lanes.LanePlan(12, ("postgres_cdc",)), "b": lanes.LanePlan(3)}
@@ -878,369 +994,492 @@ def test_one_shot_refuses_without_the_crypto_key_before_writing_anything(
     assert not pointers.instance_file("g").exists()
 
 
-def _live_instance(xp_root, script):
+def _tdd(name, domain, command, *options, **extra):
+    """A tdd step running a `tdd domain` verb on one of the suite's domains."""
+    return {
+        "tdd": {
+            "name": name,
+            "tool": "domain",
+            "command": command,
+            "options": ["--domain", N(domain), *options],
+            **extra,
+        }
+    }
+
+
+def _sleep(name, time="1s", **extra):
+    return {"sleep": {"name": name, "time": time, **extra}}
+
+
+def _wait(name, *names):
+    return {"wait": {"name": name, "for": list(names)}}
+
+
+def _bg(name, *entries, **extra):
+    return {"background": {"name": name, "actions": list(entries), **extra}}
+
+
+def _loop(name, repeat, *entries, **extra):
+    return {"loop": {"name": name, "repeat": repeat, "actions": list(entries), **extra}}
+
+
+def _par(name, *entries, lanes=0):
+    return {"parallel": {"name": name, "lanes": lanes, "actions": list(entries)}}
+
+
+def _tmo(name, time, *entries, stop=True):
+    return {
+        "timeout": {
+            "name": name,
+            "time": time,
+            "stop_on_timeout": stop,
+            "actions": list(entries),
+        }
+    }
+
+
+ACTIONS = [
+    _loop(
+        "cycle",
+        3,
+        _tdd("load", "world", "create-data"),
+        _loop(
+            "churn",
+            10,
+            _sleep("pause"),
+            _tdd("city", "world", "modify-data", "--entity", "city", "--ops", "Insert"),
+            _tdd("files", "fs", "modify-data"),
+        ),
+        _tdd("empty", "world", "delete-data"),
+        _tdd("drop", "world", "delete-model"),
+        _tdd("model", "world", "create-model", "--force", "--model", "world"),
+    )
+]
+
+
+def _actions_suite(xp_root, script=ACTIONS):
+    path = xp_root / "suites" / "act" / "one.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_stages(SUITE) + [{"actions": script}, MONITOR]))
+    return path
+
+
+def _actions_instance(xp_root, script):
     from tabsdata_dev.common.core import render
     from tabsdata_dev.tool.xp import state
     from tabsdata_dev.tool.xp.models import build_instance
 
     state.bind(render.Renderer(state.TOOL), argparse_ns())
-    return build_instance("i", _live_suite(xp_root, script))
-
-
-def _dom(name, command, *options):
-    doc = {"name": name, "command": command}
-    if options:
-        doc["options"] = list(options)
-    return doc
-
-
-LIVE = [
-    {
-        "name": "cycle",
-        "repeat": 3,
-        "live": [
-            {"name": "load", "domain": _dom("world", "create-data")},
-            {
-                "name": "churn",
-                "repeat": 10,
-                "live": [
-                    {"name": "pause", "sleep": "1s"},
-                    {
-                        "name": "city",
-                        "domain": _dom(
-                            "world",
-                            "modify-data",
-                            "--entity",
-                            "city",
-                            "--ops",
-                            "Insert",
-                        ),
-                    },
-                    {"name": "files", "domain": _dom("fs", "modify-data")},
-                ],
-            },
-            {"name": "empty", "domain": _dom("world", "delete-data")},
-            {"name": "drop", "domain": _dom("world", "delete-model")},
-            {
-                "name": "model",
-                "domain": _dom("world", "create-model", "--force", "--model", "world"),
-            },
-        ],
-    }
-]
-
-
-def _live_suite(xp_root, live=LIVE):
-    path = xp_root / "suites" / "live" / "one.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_stages(SUITE) + [{"live": live}, {"monitor": True}]))
-    return path
+    return build_instance("i", _actions_suite(xp_root, script), XP_ID, XP_SHORT)
 
 
 def _instance(xp_root, name="i"):
-    assert (
-        _run(
-            [
-                "create-instance",
-                "--suite",
-                "live/one",
-                *_suites_dir(xp_root),
-                "--instance",
-                name,
-            ]
-        )
-        == 0
-    )
+    args = ["create-instance", "--suite", "act/one", *_suites_dir(xp_root)]
+    assert _run([*args, "--suite-run", name]) == 0
 
 
-def test_a_live_script_counts_its_calls_through_every_loop(xp_root):
-    from tabsdata_dev.tool.xp import live
+def _fake_steps(monkeypatch, body=None):
+    """Stand in for every step that runs something: `body(label)`, in order."""
+    from tabsdata_dev.tool.xp import actions
+
+    ran: list[str] = []
+
+    def step(a, run, label):
+        if body is not None:
+            body(label, run)
+        ran.append(label)
+
+    monkeypatch.setattr(actions, "_step", step)
+    return ran
+
+
+def test_an_actions_script_counts_its_steps_through_every_loop(xp_root):
+    from tabsdata_dev.tool.xp import actions
     from tabsdata_dev.tool.xp.models import build_instance
 
-    inst = build_instance("i", _live_suite(xp_root))
-    # 3 x (load + 10 x (city + files) + empty + drop + model); sleeps are no calls
-    assert live.count(inst.live) == 3 * (1 + 10 * 2 + 3)
+    inst = build_instance("i", _actions_suite(xp_root))
+    # 3 x (load + 10 x (city + files) + empty + drop + model); sleeps run nothing
+    assert actions.count(inst.actions, actions.Selection()) == 3 * (1 + 10 * 2 + 3)
 
 
 @pytest.mark.parametrize(
     "script, why",
     [
-        ([{"domain": _dom("world", "delete-data")}], "name"),
-        ([{"name": "1st", "sleep": "1s"}], "a letter"),
-        ([{"name": "x"}], "exactly one of 'domain', 'sleep', 'wait' or 'live'"),
+        ([{"tdd": {"tool": "domain", "command": "x"}}], "name"),
+        ([_sleep("1st")], "a letter"),
+        ([{}], "exactly one of"),
+        ([{**_sleep("x"), **_wait("y", "x")}], "has sleep, wait"),
         (
-            [{"name": "x", "sleep": "1s", "wait": ["y"]}],
-            "exactly one of .* \\(has sleep, wait\\)",
-        ),
-        ([{"name": "x", "domain": _dom("world", "destroy")}], "is not one of"),
-        ([{"name": "x", "domain": _dom("nope", "delete-data")}], "does not define"),
-        (
-            [{"name": "x", "domain": _dom("world", "modify-data", "--format", "json")}],
-            "set by xp itself: --format",
+            [{"tdd": {"name": "x", "tool": "venv", "command": "create"}}],
+            "'venv' is a shell function",
         ),
         (
-            [
-                {
-                    "name": "x",
-                    "domain": {"name": "world", "command": "delete-data", "opts": []},
-                }
-            ],
+            [{"tdd": {"name": "x", "tool": "domain", "command": "m", "opts": []}}],
             "Extra inputs",
         ),
         (
-            [{"name": "x", "sleep": "1s", "blocking": False}],
-            "only a 'domain' or 'live' entry",
-        ),
-        (
-            [{"name": "x", "repeat": 2, "domain": _dom("world", "delete-data")}],
-            "'repeat' goes with 'live'",
-        ),
-        ([{"name": "x", "repeat": 0, "live": []}], "repeat must be >= 1"),
-        (
-            [
-                {"name": "x", "sleep": "1s"},
-                {"name": "x", "sleep": "1s"},
-            ],
-            "'x' is used twice",
-        ),
-        (
-            [{"name": "w", "wait": ["later"]}, {"name": "later", "sleep": "1s"}],
-            "not an entry before it",
-        ),
-        (
-            # out of reach: inside another entry's nested live
             [
                 {
-                    "name": "g",
-                    "live": [{"name": "inner", "domain": _dom("world", "delete-data")}],
-                },
-                {"name": "w", "wait": ["inner"]},
+                    "tdd": {
+                        "name": "x",
+                        "tool": "d",
+                        "command": "m",
+                        "options": ["${XP_NOPE}"],
+                    }
+                }
             ],
-            "'inner', which is not an entry before it",
+            r"\$\{XP_NOPE\} is not a token",
+        ),
+        ([_loop("x", 0, _sleep("s"))], "repeat must be >= 1"),
+        ([_bg("x")], "holds no actions"),
+        ([_sleep("x", "5")], "is not <VALUE><UNIT>"),
+        ([_tmo("t", "soon", _sleep("s"))], "is not <VALUE><UNIT>"),
+        ([_sleep("x", tags=["9"])], "tag '9'"),
+        ([_sleep("x"), _sleep("x")], "'x' is used twice"),
+        ([_wait("w", "later"), _sleep("later")], "not an action before it"),
+        (
+            # out of reach: inside another entry's block
+            [_bg("g", _tdd("inner", "world", "delete-data")), _wait("w", "inner")],
+            "'inner', which is not an action before it",
         ),
         (
-            # the entry that contains the wait: it would wait for itself
-            [{"name": "g", "live": [{"name": "w", "wait": ["g"]}]}],
-            "'g', which is not an entry before it",
+            # the block that holds the wait: it would wait for itself
+            [_loop("g", 1, _wait("w", "g"))],
+            "'g', which is not an action before it",
         ),
+        ([_sleep("s"), _wait("w", "s")], "a sleep: there is nothing"),
         (
-            [{"name": "s", "sleep": "1s"}, {"name": "w", "wait": ["s"]}],
-            "a sleep entry",
+            [_bg("b", _sleep("z")), _par("p", _wait("w", "b"), lanes=2)],
+            "inside parallel 'p', which bounds its lanes",
         ),
+        ([{"python": {"name": "c", "script": "scripts/nope.py"}}], "no script"),
+        ([{"python": {"name": "c", "script": "../x.py"}}], "inside the suite dir"),
+        ([{"exe": {"name": "e", "program": " "}}], "names no program"),
     ],
 )
-def test_a_live_script_is_refused_when_the_suite_is_read(xp_root, script, why):
+def test_an_actions_script_is_refused_when_the_suite_is_read(xp_root, script, why):
     from tabsdata_dev.tool.xp import state
     from tabsdata_dev.tool.xp.models import build_instance
 
     with pytest.raises(state.XpError, match=why):
-        build_instance("i", _live_suite(xp_root, script))
+        build_instance("i", _actions_suite(xp_root, script))
 
 
-def test_a_wait_reaches_entries_before_it_here_and_in_enclosing_lists(xp_root):
+def test_a_wait_reaches_back_here_in_enclosing_lists_and_in_earlier_stages(xp_root):
     from tabsdata_dev.tool.xp.models import build_instance
 
     script = [
-        {"name": "bg", "blocking": False, "domain": _dom("world", "modify-data")},
-        {
-            "name": "g",
-            "repeat": 2,
-            "live": [
-                {"name": "one", "blocking": False, "domain": _dom("fs", "modify-data")},
-                {"name": "w", "wait": ["one", "bg"]},  # a sibling and an outer entry
-            ],
-        },
-        {"name": "w2", "wait": "g"},  # one name may be a bare string
+        _bg("bg", _tdd("c1", "world", "modify-data")),
+        _loop(
+            "g",
+            2,
+            _bg("one", _tdd("c2", "fs", "modify-data")),
+            _wait("w", "one", "bg"),  # a sibling and an outer entry
+        ),
+        _wait("w2", "g"),
+        _par("p", _wait("w3", "bg")),  # an unbounded parallel may wait
     ]
-    assert build_instance("i", _live_suite(xp_root, script)).live[2].wait == ["g"]
+    assert build_instance("i", _actions_suite(xp_root, script)).actions[
+        2
+    ].wait.for_ == ["g"]
+    # one script across stages: a later stage's wait finds an earlier stage's block
+    doc = [
+        {"domains": calls("world", "fs")},
+        {"actions": [_bg("churn", _tdd("c", "world", "modify-data"))]},
+        MONITOR,
+        {"actions": [_wait("settle", "churn")]},
+    ]
+    assert [
+        a.name for a in build_instance("i", _staged_suite(xp_root, doc)).actions
+    ] == [
+        "churn",
+        "settle",
+    ]
 
 
-def test_dry_run_live_domains_prints_the_script_in_order(xp_root, capsys):
-    _live_suite(xp_root)
+def test_dry_run_run_actions_prints_the_script_in_order(xp_root, capsys):
+    _actions_suite(xp_root)
     _instance(xp_root)
     capsys.readouterr()
-    rc = _run(["live-domains", "--instance", "i", "--dry-run"])
+    rc = _run(["run-actions", "--suite-run", "i", "--dry-run"])
     out, err = capsys.readouterr()
     assert rc == 0, err
     lines = [ln for ln in out.splitlines() if ln.startswith(("tdd ", "sleep "))]
-    first = lines[: lines.index("tdd domain delete-model --domain i_world") + 2]
-    # a live call runs as written: nothing is filled in from the domains stage
-    assert first[0] == "tdd domain create-data --domain i_world"
+    first = lines[: lines.index(f"tdd domain delete-model --domain {XP_ID}_world") + 2]
+    # a step runs as written: nothing is filled in
+    assert first[0] == f"tdd domain create-data --domain {XP_ID}_world"
     assert first[1:4] == [
         "sleep 1",
-        "tdd domain modify-data --domain i_world --entity city --ops Insert",
-        "tdd domain modify-data --domain i_fs",
+        f"tdd domain modify-data --domain {XP_ID}_world --entity city --ops Insert",
+        f"tdd domain modify-data --domain {XP_ID}_fs",
     ]
     assert first[4] == "sleep 1"  # the inner loop's next pass
     assert first[-3:] == [
-        "tdd domain delete-data --domain i_world",
-        "tdd domain delete-model --domain i_world",
-        "tdd domain create-model --domain i_world --force --model world",
+        f"tdd domain delete-data --domain {XP_ID}_world",
+        f"tdd domain delete-model --domain {XP_ID}_world",
+        f"tdd domain create-model --domain {XP_ID}_world --force --model world",
     ]
     assert len([ln for ln in lines if ln.startswith("tdd ")]) == 3 * 24
-    # each call is a step, labelled with the entries and passes it is under
+    # each step is a step of the run, labelled with the blocks and passes it is under
     assert "cycle 1/3 > churn 10/10 > city" in err
 
 
 def test_dry_run_marks_what_goes_to_the_background_and_what_waits(xp_root, capsys):
-    _live_suite(
+    _actions_suite(
         xp_root,
         [
-            {"name": "seed", "domain": _dom("world", "create-data")},
-            {
-                "name": "churn",
-                "blocking": False,
-                "repeat": 2,
-                "live": [
-                    {"name": "change", "domain": _dom("world", "modify-data")},
-                ],
-            },
-            {"name": "settle", "wait": ["churn"]},
-            {"name": "reset", "domain": _dom("world", "delete-data")},
+            _tdd("seed", "world", "create-data"),
+            _bg("churn", _loop("pass", 2, _tdd("change", "world", "modify-data"))),
+            _wait("settle", "churn"),
+            _tmo("bounded", "5m", _tdd("reset", "world", "delete-data")),
         ],
     )
     _instance(xp_root)
     capsys.readouterr()
-    rc = _run(["live-domains", "--instance", "i", "--dry-run"])
+    rc = _run(["run-actions", "--suite-run", "i", "--dry-run"])
     out, err = capsys.readouterr()
     assert rc == 0, err
-    assert out.splitlines()[:7] == [
-        "tdd domain create-data --domain i_world",
+    assert out.splitlines()[:8] == [
+        f"tdd domain create-data --domain {XP_ID}_world",
         "# churn: starts in the background",
-        "tdd domain modify-data --domain i_world",
-        "tdd domain modify-data --domain i_world",
+        f"tdd domain modify-data --domain {XP_ID}_world",
+        f"tdd domain modify-data --domain {XP_ID}_world",
         "# churn: ends",
         "# settle: wait for churn",
-        "tdd domain delete-data --domain i_world",
+        "# bounded: at most 5m",
+        f"tdd domain delete-data --domain {XP_ID}_world",
     ]
 
 
-def test_a_non_blocking_entry_runs_side_by_side_until_waited_for(xp_root, monkeypatch):
+def test_a_background_block_runs_side_by_side_until_waited_for(xp_root, monkeypatch):
     """`churn` starts and the script goes on: `seed`, after it, runs while
-    churn is still inside its call -- churn only finishes once seed has run, so
+    churn is still inside its step -- churn only finishes once seed has run, so
     a churn that held the script would never finish. `reset` waits for it."""
     import threading
 
-    from tabsdata_dev.tool.xp import live
+    from tabsdata_dev.tool.xp import actions
 
     seeded = threading.Event()
-    order: list[str] = []
 
-    def call(argv, action, path, where):
-        if where == "churn":
+    def body(label, run):
+        if label == "churn > change":
             assert seeded.wait(5), "churn held the script"
-        if where == "seed":
+        if label == "seed":
             seeded.set()
-        order.append(where)
 
-    monkeypatch.setattr(live, "_call", call)
-    inst = _live_instance(
+    ran = _fake_steps(monkeypatch, body)
+    inst = _actions_instance(
         xp_root,
         [
-            {
-                "name": "churn",
-                "blocking": False,
-                "domain": _dom("world", "modify-data"),
-            },
-            {"name": "seed", "domain": _dom("world", "create-data")},
-            {"name": "settle", "wait": ["churn"]},
-            {"name": "reset", "domain": _dom("world", "delete-data")},
+            _bg("churn", _tdd("change", "world", "modify-data")),
+            _tdd("seed", "world", "create-data"),
+            _wait("settle", "churn"),
+            _tdd("reset", "world", "delete-data"),
         ],
     )
-    live.run_script(inst)
-    assert order == ["seed", "churn", "reset"]
+    actions.run_script(inst, "p", actions.Selection())
+    assert ran == ["seed", "churn > change", "reset"]
 
 
-def test_a_repeat_pass_ends_when_everything_it_started_has(xp_root, monkeypatch):
-    """A background entry inside a pass is waited for at the end of the pass:
-    pass 2 does not start while pass 1's background call still runs."""
+def test_a_loop_pass_ends_when_everything_it_started_has(xp_root, monkeypatch):
+    """A background block inside a pass is waited for at the end of the pass:
+    pass 2 does not start while pass 1's background step still runs."""
     import threading
     import time
 
-    from tabsdata_dev.tool.xp import live
+    from tabsdata_dev.tool.xp import actions
 
     lock = threading.Lock()
     events: list[str] = []
 
-    def call(argv, action, path, where):
+    def body(label, run):
         with lock:
-            events.append(f"start {where}")
-        if where.endswith("slow"):
+            events.append(f"start {label}")
+        if label.endswith("slow"):
             time.sleep(0.1)
         with lock:
-            events.append(f"end {where}")
+            events.append(f"end {label}")
 
-    monkeypatch.setattr(live, "_call", call)
-    inst = _live_instance(
+    _fake_steps(monkeypatch, body)
+    inst = _actions_instance(
         xp_root,
         [
-            {
-                "name": "g",
-                "repeat": 2,
-                "live": [
-                    {
-                        "name": "slow",
-                        "blocking": False,
-                        "domain": _dom("world", "modify-data"),
-                    },
-                    {"name": "quick", "domain": _dom("fs", "modify-data")},
-                ],
-            },
+            _loop(
+                "g",
+                2,
+                _bg("bg", _tdd("slow", "world", "modify-data")),
+                _tdd("quick", "fs", "modify-data"),
+            )
         ],
     )
-    live.run_script(inst)
-    assert events.index("end g 1/2 > slow") < events.index("start g 2/2 > slow")
+    actions.run_script(inst, "p", actions.Selection())
+    assert events.index("end g 1/2 > bg > slow") < events.index(
+        "start g 2/2 > bg > slow"
+    )
 
 
-def test_a_failed_background_entry_stops_the_script_and_is_its_error(
+def test_a_failed_background_step_stops_the_script_and_is_its_error(
     xp_root, monkeypatch
 ):
     """The first failure anywhere is the run's: what still runs stops at its
     next step or pause, and nothing after it starts."""
-    from tabsdata_dev.tool.xp import live, state
+    from tabsdata_dev.tool.xp import actions, state
 
-    calls: list[str] = []
+    def body(label, run):
+        if label == "bad > boom":
+            state.die("bad step failed")
 
-    def call(argv, action, path, where):
-        calls.append(where)
-        if where == "bad":
-            state.die("bad entry failed")
-
-    monkeypatch.setattr(live, "_call", call)
-    inst = _live_instance(
+    ran = _fake_steps(monkeypatch, body)
+    inst = _actions_instance(
         xp_root,
         [
-            {
-                "name": "slow",
-                "blocking": False,
-                "repeat": 50,
-                "live": [
-                    {"name": "nap", "sleep": "0.05s"},
-                    {"name": "tick", "domain": _dom("world", "modify-data")},
-                ],
-            },
-            {"name": "bad", "blocking": False, "domain": _dom("fs", "modify-data")},
-            {"name": "settle", "wait": ["bad"]},
-            {"name": "after", "domain": _dom("world", "delete-data")},
+            _bg(
+                "slow",
+                _loop(
+                    "ticks",
+                    50,
+                    _sleep("nap", "0.05s"),
+                    _tdd("tick", "world", "modify-data"),
+                ),
+            ),
+            _bg("bad", _tdd("boom", "fs", "modify-data")),
+            _wait("settle", "bad"),
+            _tdd("after", "world", "delete-data"),
         ],
     )
-    with pytest.raises(state.XpError, match="bad entry failed"):
-        live.run_script(inst)
-    assert "after" not in calls
-    assert len([c for c in calls if c.startswith("slow")]) < 50
+    with pytest.raises(state.XpError, match="bad step failed"):
+        actions.run_script(inst, "p", actions.Selection())
+    assert "after" not in ran
+    assert len([c for c in ran if c.startswith("slow")]) < 50
 
 
-def test_one_shot_runs_the_live_script_after_the_triggers_unless_told_not_to(
+def test_tags_pick_steps_blocks_pass_theirs_on_and_a_skipped_wait_is_met(
+    xp_root, monkeypatch
+):
+    from tabsdata_dev.tool.xp import actions
+
+    script = [
+        _bg(
+            "churn",
+            _tdd("change", "world", "modify-data"),
+            _tdd("slow", "world", "modify-data", tags=["slow"]),
+            tags=["churn"],
+        ),
+        _wait("settle", "churn"),
+        _tdd("verify", "fs", "modify-data", tags=["check"]),
+        _tdd("plain", "fs", "modify-data"),
+    ]
+
+    def ran(**sel):
+        steps = _fake_steps(monkeypatch)
+        inst = _actions_instance(xp_root, script)
+        actions.run_script(inst, "p", actions.Selection(**sel))
+        return sorted(steps)
+
+    every = ["churn > change", "churn > slow", "plain", "verify"]
+    assert ran() == every
+    assert ran(tags=frozenset({"churn"})) == ["churn > change", "churn > slow"]
+    assert ran(tags=frozenset({"churn", "check"})) == [
+        "churn > change",
+        "churn > slow",
+        "verify",
+    ]
+    assert ran(skip=frozenset({"slow"})) == ["churn > change", "plain", "verify"]
+    assert ran(tags=frozenset({"churn"}), skip=frozenset({"slow"})) == [
+        "churn > change"
+    ]
+    # nothing of churn runs: its wait is met at once, and the rest goes on
+    assert ran(skip=frozenset({"churn"})) == ["plain", "verify"]
+    assert ran(none=True) == []
+    sel = actions.Selection(tags=frozenset({"b", "a"}), skip=frozenset({"c"}))
+    assert sel.flags() == ["--tags", "a,b", "--skip-tags", "c"]
+    assert actions.count(_actions_instance(xp_root, script).actions, sel) == 0
+
+
+def test_a_parallel_runs_side_by_side_its_lanes_at_a_time_and_joins(
+    xp_root, monkeypatch
+):
+    import threading
+    import time
+
+    from tabsdata_dev.tool.xp import actions
+
+    def peak(lanes):
+        lock = threading.Lock()
+        now, top = [0], [0]
+
+        def body(label, run):
+            if label.startswith("p > "):
+                with lock:
+                    now[0] += 1
+                    top[0] = max(top[0], now[0])
+                time.sleep(0.05)
+                with lock:
+                    now[0] -= 1
+
+        ran = _fake_steps(monkeypatch, body)
+        inst = _actions_instance(
+            xp_root,
+            [
+                _par(
+                    "p",
+                    *(_tdd(f"s{i}", "world", "modify-data") for i in range(4)),
+                    lanes=lanes,
+                ),
+                _tdd("after", "fs", "modify-data"),
+            ],
+        )
+        actions.run_script(inst, "p", actions.Selection())
+        assert ran[-1] == "after"  # joined before the script went on
+        return top[0]
+
+    assert peak(0) == 4
+    assert peak(1) == 1
+
+
+def test_a_timeout_fails_the_run_or_leaves_its_actions_running(xp_root, monkeypatch):
+    import threading
+
+    from tabsdata_dev.tool.xp import actions, state
+
+    release = threading.Event()
+
+    def body(label, run):
+        if label.endswith("hang"):
+            # until the run lets it go, or it is the run's end
+            while not (release.is_set() or run.stop.is_set()):
+                release.wait(0.01)
+
+    ran = _fake_steps(monkeypatch, body)
+    hang = _tdd("hang", "world", "modify-data")
+    inst = _actions_instance(
+        xp_root, [_tmo("t", "0.1s", hang), _tdd("next", "fs", "modify-data")]
+    )
+    with pytest.raises(state.XpError, match="timeout 't': its actions ran past 0.1s"):
+        actions.run_script(inst, "p", actions.Selection())
+    assert "next" not in ran
+
+    ran = _fake_steps(monkeypatch, body)
+    inst = _actions_instance(
+        xp_root,
+        [_tmo("t", "0.1s", hang, stop=False), _tdd("next", "fs", "modify-data")],
+    )
+    # the run's end stops it, and lets it end before the run closes
+    actions.run_script(inst, "p", actions.Selection())
+    assert ran == ["next", "t > hang"]
+
+
+def test_one_shot_runs_the_actions_after_the_triggers_unless_told_not_to(
     xp_root, capsys
 ):
-    _live_suite(xp_root, [{"name": "b", "domain": _dom("world", "modify-data")}])
+    _actions_suite(xp_root, [_tdd("b", "world", "modify-data", tags=["churn"])])
 
     def lines(*extra):
         rc = _run(
             [
                 "one-shot",
                 "--suite",
-                "live/one",
+                "act/one",
                 *_suites_dir(xp_root),
                 "--project",
                 "p",
@@ -1252,22 +1491,54 @@ def test_one_shot_runs_the_live_script_after_the_triggers_unless_told_not_to(
         assert rc == 0, err
         return [ln for ln in out.splitlines() if ln.startswith("tdd ")]
 
+    # each one-shot is a suite run of its own: its domain is named by its XP_ID
+    def steps(ran):
+        return [
+            ln for ln in ran if ln.startswith("tdd domain modify-data --domain xp_")
+        ]
+
     ran = lines()
-    live_at = ran.index("tdd domain modify-data --domain p_world")
+    at = ran.index(steps(ran)[0])
     monitors = [i for i, ln in enumerate(ran) if ln.startswith("tdd tdk trx list")]
     # watched once for the triggers, then again for what the changes started
-    assert monitors[0] < live_at < monitors[1]
-    assert "tdd domain modify-data --domain p_world" not in lines("--no-live")
+    assert monitors[0] < at < monitors[1]
+    assert not steps(lines("--no-actions"))
+    assert not steps(lines("--skip-tags", "churn"))
+    assert steps(lines("--tags", "churn"))
+    assert (
+        _run(
+            [
+                "one-shot",
+                "--suite",
+                "act/one",
+                *_suites_dir(xp_root),
+                "--dry-run",
+                "--no-actions",
+                "--tags",
+                "x",
+            ]
+        )
+        == 1
+    )
+    assert "takes no --tags" in capsys.readouterr().err
+
+
+def test_a_retired_live_or_execute_stage_is_refused_naming_actions(xp_root):
+    from tabsdata_dev.tool.xp import state
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    for kind in ("live", "execute"):
+        with pytest.raises(
+            state.XpError,
+            match=f"'{kind}' is no longer read -- it is an 'actions' stage",
+        ):
+            build_instance("i", _staged_suite(xp_root, [{kind: []}]))
 
 
 STAGED = [
     {"_comment": "a comment entry reads as nothing"},
     {"domains": calls("world", "fs", "world", 10)},
-    {
-        "live": [
-            {"name": "early", "domain": _dom("world", "modify-data", "--ops", "Insert")}
-        ]
-    },
+    {"actions": [_tdd("early", "world", "modify-data", "--ops", "Insert")]},
     {
         "collections": [
             {
@@ -1275,7 +1546,7 @@ STAGED = [
                 "type": "local_file_in",
                 "connection_template": "connection-file:connections/local_file_in.yaml",
                 "group": "sources",
-                "domains": {"D0": "world"},
+                "domains": {"D0": N("world")},
             }
         ]
     },
@@ -1290,7 +1561,7 @@ STAGED = [
     },
     {"domains": calls("fs", "fs")},
     {"triggers": [{"collection": "src", "function": "pub", "detached": True}]},
-    {"monitor": True},
+    MONITOR,
 ]
 
 
@@ -1310,7 +1581,7 @@ def test_a_suite_is_an_ordered_list_of_stages(xp_root):
     inst = build_instance("i", path)
     assert [s.kind for s in inst.stages] == [
         "domains",
-        "live",
+        "actions",
         "collections",
         "functions",
         "domains",
@@ -1318,7 +1589,7 @@ def test_a_suite_is_an_ordered_list_of_stages(xp_root):
         "monitor",
     ]
     # every entry of a kind, across its stages, for the phase verbs
-    assert [d.name for d in inst.domains] == ["world", "fs"]
+    assert [d.name for d in inst.domains] == [f"{PH}_world", f"{PH}_fs"]
     assert inst.functions[0].enabled is False
 
 
@@ -1332,7 +1603,7 @@ def test_the_older_single_object_is_refused_naming_the_list_it_ran(xp_root, caps
     assert suites.is_suite_def(path)
     with pytest.raises(
         state.XpError,
-        match='a single object, a form xp no longer reads.*"monitor": true',
+        match='a single object, a form xp no longer reads.*"monitor": \\{"time_out"',
     ):
         build_instance("i", path)
     assert _run(["list-suites", *_suites_dir(xp_root)]) == 0
@@ -1350,18 +1621,26 @@ def test_the_older_single_object_is_refused_naming_the_list_it_ran(xp_root, caps
             "exactly one of .* \\(has domains, triggers\\)",
         ),
         ([{"deploy": []}], "exactly one of"),
-        ([{"monitor": 5}], "monitor takes true"),
+        ([{"monitor": 5}], "monitor takes"),
+        ([{"monitor": True}], "monitor takes"),
+        ([{"monitor": {}}], "how long it may watch"),
+        ([{"monitor": {"time_out": "30"}}], "time_out: '30' is not"),
         ([{"domains": {}}], "domains takes a list"),
         (
             [
                 {
                     "collections": [
-                        {"name": "c", "type": "t", "group": "g", "domains": {"D0": "d"}}
+                        {
+                            "name": "c",
+                            "type": "t",
+                            "group": "g",
+                            "domains": {"D0": N("d")},
+                        }
                     ]
                 },
                 {"domains": calls("d", "fs")},
             ],
-            "collection 'c' names domain 'd', created by a later stage",
+            f"collection 'c' names domain '{PH}_d', created by a later stage",
         ),
         (
             [
@@ -1373,13 +1652,6 @@ def test_the_older_single_object_is_refused_naming_the_list_it_ran(xp_root, caps
                 {"collections": [{"name": "c", "type": "t", "group": "g"}]},
             ],
             "in collection 'c', created by a later stage",
-        ),
-        (
-            [
-                {"live": [{"name": "x", "domain": _dom("d", "delete-data")}]},
-                {"domains": calls("d", "fs")},
-            ],
-            "live entry 'x' names domain 'd', created by a later stage",
         ),
     ],
 )
@@ -1399,13 +1671,13 @@ def test_run_suite_runs_the_stages_in_the_order_listed(xp_root, capsys):
             "--suite",
             "staged/one",
             *_suites_dir(xp_root),
-            "--instance",
+            "--suite-run",
             "i",
         ]
     )
     assert rc == 0
     capsys.readouterr()
-    rc = _run(["run-suite", "--instance", "i", "--project", "p", "--dry-run"])
+    rc = _run(["run-suite", "--suite-run", "i", "--project", "p", "--dry-run"])
     out, err = capsys.readouterr()
     assert rc == 0, err
     lines = [ln for ln in out.splitlines() if ln.startswith("tdd ")]
@@ -1414,9 +1686,9 @@ def test_run_suite_runs_the_stages_in_the_order_listed(xp_root, capsys):
         return next(i for i, ln in enumerate(lines) if ln.startswith(prefix))
 
     order = [
-        at("tdd domain create --domain i_world --sys fs"),  # stage 1: world
+        at(f"tdd domain create --domain {XP_ID}_world --sys fs"),  # stage 1: world
         at(
-            "tdd domain modify-data --domain i_world --ops Insert"
+            f"tdd domain modify-data --domain {XP_ID}_world --ops Insert"
         ),  # live, before the project
         at("tdd tdk project create --name p"),  # the first project stage creates it
         at("tdd tdk collection create --proj p --name src"),
@@ -1426,14 +1698,14 @@ def test_run_suite_runs_the_stages_in_the_order_listed(xp_root, capsys):
     ]
     assert order == sorted(order)
     # the second domains stage runs where it stands, between them
-    assert order[4] < at("tdd domain create --domain i_fs --sys fs") < order[5]
+    assert order[4] < at(f"tdd domain create --domain {XP_ID}_fs --sys fs") < order[5]
     # "enabled": false registers it disabled
     assert lines[order[4]].endswith(" --disabled")
 
 
 def test_every_step_of_a_suite_counts_out_of_the_whole_suite(xp_root, capsys):
     """The [N/M] total is the suite's from the first step: the phases plan
-    their own steps only as they start, and a live stage plans none."""
+    their own steps only as they start, and an actions stage plans none."""
     import re
 
     _staged_suite(xp_root)
@@ -1444,14 +1716,14 @@ def test_every_step_of_a_suite_counts_out_of_the_whole_suite(xp_root, capsys):
                 "--suite",
                 "staged/one",
                 *_suites_dir(xp_root),
-                "--instance",
+                "--suite-run",
                 "i",
             ]
         )
         == 0
     )
     capsys.readouterr()
-    assert _run(["run-suite", "--instance", "i", "--project", "p", "--dry-run"]) == 0
+    assert _run(["run-suite", "--suite-run", "i", "--project", "p", "--dry-run"]) == 0
     _, err = capsys.readouterr()
     counts = [
         (int(n), int(m))
@@ -1462,19 +1734,19 @@ def test_every_step_of_a_suite_counts_out_of_the_whole_suite(xp_root, capsys):
 
 
 def test_the_note_column_is_as_wide_as_the_longest_note_a_suite_knows(xp_root, capsys):
-    """The live calls' labels and the triggers' plans are known before they
+    """The actions' labels and the triggers' plans are known before they
     run, so the note column fits the longest of them from the first line."""
     from tabsdata_dev.tool.xp.reporter import strip_ansi
 
-    _live_suite(xp_root)
+    _actions_suite(xp_root)
     _instance(xp_root)
     capsys.readouterr()
-    assert _run(["run-suite", "--instance", "i", "--project", "p", "--dry-run"]) == 0
+    assert _run(["run-suite", "--suite-run", "i", "--project", "p", "--dry-run"]) == 0
     _, err = capsys.readouterr()
     notes = [
         line.split(" - ")[5]
         for line in map(strip_ansi, err.splitlines())
-        if line.startswith("live/one - [")
+        if line.startswith("act/one - [")
     ]
     assert "cycle 3/3 > churn 10/10 > files" in [n.strip() for n in notes]
     assert any(n.startswith("plan=") for n in notes)
@@ -1520,56 +1792,41 @@ def test_a_step_line_is_painted_by_its_outcome_on_a_terminal(monkeypatch):
     )
 
 
-def test_a_live_stages_background_entries_run_through_later_stages(
+def test_an_actions_stages_background_blocks_run_through_later_stages(
     xp_root, monkeypatch
 ):
-    """A live stage returns with its non-blocking entries still running; a
-    later live stage waits for them by name; the suite's end waits for the
+    """An actions stage returns with its background blocks still running; a
+    later actions stage waits for them by name; the suite's end waits for the
     rest."""
     import threading
 
-    from tabsdata_dev.tool.xp import live
+    from tabsdata_dev.tool.xp import actions
     from tabsdata_dev.tool.xp.models import build_instance
 
     released = threading.Event()
-    done: list[str] = []
 
-    def call(argv, action, path, where):
-        if where == "bg":
+    def body(label, run):
+        if label == "bg > change":
             assert released.wait(5)
-        done.append(where)
 
-    monkeypatch.setattr(live, "_call", call)
+    done = _fake_steps(monkeypatch, body)
     doc = [
         {"domains": calls("world", "fs")},
-        {
-            "live": [
-                {
-                    "name": "bg",
-                    "blocking": False,
-                    "domain": _dom("world", "modify-data"),
-                }
-            ]
-        },
-        {
-            "live": [
-                {"name": "settle", "wait": ["bg"]},
-                {"name": "after", "domain": _dom("world", "delete-data")},
-            ]
-        },
+        {"actions": [_bg("bg", _tdd("change", "world", "modify-data"))]},
+        {"actions": [_wait("settle", "bg"), _tdd("after", "world", "delete-data")]},
     ]
     from tabsdata_dev.common.core import render
     from tabsdata_dev.tool.xp import state
 
     state.bind(render.Renderer(state.TOOL), argparse_ns())
     inst = build_instance("i", _staged_suite(xp_root, doc))
-    session = live.Session(inst)
-    session.stage(inst.stages[1].live)  # returns while bg still runs
+    session = actions.Session(inst, "p")
+    session.stage(inst.stages[1].actions)  # returns while bg still runs
     assert done == []
     released.set()  # a stage in between, running beside it
-    session.stage(inst.stages[2].live)
+    session.stage(inst.stages[2].actions)
     session.finish()
-    assert done == ["bg", "after"]
+    assert done == ["bg > change", "after"]
 
 
 @pytest.mark.parametrize(
@@ -1600,7 +1857,7 @@ def _sentinel_suite(**over):
     }
     return [
         {"collections": [{"name": "c", "type": "t", "group": "g"}]},
-        {"live": [{"name": "settle", "sleep": "2m"}]},
+        {"actions": [_sleep("settle", "2m")]},
         {"sentinel": [entry]},
     ]
 
@@ -1609,8 +1866,8 @@ def test_a_sentinel_stage_reads_and_sleep_takes_a_unit(xp_root):
     from tabsdata_dev.tool.xp.models import build_instance
 
     inst = build_instance("i", _staged_suite(xp_root, _sentinel_suite()))
-    assert [s.kind for s in inst.stages] == ["collections", "live", "sentinel"]
-    assert inst.live[0].sleep_seconds == 120.0
+    assert [s.kind for s in inst.stages] == ["collections", "actions", "sentinel"]
+    assert inst.actions[0].sleep.seconds == 120.0
     [s] = inst.stages[2].sentinel
     assert (s.collection, s.table, s.wait_for_key, s.seconds) == (
         "c",
@@ -1630,16 +1887,16 @@ def test_a_sentinel_stage_reads_and_sleep_takes_a_unit(xp_root):
             "sentinel 'k' reads collection 'c', created by a later stage",
         ),
         (
-            [{"live": [{"name": "x", "sleep": "soon"}]}],
-            "sleep: 'soon' is not <VALUE><UNIT>",
+            [{"actions": [_sleep("x", "soon")]}],
+            "time: 'soon' is not <VALUE><UNIT>",
         ),
         (
-            [{"live": [{"name": "x", "sleep": 30}]}],
-            "sleep: 30 is not <VALUE><UNIT>",
+            [{"actions": [_sleep("x", 30)]}],
+            "time: 30 is not <VALUE><UNIT>",
         ),
         (
-            [{"live": [{"name": "x", "sleep_secs": 30}]}],
-            "sleep_secs\n  Extra inputs are not permitted",
+            [{"actions": [{"sleep": {"name": "x", "secs": 30}}]}],
+            "secs\n  Extra inputs are not permitted",
         ),
     ],
 )
@@ -1846,13 +2103,13 @@ def test_run_suite_dry_run_shows_the_sentinel_after_the_stages_before_it(
             "--suite",
             "staged/one",
             *_suites_dir(xp_root),
-            "--instance",
+            "--suite-run",
             "i",
         ]
     )
     assert rc == 0
     capsys.readouterr()
-    rc = _run(["run-suite", "--instance", "i", "--project", "p", "--dry-run"])
+    rc = _run(["run-suite", "--suite-run", "i", "--project", "p", "--dry-run"])
     out, err = capsys.readouterr()
     assert rc == 0, err
     lines = out.splitlines()
@@ -1910,10 +2167,12 @@ def test_a_domain_call_expands_its_tokens_and_a_create_gets_its_backend_name(
     ]
     inst = build_instance("i", _staged_suite(xp_root, doc))
     create, model, data = inst.stages[0].domains
-    assert [d.name for d in inst.domains] == ["d"] and inst.domains[0].system == "fs"
+    assert [d.name for d in inst.domains] == [f"{PH}_d"] and inst.domains[
+        0
+    ].system == "fs"
     argv = domains.call_argv(inst, create)
-    assert argv[-6:-2] == ["--domain", "i_d", "--sys", "fs"]
-    assert argv[-2] == "--name-in-system" and argv[-1].endswith("_d")
+    assert argv[-6:-2] == ["--domain", f"{PH}_d", "--sys", "fs"]
+    assert argv[-2:] == ["--name-in-system", "use00_000000_d"]
     assert domains.call_argv(inst, data)[-2:] == [
         "--emit-ops",
         f"{work.work_dir()}/ops.jsonl",
@@ -1942,7 +2201,10 @@ def test_a_domain_call_expands_its_tokens_and_a_create_gets_its_backend_name(
             ],
             "create-data on 'd' before any create of it",
         ),
-        ([{"domains": calls("d", "fs") + calls("d", "fs")}], "'d' is created twice"),
+        (
+            [{"domains": calls("d", "fs") + calls("d", "fs")}],
+            f"'{PH}_d' is created twice",
+        ),
         (
             [
                 {
@@ -1975,90 +2237,88 @@ def test_a_bad_domain_call_is_refused_when_read(xp_root, doc, why):
         build_instance("i", _staged_suite(xp_root, doc))
 
 
-@pytest.mark.parametrize(
-    "entry, why",
-    [
-        (
-            {"name": "x", "py_script": "/abs/check.py"},
-            "must be a .py path inside the suite",
-        ),
-        (
-            {"name": "x", "py_script": "../check.py"},
-            "must be a .py path inside the suite",
-        ),
-        (
-            {"name": "x", "py_script": "scripts/missing.py"},
-            "no script 'scripts/missing.py'",
-        ),
-        ({"name": "x", "py_script": "scripts/check.py", "retries": 2}, "Extra inputs"),
-        (
-            {"name": "x", "py_script": "scripts/check.py", "params": ["${XP_NOPE}"]},
-            r"\$\{XP_NOPE\} is not a token",
-        ),
-    ],
-)
-def test_a_bad_execute_entry_is_refused_when_read(xp_root, entry, why):
-    from tabsdata_dev.tool.xp import state
-    from tabsdata_dev.tool.xp.models import build_instance
-
-    _script(xp_root, "import sys; sys.exit(0)\n")
-    with pytest.raises(state.XpError, match=why):
-        build_instance("i", _staged_suite(xp_root, [{"execute": [entry]}]))
-
-
-def _execute_suite(xp_root, entries):
+def _python_suite(xp_root, entries):
     from tabsdata_dev.common.core import render
     from tabsdata_dev.tool.xp import state
     from tabsdata_dev.tool.xp.models import build_instance
 
     state.bind(render.Renderer(state.TOOL), argparse_ns())
-    return build_instance("i", _staged_suite(xp_root, [{"execute": entries}]))
+    return build_instance("i", _staged_suite(xp_root, [{"actions": entries}]))
+
+
+def _py(name, script, *params, **extra):
+    return {"python": {"name": name, "script": script, "params": list(params), **extra}}
 
 
 @pytest.fixture
 def launcher(monkeypatch, xp_root):
-    """`tdd-exe` stood in for: `_xp-execute SCRIPT ARGS` runs the script on this
-    python, as the launcher does; every other tool is not expected here."""
+    """`uv run` stood in for by this python, and `tdd-exe` by a fake path: the
+    step runs as it would, on what the test controls."""
     import sys
 
-    from tabsdata_dev.tool.xp import execute
+    from tabsdata_dev.tool.xp import actions
 
     monkeypatch.setenv("TDD_DIR", str(xp_root.parent / "tdd"))
+    real = actions.argv_of
 
-    def tool_argv(name, *args):
-        if name == "_xp-execute":
-            return [sys.executable, *args]
-        return ["/fake/tdd/bin/tdd-exe", name, *args]
+    def argv_of(a, inst, project):
+        argv = real(a, inst, project)
+        if argv[:3] == ["uv", "run", "--no-project"]:
+            rest = argv[3:]
+            while rest[:1] == ["--with"]:
+                rest = rest[2:]
+            return [sys.executable, *rest]
+        return argv
 
-    monkeypatch.setattr(execute.proc, "tool_argv", tool_argv)
-    return execute
+    monkeypatch.setattr(actions, "argv_of", argv_of)
+    monkeypatch.setattr(
+        actions.proc,
+        "tool_argv",
+        lambda name, *args: ["/fake/tdd/bin/tdd-exe", name, *args],
+    )
+    return actions
 
 
-def test_an_execute_script_gets_its_params_env_and_path(xp_root, launcher):
-    """Run by `tdd _xp-execute` from the suite dir, params expanded, the run's
-    names in its environment and tdd-exe first on its PATH."""
+def test_a_python_step_is_uv_run_with_its_reqs(xp_root):
+    from tabsdata_dev.tool.xp import actions
+
+    _script(xp_root, "pass\n")
+    inst = _python_suite(
+        xp_root, [_py("c", "scripts/check.py", "a", reqs=["polars==1.9.0", "rich"])]
+    )
+    argv = actions.argv_of(inst.actions[0], inst, "p")
+    assert argv[:7] == [
+        "uv",
+        "run",
+        "--no-project",
+        "--with",
+        "polars==1.9.0",
+        "--with",
+        "rich",
+    ]
+    assert argv[7].endswith("scripts/check.py") and argv[8:] == ["a"]
+
+
+def test_a_python_step_gets_its_params_env_path_and_the_tdd_module(xp_root, launcher):
+    """Run from the suite dir, params expanded, the run's names in its
+    environment, tdd-exe first on its PATH and `from tdd import tdd` working."""
     from tabsdata_dev.tool.xp import work
 
     out = xp_root / "seen.json"
     _script(
         xp_root,
         "import json, os, sys\n"
+        "from tdd import note, tdd\n"
         f"json.dump({{'argv': sys.argv[1:], 'cwd': os.getcwd(), "
-        "'env': {k: os.environ[k] for k in ('XP_WORK_DIR', 'XP_PROJECT', 'XP_INSTANCE')}, "
-        "'venv': os.environ.get('_TDD_XP_EXECUTE_VENV'), "
+        "'env': {k: os.environ[k] for k in ('XP_WORK_DIR', 'XP_PROJECT', 'XP_ID', "
+        "'XP_SHORT_ID', 'XP_SUITE_RUN')}, "
         f"'path0': os.environ['PATH'].split(os.pathsep)[0]}}, open({str(out)!r}, 'w'))\n",
     )
-    inst = _execute_suite(
+    inst = _python_suite(
         xp_root,
-        [
-            {
-                "name": "c",
-                "py_script": "scripts/check.py",
-                "params": ["${XP_WORK_DIR}/ops.jsonl", "${XP_PROJECT}"],
-            }
-        ],
+        [_py("c", "scripts/check.py", "${XP_WORK_DIR}/ops.jsonl", "${XP_PROJECT}")],
     )
-    assert launcher.run_scripts(inst, "proj", inst.stages[0].execute) == 0
+    assert launcher.run_script(inst, "proj", launcher.Selection()) == 0
     seen = json.loads(out.read_text())
     assert seen["argv"] == [f"{work.work_dir()}/ops.jsonl", "proj"]
     assert (
@@ -2067,32 +2327,35 @@ def test_an_execute_script_gets_its_params_env_and_path(xp_root, launcher):
     assert seen["env"] == {
         "XP_WORK_DIR": str(work.work_dir()),
         "XP_PROJECT": "proj",
-        "XP_INSTANCE": "i",
+        "XP_ID": PH,
+        "XP_SHORT_ID": "use00_000000",
+        "XP_SUITE_RUN": "i",
     }
-    assert seen["path0"] == "/fake/tdd/bin" and seen["venv"] is None
+    assert seen["path0"] == "/fake/tdd/bin"
 
 
-def test_a_failed_script_stops_the_run_unless_it_continues_on_fail(xp_root, launcher):
+def test_a_failed_step_stops_the_run_unless_it_continues_on_fail(xp_root, launcher):
     from tabsdata_dev.tool.xp import state
 
     _script(xp_root, "print('row 3 differs'); raise SystemExit(1)\n", "bad.py")
     _script(xp_root, "raise SystemExit(0)\n", "good.py")
-    bad = {"name": "bad", "py_script": "scripts/bad.py"}
-    good = {"name": "good", "py_script": "scripts/good.py"}
+    bad = _py("bad", "scripts/bad.py")
+    good = _py("good", "scripts/good.py")
+    bad_goes_on = _py("bad", "scripts/bad.py", continue_on_fail=True)
 
-    inst = _execute_suite(xp_root, [{**bad, "continue_on_fail": True}, good])
-    assert launcher.run_scripts(inst, "p", inst.stages[0].execute) == 1  # deferred
+    inst = _python_suite(xp_root, [bad_goes_on, good])
+    assert launcher.run_script(inst, "p", launcher.Selection()) == 1  # deferred
     steps = [(s["path"], s["ok"]) for s in state.run.reporter.steps]
-    assert steps[-2:] == [("bad", False), ("good", True)]  # the next one still ran
+    assert steps[-2:] == [("scripts/bad.py", False), ("scripts/good.py", True)]
 
-    inst = _execute_suite(xp_root, [bad, good])
-    with pytest.raises(state.XpError, match="(?s)execute 'bad' failed.*row 3 differs"):
-        launcher.run_scripts(inst, "p", inst.stages[0].execute)
+    inst = _python_suite(xp_root, [bad, good])
+    with pytest.raises(state.XpError, match="(?s)python 'bad' failed.*row 3 differs"):
+        launcher.run_script(inst, "p", launcher.Selection())
 
 
-def test_a_script_says_its_steps_note_on_a_marked_line(xp_root, launcher):
-    """The last `xp-note:` line is the note, passed or failed; unmarked output
-    is not, and a failure that continues keeps saying so."""
+def test_a_python_step_says_its_note_on_a_marked_line(xp_root, launcher):
+    """The last `xp-note:` line is in the note, passed or failed; unmarked
+    output is not, and a failure that continues keeps saying so."""
     from tabsdata_dev.tool.xp import state
 
     _script(
@@ -2102,92 +2365,51 @@ def test_a_script_says_its_steps_note_on_a_marked_line(xp_root, launcher):
     )
     _script(xp_root, "print('xp-note: 3/10 rows'); raise SystemExit(1)\n", "bad.py")
     _script(xp_root, "print('nothing marked')\n", "plain.py")
-    inst = _execute_suite(
+    inst = _python_suite(
         xp_root,
         [
-            {"name": "good", "py_script": "scripts/good.py"},
-            {"name": "bad", "py_script": "scripts/bad.py", "continue_on_fail": True},
-            {"name": "plain", "py_script": "scripts/plain.py"},
+            _py("good", "scripts/good.py"),
+            _py("bad", "scripts/bad.py", continue_on_fail=True),
+            _py("plain", "scripts/plain.py"),
         ],
     )
-    assert launcher.run_scripts(inst, "p", inst.stages[0].execute) == 1
-    notes = [(s["path"], s["note"]) for s in state.run.reporter.steps[-3:]]
-    assert notes == [
-        ("good", "10/10 rows"),
-        ("bad", "continue_on_fail; 3/10 rows"),
-        ("plain", ""),
-    ]
+    assert launcher.run_script(inst, "p", launcher.Selection()) == 1
+    notes = [s["note"] for s in state.run.reporter.steps[-3:]]
+    assert notes == ["good; 10/10 rows", "bad; 3/10 rows; continue_on_fail", "plain"]
 
 
-def test_requirements_get_a_one_off_venv_deleted_whether_the_script_passes_or_not(
-    xp_root, launcher, monkeypatch
-):
-    """The venv is made, named to the launcher in _TDD_XP_EXECUTE_VENV, and
-    deleted after the step -- also when the script fails. Its name starts
-    tdd-xp-execute-, what a clean-up after a killed run looks for."""
+def test_a_steps_output_goes_to_run_log_line_by_line_under_its_label(xp_root, launcher):
+    import sys
+
     from tabsdata_dev.tool.xp import state
 
-    made, deleted = [], []
-
-    def one_off_venv(inst, e):
-        name = launcher.venv_name(inst, e)
-        made.append((name, [r.spec for r in e.requirements]))
-        return name, xp_root / "venvs" / name
-
-    monkeypatch.setattr(launcher, "one_off_venv", one_off_venv)
-    monkeypatch.setattr(launcher, "delete_venv", deleted.append)
-    out = xp_root / "venv.txt"
-    _script(
+    code = "print('one'); print('two')"
+    inst = _python_suite(
         xp_root,
-        f"import os, sys; open({str(out)!r}, 'w').write(os.environ['_TDD_XP_EXECUTE_VENV']); "
-        "sys.exit(int(sys.argv[1]))\n",
+        [{"exe": {"name": "e", "program": sys.executable, "params": ["-c", code]}}],
     )
-    entry = {
-        "name": "needs",
-        "py_script": "scripts/check.py",
-        "requirements": [{"name": "polars", "version": "1.44.1"}, {"name": "rich"}],
+    assert launcher.run_script(inst, "p", launcher.Selection()) == 0
+    log = state.run.reporter.log_path.read_text()
+    assert "e | one\ne | two\n" in log
+
+
+def test_what_still_runs_when_the_run_ends_is_killed(xp_root, launcher):
+    """A timed-out block left running is the run's to end: its process group
+    is killed, not waited for."""
+    import sys
+    import time
+
+    hang = {
+        "exe": {
+            "name": "hang",
+            "program": sys.executable,
+            "params": ["-c", "import time; time.sleep(60)"],
+        }
     }
-    for status, passed in (("0", True), ("1", False)):
-        inst = _execute_suite(
-            xp_root, [{**entry, "params": [status], "continue_on_fail": True}]
-        )
-        assert launcher.run_scripts(inst, "p", inst.stages[0].execute) == (
-            0 if passed else 1
-        )
-    assert [m[1] for m in made] == [["polars==1.44.1", "rich"]] * 2
-    assert deleted == [m[0] for m in made]  # both, the failed one too
-    assert all(m[0].startswith("tdd-xp-execute-") for m in made)
-    assert out.read_text().endswith(made[-1][0])
-
-    # a venv that cannot be made fails the step, and nothing is left to delete
-    deleted.clear()
-
-    def cannot(inst, e):
-        raise state.XpError("one-off venv x failed: no uv")
-
-    monkeypatch.setattr(launcher, "one_off_venv", cannot)
-    inst = _execute_suite(xp_root, [entry])
-    with pytest.raises(state.XpError, match="no uv"):
-        launcher.run_scripts(inst, "p", inst.stages[0].execute)
-    assert deleted == []
-
-
-@pytest.mark.parametrize(
-    "req, why",
-    [
-        ({"name": "polars", "version": ">=1"}, "is an exact version"),
-        ({"name": "bad name"}, "is not a package name"),
-        ({"name": "polars", "pin": "1"}, "Extra inputs"),
-    ],
-)
-def test_a_bad_requirement_is_refused_when_read(xp_root, req, why):
-    from tabsdata_dev.tool.xp import state
-    from tabsdata_dev.tool.xp.models import build_instance
-
-    _script(xp_root, "pass\n")
-    entry = {"name": "x", "py_script": "scripts/check.py", "requirements": [req]}
-    with pytest.raises(state.XpError, match=why):
-        build_instance("i", _staged_suite(xp_root, [{"execute": [entry]}]))
+    inst = _python_suite(xp_root, [_tmo("t", "0.2s", hang, stop=False)])
+    started = time.monotonic()
+    assert launcher.run_script(inst, "p", launcher.Selection()) == 0
+    assert time.monotonic() - started < 30
 
 
 def test_enable_and_disable_a_registered_function(xp_root, capsys):
@@ -2238,12 +2460,12 @@ def test_every_built_in_suite_reads(tmp_path, monkeypatch):
     )
     assert [s.kind for s in staged.stages] == [
         "domain-manifest",
-        "live",
+        "actions",
         "collections",
         "functions",
-        "live",
+        "actions",
         "sentinel",
-        "execute",
+        "actions",
         "monitor",
     ]
 
@@ -2255,23 +2477,28 @@ def _dm(*domains, emit_ops=None):
     return {"domain-manifest": body}
 
 
-PG = {"name": "pg", "system": "postgres", "model": "world", "data": "s"}
-FS = {"name": "fs", "system": "fs"}
+PG = {"name": N("pg"), "system": "postgres", "model": "world", "data": "s"}
+FS = {"name": N("fs"), "system": "fs"}
 
 
 def test_a_domain_manifest_stage_reads_its_domains_and_emit_settings(xp_root):
     from tabsdata_dev.tool.xp.models import build_instance
 
     doc = [
-        _dm(PG, FS, {**PG, "name": "quiet", "emit": False}, emit_ops="${XP_WORK_DIR}/o")
+        _dm(
+            PG,
+            FS,
+            {**PG, "name": N("quiet"), "emit": False},
+            emit_ops="${XP_WORK_DIR}/o",
+        )
     ]
     inst = build_instance("i", _staged_suite(xp_root, doc))
     [stage] = inst.stages
     assert stage.kind == "domain-manifest"
     assert [(d.name, d.system) for d in inst.domains] == [
-        ("pg", "postgres"),
-        ("fs", "fs"),
-        ("quiet", "postgres"),
+        (f"{PH}_pg", "postgres"),
+        (f"{PH}_fs", "fs"),
+        (f"{PH}_quiet", "postgres"),
     ]
     dm = stage.domain_manifest
     assert dm.emit_ops == "${XP_WORK_DIR}/o" and [d.emit for d in dm.domains] == [
@@ -2290,7 +2517,7 @@ def test_a_domain_manifest_stage_reads_its_domains_and_emit_settings(xp_root):
         ([_dm({"name": "x", "system": "fs", "data": "xs"})], "data needs a model"),
         ([_dm(PG, emit_ops="${XP_WORKDIR}/o")], r"\$\{XP_WORKDIR\} is not a token"),
         ([_dm({**PG, "name_in_system": "pinned"})], "Extra inputs"),
-        ([_dm(PG), {"domains": calls("pg", "fs")}], "'pg' is created twice"),
+        ([_dm(PG), {"domains": calls("pg", "fs")}], f"'{PH}_pg' is created twice"),
         ([{"domain-manifest": {"domains": []}}], "names no domains"),
     ],
 )
@@ -2331,8 +2558,8 @@ def test_a_domain_manifest_seeds_to_files_of_their_own_then_joins_them_in_order(
         _dm(
             PG,
             FS,
-            {**PG, "name": "quiet", "emit": False},
-            {**PG, "name": "pg2"},
+            {**PG, "name": N("quiet"), "emit": False},
+            {**PG, "name": N("pg2")},
             emit_ops="${XP_WORK_DIR}/ops.jsonl",
         )
     ]
@@ -2340,12 +2567,12 @@ def test_a_domain_manifest_seeds_to_files_of_their_own_then_joins_them_in_order(
     final = work.work_dir() / "ops.jsonl"
     final.write_text("earlier\n")
     domains.create_from_manifest(inst, inst.stages[0].domain_manifest, 1)
-    by = {e["name"]: e for e in seen["entries"]}
-    assert set(by) == {"i_pg", "i_fs", "i_quiet", "i_pg2"}
-    assert "emit-ops" not in by["i_fs"] and "emit-ops" not in by["i_quiet"]
-    assert by["i_pg"]["emit-ops"] != by["i_pg2"]["emit-ops"]  # one file each
-    assert by["i_pg"]["size"] == 10 and by["i_pg"]["name-in-system"].endswith("_pg")
-    assert final.read_text() == "earlier\ni_pg\ni_pg2\n"
+    by = {e["name"][len(PH) + 1 :]: e for e in seen["entries"]}
+    assert set(by) == {"pg", "fs", "quiet", "pg2"}
+    assert "emit-ops" not in by["fs"] and "emit-ops" not in by["quiet"]
+    assert by["pg"]["emit-ops"] != by["pg2"]["emit-ops"]  # one file each
+    assert by["pg"]["size"] == 10 and by["pg"]["name-in-system"] == "use00_000000_pg"
+    assert final.read_text() == f"earlier\n{PH}_pg\n{PH}_pg2\n"
 
 
 def test_a_domain_manifest_without_emit_ops_captures_nothing(xp_root, monkeypatch):
@@ -2367,7 +2594,7 @@ def test_a_domain_manifest_without_emit_ops_captures_nothing(xp_root, monkeypatc
     )
     inst = build_instance("i", _staged_suite(xp_root, [_dm(PG)]))
     domains.create_from_manifest(inst, inst.stages[0].domain_manifest, 1)
-    assert [e["name"] for e in seen] == ["i_pg"] and "emit-ops" not in seen[0]
+    assert [e["name"] for e in seen] == [f"{PH}_pg"] and "emit-ops" not in seen[0]
 
 
 def test_list_suites_counts_domains_of_both_stage_kinds():
@@ -2383,3 +2610,161 @@ def test_list_suites_counts_domains_of_both_stage_kinds():
     ]
     assert suites._count(doc, "domains") == 3
     assert suites._count(doc, "collections") == 1
+
+
+def test_a_suite_run_is_named_by_its_xp_id_and_reused_when_named_again(xp_root, capsys):
+    from tabsdata_dev.tool.xp import pointers
+
+    assert _run(["create-instance", "--suite", "demo/one", *_suites_dir(xp_root)]) == 0
+    assert pointers.ids_of(XP_ID) == (XP_ID, XP_SHORT)
+    # named again: the same run, its IDs kept -- how a failed run is finished
+    args = ["create-instance", "--suite", "demo/one", *_suites_dir(xp_root)]
+    assert _run([*args, "--suite-run", XP_ID]) == 0
+    assert pointers.ids_of(XP_ID) == (XP_ID, XP_SHORT)
+    assert "reusing it, and its XP_ID" in capsys.readouterr().err
+    # ...but never repointed at another suite
+    rc = _run(
+        [
+            "create-instance",
+            "--suite",
+            "demo/two",
+            *_suites_dir(xp_root),
+            "--suite-run",
+            XP_ID,
+        ]
+    )
+    assert rc == 1 and f"suite run '{XP_ID}' exists for" in capsys.readouterr().err
+
+
+def test_a_suite_dirs_lanes_are_suite_runs_with_ids_of_their_own(xp_root):
+    from tabsdata_dev.tool.xp import pointers
+
+    assert (
+        _run(
+            [
+                "create-instance",
+                "--suite",
+                "demo",
+                *_suites_dir(xp_root),
+                "--suite-run",
+                "g",
+            ]
+        )
+        == 0
+    )
+    assert pointers.instance_group("g") == ["g_one", "g_two"]
+    assert pointers.ids_of("g")[0] == XP_ID
+    assert pointers.ids_of("g_one")[0] == "xp_tucu_0_20261001T093013"
+    assert pointers.ids_of("g_two")[0] == "xp_tucu_0_20261001T093014"
+    one = pointers.load_instance("g_one")
+    assert one.domains[0].name == "xp_tucu_0_20261001T093013_fs"
+
+
+def test_the_project_is_the_runs_xp_id_and_suite_unless_named(xp_root, capsys):
+    rc = _run(["one-shot", "--suite", "demo/one", *_suites_dir(xp_root), "--dry-run"])
+    out, err = capsys.readouterr()
+    assert rc == 0, err
+    assert f"tdd tdk project create --name {XP_ID}_demo_one" in out
+    assert f"xp id {XP_ID}, short id {XP_SHORT}" in err
+
+
+def test_a_project_that_is_not_the_runs_is_refused_unless_forced(xp_root, monkeypatch):
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import pointers, project, shell, state
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    monkeypatch.setattr(shell, "project_exists", lambda p: True)
+    deleted = []
+    monkeypatch.setattr(project, "delete_project", lambda p, force: deleted.append(p))
+    with pytest.raises(state.XpError, match="exists and is not suite run 'r''s"):
+        project.claim_project("p", "r", force=False)
+    # this run's own: continued, as a rerun after a failure is
+    pointers.write_project("p", "r")
+    project.claim_project("p", "r", force=False)
+    assert deleted == []
+    # someone else's, forced: deleted, so it is made again from nothing
+    project.claim_project("p", "other", force=True)
+    assert deleted == ["p"]
+
+
+def test_run_suite_leaves_the_suite_as_it_resolved_it(xp_root, capsys):
+    from tabsdata_dev.tool.xp import state
+
+    assert _run(["create-instance", "--suite", "demo/one", *_suites_dir(xp_root)]) == 0
+    assert _run(["run-suite", "--suite-run", XP_ID, "--dry-run"]) == 0
+    capsys.readouterr()
+    resolved = pathlib.Path(state.run.summary["scratch"]) / "suite.resolved.json"
+    doc = json.loads(resolved.read_text())
+    assert doc[0]["domains"][0]["name"] == f"{XP_ID}_fs"
+    assert doc[1]["collections"][0]["domains"] == {"D0": f"{XP_ID}_world"}
+
+
+def _fake_tdd_exe(bin_dir: pathlib.Path) -> None:
+    """A tdd-exe that echoes its arguments, and fails on `boom`."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    exe = bin_dir / "tdd-exe"
+    exe.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = boom ]; then echo "it broke" >&2; exit 3; fi\n'
+        'echo "args: $*"\n'
+    )
+    exe.chmod(0o755)
+
+
+def test_the_tdd_module_runs_tdd_exe_and_says_how_it_failed(tmp_path, monkeypatch):
+    """`from tdd import tdd`, as a python step has it: `tdd()` is tdd-exe, its
+    output back and its failure a TddError carrying status and what it said."""
+    import os
+    import subprocess
+    import sys
+
+    from tabsdata_dev.tool.xp import actions
+
+    _fake_tdd_exe(tmp_path / "bin")
+    script = tmp_path / "check.py"
+    script.write_text(
+        "from tdd import tdd, note, TddError\n"
+        "print(tdd('pqt', 'csv', 'f.parquet').strip())\n"
+        "try:\n"
+        "    tdd('boom')\n"
+        "except TddError as exc:\n"
+        "    print('failed', exc.status, exc.output.strip())\n"
+        "note('812 rows,\\n  3 rows/s')\n"
+    )
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+        "PYTHONPATH": str(actions.tdd_module_dir()),
+    }
+    done = subprocess.run(
+        [sys.executable, str(script)], env=env, capture_output=True, text=True
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.splitlines() == [
+        "args: pqt csv f.parquet",
+        "failed 3 it broke",
+        "xp-note: 812 rows, 3 rows/s",
+    ]
+    # its directory holds it alone: nothing else lands on a step's path
+    assert [
+        p.name for p in actions.tdd_module_dir().iterdir() if p.suffix == ".py"
+    ] == ["tdd.py"]
+
+
+def test_the_tdd_module_is_standard_library_only():
+    """It runs in whatever environment a step's reqs make, so it imports
+    nothing else."""
+    import ast
+
+    from tabsdata_dev.tool.xp import actions
+
+    tree = ast.parse((actions.tdd_module_dir() / "tdd.py").read_text())
+    imported = {
+        (node.module or "").split(".")[0]
+        if isinstance(node, ast.ImportFrom)
+        else alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    }
+    assert imported <= {"__future__", "subprocess", "sys", "pathlib"}, imported

@@ -27,12 +27,12 @@ The cutoff below is safely before anything this domain stages, so the first run
 takes every matched file and each later run takes only what is newer.
 
 DRIVING IT — run the project more than once
-    1. `tdx-xp oneshot --suite examples/az_src_lastmodified --keep`
+    1. `tdd xp one-shot --suite examples/az_src_lastmodified --keep`
     2. Stage a NEW file into the domain (the data plane is insert-only: every
        `modify-data` writes a new, freshly stamped file next to the seed):
-           tdx-domain modify-data --domain <instance>_azureblob_world_xs \\
+           tdd domain modify-data --domain <XP_ID>_azureblob_world_xs \\
                --entity city --ops Insert --sets 5
-    3. `tdx-xp run-project --project <project> --monitor`
+    3. `tdd xp run-triggers --project <project> --monitor --time-out 30m`
     This reader imports only the new file on the second run.
 """
 from __future__ import annotations

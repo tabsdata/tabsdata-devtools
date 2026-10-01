@@ -69,10 +69,15 @@ def _call(domain: str, command: str, *options: str) -> dict:
     return {"name": domain, "command": command, "options": list(options)}
 
 
+def own(name: str) -> str:
+    """A domain of the suite's own run: ``<XP_ID>_<name>`` once read."""
+    return "${xp_name(%s)}" % name
+
+
 def suite(source: str, kind: str) -> list:
     system, ctype, conns, reads = SOURCES[source]
     name = f"{source}_{kind}"
-    domain = f"{source}_{MODEL}_perf"
+    domain = own(f"{source}_{MODEL}_perf")
     per_table = BASE_SIZE * SIZE
     rows = per_table * len(TABLES)
     how = (
@@ -87,7 +92,7 @@ def suite(source: str, kind: str) -> list:
         f"{', '.join(TABLES)}), loaded before the stream starts so it reads a backlog. The "
         f"publisher (functions/perf_{source}.py::{name}) is {how}. STAGES: (1) domains -- create "
         f"the {system} domain, install {MODEL}, create-data --size {SIZE}; (2) collections; "
-        f"(3) functions -- register the publisher, which STARTS it; (4) execute -- {SCRIPT} "
+        f"(3) functions -- register the publisher, which STARTS it; (4) actions -- {SCRIPT} "
         f"reads the stream worker's log until its files hold {rows} rows or {TIME_OUT} has "
         f"passed, and says rows, files, MB, seconds from the plugin's run() to the last file "
         f"and rows/s in the step's note (PARTIAL when short; the step still passes); "
@@ -123,15 +128,18 @@ def suite(source: str, kind: str) -> list:
             ]
         },
         {
-            "execute": [
+            "actions": [
                 {
-                    "name": "throughput",
-                    "py_script": SCRIPT,
-                    "params": [name, "--expect", str(rows), "--time-out", TIME_OUT],
+                    "python": {
+                        "name": "throughput",
+                        "tags": ["check"],
+                        "script": SCRIPT,
+                        "params": [name, "--expect", str(rows), "--time-out", TIME_OUT],
+                    }
                 }
             ]
         },
-        {"monitor": True},
+        {"monitor": {"time_out": "30m"}},
     ]
 
 

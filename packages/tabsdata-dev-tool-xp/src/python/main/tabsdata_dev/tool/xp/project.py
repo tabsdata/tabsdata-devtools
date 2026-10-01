@@ -20,8 +20,8 @@ from datetime import datetime, timezone
 
 from tabsdata_dev.common.core import proc
 
-from . import conn, lanes, pointers, shell, state, suites
-from .models import Sentinel, build_instance
+from . import conn, ids, lanes, pointers, shell, state, suites
+from .models import Monitor, Sentinel, build_instance
 from .reporter import fs_token, rep, reporting, say
 
 BUILTIN_GROUPS = {"sources", "destinations", "default"}
@@ -186,7 +186,7 @@ def cmd_list_projects(args) -> tuple[str, dict]:
         if isinstance(doc, dict) and doc.get("group") is not None:
             detail = f"group: {len(doc.get('group') or [])} member(s)"
         elif isinstance(doc, dict) and doc.get("instance"):
-            detail = f"instance={doc['instance']}" + (
+            detail = f"suite_run={doc['instance']}" + (
                 f"  (member of {owner[name]})" if name in owner else ""
             )
         else:
@@ -199,47 +199,87 @@ def cmd_list_projects(args) -> tuple[str, dict]:
     }
 
 
-def _group_instance_members(base: str, files: list[pathlib.Path]) -> list[str]:
-    """One member instance per swim lane (``<base>_<name>``); returns the names."""
-    names = []
-    for definition in files:
-        name = f"{base}_{definition.stem}"
-        inst = build_instance(name, definition)  # validates the descriptor
-        pointers.write_instance(name, definition)
-        names.append(name)
-        say(
-            f"   {name:46} d={len(inst.domains)} c={len(inst.collections)} f={len(inst.functions)} t={len(inst.triggers)}"
+def _reused(name: str, path: pathlib.Path, group: bool) -> bool:
+    """Whether suite run `name` exists already -- then it is reused, its XP_ID
+    with it: how a failed run is finished, a phase at a time. Of another suite
+    it is refused, not repointed."""
+    doc = pointers.doc_of(pointers.instance_file(name))
+    if not doc:
+        return False
+    was = doc.get("suite") if group else doc.get("file")
+    if not was or pathlib.Path(was) != path:
+        state.die(
+            f"suite run '{name}' exists for {was or 'something else'}, not {path} -- "
+            f"`destroy-instance --suite-run {name}` first, or name another"
         )
-    return names
+    if not doc.get("xp_id"):
+        state.die(
+            f"suite run '{name}' holds no XP_ID (an older xp wrote it): "
+            f"`destroy-instance --suite-run {name}`, then create it again"
+        )
+    return True
+
+
+def create_suite_run(
+    suite: str, suites_dir: str | None, name: str | None
+) -> tuple[str, pathlib.Path, list[pathlib.Path] | None]:
+    """The suite run `name` -- default: a new XP_ID -- for `suite`, made or, if
+    it exists, reused. A suite dir is a group: an ID of its own, and one member
+    per lane (``<name>_<lane>``), each a run with its own ID -- `ids.new` keeps
+    them a second apart. ``(name, path, lanes)``."""
+    path, files = suites.resolve(suite, suites.suites_dir(suites_dir))
+    if name and _reused(name, path, files is not None):
+        say(f"suite run '{name}' exists: reusing it, and its XP_ID")
+        return name, path, files
+    run_ids = ids.new()
+    name = name or run_ids[0]
+    if files is None:
+        inst = build_instance(name, path, *run_ids)  # validates the descriptor
+        pointers.write_instance(name, path, run_ids)
+        return name, path, None
+    say(f"create-instance group '{name}' from suite dir {path} ({len(files)} lanes)")
+    members = []
+    for definition in files:
+        member = f"{name}_{definition.stem}"
+        member_ids = ids.new()
+        inst = build_instance(member, definition, *member_ids)
+        pointers.write_instance(member, definition, member_ids)
+        members.append(member)
+        say(
+            f"   {member:46} {member_ids[0]} d={len(inst.domains)} c={len(inst.collections)} f={len(inst.functions)} t={len(inst.triggers)}"
+        )
+    pointers.write_group_instance(name, members, path, run_ids)
+    return name, path, files
 
 
 def cmd_create_instance(args) -> tuple[str, dict]:
-    path, files = suites.resolve(
-        args.suite, suites.suites_dir(getattr(args, "suites_dir", None))
+    name, path, files = create_suite_run(
+        args.suite, getattr(args, "suites_dir", None), getattr(args, "suite_run", None)
     )
+    xp_id, short_id = pointers.ids_of(name) or ("", "")
+    pointer = str(pointers.instance_file(name))
     if files is not None:
-        say(
-            f"create-instance group '{args.instance}' from suite dir {path} ({len(files)} lanes)"
-        )
-        names = _group_instance_members(args.instance, files)
-        pointers.write_group_instance(args.instance, names, path)
+        lanes_ = pointers.instance_group(name) or []
         return (
-            f"group pointer {pointers.instance_file(args.instance)} written ({len(names)} lanes)",
+            f"suite run '{name}' ({xp_id}, short {short_id}): group pointer {pointer} ({len(lanes_)} lanes)",
             {
-                "instance": args.instance,
+                "suite_run": name,
+                "xp_id": xp_id,
+                "xp_short_id": short_id,
                 "suite": str(path),
-                "lanes": names,
-                "pointer": str(pointers.instance_file(args.instance)),
+                "lanes": lanes_,
+                "pointer": pointer,
             },
         )
-    inst = build_instance(args.instance, path)
-    pointers.write_instance(args.instance, path)
+    inst = pointers.load_instance(name)
     return (
-        f"created instance '{args.instance}' (suite {suites.label(path)}) at {pointers.instance_file(args.instance)}: domains={len(inst.domains)} collections={len(inst.collections)} functions={len(inst.functions)} triggers={len(inst.triggers)}",
+        f"suite run '{name}' ({xp_id}, short {short_id}) of suite {suites.label(path)} at {pointer}: domains={len(inst.domains)} collections={len(inst.collections)} functions={len(inst.functions)} triggers={len(inst.triggers)}",
         {
-            "instance": args.instance,
+            "suite_run": name,
+            "xp_id": xp_id,
+            "xp_short_id": short_id,
             "suite": str(path),
-            "pointer": str(pointers.instance_file(args.instance)),
+            "pointer": pointer,
             "domains": len(inst.domains),
             "collections": len(inst.collections),
             "functions": len(inst.functions),
@@ -249,44 +289,77 @@ def cmd_create_instance(args) -> tuple[str, dict]:
 
 
 def cmd_destroy_instance(args) -> tuple[str, dict]:
-    """Remove the local instance pointer(s). Does NOT touch domains or projects."""
-    members = pointers.instance_group(args.instance)
+    """Remove the local suite run pointer(s). Does NOT touch domains or projects."""
+    members = pointers.instance_group(args.suite_run)
     removed = []
     if members is not None:
         for m in members:
             pointers.instance_file(m).unlink(missing_ok=True)
             removed.append(m)
             say(f"   removed member {pointers.instance_file(m)}")
-        pointers.instance_file(args.instance).unlink(missing_ok=True)
+        pointers.instance_file(args.suite_run).unlink(missing_ok=True)
         return (
-            f"removed group pointer {pointers.instance_file(args.instance)} ({len(members)} lanes)",
-            {"instance": args.instance, "removed": removed + [args.instance]},
+            f"removed group pointer {pointers.instance_file(args.suite_run)} ({len(members)} lanes)",
+            {"suite_run": args.suite_run, "removed": removed + [args.suite_run]},
         )
-    path = pointers.instance_file(args.instance)
+    path = pointers.instance_file(args.suite_run)
     if path.exists():
         path.unlink()
         return f"removed {path}", {
-            "instance": args.instance,
-            "removed": [args.instance],
+            "suite_run": args.suite_run,
+            "removed": [args.suite_run],
         }
-    return f"instance '{args.instance}' absent ({path})", {
-        "instance": args.instance,
+    return f"suite run '{args.suite_run}' absent ({path})", {
+        "suite_run": args.suite_run,
         "removed": [],
     }
 
 
 # -------------------------------------------------------------- project ----
+def default_project(suite_run: str) -> str:
+    """``<XP_ID>_<suite path>``: the project a suite run gets unless
+    ``--project`` names one -- a group's too, its lanes ``<that>_<lane>``."""
+    doc = pointers.doc_of(pointers.instance_file(suite_run))
+    ref = doc.get("file") or doc.get("suite")
+    xp_id = (pointers.ids_of(suite_run) or ("",))[0]
+    if not ref or not xp_id:
+        pointers.load_instance(suite_run)  # says why
+    return f"{xp_id}_{suites.token(pathlib.Path(ref))}"
+
+
+def claim_project(project: str, suite_run: str, force: bool) -> None:
+    """`project` for `suite_run`, before anything is made in it. One this suite
+    run already holds is continued -- a rerun finishes what a failed one left.
+    One on the server that is not this run's is someone else's: refused, unless
+    ``--force``, which deletes it so it is made again from nothing."""
+    if state.run.dry_run:
+        return
+    if pointers.doc_of(pointers.project_file(project)).get("instance") == suite_run:
+        return
+    if not shell.project_exists(project):
+        return
+    if not force:
+        state.die(
+            f"project '{project}' exists and is not suite run '{suite_run}''s -- "
+            "--force deletes it and creates it again"
+        )
+    rep().note(f"--force: deleting project '{project}' to create it again")
+    delete_project(project, force=True)
+
+
 def cmd_create_project(args) -> None:
+    if not getattr(args, "project", None):
+        args.project = default_project(args.suite_run)
     with reporting(
         args,
         "create-project",
         args.project,
-        suite=pointers.suite_of_instance(args.instance),
+        suite=pointers.suite_of_instance(args.suite_run),
     ):
-        members = pointers.instance_group(args.instance)
+        members = pointers.instance_group(args.suite_run)
         if members is not None:
             pairs = [
-                (m, f"{args.project}_{lanes.lane_of(args.instance, m)}")
+                (m, f"{args.project}_{lanes.lane_of(args.suite_run, m)}")
                 for m in members
             ]
             lanes.dispatch(
@@ -296,12 +369,13 @@ def cmd_create_project(args) -> None:
                         mp,
                         lanes.child_argv(
                             "create-project",
-                            "--instance",
+                            "--suite-run",
                             mi,
                             "--project",
                             mp,
                             "--secret-env",
                             state.run.secret_env,
+                            *(["--force"] if getattr(args, "force", False) else []),
                             *shell.profile_flag(),
                             *shell.dry_flag(),
                         ),
@@ -317,8 +391,9 @@ def cmd_create_project(args) -> None:
             )
             return
         shell.require_login()
-        inst = pointers.load_instance(args.instance)
-        pointers.write_project(args.project, args.instance)
+        inst = pointers.load_instance(args.suite_run)
+        claim_project(args.project, args.suite_run, getattr(args, "force", False))
+        pointers.write_project(args.project, args.suite_run)
         ensure_project(inst, args.project)
         create_collections(inst, args.project, inst.collections)
         register_functions(inst, args.project, inst.functions)
@@ -491,10 +566,11 @@ def fire_triggers(inst, project: str, triggers: list) -> None:
         lanes.parallel(batch, _trigger)
 
 
-def watch(project: str) -> None:
+def watch(project: str, monitor: Monitor) -> None:
     rep().plan(1)
-    with rep().step("monitor", project):
-        monitor_trx(project)
+    with rep().step("monitor", project) as step:
+        step["note"] = str(monitor.time_out)
+        monitor_trx(project, monitor)
 
 
 def cmd_destroy_project(args) -> None:
@@ -528,50 +604,41 @@ def cmd_destroy_project(args) -> None:
             rep().note(f"group pointer {pointers.project_file(args.project)} removed")
             return
         shell.require_login()
-        if not state.run.dry_run and not shell.project_exists(args.project):
-            rep().plan(1)
-            with rep().step("destroy-project", args.project) as step:
-                step["note"] = "absent"
-            pointers.project_file(args.project).unlink(missing_ok=True)
-            return
-        # A project must be empty before it can be deleted: drop its collections
-        # first (cascading their functions and tables), in parallel.
-        if state.run.dry_run:
-            colls = sorted(
-                c.name
-                for c in pointers.load_instance(
-                    pointers.load_project(args.project)
-                ).collections
-            )
-        else:
-            colls = sorted(shell.collection_names(args.project))
-        rep().plan(len(colls) + 1)
+        delete_project(args.project, force)
 
-        def _delete_collection(name):
-            with rep().step("delete-collection", f"{args.project}/{name}") as step:
-                r = shell.tdk(
-                    [
-                        "collection",
-                        "delete",
-                        "--proj",
-                        args.project,
-                        "--name",
-                        name,
-                        "--confirm",
-                        "delete",
-                    ],
-                    want_json=False,
-                    check=not force,
-                )
-                if r.returncode != 0:
-                    step["note"] = (
-                        f"delete failed, continuing (--force): {shell.last_err(r)}"
-                    )
 
-        lanes.parallel(colls, _delete_collection)
-        with rep().step("delete-project", args.project) as step:
+def delete_project(project: str, force: bool) -> None:
+    """Delete `project` and its pointer: its collections first (cascading their
+    functions and tables), in parallel, then the project."""
+    if not state.run.dry_run and not shell.project_exists(project):
+        rep().plan(1)
+        with rep().step("destroy-project", project) as step:
+            step["note"] = "absent"
+        pointers.project_file(project).unlink(missing_ok=True)
+        return
+    # A project must be empty before it can be deleted.
+    if state.run.dry_run:
+        colls = sorted(
+            c.name
+            for c in pointers.load_instance(pointers.load_project(project)).collections
+        )
+    else:
+        colls = sorted(shell.collection_names(project))
+    rep().plan(len(colls) + 1)
+
+    def _delete_collection(name):
+        with rep().step("delete-collection", f"{project}/{name}") as step:
             r = shell.tdk(
-                ["project", "delete", "--name", args.project, "--confirm", "delete"],
+                [
+                    "collection",
+                    "delete",
+                    "--proj",
+                    project,
+                    "--name",
+                    name,
+                    "--confirm",
+                    "delete",
+                ],
                 want_json=False,
                 check=not force,
             )
@@ -579,8 +646,18 @@ def cmd_destroy_project(args) -> None:
                 step["note"] = (
                     f"delete failed, continuing (--force): {shell.last_err(r)}"
                 )
-        pointers.project_file(args.project).unlink(missing_ok=True)
-        rep().note(f"pointer {pointers.project_file(args.project)} removed")
+
+    lanes.parallel(colls, _delete_collection)
+    with rep().step("delete-project", project) as step:
+        r = shell.tdk(
+            ["project", "delete", "--name", project, "--confirm", "delete"],
+            want_json=False,
+            check=not force,
+        )
+        if r.returncode != 0:
+            step["note"] = f"delete failed, continuing (--force): {shell.last_err(r)}"
+    pointers.project_file(project).unlink(missing_ok=True)
+    rep().note(f"pointer {pointers.project_file(project)} removed")
 
 
 # -------------------------------------------------------------- monitor ----
@@ -592,15 +669,22 @@ MONITOR_RETRY_PAUSE = 5.0
 MONITOR_HEALTHY_WATCH = 30.0
 
 
-def _watch(argv: list[str], project: str) -> subprocess.CompletedProcess:
-    if state.run.out.fmt == "json":
-        return shell.run_cmd(argv, check=False)
-    rep().note(f"monitor '{project}' (Ctrl-C to stop watching)")
-    shell.flush_stdout()
-    return subprocess.run(argv)
+def _watch(
+    argv: list[str], project: str, left: float
+) -> subprocess.CompletedProcess | None:
+    """One watch, for at most `left` seconds; None when they ran out (the
+    watch is killed)."""
+    try:
+        if state.run.out.fmt == "json":
+            return shell.run_cmd(argv, check=False, timeout=left)
+        rep().note(f"monitor '{project}' (Ctrl-C to stop watching)")
+        shell.flush_stdout()
+        return subprocess.run(argv, timeout=left)
+    except subprocess.TimeoutExpired:
+        return None
 
 
-def monitor_trx(project: str) -> None:
+def monitor_trx(project: str, monitor: Monitor) -> None:
     """Wait for every transaction in ``project`` to finish, then FAIL if any
     ended in a failed state. In view the monitor streams to the terminal (its
     live table is the point); in json it is captured into run.log instead.
@@ -612,15 +696,25 @@ def monitor_trx(project: str) -> None:
     transactions ran on. Only a monitor that keeps failing for
     ``MONITOR_OUTAGE_GRACE`` seconds fails the run; one that fails at once for
     another reason (a lost login) never lasts long enough to restart the clock,
-    so it too ends within the grace period."""
+    so it too ends within the grace period.
+
+    The whole watch -- every attempt, every pause -- ends at the monitor's
+    ``time_out``: transactions still running then fail the run."""
     argv = shell.tdk_argv("trx", "list", "--proj", project, "--monitor")
     if state.run.dry_run:
         shell.dry_echo(argv)
         return
+    deadline = time.monotonic() + monitor.seconds
     down_since = None
     while True:
         started = time.monotonic()
-        r = _watch(argv, project)
+        left = deadline - started
+        r = _watch(argv, project, left) if left > 0 else None
+        if r is None:
+            state.die(
+                f"project '{project}' still has transactions running after the "
+                f"monitor's time_out ({monitor.time_out})"
+            )
         if r.returncode == 0:
             break
         now = time.monotonic()
@@ -637,7 +731,7 @@ def monitor_trx(project: str) -> None:
             f"monitor '{project}' exited with {r.returncode} ({why}); watching again in "
             f"{MONITOR_RETRY_PAUSE:g}s"
         )
-        time.sleep(MONITOR_RETRY_PAUSE)
+        time.sleep(max(0.0, min(MONITOR_RETRY_PAUSE, deadline - time.monotonic())))
     trx = shell.tdk(["trx", "list", "--proj", project], check=False) or []
     failed = [t for t in trx if trx_status(str(t.get("status", ""))) in FAILED_TRX]
     if failed:
@@ -851,23 +945,44 @@ def plan_name(ts: str, instance: str, project: str, function: str) -> str:
     return f"{ts}_{where[:room]}_{digest}_{function}"
 
 
-def cmd_run_project(args) -> None:
+def monitor_of(args) -> Monitor | None:
+    """The monitor `--monitor --time-out T` asks for, None without --monitor;
+    a watch is never without an end."""
+    if not getattr(args, "monitor", True):
+        return None
+    if not getattr(args, "time_out", None):
+        state.die(
+            "--time-out <VALUE><UNIT> (e.g. 30m) says how long the monitor may watch"
+        )
+    try:
+        return Monitor(time_out=args.time_out)
+    except ValueError as exc:
+        state.die(f"--time-out: {exc}")
+
+
+def cmd_run_triggers(args) -> None:
+    monitor = monitor_of(args)
     with reporting(
-        args, "run-project", args.project, suite=pointers.suite_of_project(args.project)
+        args,
+        "run-triggers",
+        args.project,
+        suite=pointers.suite_of_project(args.project),
     ):
         members = pointers.project_group(args.project)
-        monitor = bool(getattr(args, "monitor", False))
         if members is not None:
+            watch_flags = (
+                ["--monitor", "--time-out", str(monitor.time_out)] if monitor else []
+            )
             lanes.dispatch(
-                f"run-project group '{args.project}'",
+                f"run-triggers group '{args.project}'",
                 [
                     (
                         m,
                         lanes.child_argv(
-                            "run-project",
+                            "run-triggers",
                             "--project",
                             m,
-                            *(["--monitor"] if monitor else []),
+                            *watch_flags,
                             *shell.profile_flag(),
                             *shell.dry_flag(),
                         ),
@@ -882,10 +997,11 @@ def cmd_run_project(args) -> None:
         inst = pointers.load_instance(pointers.load_project(args.project))
         fire_triggers(inst, args.project, inst.triggers)
         if monitor:
-            watch(args.project)
+            watch(args.project, monitor)
 
 
 def cmd_monitor_project(args) -> None:
+    monitor = monitor_of(args)
     shell.require_login()
     with reporting(
         args,
@@ -904,6 +1020,8 @@ def cmd_monitor_project(args) -> None:
                             "monitor-project",
                             "--project",
                             m,
+                            "--time-out",
+                            str(monitor.time_out),
                             *shell.profile_flag(),
                             *shell.dry_flag(),
                         ),
@@ -914,7 +1032,7 @@ def cmd_monitor_project(args) -> None:
                 base=args.project,
             )
             return
-        watch(args.project)
+        watch(args.project, monitor)
 
 
 def _set_enabled(args, enabled: bool) -> None:

@@ -46,13 +46,13 @@ def child_argv(*words: str) -> list[str]:
 
 def _lane_suite(argv: list[str]) -> str:
     """The suite label a lane's child writes on its lines: its instance's,
-    named by the child's --instance, or its --project's instance. Empty when
+    named by the child's --suite-run, or its --project's instance. Empty when
     no pointer says -- the label is then as long as it is."""
 
     def value(flag: str) -> str | None:
         return argv[argv.index(flag) + 1] if flag in argv[:-1] else None
 
-    inst = value("--instance")
+    inst = value("--suite-run")
     if inst is None and (proj := value("--project")) is not None:
         inst = pointers.doc_of(pointers.project_file(proj)).get("instance")
     return (pointers.suite_of_instance(inst) or "") if inst else ""

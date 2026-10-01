@@ -272,6 +272,14 @@ class Reporter:
         """Append one entry to run.log -- the full command, its output."""
         self._append(self.log_path, header, body)
 
+    def log_line(self, label: str, line: str) -> None:
+        """One line of a running step's output, into run.log as it comes,
+        prefixed with the step's label: steps that run side by side write
+        between each other's lines, and the prefix says whose each is."""
+        with self._lock:
+            with self.log_path.open("a", encoding="utf-8") as fh:
+                fh.write(f"{label} | {line.rstrip(chr(10))}\n")
+
     def error(self, header: str, body: str = "") -> None:
         """Append one entry to errors.log -- a failed step, or an error that would
         otherwise only reach the console. The first entry writes a heading naming

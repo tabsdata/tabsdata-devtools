@@ -18,12 +18,15 @@ from tabsdata_dev.common.systems import cli, console, constants, naming
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     cli.add_sys(parser)
     cli.add_sys_dir(parser)
+    # Required, with no default: the names in a system come from more than one
+    # scheme (tdd domain's d_<user>_<build>_, xp's own), so no prefix is safe
+    # to assume -- a purge says what it drops.
     parser.add_argument(
         constants.OPT_EXTERNAL_PREFIX,
         dest="external_prefix",
-        default=None,
+        required=True,
         metavar="PREFIX",
-        help="match this external-entity prefix instead of d_<user>_<build>_ "
+        help="drop the containers whose name starts with PREFIX, case-insensitive "
         "('' = every container)",
     )
     cli.add_force(parser)

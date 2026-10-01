@@ -1,17 +1,17 @@
 [
   {
     "_copyright": "Copyright 2026 Tabsdata Inc.",
-    "_comment": "EXAMPLE · local-file destination / formats — what a @subscriber writes. `paths` declares one WRITE SLOT per entry, fed by input_tables in the same order, one returned frame each; a destination path names ONE file (no wildcards); a returned None writes NOTHING — no empty file, and the previous file is left alone. Seven sinks over the same seeded table so only the format differs: write_parquet (AUTO from the extension — exact types, nothing to configure), write_avro, write_json (a text format; tz-aware timestamps are normalised to UTC ISO-8601, where parquet/avro keep the column's zone), write_csv (defaults — note a null becomes an EMPTY FIELD), write_csv_dialect (writer format_cfg: separator, null_value, date_format, float_precision, quote_style — side-typed, so a reader key here fails at decoration time), write_two_files, write_nothing. One function per file under functions/localfile_dest_formats/. Run: `tdx-xp oneshot --suite examples/localfile_dest_formats --keep`."
+    "_comment": "EXAMPLE · local-file destination / formats — what a @subscriber writes. `paths` declares one WRITE SLOT per entry, fed by input_tables in the same order, one returned frame each; a destination path names ONE file (no wildcards); a returned None writes NOTHING — no empty file, and the previous file is left alone. Seven sinks over the same seeded table so only the format differs: write_parquet (AUTO from the extension — exact types, nothing to configure), write_avro, write_json (a text format; tz-aware timestamps are normalised to UTC ISO-8601, where parquet/avro keep the column's zone), write_csv (defaults — note a null becomes an EMPTY FIELD), write_csv_dialect (writer format_cfg: separator, null_value, date_format, float_precision, quote_style — side-typed, so a reader key here fails at decoration time), write_two_files, write_nothing. One function per file under functions/localfile_dest_formats/. Run: `tdd xp one-shot --suite examples/localfile_dest_formats --keep`."
   },
   {
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev"
         },
         {
-          "name": "fs_out",
+          "name": "${xp_name(fs_out)}",
           "system": "fs"
         }
       ]
@@ -25,7 +25,7 @@
         "group": "sources",
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -34,7 +34,7 @@
         "group": "destinations",
         "connection_template": "connection-file:connections/local_file_out.yaml",
         "domains": {
-          "D0": "fs_out"
+          "D0": "${xp_name(fs_out)}"
         }
       }
     ]
@@ -85,6 +85,8 @@
     ]
   },
   {
-    "monitor": true
+    "monitor": {
+      "time_out": "30m"
+    }
   }
 ]

@@ -6,17 +6,17 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev"
         },
         {
-          "name": "mysql_world_xs",
+          "name": "${xp_name(mysql_world_xs)}",
           "system": "mysql",
           "model": "world",
           "data": "xs"
         },
         {
-          "name": "mysql",
+          "name": "${xp_name(mysql)}",
           "system": "mysql"
         }
       ]
@@ -30,7 +30,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -39,7 +39,7 @@
         "connection_template": "connection-file:connections/mysql_sql_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "mysql_world_xs"
+          "D0": "${xp_name(mysql_world_xs)}"
         }
       },
       {
@@ -48,7 +48,7 @@
         "connection_template": "connection-file:connections/mysql_sql_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "mysql"
+          "D0": "${xp_name(mysql)}"
         }
       },
       {
@@ -145,6 +145,8 @@
     ]
   },
   {
-    "monitor": true
+    "monitor": {
+      "time_out": "30m"
+    }
   }
 ]

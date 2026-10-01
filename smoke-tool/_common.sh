@@ -1076,7 +1076,7 @@ common_tabsdata_setup_info() {
     done
     for x in ${XP_PROJECTS:-}; do
         any=1
-        "$out" "xp         $x -- tdd xp destroy-domains --instance $x --force; tdd xp destroy-instance --instance $x"
+        "$out" "xp         $x -- tdd xp destroy-project --project $x --force; tdd xp destroy-domains --suite-run $x --force; tdd xp destroy-instance --suite-run $x"
     done
     [ "$any" = 1 ] || "$out" "nothing    this run had built no instance, venv or domain yet"
     [ -z "${NAMES_PREFIX:-}" ] || "$out" "all names  start with $NAMES_PREFIX: tdd domain list, tdd xp list-instances, ls ~/.tabsdata/instances"

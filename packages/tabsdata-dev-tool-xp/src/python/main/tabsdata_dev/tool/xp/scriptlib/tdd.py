@@ -10,10 +10,10 @@
     note("1000000 rows, 3201 rows/s")   # the step's note in xp's progress line
 
 `tdd` is a shell function and cannot be exec'd; `tdd-exe` is the executable
-behind it, and xp puts it on the script's PATH. This module is put on the
-script's path by `tdd _xp-execute`, which runs the script: in its own venv, or
-in the one-off venv an execute entry's `requirements` asked for. Standard
-library only, so it works in either.
+behind it, and xp puts it on the script's PATH. xp runs a python step with
+`uv run --no-project --with REQ...` and this module's directory on its
+PYTHONPATH, so it is there whatever the step asked for: standard library only,
+so it works in any of them.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from pathlib import Path
 
 __all__ = ["tdd", "note", "TddError"]
 
-#: xp reads a stdout line so marked as the step's note (xp's execute.NOTE_MARK).
+#: xp reads a stdout line so marked as the step's note (xp's actions.NOTE_MARK).
 NOTE_MARK = "xp-note:"
 
 

@@ -6,19 +6,19 @@
     "domain-manifest": {
       "domains": [
         {
-          "name": "dev",
+          "name": "${xp_name(dev)}",
           "system": "dev",
           "model": null,
           "data": null
         },
         {
-          "name": "fs",
+          "name": "${xp_name(fs)}",
           "system": "fs",
           "model": null,
           "data": null
         },
         {
-          "name": "fs_world_xs",
+          "name": "${xp_name(fs_world_xs)}",
           "system": "fs",
           "model": "world",
           "data": "xs"
@@ -34,7 +34,7 @@
         "connection_template": "connection-file:connections/datagen_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "dev"
+          "D0": "${xp_name(dev)}"
         }
       },
       {
@@ -43,7 +43,7 @@
         "connection_template": "connection-file:connections/local_file_out.yaml",
         "group": "destinations",
         "domains": {
-          "D0": "fs"
+          "D0": "${xp_name(fs)}"
         }
       },
       {
@@ -52,7 +52,7 @@
         "connection_template": "connection-file:connections/local_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "fs"
+          "D0": "${xp_name(fs)}"
         }
       },
       {
@@ -61,7 +61,7 @@
         "connection_template": "connection-file:connections/local_file_in.yaml",
         "group": "sources",
         "domains": {
-          "D0": "fs_world_xs"
+          "D0": "${xp_name(fs_world_xs)}"
         }
       },
       {
@@ -186,6 +186,8 @@
     ]
   },
   {
-    "monitor": true
+    "monitor": {
+      "time_out": "30m"
+    }
   }
 ]

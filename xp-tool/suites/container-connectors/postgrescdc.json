@@ -1,13 +1,13 @@
 [
   {
-    "_comment": "CAPABILITY suite for the PostgreSQL CDC stream source, over logical decoding (wal2json) of a employeescdc domain: every table of the model -- one table per way a row is identified: accounts (a primary key every update CHANGES), ledger (a composite primary key), devices (no primary key, a unique index), readings (no primary key and no index) -- and its xp_sentinel. Functions in functions/caps_postgrescdc.py: four @stream_publisher variants, each in its own collection: postgrescdc_in (start_from=tail, flattened tabular rows), postgrescdc_head (start_from=head), postgrescdc_struct (columns_format=struct, flatten_columns=False), postgrescdc_map (columns_format=map). STAGES: (1) domains -- create the domain, install the employeescdc model, load the xs seed, its operations appended to ${XP_WORK_DIR}/ops.jsonl (--emit-ops) -- as every data command below appends its own; (2) collections and (3) functions -- registering a stream publisher STARTS it (no trigger); (4) live -- a 30s pause for the tail streams to attach (a change before that is not theirs to see), one `modify-data --ops Mix --sets 30` pass (every set one transaction of one verb over all four tables: inserts, updates -- accounts' moving its key -- and deletes), then `sentinel-data --key after-changes`; (5) sentinel -- hold until after-changes is in postgrescdc_in's and postgrescdc_head's xp_sentinel_changes (at most 5m); (6) execute -- scripts/verify_cdc_ops.py checks postgrescdc_in from the tail (the changes after the stream attached, one by one, each with its whole before-image and the row it leaves) and postgrescdc_head: head reads from the slot's creation -- logical decoding keeps no WAL from before it -- so it is checked as a tail. postgrescdc_struct and postgrescdc_map run over the same changes, unchecked: their rows nest the values the check reads flat; (7) monitor. Run: `tdd xp one-shot --suite container-connectors/postgrescdc --keep`."
+    "_comment": "CAPABILITY suite for the PostgreSQL CDC stream source, over logical decoding (wal2json) of a employeescdc domain: every table of the model -- one table per way a row is identified: accounts (a primary key every update CHANGES), ledger (a composite primary key), devices (no primary key, a unique index), readings (no primary key and no index) -- and its xp_sentinel. Functions in functions/caps_postgrescdc.py: four @stream_publisher variants, each in its own collection: postgrescdc_in (start_from=tail, flattened tabular rows), postgrescdc_head (start_from=head), postgrescdc_struct (columns_format=struct, flatten_columns=False), postgrescdc_map (columns_format=map). STAGES: (1) domains -- create the domain, install the employeescdc model, load the xs seed, its operations appended to ${XP_WORK_DIR}/ops.jsonl (--emit-ops) -- as every data command below appends its own; (2) collections and (3) functions -- registering a stream publisher STARTS it (no trigger); (4) actions, tagged live -- a 30s pause for the tail streams to attach (a change before that is not theirs to see), one `modify-data --ops Mix --sets 30` pass (every set one transaction of one verb over all four tables: inserts, updates -- accounts' moving its key -- and deletes), then `sentinel-data --key after-changes`; (5) sentinel -- hold until after-changes is in postgrescdc_in's and postgrescdc_head's xp_sentinel_changes (at most 5m); (6) actions, tagged check -- scripts/verify_cdc_ops.py checks postgrescdc_in from the tail (the changes after the stream attached, one by one, each with its whole before-image and the row it leaves) and postgrescdc_head: head reads from the slot's creation -- logical decoding keeps no WAL from before it -- so it is checked as a tail. postgrescdc_struct and postgrescdc_map run over the same changes, unchecked: their rows nest the values the check reads flat; (7) monitor. Run: `tdd xp one-shot --suite container-connectors/postgrescdc --keep`."
   },
   {
     "domain-manifest": {
       "emit_ops": "${XP_WORK_DIR}/ops.jsonl",
       "domains": [
         {
-          "name": "postgrescdc_employeescdc_xs",
+          "name": "${xp_name(postgrescdc_employeescdc_xs)}",
           "system": "postgrescdc",
           "model": "employeescdc",
           "data": "xs"
@@ -23,7 +23,7 @@
         "connection_template": "connection-file:connections/postgres_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "postgrescdc_employeescdc_xs"
+          "D0": "${xp_name(postgrescdc_employeescdc_xs)}"
         }
       },
       {
@@ -32,7 +32,7 @@
         "connection_template": "connection-file:connections/postgres_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "postgrescdc_employeescdc_xs"
+          "D0": "${xp_name(postgrescdc_employeescdc_xs)}"
         }
       },
       {
@@ -41,7 +41,7 @@
         "connection_template": "connection-file:connections/postgres_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "postgrescdc_employeescdc_xs"
+          "D0": "${xp_name(postgrescdc_employeescdc_xs)}"
         }
       },
       {
@@ -50,7 +50,7 @@
         "connection_template": "connection-file:connections/postgres_cdc.yaml",
         "group": "sources",
         "domains": {
-          "D0": "postgrescdc_employeescdc_xs"
+          "D0": "${xp_name(postgrescdc_employeescdc_xs)}"
         }
       }
     ]
@@ -76,17 +76,27 @@
     ]
   },
   {
-    "live": [
+    "actions": [
       {
-        "name": "attach",
-        "sleep": "30s"
+        "sleep": {
+          "name": "attach",
+          "tags": [
+            "live"
+          ],
+          "time": "30s"
+        }
       },
       {
-        "name": "change",
-        "domain": {
-          "name": "postgrescdc_employeescdc_xs",
+        "tdd": {
+          "name": "change",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
           "command": "modify-data",
           "options": [
+            "--domain",
+            "${xp_name(postgrescdc_employeescdc_xs)}",
             "--ops",
             "Mix",
             "--sets",
@@ -97,11 +107,16 @@
         }
       },
       {
-        "name": "sentinel-changed",
-        "domain": {
-          "name": "postgrescdc_employeescdc_xs",
+        "tdd": {
+          "name": "sentinel-changed",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
           "command": "sentinel-data",
           "options": [
+            "--domain",
+            "${xp_name(postgrescdc_employeescdc_xs)}",
             "--key",
             "after-changes",
             "--emit-ops",
@@ -128,40 +143,52 @@
     ]
   },
   {
-    "execute": [
+    "actions": [
       {
-        "name": "verify-postgrescdc_in",
-        "py_script": "scripts/verify_cdc_ops.py",
-        "params": [
-          "${XP_WORK_DIR}/ops.jsonl",
-          "postgrescdc_in",
-          "--cascades",
-          "logged",
-          "--noops",
-          "logged",
-          "--start",
-          "tail"
-        ],
-        "continue_on_fail": true
+        "python": {
+          "name": "verify-postgrescdc_in",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_cdc_ops.py",
+          "params": [
+            "${XP_WORK_DIR}/ops.jsonl",
+            "postgrescdc_in",
+            "--cascades",
+            "logged",
+            "--noops",
+            "logged",
+            "--start",
+            "tail"
+          ],
+          "continue_on_fail": true
+        }
       },
       {
-        "name": "verify-postgrescdc_head",
-        "py_script": "scripts/verify_cdc_ops.py",
-        "params": [
-          "${XP_WORK_DIR}/ops.jsonl",
-          "postgrescdc_head",
-          "--cascades",
-          "logged",
-          "--noops",
-          "logged",
-          "--start",
-          "tail"
-        ],
-        "continue_on_fail": true
+        "python": {
+          "name": "verify-postgrescdc_head",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_cdc_ops.py",
+          "params": [
+            "${XP_WORK_DIR}/ops.jsonl",
+            "postgrescdc_head",
+            "--cascades",
+            "logged",
+            "--noops",
+            "logged",
+            "--start",
+            "tail"
+          ],
+          "continue_on_fail": true
+        }
       }
     ]
   },
   {
-    "monitor": true
+    "monitor": {
+      "time_out": "30m"
+    }
   }
 ]

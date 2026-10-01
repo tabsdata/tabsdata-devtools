@@ -81,10 +81,15 @@ def tdk_argv(*args: str) -> list[str]:
 
 
 def run_cmd(
-    argv: list[str], check: bool, stdin_text: str | None = None, env: dict | None = None
+    argv: list[str],
+    check: bool,
+    stdin_text: str | None = None,
+    env: dict | None = None,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess:
     """Run one child with its output captured and logged to run.log. UTF-8 is
-    pinned so tdk's box drawing decodes the same on every OS."""
+    pinned so tdk's box drawing decodes the same on every OS. A `timeout` that
+    passes kills the child and raises `subprocess.TimeoutExpired`."""
     r = subprocess.run(
         argv,
         input=stdin_text,
@@ -94,6 +99,7 @@ def run_cmd(
         encoding="utf-8",
         errors="replace",
         env=env,
+        timeout=timeout,
     )
     # Only into an open run: a check made before the reporter opens (the login
     # probe) must not conjure a bare, unlabelled one that the real run would
@@ -252,11 +258,10 @@ def collection_descriptor(inst, c) -> dict:
     """Every backing domain's (prefixed) descriptor merged into one values dict."""
     merged: dict = {}
     for prefix, dname in c.domains.items():
-        full = inst.domain_full(dname)
-        info = domain_descriptor(full, prefix)
+        info = domain_descriptor(dname, prefix)
         if info is None:
             state.die(
-                f"domain {full} not found -- run `create-domains --instance {inst.name}`"
+                f"domain {dname} not found -- run `create-domains --suite-run {inst.name}`"
             )
         merged.update(info)
     return merged

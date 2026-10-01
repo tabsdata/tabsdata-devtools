@@ -2131,3 +2131,38 @@ def test_postgrescdc_allows_wal2json_before_a_domain_of_an_existing_system(
     )
     system.provision_domain({"DOCKER_CONTAINER_NAME": "tdd_postgrescdc"}, "d1", {})
     assert allowed == ["tdd_postgrescdc"]
+
+
+def test_a_verbatim_name_in_system_that_is_taken_fails_before_writing(
+    small_store, capsys
+):
+    """xp names each domain's container itself, and two runs can draw the same
+    name: the second must not provision over the first's."""
+    rc, _ = _run_json(
+        capsys,
+        "domain",
+        "create",
+        "--sys",
+        "fs1",
+        "--domain",
+        "a",
+        "--name-in-system",
+        "ent1",
+    )
+    assert rc == 0
+    # an fs domain's folder appears with its first data; it is what a listing sees
+    (pathlib.Path("target/backends/fs1") / "ent1").mkdir(parents=True)
+    rc, events = _run_json(
+        capsys,
+        "domain",
+        "create",
+        "--sys",
+        "fs1",
+        "--domain",
+        "b",
+        "--name-in-system",
+        "ENT1",
+    )
+    assert rc == 1 and "'ENT1' already exists in system 'fs1'" in events[-1]["message"]
+    rc, events = _run_json(capsys, "domain", "list")
+    assert [d["name"] for d in events[-1]["domains"]] == ["a"]
