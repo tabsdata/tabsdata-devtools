@@ -49,7 +49,7 @@ message UserEvent {
         src_cfg={
             "kafka.consume_timeout_seconds": 2,
             "kafka.connection_timeout_seconds": 10,
-            "kafka.messages_rollover": 50,
+            "tabsdata.kafka.trigger.max_rows": 50,
         },
     ),
     flush_interval_mins=1,

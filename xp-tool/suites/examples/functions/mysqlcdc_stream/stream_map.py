@@ -24,8 +24,10 @@ all operational:
   * NO `ctx` PARAMETER. A stream publisher runs in the runtime's stream loop, not
     per transaction; declaring `ctx` is an error.
 
-  A batch closes when a rollover threshold fires (`src_cfg`) or when
-  `flush_interval_mins` rolls the window over.
+  Changes are buffered and written to parquet files per the `tabsdata.cdc.buffer.*`
+  keys; the files are staged as one batch when a `tabsdata.cdc.trigger.*` threshold
+  fires (`src_cfg`) or when `flush_interval_mins` is reached, and never sooner than
+  60 seconds after the previous batch.
 
 WHAT `tables` MEANS HERE
     Unqualified names resolve against the connection's default database.

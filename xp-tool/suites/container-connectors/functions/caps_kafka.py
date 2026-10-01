@@ -50,8 +50,10 @@ inferred from the decoded JSON.
 Variants — one COLLECTION each, because every registered stream publisher joins its
 connection's consumer group and these topics have a single partition, so two consumers in
 one group would leave one idle (templates: kafka_topic_in.yaml / _dlq / _time):
-- ``kafka_in``      : base — ``<prefix>.employees`` with ``kafka.messages_rollover=25``
-                      -> the 100 seeded messages arrive as 4 batches.
+- ``kafka_in``      : base — ``<prefix>.employees`` with
+                      ``tabsdata.kafka.trigger.max_rows=25`` -> the 100 seeded
+                      messages arrive at once and are staged as one table version
+                      once the 60-second manifest floor passes.
 - ``kafka_in_dlq``  : ``<prefix>.departments`` (9 messages) with a ``dlq_topic``. The
                       seeded messages all validate, so to see the dead-letter path
                       produce a violating line yourself and read it back from
@@ -61,21 +63,22 @@ one group would leave one idle (templates: kafka_topic_in.yaml / _dlq / _time):
                               <prefix>.departments <<'EOF'
                           {"dept_no": 42}
                           EOF
-                      A rollover of 5 is reached at once, but nothing is staged
+                      A row trigger of 5 is reached at once, but nothing is staged
                       before the 60-second manifest floor, so all 9 messages land
                       in one table version.
 - ``kafka_in_time`` : ``<prefix>.employees`` again (own consumer group, so it sees every
-                      message too) with ``kafka.time_rollover_seconds`` marked down
-                      to 15 seconds (``unsafe_seconds(15)``, below the 60-second
-                      floor, for tests only) — rolls over on TIME rather than count.
+                      message too) with ``tabsdata.kafka.trigger.max_secs`` marked
+                      down to 15 seconds (``unsafe_seconds(15)``, below the 60-second
+                      floor, for tests only) — staged on TIME rather than count.
 
-The consumer forces ``auto.offset.reset=earliest`` and never commits offsets, so it does
-not matter whether the worker starts before or after the topics are seeded, and a re-run
-re-reads from the beginning. A topic that does not exist yet is not fatal either: the
-poll loop logs the unknown-topic error and keeps going until it appears.
+The consumer forces ``auto.offset.reset=earliest`` and commits its offsets only once a
+batch is staged, so it does not matter whether the worker starts before or after the
+topics are seeded, and a re-run resumes from the last staged position. A topic that does
+not exist yet is not fatal either: the poll loop logs the unknown-topic error and keeps
+going until it appears.
 
-``kafka.size_rollover_mb`` is the third rollover axis and is not exercised: it would take
-megabytes of messages to fire. ``avro`` and ``Protobuf(...)`` formats are also left out —
+``tabsdata.kafka.trigger.max_bytes`` is the third trigger axis and is not exercised: it
+would take megabytes of messages to fire. ``avro`` and ``Protobuf(...)`` formats are also left out —
 the redpanda data plane produces JSON, and both alternatives would need an encoder.
 """
 from __future__ import annotations
@@ -133,7 +136,7 @@ _DEPT_SCHEMA = json.dumps({
 })
 
 # Short consume timeout so the poll loop reacts quickly to a fresh message instead of
-# blocking; the rollover knobs are per-variant below.
+# blocking; the trigger knobs are per-variant below.
 _CFG = {
     "kafka.consume_timeout_seconds": 2,
     "kafka.connection_timeout_seconds": 10,
@@ -148,7 +151,7 @@ _CFG = {
         topic=_EMP_TOPIC,
         data_format="json",
         schema=_EMP_SCHEMA,
-        src_cfg=_CFG | {"kafka.messages_rollover": 25},
+        src_cfg=_CFG | {"tabsdata.kafka.trigger.max_rows": 25},
     ),
     flush_interval_mins=1,
     output_tables=["kafka_employees"],
@@ -164,13 +167,14 @@ def kafka_in(rows: TableFramesSpec) -> TableFrameSpec:
         data_format="json",
         schema=_DEPT_SCHEMA,
         dlq_topic=_DEAD_TOPIC,
-        src_cfg=_CFG | {"kafka.messages_rollover": 5},
+        src_cfg=_CFG | {"tabsdata.kafka.trigger.max_rows": 5},
     ),
     flush_interval_mins=1,
     output_tables=["kafka_departments"],
 )
 def kafka_in_dlq(rows: TableFramesSpec) -> TableFrameSpec:
-    # 9 seeded messages: 5 roll over on count, the remaining 4 on flush_interval_mins.
+    # 9 seeded messages: the row trigger of 5 is reached at once, and all 9 are staged
+    # together once the 60-second floor passes.
     # A message that fails schema validation goes to <prefix>.dead instead of here.
     return concat(rows)
 
@@ -180,7 +184,7 @@ def kafka_in_dlq(rows: TableFramesSpec) -> TableFrameSpec:
         topic=_EMP_TOPIC,
         data_format="json",
         schema=_EMP_SCHEMA,
-        src_cfg=_CFG | {"kafka.time_rollover_seconds": unsafe_seconds(15)},
+        src_cfg=_CFG | {"tabsdata.kafka.trigger.max_secs": unsafe_seconds(15)},
     ),
     flush_interval_mins=1,
     output_tables=["kafka_timed"],

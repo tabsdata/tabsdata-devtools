@@ -7,7 +7,7 @@
 REGISTRY MODE IS A PROPERTY OF THE CONNECTION, NOT OF THE SOURCE. Set
 `schema_registry` on `KafkaStreamSrcConn` and the consumer switches to SR-aware
 serdes; the function below is otherwise byte-identical to the registry-less Avro
-one in the `kafka_src` suite — same `data_format`, same `schema`, same rollover,
+one in the `kafka_src` suite — same `data_format`, same `schema`, same trigger,
 same fold.
 
 WHAT CHANGES IS THE WIRE. A registry-mode message is in the CONFLUENT WIRE FORMAT:
@@ -103,7 +103,7 @@ EVENT_SCHEMA = json.dumps({
         src_cfg={
             "kafka.consume_timeout_seconds": 2,
             "kafka.connection_timeout_seconds": 10,
-            "kafka.messages_rollover": 25,
+            "tabsdata.kafka.trigger.max_rows": 25,
         },
     ),
     flush_interval_mins=1,

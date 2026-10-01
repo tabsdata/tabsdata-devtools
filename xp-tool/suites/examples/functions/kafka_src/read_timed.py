@@ -2,13 +2,13 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""EXAMPLE — Kafka source: the SAME topic on a TIME rollover.
+"""EXAMPLE — Kafka source: the SAME topic on a TIME trigger.
 
-`kafka.time_rollover_seconds` closes a batch every N seconds whatever the count.
-That is the axis to pick when LATENCY matters more than batch size — a quiet
-topic still produces a table version every 60 seconds here, the shortest interval
-allowed, where a count rollover would leave those few messages buffered until
-`flush_interval_mins`.
+`tabsdata.kafka.trigger.max_secs` stages a batch every N seconds whatever the
+count. That is the axis to pick when LATENCY matters more than batch size — a
+quiet topic still produces a table version every 60 seconds here, the shortest
+interval allowed, where a count trigger would leave those few messages waiting
+until `flush_interval_mins`.
 
 The three axes combine: once 60 seconds have passed since the last batch,
 whichever threshold has fired closes the next one. Setting a count AND a longer
@@ -58,7 +58,7 @@ EMPLOYEE_SCHEMA = json.dumps({
         src_cfg={
             "kafka.consume_timeout_seconds": 2,
             "kafka.connection_timeout_seconds": 10,
-            "kafka.time_rollover_seconds": 60,
+            "tabsdata.kafka.trigger.max_secs": 60,
         },
     ),
     flush_interval_mins=1,

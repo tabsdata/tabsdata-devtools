@@ -2,7 +2,7 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""EXAMPLE — Kafka source: JSON payloads, with a COUNT rollover.
+"""EXAMPLE — Kafka source: JSON payloads, with a COUNT trigger.
 
 SHAPE OF A KAFKA STREAM
     `@stream_publisher`, like CDC: registering it STARTS it, so there is no
@@ -24,13 +24,20 @@ FORMAT — `data_format` AND `schema`, BOTH ALWAYS REQUIRED
     rather than inlined in the decorator — it is a document, not a setting, and
     reading the configuration past 30 lines of JSON helps nobody.
 
-ROLLOVER — three independent axes in `src_cfg`, whichever fires first
-    `kafka.messages_rollover`      close after N messages   (this file)
-    `kafka.time_rollover_seconds`  close after N seconds    (read_timed.py)
-    `kafka.size_rollover_mb`       close after N megabytes  (read_avro.py)
+TWO LEVELS — buffer files, trigger batches, both in `src_cfg`
+    The `tabsdata.kafka.buffer.*` keys (`max_rows`, `max_bytes`, `max_secs`)
+    decide when the buffered messages are written to a parquet file. The
+    `tabsdata.kafka.trigger.*` keys decide when the written files are staged as
+    one batch, whichever fires first:
 
-    `flush_interval_mins` rolls a partly-filled batch over regardless, so a
-    batch is never stuck waiting for a threshold that will not be reached.
+    `tabsdata.kafka.trigger.max_rows`   after N messages             (this file)
+    `tabsdata.kafka.trigger.max_secs`   after N seconds, at least 60 (read_timed.py)
+    `tabsdata.kafka.trigger.max_bytes`  after N bytes                (read_avro.py)
+
+    A batch never comes sooner than 60 seconds after the previous one: a row or
+    byte trigger reached earlier is staged at that mark. `flush_interval_mins`
+    caps the time trigger, so a batch is never stuck waiting for a threshold
+    that will not be reached.
 
 WHERE THE MESSAGES COME FROM
     A redpanda domain IS a topic namespace: its data plane produces a model's
@@ -89,7 +96,7 @@ EMPLOYEE_SCHEMA = json.dumps({
             "kafka.consume_timeout_seconds": 2,
             "kafka.connection_timeout_seconds": 10,
             # 100 seeded messages / 25 per batch -> 4 batches.
-            "kafka.messages_rollover": 25,
+            "tabsdata.kafka.trigger.max_rows": 25,
         },
     ),
     flush_interval_mins=1,

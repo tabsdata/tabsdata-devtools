@@ -63,7 +63,7 @@ DEPARTMENT_SCHEMA = json.dumps({
         src_cfg={
             "kafka.consume_timeout_seconds": 2,
             "kafka.connection_timeout_seconds": 10,
-            "kafka.messages_rollover": 5,
+            "tabsdata.kafka.trigger.max_rows": 5,
         },
     ),
     flush_interval_mins=1,

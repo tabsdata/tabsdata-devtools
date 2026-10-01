@@ -2,16 +2,16 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""EXAMPLE — Kafka source: AVRO payloads, with a SIZE rollover.
+"""EXAMPLE — Kafka source: AVRO payloads, with a SIZE trigger.
 
 WHY AVRO OVER JSON on a busy topic: it is self-describing and strongly typed, so
 a `long` stays a long and a `logicalType` survives the decode — where JSON gives
 you strings and inference. It is also far smaller on the wire.
 
-`kafka.size_rollover_mb` closes the batch once it reaches N megabytes. That is
-the natural axis for a high-volume topic, where what you care about is the SIZE
-of the files that land downstream rather than their row count — a million tiny
-parquet files is its own kind of outage.
+`tabsdata.kafka.trigger.max_bytes` stages the batch once its files, plus what
+is still buffered, reach N bytes. That is the natural axis for a high-volume
+topic, where what you care about is the SIZE of what lands downstream rather
+than its row count — a million tiny parquet files is its own kind of outage.
 
 NOTHING PRODUCES TO THIS TOPIC in this suite, deliberately. An unknown topic is
 NOT fatal: the poll loop logs it and keeps going until the topic appears, so the
@@ -55,7 +55,7 @@ EVENT_SCHEMA = json.dumps({
         src_cfg={
             "kafka.consume_timeout_seconds": 2,
             "kafka.connection_timeout_seconds": 10,
-            "kafka.size_rollover_mb": 1,
+            "tabsdata.kafka.trigger.max_bytes": 1048576,
         },
     ),
     flush_interval_mins=1,

@@ -97,7 +97,7 @@ the generator never touches them: `kafka_src`, `kafka_registry`,
 | `postgrescdc_stream` | slots, `start_from`, `columns_format` × `flatten_columns`, buffer/trigger thresholds |
 | `mysqlcdc_stream` | the same, on `server_id` instead of a slot, with a `head` that really replays |
 | `db2cdc_stream` | the same, on ASN CD tables — `tables` names the shadow tables, not the source ones. **Needs no other db2cdc domain standing** (see below) |
-| `kafka_src` | json / avro / protobuf payloads, the three rollover axes, dead-letter topics |
+| `kafka_src` | json / avro / protobuf payloads, the buffer and trigger keys, dead-letter topics |
 | `kafka_registry` | a Confluent schema registry, the Confluent wire format, and why a plain message fails on such a topic |
 
 ### Destinations
