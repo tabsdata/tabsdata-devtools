@@ -6,18 +6,18 @@ Copyright 2026 Tabsdata Inc.
 
 `tdd xp`: tabsdata-xp's `tdx-xp` ported -- run the example suites end to end against a tdkserver:
 a suite is an ordered list of stages -- provision domains, create collections, register
-functions, fire triggers, watch, change the data live -- that `run-suite` runs in order;
-`one-shot` creates the instance, runs it and tears down, `bench` times the phases, `--dry-run`
-prints the `tdd tdk`/`tdd domain` lines.
+functions, fire triggers, watch, run actions (change the data live, check what came out) --
+that `run-suite` runs in order; `one-shot` creates a suite run, runs it and tears down, `bench`
+times the phases, `--dry-run` prints the commands.
 
 ## Shape
 
 - Toolset `xp`, its own; depends on `deps-xp` (pydantic, pyyaml, parquet-tools), `common-core`.
-  Modules: `state`, `reporter`, `models`, `suites`, `pointers`, `shell`, `conn`, `lanes`,
-  `domains`, `project`, `live`, `work`, `execute`, `cycle`. xp reaches `domain` and tdk through
-  `tdd` and imports neither, so it shares no resolution with them: `parquet-tools`, for the
-  suites' check scripts (which run on xp's python), caps pandas below 3, and that stays in this
-  toolset instead of deciding every database driver's in `systems`, where xp lived before.
+  Modules: `state`, `ids`, `reporter`, `models`, `suites`, `pointers`, `shell`, `conn`,
+  `lanes`, `domains`, `project`, `actions`, `work`, `cycle`, and `scriptlib/tdd.py` -- the `tdd`
+  module a python step imports, alone in its directory so that directory is all its PYTHONPATH
+  gets. xp reaches `domain` and tdk through `tdd` and imports neither, so it shares no
+  resolution with them.
 - The tabsdata-xp `suites/` and `connections/` trees are **carried by** the package and are the
   default. They live at `<repo>/xp-tool/` (excluded from ruff), where they are read and edited,
   and a wheel build copies them in beside the module (`force-include`); an editable install
@@ -41,8 +41,8 @@ prints the `tdd tdk`/`tdd domain` lines.
   command that runs the program. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run
   under `/tmp/tdd-xp/`.
 - Verbs: `list-suites`/`list-systems`/`export-suites`; `create-instance`; `run-suite` (the
-  stages in order); the phase verbs `create-domains`, `create-project`, `run-project`,
-  `monitor-project`, `live-domains`, each over every stage of its kind, and the matching
+  stages in order); the phase verbs `create-domains`, `create-project`, `run-triggers`,
+  `monitor-project`, `run-actions`, each over every stage of its kind, and the matching
   `destroy-domains`/`destroy-project`/`destroy-instance`; `enable-function`/`disable-function`;
   `list-instances` and `list-projects` over the pointer store; `one-shot` and `bench` over the
   whole cycle. The phase verbs stay so a failed run can be finished or taken apart by hand;
@@ -61,7 +61,7 @@ prints the `tdd tdk`/`tdd domain` lines.
   account each keep their own login. Absent, no option is passed and tdk uses its default
   connection. tdk attaches `--profile` to every command, not to the root group -- `tdk --profile
   P login` is refused, `tdk login --profile P` works -- so `shell.tdk_argv`, which builds every
-  tdk argv, appends it last, past the verb; no call can miss it or misplace it; the verbs that reach tdk (`create-`/`destroy-`/`run-`/`monitor-project`,
+  tdk argv, appends it last, past the verb; no call can miss it or misplace it; the verbs that reach tdk (`create-`/`destroy-`/`monitor-project`, `run-triggers`,
   `run-suite`, `enable-`/`disable-function`, `one-shot`, `bench`) take it and hand it to their fan-out children. The domain verbs never
   reach tdk and do not take it.
 - **A domain-manifest stage is the batch**: `{"domain-manifest": {"emit_ops": FILE?, "domains":
@@ -77,13 +77,13 @@ prints the `tdd tdk`/`tdd domain` lines.
   order listed, so the trail does not depend on which domain finished first. A failed batch
   appends nothing. The built-in suites use it; the manifest's key is `emit-ops` because every
   manifest key mirrors a flag, the suite's `emit_ops` because every suite key is `_`.
-- **A domains stage is `tdd domain` calls**, spelled as a live entry spells one --
-  `{"name", "command", "options"}`, run as `tdd domain <command> --domain <instance>_<name>
-  <options...>`: a domain's `create` (`--sys SYSTEM`), then what fills it (`create-model --model
+- **A domains stage is `tdd domain` calls** -- `{"name", "command", "options"}`, run as
+  `tdd domain <command> --domain <name> <options...>`: a domain's `create` (`--sys SYSTEM`), then
+  what fills it (`create-model --model
   M`, `create-data --size N [--emit-ops FILE]`, any data verb). Each domain's calls run in the
   order written, the domains side by side (bounded by `$TDD_PARALLELISM`), one step per call; the
   first failure stops the rest at their next call. xp adds `--name-in-system` to a create itself
-  (`xp_<user>_<ts>_<tag>_<domain>`, unique per run and stable within one), so a suite may not;
+  (the domain's name in its system, see *Run identity and names*), so a suite may not;
   a domain's first call is its create, and a domain is created once. A domain whose create finds
   it already in the store is left alone, its other calls with it. It says what a manifest
   cannot -- any option, any data verb after the seed -- at the cost of the batch: each call is a
@@ -97,7 +97,12 @@ prints the `tdd tdk`/`tdd domain` lines.
   every lane watching at that moment while their transactions ran on. The run fails once the
   monitor has kept failing for 120s; a watch that lasted 30s reached the server and restarts
   that clock. tdk's own monitor rides out a short outage too (tabsdata-os `live_monitor`); this
-  covers the tdk versions that do not.
+  covers the tdk versions that do not. **The whole watch ends at the monitor's `time_out`**, which
+  a monitor stage must give (`{"monitor": {"time_out": "30m"}}`; `monitor-project` and
+  `run-triggers --monitor` take `--time-out`): transactions still running then fail the run.
+  `{"monitor": true}` -- a watch with no end, which is what a hung run looks like -- is refused;
+  a suite with no monitor stage does not monitor. `run-triggers` (it was `run-project`) fires the
+  triggers and nothing else.
 - `--secret-env` names the variable holding the domain crypto key (default `_TDD_CRYPTO_KEY`)
   and maps it into that name for the `tdd domain` children. In a connection template
   `$secret:D<n>__KEY` resolves from the backing domain's descriptor (the environment as a
@@ -106,22 +111,52 @@ prints the `tdd tdk`/`tdd domain` lines.
   function's source, interpolates plain, for a value that is a name rather than a secret (the D0
   domain's in-system name, say).
 
+## Run identity and names
+
+- **A suite run has an `XP_ID`**, `xp_<USER>_<BUILD>_<YYYYMMDD>T<hhmmss>`: tabsdata-os's build
+  identity (`$TD_BUILD_USER`, else the OS login; `$TD_BUILD_NUMBER`, else `0`) and the second,
+  UTC, the run began. Its **`XP_SHORT_ID`** is the same in 12 characters, `<UUU><BB>_<TTTTTT>`
+  -- the user's first 3 characters, the build's last 2 digits, the seconds since 2026-01-01Z in
+  base 36, 6 wide (until 2094; fixed width, so names sort as the runs did) -- for the names a run
+  leaves inside systems, whose identifiers are short (Postgres: 63 bytes). Lower case only:
+  Postgres folds an unquoted name to lower case and DB2/Oracle/Snowflake to upper, so a
+  mixed-case alphabet makes two seconds one name. Rejected: one base-62 character per field
+  (`a` and `A` fold together), `(YYYY-2026)MMDDhhmmss` as one number in base 36 (7 characters
+  from 2027). Runs one process starts are a second apart (`ids.new`), so a suite dir's lanes,
+  each a run of its own, never share an ID. run.log says both IDs at the run's start and end.
+- **A suite is resolved for its run as it is read**: `${xp_name(x)}` is `<XP_ID>_x`, the domain
+  in the tdd store, and `${XP_ID}` / `${XP_SHORT_ID}` the IDs -- in every string of the suite,
+  which is then plain values (a collection's `D0` must equal a domain's name, a string compare).
+  The resolved suite is left as `suite.resolved.json` in the run's scratch dir. The domain's
+  container in its system is the same name with `XP_SHORT_ID` for `XP_ID`
+  (`tuc00_0e2aec_pgcdc`); a name written without `${xp_name(...)}` is **fixed** and used as
+  written in both, for whoever wants that name. `tdd domain create` refuses a
+  `--name-in-system` already in the system, so two runs drawing one name do not mix.
+  `${XP_WORK_DIR}` / `${XP_PROJECT}` are left for the run to fill in as it goes. Every built-in
+  suite and every generator uses `${xp_name(...)}`.
+- **A suite run is `--suite-run R`** (it was `--instance`): a pointer holding the run's IDs, by
+  default named by its XP_ID, so it is always a file holding its XP_ID. An existing R is reused,
+  its IDs with it -- how a failed run is finished a phase at a time; one of another suite is
+  refused. **The project is `<XP_ID>_<suite>`** unless `--project P` names one; XP_ID is in no
+  entity name inside it, which the project scopes. A project on the server that the run does not
+  hold is refused unless `--force`, which deletes it and creates it again.
+
 ## Suite stages
 
 A suite is an ordered **list of stages**, each an object holding one of `domain-manifest`,
-`domains`, `collections`, `functions`, `triggers`, `monitor` (`true`), `live`, `sentinel` or
-`execute`, plus `_`-prefixed annotations (`_comment`, `_copyright`; an object holding only those is a
+`domains`, `collections`, `functions`, `triggers`, `monitor`, `actions` or `sentinel`, plus
+`_`-prefixed annotations (`_comment`, `_copyright`; an object holding only those is a
 comment). Kinds repeat, in any order the dependencies allow:
 
 ```
 [
-  {"domain-manifest": {"domains": [...]}},
-  {"live": [{"name": "churn", "blocking": false, ...}]},
+  {"domain-manifest": {"domains": [{"name": "${xp_name(pg)}", "system": "postgrescdc"}]}},
+  {"actions": [{"background": {"name": "churn", "tags": ["live"], "actions": [...]}}]},
   {"collections": [...]},
   {"functions": [{"collection": "c", "functionpath": "...", "enabled": false}]},
   {"triggers": [...]},
-  {"monitor": true},
-  {"live": [{"name": "settle", "wait": ["churn"]}]},
+  {"monitor": {"time_out": "30m"}},
+  {"actions": [{"wait": {"name": "settle", "for": ["churn"]}}]},
   {"sentinel": [{"collection": "c", "table": "xp_sentinel_changes",
                  "wait_for_key": "done", "time_out": "10m"}]}
 ]
@@ -131,25 +166,26 @@ comment). Kinds repeat, in any order the dependencies allow:
   a domains stage runs its calls, the
   project is created before the first
   stage that talks to it, collections in parallel, functions serial, triggers in their gated
-  batches, a monitor stage watches until the transactions finish. A live stage's background
-  entries keep running through the stages after it -- the point of ordering: data changing
+  batches, a monitor stage watches until the transactions finish. An actions stage's background
+  blocks keep running through the stages after it -- the point of ordering: data changing
   while a collection is created or a stream publisher takes its initial snapshot -- and a later
-  live stage may wait for them; the suite's end waits for whatever still runs, and a stage that
-  fails stops them.
+  actions stage may wait for them; the suite's end waits for whatever still runs, and a stage
+  that fails stops them. `live` and `execute`, the kinds `actions` replaced, are refused naming
+  it.
 - **Checked when the suite is read**, besides each kind's own checks: exactly one kind per
   stage, and nothing named from a *later* stage -- a collection's domains, a function's
-  collection, a live entry's domain. A name defined nowhere is left to the stage that uses it.
+  collection. A name defined nowhere is left to the stage that uses it.
   Stage numbers in messages count every entry of the list, comments included: the number a
   reader counts to in the file.
 - **The older single object is refused**, naming the list it ran as
-  (`[{"domains"}, {"collections"}, {"functions"}, {"triggers"}, {"monitor": true}]`). It is
+  (`[{"domains"}, {"collections"}, {"functions"}, {"triggers"}, {"monitor": {...}}]`). It is
   still *recognised* -- by `list-suites`, which marks it, and by a suite dir -- so an old file is a
   loud error rather than a lane silently missing. The built-in suites were converted to exactly
   the stages they ran (empty kinds dropped); `examples/gen_examples.py` writes its 49 in the
   list form. Rejected: keeping both forms -- two ways to write a suite, and the old one cannot
   express order.
 - **The phase verbs take every stage of their kind** (`create-domains` all domains stages,
-  `live-domains` all live stages as one script); `bench` runs the phases in lockstep across its
+  `run-actions` all actions stages as one script); `bench` runs the phases in lockstep across its
   lanes and ignores the order. A suite dir under `run-suite` or one-shot is one lane per
   definition, each running its own stages -- lanes no longer move in lockstep.
 - **A sentinel stage is a latch**: each entry holds until `wait_for_key` is in some version of
@@ -168,103 +204,113 @@ comment). Kinds repeat, in any order the dependencies allow:
   "unable to find column" and the stage timed out saying "0 version(s) read": a version that
   cannot be read is retried, and the time-out now counts those and gives the last error. A
   table with no such column at all fails at once. It runs under `run-suite` (so one-shot); no phase verb takes it and `bench` ignores it.
-- **Durations** -- a sentinel's `time_out`, a live `sleep` -- are `"<VALUE><UNIT>"` with unit `s`,
-  `m` or `h` (`"90s"`, `"2m"`, `"1.5h"`), and nothing else: a bare number is refused when the
-  suite is read, since nothing in it says what it counts. `sleep` was `sleep_secs`, a number of
-  seconds; the one suite using it was converted.
+- **Durations** -- a sentinel's or monitor's `time_out`, a `sleep`'s or `timeout`'s `time` -- are
+  `"<VALUE><UNIT>"` with unit `s`, `m` or `h` (`"90s"`, `"2m"`, `"1.5h"`), and nothing else: a
+  bare number is refused when the suite is read, since nothing in it says what it counts.
 - **A run has a working dir**, `<scratch>/work`, made on first use and kept with the scratch dir.
-  A suite names it `${XP_WORK_DIR}` -- in a domain call's options (a domains stage's or a live
-  entry's) and an execute entry's params -- and the run's project `${XP_PROJECT}`; they are
+  A suite names it `${XP_WORK_DIR}` -- in a domain call's options and an action's options or
+  params -- and the run's project `${XP_PROJECT}`; they are
   replaced when the value is used (the dir is a run's; a suite is read before any run), and any
   other `${XP_*}` is refused when the suite is read. `--emit-ops ${XP_WORK_DIR}/ops.jsonl` on
   every data call, the seed's create-data included, is one trail of every operation a run
   applied, for a script to check against what came out the other end.
-- **An execute stage runs check scripts**: `{"execute": [{"name", "py_script", "params": [...],
-  "requirements": [{"name", "version"?}], "continue_on_fail": false}]}`. `py_script` is a `.py`
-  in the suite dir (by convention `scripts/`), checked for when the suite is read, and run from
-  the suite dir by `tdd _xp-execute` (its own bare toolset, built by tdd-install) with `params` as
-  its argv; exit 0 passes. The one thing that venv gives a script is the `tdd` module -- `from
-  tdd import tdd`, every tool one call away (`tdd("tdk", ...)`, `tdd("pqt", ...)`) -- so xp's own
-  pins are not the scripts' (they were, run on xp's python). An entry with `requirements` (a
-  version is an exact pin) runs in a one-off venv instead: `tdd _venv create --type uv` as
-  `tdd-xp-execute-<run>-<entry>`, filled with `uv pip install`, deleted after the step whether
-  the script passed or not; the prefix finds what a killed run left (`tdd venv list`). The
-  script gets `XP_WORK_DIR`, `XP_PROJECT`, `XP_INSTANCE`, `XP_SUITE_DIR` and `tdd-exe` on its
-  PATH. Its output is in run.log, its last lines the step's error. A stdout line starting
-  `xp-note:` (`tdd.note(text)` prints one; the last wins) is the step's note -- the progress
-  line's free column, for a figure the outcome does not carry, such as a measured throughput;
-  it is said whether the step passed or failed and decides neither. Rejected: a note file
-  named in the environment -- a temp file per step, when the output is already captured. A failure stops the run;
-  `continue_on_fail` lets the stages after it run and fails the run at the end -- a check that
-  fails is never a green run. Rejected: a script that passes by printing, or a result file -- an
-  exit code is what every tool already speaks. `container-connectors/scripts/verify_cdc_ops.py`
-  is the first: the CDC stream's output against the trail, the snapshot as the state the
-  operations before it leave, and the changes after it one by one in the same source
-  transactions (cascades replayed before the snapshot; transactions paired by content, so one lost or extra is reported alone; what the database logs besides the trail -- the rows a cascade takes, an update that changed nothing -- is the suite's to say, `--cascades`/`--noops logged|unlogged`, with no default: a check that accepts either lets a stream drop what it should carry). Column names are compared without case -- db2 reports them upper-cased, the trail has the model's -- and a source transaction orders by what it is: a postgres xid, a mysql GTID's sequence, db2's 32 hex digits as a string. Every change is checked by its whole row images -- the before-image all columns of the row as the trail left it, an update's row all columns after it -- since a table without a key is known to a stream by nothing less; an update that sets a key column moves the row to its new key. `--start initial-load|head|tail` says what precedes the changes: a snapshot, the seed replayed from the log's head (checked as a snapshot is), or nothing. The CDC suites all run over `employeescdc`, a model made for them: a primary key every update changes, a composite one, a table with only a unique index and one with no key at all -- the employees model has only single keys no change touches.
+- **The CDC check**, `container-connectors/scripts/verify_cdc_ops.py`, a python step tagged
+  `check`: the CDC stream's output against the trail, the snapshot as the state the operations
+  before it leave, and the changes after it one by one in the same source transactions
+  (cascades replayed before the snapshot; transactions paired by content, so one lost or extra is
+  reported alone; what the database logs besides the trail -- the rows a cascade takes, an update
+  that changed nothing -- is the suite's to say, `--cascades`/`--noops logged|unlogged`, with no
+  default: a check that accepts either lets a stream drop what it should carry). Column names are
+  compared without case -- db2 reports them upper-cased, the trail has the model's -- and a source
+  transaction orders by what it is: a postgres xid, a mysql GTID's sequence, db2's 32 hex digits
+  as a string. Every change is checked by its whole row images -- the before-image all columns
+  of the row as the trail left it, an update's row all columns after it -- since a table without
+  a key is known to a stream by nothing less; an update that sets a key column moves the row to
+  its new key. `--start initial-load|head|tail` says what precedes the changes: a snapshot, the
+  seed replayed from the log's head (checked as a snapshot is), or nothing. The CDC suites all
+  run over `employeescdc`, a model made for them: a primary key every update changes, a
+  composite one, a table with only a unique index and one with no key at all.
 - **`"enabled": false`** on a function registers it with `tdk fn register --disabled`: a stream
   publisher does not start until `enable-function --project P --collection C --function F`
   (tdk's `fn enable`); `disable-function` stops one. A group project is refused -- its lanes'
   functions are each their own.
 
-## Live domains
+## Actions
 
-A suite's `live` stages hold a script: the `tdd domain` data verbs (`create-model`, `create-data`,
-`modify-data`, `sentinel-data`, `delete-data`, `delete-model` -- never `create`/`destroy`, the
-domain's lifecycle is xp's) run against its domains while the project is up, so a stream
-publisher or a re-triggered publisher sees its source change the way a real one does. Every
-entry has a `name` (a letter, then letters, digits, `_`, `-`; unique across the whole script)
-and is one of four kinds:
+An `actions` stage is a script: every actions stage of a suite is one, with one scope. An entry is
+a one-key object, one of five steps or four blocks; each has a `name` (a letter, then letters,
+digits, `_`, `-`; unique across the suite) and may have `tags`:
 
 ```
-{"name", "domain": {"name", "command", "options": ["--sets", "5"]}, "blocking": true|false}
-{"name", "sleep": "<VALUE><UNIT>"}
-{"name", "wait": [NAMES]}
-{"name", "repeat": N, "live": [...], "blocking": true|false}
+{"tdd":    {"name", "tool", "command", "options": [...], "continue_on_fail": false}}
+{"exe":    {"name", "program", "params": [...], "continue_on_fail": false}}
+{"python": {"name", "script", "params": [...], "reqs": ["polars==1.9.0"], "continue_on_fail": false}}
+{"sleep":  {"name", "time": "<VALUE><UNIT>"}}
+{"wait":   {"name", "for": [NAMES]}}
+{"background": {"name", "actions": [...]}}
+{"parallel":   {"name", "lanes": 0, "actions": [...]}}
+{"loop":       {"name", "repeat": N, "actions": [...]}}
+{"timeout":    {"name", "time": "<VALUE><UNIT>", "stop_on_timeout": true, "actions": [...]}}
 ```
 
-A domain entry is one call, `tdd domain <command> --domain <instance>_<name> <options...>`, the
-options the words as typed (`--domain`, `--format`, `--latch`, `--verbose` are xp's and refused)
--- the same object a domains stage lists, limited to the data verbs; nothing is filled in from
-the domains stage, so a live create-model names its `--model`. A repeat entry runs its nested
-`live` N times (default 1). **Blocking** is the default: the script runs the entry to the end
-before going on. `"blocking": false` starts it on a thread
-of its own and the script goes straight on, side by side, until a `wait` names it. **A script --
-the whole one, or one pass of a repeat -- is complete when everything it started has finished**:
-its end waits for what still runs, so nothing outlives the loop that started it, and
-`live-domains` returns once the data has stopped changing.
-
-- **A wait reaches back, not in**: it names domain or repeat entries *before* it in its own list
-  or in an enclosing one. Those have been started, on this path, by the time the wait is reached.
-  A name inside another entry's nested `live` may not have started yet, or may start again; the
-  entry that contains the wait would be waiting for itself. Each pass of a repeat has its own
-  scope, so a name means that pass's run. Rejected: waits reaching anywhere, which needs a rule
-  for "which run of a block nested in a loop" and can deadlock.
-- **Validated when the suite is read**: a missing or reused name, not exactly one kind, an unknown
-  verb or domain, a reserved option, `repeat` without `live`, `blocking` on a sleep or wait, a
-  wait out of reach or naming a sleep or wait -- `create-instance` refuses, not pass 7 of a loop
-  20 minutes in. Unknown keys are refused too: a typo is not a silently ignored option.
-- **Every call is one step**, labelled with the entries and passes it is under
-  (`cycle 2/3 > churn 7/10 > change`). A background entry runs on a thread, not in a bounded pool:
-  entries wait for one another, and a pool full of waiters would never run what they wait for.
-  **The first failure anywhere stops the script**: every entry still running stops at its next
-  step or pause (the `tdd domain` call in flight finishes -- a change set is not killed half way),
-  nothing later starts, and that failure is the run's error.
-- **`--dry-run` prints the calls in script order**, the pauses as `sleep N`, and where an entry
-  goes to the background, ends or is waited for as `#` comments. A shell rendering with
-  subshells was the first version and was dropped with nested waits: a subshell cannot `wait` on
-  a pid its parent started.
-- **Where it runs is the suite's stage order**: a `live` stage wherever the list puts it. `--no-live`
-  skips every live stage. A monitor stage sees what has started when it begins: a stream that
-  buffers its changes needs the live stage before it to end with a `sleep` long enough for the
-  last flush -- or, better, a sentinel stage waiting for a key written after the last change.
-  `live-domains --instance I` runs every live stage as one script, over a group's lanes too;
-  `bench` does not run it -- its phases are timings, and a script's pauses would be what they
-  measured.
+- **`tdd` runs `tdd-exe TOOL COMMAND OPTIONS...`**, any of tdd's Python tools, the words as
+  typed -- the developer's to get right. A shell tool (`venv`, `env`, `_tdd-env`) is refused when
+  the suite is read: `tdd-exe` cannot reach a shell function. **`exe` runs any program on the
+  PATH**; having it is the suite's business, nothing is declared. **`python` runs `uv run
+  --no-project --with REQ... SCRIPT PARAMS...`** from the suite dir (the script a `.py` in it,
+  checked when the suite is read), with `scriptlib/`'s `tdd` module on its PYTHONPATH -- `from
+  tdd import tdd`, every tool one call away -- whatever the reqs make, since it is the standard
+  library only. It replaced `tdd _xp-execute` and its one-off venvs: uv caches the environment a
+  set of reqs makes, and PEP 723 inline metadata works too. A step gets `XP_WORK_DIR`,
+  `XP_PROJECT`, `XP_ID`, `XP_SHORT_ID`, `XP_SUITE_RUN`, `XP_SUITE_DIR` and `tdd-exe` first on its
+  PATH; a python step's stdout line `xp-note: <text>` (`tdd.note()`; the last wins) is in its
+  step's note, deciding nothing. Rejected: a script that passes by printing, or a result file --
+  an exit code is what every tool already speaks.
+- **`background` starts its actions and the script goes on**; **`parallel`** runs them side by
+  side, `lanes` at a time (0: all), and joins them at its end; **`loop`** runs them `repeat`
+  times, each pass complete when everything it started has finished, so nothing outlives the
+  loop that started it; **`timeout`** runs them for at most `time`, then fails the run
+  (`stop_on_timeout`, the default) or goes on and leaves them running.
+- **A wait reaches back, not in**: it names entries *before* it in its own list or an enclosing
+  one -- an earlier actions stage's top level included, so a background block in one stage is
+  waited for in a later one. A name inside another entry's block may not have started yet, or
+  may start again; a block holding the wait would wait for itself; a sleep or wait holds nothing
+  to wait for. Each pass of a loop has its own scope, so a name means that pass's run. **A
+  bounded parallel holds no wait**: lanes waiting could starve the lanes they wait for. Rejected:
+  waits reaching anywhere, which needs a rule for "which run of a block nested in a loop" and
+  can deadlock.
+- **Failures**: the first failure anywhere -- a step without `continue_on_fail` -- stops the
+  script: what runs finishes its step (a change set is not killed half way), nothing new starts,
+  and that failure is the run's. `continue_on_fail` reports it and goes on; the run fails at its
+  end -- a check that fails is never a green run. **What still runs when the run ends** -- a
+  timed-out block left running -- **is killed**: each step runs in a process group of its own
+  (`start_new_session`; a new process group on Windows), SIGTERM then, after 5s, SIGKILL; a step
+  so ended is said as ended, not failed.
+- **Tags pick what runs**: an entry's tags are its own and every enclosing block's. `--tags A,B`
+  runs the steps with A or B, `--skip-tags C,D` those with neither, both together those passing
+  both; a block runs when a step inside it does, and only those; a wait on what does not run is
+  met at once; `--no-actions` runs no actions stage (and takes no tags). `run-suite`, `one-shot`
+  and `run-actions` take them; `--no-live` is gone. The built-in suites' former live stages are
+  tagged `live` -- `--skip-tags live` is what `--no-live` was -- and their checks `check`.
+- **Every step that runs something is one step of the run**, labelled with the blocks and passes
+  it is under (`churn > churn-pass 7/20 > change`); its output goes to run.log as it comes, each
+  line prefixed with that label, so steps side by side stay readable. A background block runs on
+  a thread, not in a bounded pool: entries wait for one another, and a pool full of waiters
+  would never run what they wait for.
+- **`--dry-run` prints the script in order**: the commands, the pauses as `sleep N`, and where a
+  block goes to the background, ends, runs side by side, is bounded or waited for as `#`
+  comments. A shell rendering with subshells was the first version of the live script and was
+  dropped with nested waits: a subshell cannot `wait` on a pid its parent started.
+- **Where it runs is the suite's stage order.** A monitor stage sees what has started when it
+  begins: a stream that buffers its changes needs a sentinel stage waiting for a key written
+  after the last change. `run-actions --suite-run R` runs every actions stage as one script and
+  nothing else, over a group's lanes too; `bench` does not run actions -- its phases are timings,
+  and a script's pauses would be what they measured.
 
 ## Suites, lanes and pointers
 
 A selector is `<type>/<name>` for one definition or `<type>` for a **directory**, which fans out
-to one instance and project per definition file in it -- a "swim lane". A selector that resolves
+to one suite run and project per definition file in it -- a "swim lane". A selector that resolves
 to nothing names the suite it probably meant (`--suite s3` -> `cloud-connectors/s3`) rather than
 only pointing at `list-suites`: the name alone is what a reader remembers, and it is exactly the
 shape that stopped working when the connectors were split in two. Offered, never accepted -- a
@@ -272,7 +318,7 @@ bare name is unique today and need not stay so. Each lane is a normal
 single-lane `xp` child run with `--format json`, so the parent aggregates their event streams
 live under a running total (`TDD_PARALLELISM` bounds them). Their lines share one console, so
 the parent sizes the columns for every lane before the first line: the suite column as the
-longest lane's label (from each lane's instance pointer), the lanes' own `[n/m]` as the widest,
+longest lane's label (from each lane's suite run pointer), the lanes' own `[n/m]` as the widest,
 and -- where a lane's steps and notes are known up front (`run-suite`, one-shot's: a
 `LanePlan` per lane from `suite_steps`/`suite_notes`) -- `[N/M]` as the run's whole total from
 its first line and the note column as the longest note. A phase with no plan (the teardowns)
@@ -284,10 +330,12 @@ died against their phase, drops them from later phases and reports them once at 
 nest their scratch under the parent's through `_TDD_XP_SCRATCH`, honoured only with the parent's
 pid in `_TDD_XP_PARENT`, so a stale export is reported and ignored.
 
-The pointer store is `<tdd_dir>/data/xp/`: `i-<I>` for an instance (a definition file is recorded
-as its path and re-read live; a directory records one member pointer per lane plus a group
-pointer), `p-<P>` for a project naming its instance or group -- so every later verb needs only
-`--project`. `connections/` templates are found by walking up from the suite dir to the first
+The pointer store is `<tdd_dir>/data/xp/`: `i-<R>` for a suite run (a definition file is
+recorded as its path, re-read live for the run, with the run's `xp_id` and `xp_short_id`; a
+directory records one member pointer per lane, each a run of its own, plus a group pointer with
+an ID of its own), `p-<P>` for a project naming its suite run or group -- so every later verb
+needs only `--project`. The verbs keep their instance names (`create-instance`,
+`list-instances`) until a pass that makes xp's commands consistent. `connections/` templates are found by walking up from the suite dir to the first
 ancestor holding one, else the built-in ones.
 
 ## Progress, logs and the report
@@ -309,4 +357,4 @@ manifests it authored, the logs, the report, and one subdir per lane.
 
 `list-systems --suite S` is the pre-flight: every system the suite's domains name, with its type
 from `tdd system list`, `ok` or `MISSING`. One missing system fails it, so a run does not spend
-minutes on an instance whose lanes cannot provision.
+minutes on a suite run whose lanes cannot provision.

@@ -1,7 +1,7 @@
 [
   {
     "_copyright": "Copyright 2026 Tabsdata Inc.",
-    "_comment": "EXAMPLE · Databricks destination / write modes. The shape is the SQL-destination one (one write slot per `tables` entry, append vs replace, a returned None skipping the write without truncating, types decided only when the table is created). What a BULK destination adds is a STAGING HOP — the frame is written to a staging area and the warehouse ingests it, which is why these load fast and why they have a prerequisite a plain database does not. Four sinks: write_append, write_replace, write_two_tables, write_nothing. One function per file under functions/databricks_dest_modes/. Run: `tdx-xp oneshot --suite examples/databricks_dest_modes --keep`."
+    "_comment": "EXAMPLE · Databricks destination / write modes. The shape is the SQL-destination one (one write slot per `tables` entry, append vs replace, a returned None skipping the write without truncating, types decided only when the table is created). What a BULK destination adds is a STAGING HOP — the frame is written to a staging area and the warehouse ingests it, which is why these load fast and why they have a prerequisite a plain database does not. Four sinks: write_append, write_replace, write_two_tables, write_nothing. One function per file under functions/databricks_dest_modes/. Run: `tdd xp one-shot --suite examples/databricks_dest_modes --keep`."
   },
   {
     "domain-manifest": {

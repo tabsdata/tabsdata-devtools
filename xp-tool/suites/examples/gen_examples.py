@@ -619,7 +619,7 @@ def read_multiple_paths_split(
         f"generate_rows is declared `detached: false`, which makes it a GATE whose "
         f"whole plan (publisher + both writers) completes before the readers fire. "
         f"One function per file under functions/{suite}/. "
-        f"Run: `tdx-xp oneshot --suite examples/{suite}`.",
+        f"Run: `tdd xp one-shot --suite examples/{suite}`.",
         [
             {"name": "dev", "system": "dev"},
             {"name": f"{c['system']}_files", "system": c["system"]},
@@ -882,7 +882,7 @@ def read_csv_dialect(products: TableFramesSpec) -> TableFrameSpec:
         f"the wildcard trap the world model exposes: `country_*` also matches "
         f"`country_language_*`, so these readers use `city_*`. One function per file "
         f"under functions/{suite}/. "
-        f"Run: `tdx-xp oneshot --suite examples/{suite}`.",
+        f"Run: `tdd xp one-shot --suite examples/{suite}`.",
         [
             {"name": "dev", "system": "dev"},
             {"name": f"{c['system']}_world_xs", "system": c["system"],
@@ -942,12 +942,12 @@ def emit_file_src_lastmodified(key: str, c: dict) -> tuple[str, dict]:
     source hands you `ctx` to advance it yourself.'''
 
     drive = f'''DRIVING IT — run the project more than once
-    1. `tdx-xp oneshot --suite examples/{suite} --keep`
+    1. `tdd xp one-shot --suite examples/{suite} --keep`
     2. Stage a NEW file into the domain (the data plane is insert-only: every
        `modify-data` writes a new, freshly stamped file next to the seed):
-           tdx-domain modify-data --domain <instance>_{c["system"]}_world_xs \\\\
+           tdd domain modify-data --domain <XP_ID>_{c["system"]}_world_xs \\\\
                --entity city --ops Insert --sets 5
-    3. `tdx-xp run-project --project <project> --monitor`'''
+    3. `tdd xp run-triggers --project <project> --monitor --time-out 30m`'''
 
     w(d / "read_since_cutoff.py", COPYRIGHT + f'''
 """EXAMPLE — {c["label"]} source: INCREMENTAL, `initial_last_modified` as a
@@ -1055,10 +1055,10 @@ def read_every_run(city: TableFramesSpec) -> TableFrameSpec:
         f"None and NO version is published — versus returning an empty frame, which "
         f"publishes a real empty version and does trigger downstream), read_every_run "
         f"(no cutoff -> full reload). RUN IT TWICE to see the point: "
-        f"`tdx-domain modify-data --domain <instance>_{c['system']}_world_xs --entity "
-        f"city --ops Insert --sets 5` stages a new timestamped file, then run-project "
+        f"`tdd domain modify-data --domain <XP_ID>_{c['system']}_world_xs --entity "
+        f"city --ops Insert --sets 5` stages a new timestamped file, then run-triggers "
         f"again. One function per file under functions/{suite}/. "
-        f"Run: `tdx-xp oneshot --suite examples/{suite} --keep`.",
+        f"Run: `tdd xp one-shot --suite examples/{suite} --keep`.",
         [
             {"name": f"{c['system']}_world_xs", "system": c["system"],
              "model": "world", "data": "xs"},
@@ -1349,7 +1349,7 @@ def write_nothing(customers: TableFrameSpec) -> TableFrameSpec:
         f"(writer format_cfg: separator, null_value, date_format, float_precision, "
         f"quote_style — side-typed, so a reader key here fails at decoration time), "
         f"write_two_files, write_nothing. One function per file under "
-        f"functions/{suite}/. Run: `tdx-xp oneshot --suite examples/{suite} --keep`.",
+        f"functions/{suite}/. Run: `tdd xp one-shot --suite examples/{suite} --keep`.",
         [
             {"name": "dev", "system": "dev"},
             {"name": f"{c['system']}_out", "system": c["system"]},
@@ -1541,7 +1541,7 @@ def write_latest(customers: TableFrameSpec) -> TableFrameSpec:
         f"Token-written files are exactly what a wildcard + initial_last_modified "
         f"source consumes, and they GROW since nothing prunes them. RUN IT TWICE. One "
         f"function per file under functions/{suite}/. "
-        f"Run: `tdx-xp oneshot --suite examples/{suite} --keep`.",
+        f"Run: `tdd xp one-shot --suite examples/{suite} --keep`.",
         [
             {"name": "dev", "system": "dev"},
             {"name": f"{c['system']}_out", "system": c["system"]},
@@ -1764,7 +1764,7 @@ def read_no_rows(city: TableFrameSpec) -> TableFrameSpec:
         f"inferred), read_no_rows (the slot is None -> publish NO version, versus "
         f"publishing an empty one). Also note table names are unique per COLLECTION, "
         f"which is why read_one_query's output is `country_only`. One function per file "
-        f"under functions/{suite}/. Run: `tdx-xp oneshot --suite examples/{suite}`.",
+        f"under functions/{suite}/. Run: `tdd xp one-shot --suite examples/{suite}`.",
         [
             {"name": f"{c['system']}_world_xs", "system": c["system"],
              "model": "world", "data": "xs"},
@@ -1991,7 +1991,7 @@ def read_always_empty(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
         f"REPEATEDLY), read_composite_watermark, read_several_binds (a bind as a "
         f"re-tunable knob, not only a cursor), read_always_empty. Dialect: "
         f"`{c['limit']}`. One function per file under functions/{suite}/. "
-        f"Run: `tdx-xp oneshot --suite examples/{suite} --keep`, then run-project again.",
+        f"Run: `tdd xp one-shot --suite examples/{suite} --keep`, then run-triggers again.",
         [
             {"name": f"{c['system']}_world_xs", "system": c["system"],
              "model": "world", "data": "xs"},
@@ -2180,7 +2180,7 @@ def write_nothing(customers: TableFrameSpec) -> TableFrameSpec:
         f"write_without_transaction (+ dest_cfg chunk size), write_nothing. RE-RUN to "
         f"watch customers_append grow while customers_replace stays at three rows. One "
         f"function per file under functions/{suite}/. "
-        f"Run: `tdx-xp oneshot --suite examples/{suite} --keep`.",
+        f"Run: `tdd xp one-shot --suite examples/{suite} --keep`.",
         [
             {"name": "dev", "system": "dev"},
             {"name": f"{c['system']}_out", "system": c["system"]},
@@ -2409,7 +2409,7 @@ def write_nothing(customers: TableFrameSpec) -> TableFrameSpec:
         f"these load fast and why they have a prerequisite a plain database does not. "
         f"Four sinks: write_append, write_replace, write_two_tables, write_nothing. One "
         f"function per file under functions/{suite}/. "
-        f"Run: `tdx-xp oneshot --suite examples/{suite} --keep`.",
+        f"Run: `tdd xp one-shot --suite examples/{suite} --keep`.",
         domains,
         [
             coll("gen", "datagen_in", "datagen_in.yaml", "sources", {"D0": "dev"}),
@@ -2589,7 +2589,7 @@ def write_nothing(city: TableFrameSpec) -> TableFrameSpec:
         "frame fails on column count rather than evolving. Staging is via S3 here; the "
         "_gcs and _az templates are the same connector with a different staging store. "
         "One function per file under functions/starrocks_dest_modes/. "
-        "Run: `tdx-xp oneshot --suite examples/starrocks_dest_modes --keep`.",
+        "Run: `tdd xp one-shot --suite examples/starrocks_dest_modes --keep`.",
         [
             {"name": "dev", "system": "dev"},
             {"name": "starrocks_world_xs", "system": "starrocks",
@@ -2769,7 +2769,7 @@ def write_two_collections(
         "fields differ per entry, which is why the pair carries it). BSON converts "
         "Date/Time/Duration on the way in; Decimal round-trips exactly. One function "
         "per file under functions/mongodb_dest_modes/. "
-        "Run: `tdx-xp oneshot --suite examples/mongodb_dest_modes --keep`.",
+        "Run: `tdd xp one-shot --suite examples/mongodb_dest_modes --keep`.",
         [
             {"name": "dev", "system": "dev"},
             {"name": "mongodb_out", "system": "mongodb"},
@@ -3048,7 +3048,7 @@ def write_wider_conformed(v2: TableFrameSpec) -> TableFrameSpec:
         f"`append` so there is something to evolve; ordering comes from TWO supporting "
         f"publishers with the narrow trigger declared `detached: false` as a GATE. One "
         f"function per file under functions/{suite}/. "
-        f"Run: `tdx-xp oneshot --suite examples/{suite} --keep`.",
+        f"Run: `tdd xp one-shot --suite examples/{suite} --keep`.",
         domains,
         [
             coll("gen", "datagen_in", "datagen_in.yaml", "sources", {"D0": "dev"}),
@@ -3300,8 +3300,8 @@ WHEN A BATCH CLOSES: `src_cfg`
     responsive; production wants larger batches and fewer, bigger files.
 
 DRIVING IT
-    tdx-xp oneshot --suite examples/{suite} --keep      # the streams start
-    tdx-domain modify-data --domain <instance>_{c["system"]}_employees_xs \\\\
+    tdd xp one-shot --suite examples/{suite} --keep      # the streams start
+    tdd domain modify-data --domain <XP_ID>_{c["system"]}_employees_xs \\\\
         --entity employees --ops Mix --sets 5
 
     `--ops` takes ONE of `Insert` / `Update` / `Delete` / `Mix` — not a list.
@@ -3385,9 +3385,9 @@ def {name}(
         f"where to begin (tail / head / an exact position). src_cfg buffer/trigger/poll "
         f"thresholds decide WHEN a batch closes. Four stream publishers, one collection "
         f"each, over a {c['system']} domain seeded with the employees model. Drive it "
-        f"with `tdx-domain modify-data --entity employees --ops Mix --sets 5` (--ops "
+        f"with `tdd domain modify-data --entity employees --ops Mix --sets 5` (--ops "
         f"takes ONE of Insert/Update/Delete/Mix, not a list). {extra_comment}One function per file under functions/{suite}/. "
-        f"Run: `tdx-xp oneshot --suite examples/{suite} --keep`.",
+        f"Run: `tdd xp one-shot --suite examples/{suite} --keep`.",
         [
             {"name": f"{c['system']}_employees_xs", "system": c["system"],
              "model": "employees", "data": "xs"},

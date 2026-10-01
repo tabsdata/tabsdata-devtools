@@ -62,6 +62,11 @@ connection details kept as encrypted descriptors.
   so `--type ALL` is the handy way to pull every image at once and a type with none is warned and
   skipped rather than failing the run. A verb aimed at a system that does not have it is rejected
   naming what that system does support.
+- **`purge` takes `--external-prefix` and has no default**: the containers in a system come from
+  more than one naming scheme (`tdd domain`'s `d_<user>_<build>_`, xp's `<XP_SHORT_ID>_`), so
+  no prefix is safe to assume; `''` is every container. **A verbatim `domain create
+  --name-in-system` already in the system fails** before anything is written: its caller named
+  it (xp, one per run), so nothing picks a free one, and two runs drawing one name must not mix.
 - Batch verbs run children through `tdd-exe` in parallel (`TDD_PARALLELISM`), heaviest first,
   and re-emit their events. The selector is `--type` for `create` (one system per type, named
   after it) and `--sys` for everything else, each a name, a comma list or `ALL`; `--sys-prefix P`

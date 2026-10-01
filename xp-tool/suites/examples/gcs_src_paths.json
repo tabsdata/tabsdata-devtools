@@ -1,7 +1,7 @@
 [
   {
     "_copyright": "Copyright 2026 Tabsdata Inc.",
-    "_comment": "EXAMPLE · GCS source / path selection — the four ways a file publisher selects what it reads: one fixed path, one wildcard path, several paths folded into ONE table, and the same several paths kept as SEPARATE tables. Every file-source slot is an ARRAY (one frame per matched file), so every reader folds with concat(). SELF-STAGING, one run, two phases: the supporting_* functions generate three frames and write them as customers_2024.csv / customers_2025.csv / orders.parquet, then the readers read them back from the same domain. Ordering is the trigger list — generate_rows is declared `detached: false`, which makes it a GATE whose whole plan (publisher + both writers) completes before the readers fire. One function per file under functions/gcs_src_paths/. Run: `tdx-xp oneshot --suite examples/gcs_src_paths`."
+    "_comment": "EXAMPLE · GCS source / path selection — the four ways a file publisher selects what it reads: one fixed path, one wildcard path, several paths folded into ONE table, and the same several paths kept as SEPARATE tables. Every file-source slot is an ARRAY (one frame per matched file), so every reader folds with concat(). SELF-STAGING, one run, two phases: the supporting_* functions generate three frames and write them as customers_2024.csv / customers_2025.csv / orders.parquet, then the readers read them back from the same domain. Ordering is the trigger list — generate_rows is declared `detached: false`, which makes it a GATE whose whole plan (publisher + both writers) completes before the readers fire. One function per file under functions/gcs_src_paths/. Run: `tdd xp one-shot --suite examples/gcs_src_paths`."
   },
   {
     "domain-manifest": {
