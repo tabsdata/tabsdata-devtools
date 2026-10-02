@@ -59,8 +59,8 @@ EMPLOYEE_SCHEMA = json.dumps({
         data_format="json",
         schema=EMPLOYEE_SCHEMA,
         src_cfg={
-            "kafka.consume_timeout_seconds": 2,
-            "kafka.connection_timeout_seconds": 10,
+            "tabsdata.kafka.poll.max_secs": 2,
+            "kafka.connect_timeout_secs": 10,
             "tabsdata.kafka.trigger.max_secs": 60,
         },
     ),

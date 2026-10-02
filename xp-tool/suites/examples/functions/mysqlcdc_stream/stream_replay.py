@@ -87,9 +87,11 @@ WHAT EVERY EMITTED ROW CARRIES
 WHEN A BATCH CLOSES: `src_cfg`
     `tabsdata.cdc.buffer.max_rows` / `.max_bytes` / `.max_secs` bound the
     in-memory buffer; `tabsdata.cdc.trigger.max_rows` / `.max_bytes` /
-    `.max_secs` decide when a batch is emitted; `tabsdata.cdc.poll_interval_
-    seconds` is how often the loop looks. The small values below make a demo
-    responsive; production wants larger batches and fewer, bigger files.
+    `.max_secs` decide when a batch is emitted; `tabsdata.cdc.poll.max_secs` is
+    how long one poll waits for changes and `tabsdata.cdc.poll.idle_secs` how
+    long the loop rests after a poll that found none. The small values below
+    make a demo responsive; production wants larger batches and fewer, bigger
+    files.
 
 DRIVING IT
     tdd xp one-shot --suite examples/mysqlcdc_stream --keep      # the streams start
@@ -118,8 +120,8 @@ from tabsdatak.tableframe.functions import concat
             "tabsdata.cdc.buffer.max_secs": 5,
             "tabsdata.cdc.trigger.max_rows": 10,
             "tabsdata.cdc.trigger.max_secs": 60,
-            "tabsdata.cdc.poll_interval_seconds": 1,
-            "mysql.cdc.blocking_timeout_seconds": 5,
+            "tabsdata.cdc.poll.idle_secs": 1,
+            "tabsdata.cdc.poll.max_secs": 5,
         },
     ),
     flush_interval_mins=1,

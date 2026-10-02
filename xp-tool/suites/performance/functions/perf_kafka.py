@@ -22,8 +22,8 @@ Tuned to read the backlog as fast as the source can, and to measure only that:
   arrives -- and no partial buffer waits out ``buffer.max_secs`` at the end,
   which at several hundred thousand rows a second would be most of the
   measured time.
-- ``kafka.consume_timeout_seconds`` 1, the shortest the source takes (it is
-  read as a whole number of seconds; 0 would never consume).
+- ``tabsdata.kafka.poll.max_secs`` 1, the shortest the source accepts (a
+  whole number of seconds, at least 1).
 - The connection (``kafka_topic_in_perf.yaml``) sets librdkafka's
   ``fetch.queue.backoff.ms`` to 0, so the consumer never stalls waiting for
   its next fetch.
@@ -54,8 +54,8 @@ _SCHEMA = json.dumps({
 })
 
 _CFG = {
-    "kafka.consume_timeout_seconds": 1,
-    "kafka.connection_timeout_seconds": 10,
+    "tabsdata.kafka.poll.max_secs": 1,
+    "kafka.connect_timeout_secs": 10,
     "tabsdata.kafka.buffer.max_rows": 500_000,
     "tabsdata.kafka.buffer.max_secs": 2,
     "tabsdata.kafka.trigger.max_rows": 500_000,

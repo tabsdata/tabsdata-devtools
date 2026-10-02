@@ -3111,7 +3111,7 @@ CDC = {
             '\n        replication_slot="ex_cdc_{v}",\n'
             '        replication_slot_behavior="create",'
         ),
-        "cfg_extra": '"postgres.cdc.blocking_timeout_seconds": 5,',
+        "cfg_extra": '"tabsdata.cdc.poll.max_secs": 5,',
         "per_variant_tpl": False,
     },
     "mysql": {
@@ -3161,7 +3161,7 @@ CDC = {
             "    with no extra configuration — there is no `REPLICA IDENTITY` to set."
         ),
         "extra_src": "",
-        "cfg_extra": '"mysql.cdc.blocking_timeout_seconds": 5,',
+        "cfg_extra": '"tabsdata.cdc.poll.max_secs": 5,',
         "per_variant_tpl": True,
     },
     "db2": {
@@ -3216,7 +3216,7 @@ CDC = {
             "    full-row capture, which the `db2cdc` system does."
         ),
         "extra_src": "",
-        "cfg_extra": '"db2.cdc.blocking_timeout_seconds": 5,',
+        "cfg_extra": '"tabsdata.cdc.poll.max_secs": 5,',
         "per_variant_tpl": False,
     },
 }
@@ -3293,9 +3293,11 @@ WHAT EVERY EMITTED ROW CARRIES
 WHEN A BATCH CLOSES: `src_cfg`
     `tabsdata.cdc.buffer.max_rows` / `.max_bytes` / `.max_secs` bound the
     in-memory buffer; `tabsdata.cdc.trigger.max_rows` / `.max_bytes` /
-    `.max_secs` decide when a batch is emitted; `tabsdata.cdc.poll_interval_
-    seconds` is how often the loop looks. The small values below make a demo
-    responsive; production wants larger batches and fewer, bigger files.
+    `.max_secs` decide when a batch is emitted; `tabsdata.cdc.poll.max_secs` is
+    how long one poll waits for changes and `tabsdata.cdc.poll.idle_secs` how
+    long the loop rests after a poll that found none. The small values below
+    make a demo responsive; production wants larger batches and fewer, bigger
+    files.
 
 DRIVING IT
     tdd xp one-shot --suite examples/{suite} --keep      # the streams start
@@ -3343,7 +3345,7 @@ from tabsdatak.tableframe.functions import concat
             "tabsdata.cdc.buffer.max_secs": 5,
             "tabsdata.cdc.trigger.max_rows": 10,
             "tabsdata.cdc.trigger.max_secs": 60,
-            "tabsdata.cdc.poll_interval_seconds": 1,
+            "tabsdata.cdc.poll.idle_secs": 1,
             {c["cfg_extra"]}
         }},
     ),

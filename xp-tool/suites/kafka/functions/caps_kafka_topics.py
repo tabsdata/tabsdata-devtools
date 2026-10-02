@@ -146,8 +146,8 @@ def _route(frames, *entities: str) -> tuple:
 # tests only) and a short poll, so a suite's check sees the messages soon after
 # they were produced.
 _CFG = {
-    "kafka.consume_timeout_seconds": 2,
-    "kafka.connection_timeout_seconds": 10,
+    "tabsdata.kafka.poll.max_secs": 2,
+    "kafka.connect_timeout_secs": 10,
     "tabsdata.kafka.trigger.max_secs": unsafe_seconds(15),
 }
 
@@ -293,8 +293,8 @@ def kafka_registry_dead(rows: TableFramesSpec) -> TableFrameSpec:
 # within minutes was staged by the byte or row count. The control has neither,
 # and must stage nothing for those 10 minutes.
 _SLOW = {
-    "kafka.consume_timeout_seconds": 2,
-    "kafka.connection_timeout_seconds": 10,
+    "tabsdata.kafka.poll.max_secs": 2,
+    "kafka.connect_timeout_secs": 10,
     "tabsdata.kafka.trigger.max_secs": 600,
 }
 
