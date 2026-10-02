@@ -8,17 +8,30 @@
       {
         "name": "${xp:name(redpanda)}",
         "command": "create",
-        "options": ["--sys", "redpanda"]
+        "options": [
+          "--sys",
+          "redpanda"
+        ]
       },
       {
         "name": "${xp:name(redpanda)}",
         "command": "create-model",
-        "options": ["--model", "employees", "--up-to-partitions", "4"]
+        "options": [
+          "--model",
+          "employees",
+          "--up-to-partitions",
+          "4"
+        ]
       },
       {
         "name": "${xp:name(redpanda)}",
         "command": "create-data",
-        "options": ["--size", "1", "--emit-ops", "${xp:dir}/ops.jsonl"]
+        "options": [
+          "--size",
+          "1",
+          "--emit-ops",
+          "${xp:dir}/ops.jsonl"
+        ]
       }
     ]
   },
@@ -27,7 +40,9 @@
       {
         "background": {
           "name": "produce",
-          "tags": ["live"],
+          "tags": [
+            "live"
+          ],
           "actions": [
             {
               "loop": {
@@ -117,14 +132,20 @@
       {
         "wait": {
           "name": "produced",
-          "tags": ["live"],
-          "for": ["produce"]
+          "tags": [
+            "live"
+          ],
+          "for": [
+            "produce"
+          ]
         }
       },
       {
         "parallel": {
           "name": "verify",
-          "tags": ["check"],
+          "tags": [
+            "check"
+          ],
           "lanes": 0,
           "actions": [
             {
@@ -143,7 +164,9 @@
                   "--empty",
                   "kafka_unrouted",
                   "--time-out",
-                  "5m"
+                  "5m",
+                  "--profile",
+                  "${td:profile}"
                 ]
               }
             },
@@ -157,7 +180,9 @@
                   "--expect",
                   "kafka_dept_manager=dept_manager",
                   "--time-out",
-                  "5m"
+                  "5m",
+                  "--profile",
+                  "${td:profile}"
                 ]
               }
             },
@@ -172,7 +197,9 @@
                   "kafka_shared_a+kafka_shared_b=dept_emp",
                   "--allow-duplicates",
                   "--time-out",
-                  "5m"
+                  "5m",
+                  "--profile",
+                  "${td:profile}"
                 ]
               }
             }

@@ -266,3 +266,93 @@ def kafka_dead(rows: TableFramesSpec) -> TableFrameSpec:
     if frame is None:
         return None
     return frame.select("original_value", "error", "topic", "partition", "offset")
+
+
+@stream_publisher(
+    source=KafkaStreamSrc(
+        topic=f"{_PREFIX}.registry_dead",
+        data_format="json",
+        schema=_DEAD_SCHEMA,
+        src_cfg=_CFG,
+    ),
+    flush_interval_mins=1,
+    output_tables=["kafka_registry_dead"],
+)
+def kafka_registry_dead(rows: TableFramesSpec) -> TableFrameSpec:
+    # The registry example's dead letters: plain messages a registry consumer
+    # cannot decode. Same envelope, same columns kept, as kafka_dead.
+    frame = concat(rows, how="diagonal_relaxed")
+    if frame is None:
+        return None
+    return frame.select("original_value", "error", "topic", "partition", "offset")
+
+
+# TRIGGERS. Three publishers over the same topic, each in a group of its own,
+# whose only difference is what may stage a batch before a 10-minute clock: the
+# time trigger and flush_interval_mins are both 10 minutes, so a batch staged
+# within minutes was staged by the byte or row count. The control has neither,
+# and must stage nothing for those 10 minutes.
+_SLOW = {
+    "kafka.consume_timeout_seconds": 2,
+    "kafka.connection_timeout_seconds": 10,
+    "tabsdata.kafka.trigger.max_secs": 600,
+}
+
+
+@stream_publisher(
+    source=KafkaStreamSrc(
+        topic=f"{_PREFIX}.employees",
+        data_format="json",
+        schema=_schema("employees"),
+        # ~130 bytes a message: a few dozen messages fill it.
+        src_cfg=_SLOW | {"tabsdata.kafka.trigger.max_bytes": 4096},
+    ),
+    flush_interval_mins=10,
+    output_tables=["kafka_by_bytes"],
+)
+def kafka_by_bytes(rows: TableFramesSpec) -> TableFrameSpec:
+    return concat(rows, how="diagonal_relaxed")
+
+
+@stream_publisher(
+    source=KafkaStreamSrc(
+        topic=f"{_PREFIX}.employees",
+        data_format="json",
+        schema=_schema("employees"),
+        src_cfg=_SLOW | {"tabsdata.kafka.trigger.max_rows": 50},
+    ),
+    flush_interval_mins=10,
+    output_tables=["kafka_by_rows"],
+)
+def kafka_by_rows(rows: TableFramesSpec) -> TableFrameSpec:
+    return concat(rows, how="diagonal_relaxed")
+
+
+@stream_publisher(
+    source=KafkaStreamSrc(
+        topic=f"{_PREFIX}.employees",
+        data_format="json",
+        schema=_schema("employees"),
+        src_cfg=_SLOW,
+    ),
+    flush_interval_mins=10,
+    output_tables=["kafka_by_time"],
+)
+def kafka_by_time(rows: TableFramesSpec) -> TableFrameSpec:
+    return concat(rows, how="diagonal_relaxed")
+
+
+@stream_publisher(
+    source=KafkaStreamSrc(
+        topic=f"{_PREFIX}.employees",
+        data_format="json",
+        schema=_schema("employees"),
+        src_cfg=_CFG,
+    ),
+    flush_interval_mins=1,
+    output_tables=["kafka_resumed"],
+)
+def kafka_resume(rows: TableFramesSpec) -> TableFrameSpec:
+    # Disabled and enabled again by its suite: it must go on from the offsets
+    # it committed, no message lost and none staged twice.
+    return concat(rows, how="diagonal_relaxed")

@@ -13,11 +13,11 @@ is still buffered, reach N bytes. That is the natural axis for a high-volume
 topic, where what you care about is the SIZE of what lands downstream rather
 than its row count — a million tiny parquet files is its own kind of outage.
 
-NOTHING PRODUCES TO THIS TOPIC in this suite, deliberately. An unknown topic is
-NOT fatal: the poll loop logs it and keeps going until the topic appears, so the
-configuration is documented without needing an Avro encoder in the harness. To
-feed it, produce with a registry-aware client — see the `kafka_registry` suite,
-whose docstring has a `confluent_kafka` snippet.
+WHERE THE MESSAGES COME FROM. The redpanda domain's data plane writes JSON only,
+so the suite's `scripts/produce_events.py --format avro` writes these: Avro
+binary with no header, which is what a source WITHOUT a schema registry reads
+(with one, see the `kafka_registry` suite). Until the first arrives the topic
+does not exist, and that is not fatal: the poll loop logs it and keeps going.
 """
 from __future__ import annotations
 

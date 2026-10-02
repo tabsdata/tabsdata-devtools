@@ -16,8 +16,10 @@ The `message_name` must be the FULLY-QUALIFIED name — package included — or 
 descriptor lookup fails at decode time, which surfaces as everything going to the
 DLQ rather than as a configuration error.
 
-Like the Avro example, nothing produces to this topic here: an unknown topic is
-not fatal, so the configuration is documented without an encoder in the harness.
+The suite's `scripts/produce_events.py --format protobuf` writes these, the
+message built from the same four fields. The decoded message keeps proto3's
+JSON mapping: an int64 arrives as its string, and a field left at its default
+does not arrive at all -- so nothing it sends is 0 or empty.
 """
 from __future__ import annotations
 

@@ -1,10 +1,11 @@
 [
   {
     "_copyright": "Copyright 2026 Tabsdata Inc.",
-    "_comment": "EXAMPLE · Kafka source (@stream_publisher) — payload FORMATS, TRIGGER axes and the dead-letter topic. data_format and schema are BOTH always required (\"json\" + a JSON Schema, \"avro\" + an Avro schema, Protobuf(message_name=...) + the .proto source) and the schema is ENFORCED, not documentation. Messages are buffered and written to parquet files per the tabsdata.kafka.buffer.* keys; three independent trigger axes in src_cfg decide when the written files are staged as one batch, whichever fires first once 60 seconds have passed since the last batch: tabsdata.kafka.trigger.max_rows (count — read_json), tabsdata.kafka.trigger.max_secs (latency, at least 60 — read_timed), tabsdata.kafka.trigger.max_bytes (size — read_avro); flush_interval_mins caps the time trigger so nothing sticks. dlq_topic (read_dlq) keeps one bad message from stopping ingestion — put it under the domain prefix so it dies with the domain. Five stream publishers over a redpanda domain seeded with the employees model, whose data plane produces one JSON message per row to <prefix>.<entity>. read_timed needs its OWN collection because it reads the same topic as read_json and a second consumer in the same group on a single-partition topic would sit idle; publishers on different topics share a group happily. The avro/protobuf topics have no producer here on purpose — an unknown topic is not fatal, the poll loop waits — so the configuration is documented without an encoder in the harness. Topics are ${D0__DB} references, not literals, so two instances can run at once. NO TRIGGERS AND NONE NEEDED: registering a stream publisher STARTS it. One function per file under functions/kafka_src/. Run: `tdx-xp oneshot --suite kafka/kafka_src --keep`."
+    "_comment": "EXAMPLE \u00b7 Kafka source (@stream_publisher) \u2014 payload FORMATS, TRIGGER axes and the dead-letter topic, each CHECKED. data_format and schema are BOTH always required (\"json\" + a JSON Schema, \"avro\" + an Avro schema, Protobuf(message_name=...) + the .proto source) and the schema is ENFORCED, not documentation. Messages are buffered and written to parquet files per the tabsdata.kafka.buffer.* keys; three trigger axes in src_cfg decide when the written files are staged as one batch, whichever fires first once 60 seconds have passed since the last batch: tabsdata.kafka.trigger.max_rows (read_json), tabsdata.kafka.trigger.max_secs (read_timed), tabsdata.kafka.trigger.max_bytes (read_avro); flush_interval_mins caps the time trigger. dlq_topic (read_dlq) keeps one bad message from stopping ingestion. One function per file under functions/kafka_src/; the dead-letter reader is functions/caps_kafka_topics.py::kafka_dead. WHERE THE MESSAGES COME FROM: the domain's data plane writes the employees model as JSON (the seed, then a batch to employees and departments, every other departments row without the dept_name read_dlq requires -- --schema-changes drop -- so those go to <prefix>.dead), and scripts/produce_events.py writes the events read_avro and read_protobuf read: 50 Avro events (binary, no header) to <prefix>.avro_events and 50 com.example.UserEvent messages to <prefix>.proto_events, the domain's data plane writing JSON only -- BEFORE the publishers are registered, so their topics exist when the consumers subscribe (one subscribed to a topic that does not exist yet sees it only at its next metadata refresh, 5 minutes by default, and meanwhile sends the broker's unknown-topic error to its dead-letter topic as if it were a message). Everything sent is appended to ${xp:dir}/ops.jsonl. read_timed needs its OWN collection (same topic as read_json; a second consumer in one group on a one-partition topic would sit idle); publishers on different topics share a group, which kafka_topic_in.yaml makes rebalance cooperatively -- under the default protocol each publisher registering took the others' partitions away and back, and read_json staged the seed twice. CHECKS (scripts/verify_kafka.py, tagged check, polling at most 5m): employees, avro_events, proto_events each hold their topic's messages exactly once; departments the ones that validate and kafka_dead the rest (--require-dead); employees_timed every employees message. Topics are ${D0__DB} references, so two runs never share one. Run: `tdd xp one-shot --suite kafka/kafka_src --keep`."
   },
   {
     "domain-manifest": {
+      "emit_ops": "${xp:dir}/ops.jsonl",
       "domains": [
         {
           "name": "${xp:name(redpanda)}",
@@ -16,12 +17,62 @@
     }
   },
   {
+    "actions": [
+      {
+        "python": {
+          "name": "produce-avro",
+          "tags": [
+            "live"
+          ],
+          "script": "scripts/produce_events.py",
+          "reqs": [
+            "confluent-kafka[avro,schemaregistry]==2.15.0",
+            "protobuf>=5"
+          ],
+          "params": [
+            "${xp:name(redpanda)}",
+            "avro_events",
+            "--format",
+            "avro",
+            "--count",
+            "50",
+            "--emit-ops",
+            "${xp:dir}/ops.jsonl"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "produce-protobuf",
+          "tags": [
+            "live"
+          ],
+          "script": "scripts/produce_events.py",
+          "reqs": [
+            "confluent-kafka[avro,schemaregistry]==2.15.0",
+            "protobuf>=5"
+          ],
+          "params": [
+            "${xp:name(redpanda)}",
+            "proto_events",
+            "--format",
+            "protobuf",
+            "--count",
+            "50",
+            "--emit-ops",
+            "${xp:dir}/ops.jsonl"
+          ]
+        }
+      }
+    ]
+  },
+  {
     "collections": [
       {
         "name": "stream",
         "type": "kafka_topic_in",
-        "group": "sources",
         "connection_template": "connection-file:connections/kafka_topic_in.yaml",
+        "group": "sources",
         "domains": {
           "D0": "${xp:name(redpanda)}"
         }
@@ -29,8 +80,17 @@
       {
         "name": "stream_timed",
         "type": "kafka_topic_in",
-        "group": "sources",
         "connection_template": "connection-file:connections/kafka_topic_in_time.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "${xp:name(redpanda)}"
+        }
+      },
+      {
+        "name": "dead",
+        "type": "kafka_topic_in",
+        "connection_template": "connection-file:connections/kafka_topic_in_dead.yaml",
+        "group": "sources",
         "domains": {
           "D0": "${xp:name(redpanda)}"
         }
@@ -58,6 +118,110 @@
       {
         "collection": "stream_timed",
         "functionpath": "functions/kafka_src/read_timed.py::read_timed"
+      },
+      {
+        "collection": "dead",
+        "functionpath": "functions/caps_kafka_topics.py::kafka_dead"
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "tdd": {
+          "name": "push-employees",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
+          "command": "modify-data",
+          "options": [
+            "--domain",
+            "${xp:name(redpanda)}",
+            "--entity",
+            "employees",
+            "--emit-ops",
+            "${xp:dir}/ops.jsonl"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "push-invalid",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
+          "command": "modify-data",
+          "options": [
+            "--domain",
+            "${xp:name(redpanda)}",
+            "--entity",
+            "departments",
+            "--schema-changes",
+            "drop",
+            "--emit-ops",
+            "${xp:dir}/ops.jsonl"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "parallel": {
+          "name": "verify",
+          "tags": [
+            "check"
+          ],
+          "lanes": 0,
+          "actions": [
+            {
+              "python": {
+                "name": "verify-stream",
+                "script": "scripts/verify_kafka.py",
+                "params": [
+                  "${xp:dir}/ops.jsonl",
+                  "stream",
+                  "--expect",
+                  "employees=employees",
+                  "--expect",
+                  "departments=departments",
+                  "--expect",
+                  "avro_events=avro_events",
+                  "--expect",
+                  "proto_events=proto_events",
+                  "--dead",
+                  "dead/kafka_dead",
+                  "--require-dead",
+                  "--dead-entities",
+                  "departments",
+                  "--time-out",
+                  "5m",
+                  "--profile",
+                  "${td:profile}"
+                ]
+              }
+            },
+            {
+              "python": {
+                "name": "verify-timed",
+                "script": "scripts/verify_kafka.py",
+                "params": [
+                  "${xp:dir}/ops.jsonl",
+                  "stream_timed",
+                  "--expect",
+                  "employees_timed=employees",
+                  "--time-out",
+                  "5m",
+                  "--profile",
+                  "${td:profile}"
+                ]
+              }
+            }
+          ]
+        }
       }
     ]
   },

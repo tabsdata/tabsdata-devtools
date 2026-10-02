@@ -8,12 +8,20 @@
       {
         "name": "${xp:name(redpanda)}",
         "command": "create",
-        "options": ["--sys", "redpanda"]
+        "options": [
+          "--sys",
+          "redpanda"
+        ]
       },
       {
         "name": "${xp:name(redpanda)}",
         "command": "create-model",
-        "options": ["--model", "employees", "--up-to-partitions", "4"]
+        "options": [
+          "--model",
+          "employees",
+          "--up-to-partitions",
+          "4"
+        ]
       },
       {
         "name": "${xp:name(redpanda)}",
@@ -34,7 +42,9 @@
       {
         "background": {
           "name": "produce",
-          "tags": ["live"],
+          "tags": [
+            "live"
+          ],
           "actions": [
             {
               "loop": {
@@ -96,14 +106,20 @@
       {
         "wait": {
           "name": "produced",
-          "tags": ["live"],
-          "for": ["produce"]
+          "tags": [
+            "live"
+          ],
+          "for": [
+            "produce"
+          ]
         }
       },
       {
         "python": {
           "name": "verify-topics",
-          "tags": ["check"],
+          "tags": [
+            "check"
+          ],
           "script": "scripts/verify_kafka.py",
           "params": [
             "${xp:dir}/ops.jsonl",
@@ -117,7 +133,9 @@
             "--empty",
             "kafka_unrouted",
             "--time-out",
-            "5m"
+            "5m",
+            "--profile",
+            "${td:profile}"
           ]
         }
       }

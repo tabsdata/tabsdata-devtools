@@ -1,9 +1,11 @@
 [
   {
-    "_comment": "CAPABILITY suite for the Kafka stream source against a REDPANDA domain, via `--suite kafka/kafka`. Functions in functions/caps_kafka.py. Kafka is SOURCE-ONLY (the connector registers a stream source, no destination). The domain supplies the broker list (meta KAFKA_BROKERS) AND the data: a redpanda domain is a Kafka topic namespace whose data plane produces a model's rows as JSON, ONE MESSAGE PER ROW, to `<prefix>.<entity>` (one topic per entity, one partition each, created by create-model). With the `employees` model at xs, `create-domains` seeds <prefix>.employees (100 messages), <prefix>.departments (9) and the derived .dept_emp/.dept_manager/.titles/.salaries (not consumed). PER-RUN TOPIC PREFIX: `<prefix>` is the domain's in-system name, which tdx-xp derives per run (`xp_<user>_<ts>_redpanda`); `KafkaStreamSrc.topic` is fixed when the function is written, so caps_kafka.py writes it as the `${D0__DB}` reference tdx-xp interpolates at registration (same for the templates' consumer groups) rather than pinning the domain's `name_in_system`. So CONCURRENT INSTANCES of this suite are fine — each gets its own topics, consumer groups and dead-letter topic. Append more messages with `tdx-domain modify-data --domain <instance>_redpanda --entity employees --ops Insert --sets 20` (redpanda is insert-only for modify-data — a Kafka log only appends — and REJECTS other ops). VARIANTS, one collection each: kafka_in (<prefix>.employees, tabsdata.kafka.trigger.max_rows=25 -> the 100 seeded messages arrive at once and are staged together once the 60-second manifest floor passes), kafka_in_dlq (<prefix>.departments, 9 messages, row trigger 5, all 9 staged together once the floor passes, plus a dlq_topic — the seeded messages all validate, so produce a violating line by hand to see <prefix>.dead), kafka_in_time (<prefix>.employees again with tabsdata.kafka.trigger.max_secs marked down to 15 seconds via unsafe_seconds(15), for tests only — own consumer group, so it sees every message too). ONE COLLECTION PER VARIANT with its OWN template (kafka_topic_in.yaml / _dlq / _time) because each stream joins its connection's consumer group and these topics have a single partition, so two consumers in one group would leave one idle. NO TRIGGERS, and none are needed: REGISTERING a stream publisher STARTS it — the worker comes up seconds after `create-project` and runs until `tdk fn disable`/`fn delete` (no execution plan or transaction; find it with `tdk worker list`). The consumer forces auto.offset.reset=earliest and commits its offsets only once a batch is staged, so worker-before-seed and seed-before-worker both work and a re-run resumes from the last staged position. So: `tdd xp one-shot --suite kafka/kafka --keep`, then watch `tdk trx list --proj <P> --monitor`. NOTE the broker address is the domain's host:port — reachable from a local instance, but a pod would need a routable address instead of localhost."
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "CAPABILITY suite for the Kafka stream source against a redpanda domain: the connector's variants, each CHECKED. Functions in functions/caps_kafka.py; the dead-letter reader in functions/caps_kafka_topics.py. The domain's data plane produces a model's rows as JSON, one message per row, to `<prefix>.<entity>` (one topic per entity, one partition each, created by create-model); the xs seed's messages are appended to ${xp:dir}/ops.jsonl, as every data command below appends its own. `<prefix>` is the domain's per-run in-system name, written ${D0__DB} in the functions and templates, so concurrent runs share no topic or group. VARIANTS, one collection each -- every stream joins its connection's consumer group, and on a one-partition topic a second consumer of a group would sit idle: kafka_in (<prefix>.employees, tabsdata.kafka.trigger.max_rows=25), kafka_dlq (<prefix>.departments, row trigger 5, both fields required, a dlq_topic <prefix>.dead), kafka_time (<prefix>.employees again, tabsdata.kafka.trigger.max_secs marked down to 15s), and dead (kafka_dead over <prefix>.dead, so a dead letter can be counted). STAGES: (1) the domain, seeded; (2) collections and (3) functions -- registering a stream publisher STARTS it, no trigger; (4) actions, tagged live -- a batch to employees, and departments with --schema-changes drop: every other row leaves out dept_name, which kafka_dlq's schema requires, so those go to <prefix>.dead; (5) actions, tagged check -- scripts/verify_kafka.py per variant: kafka_employees and kafka_timed each hold every employees message exactly once, kafka_departments the departments messages that validate and kafka_dead the rest (--require-dead), polling until they arrived (at most 5m); (6) monitor. Run: `tdd xp one-shot --suite kafka/kafka --keep`."
   },
   {
     "domain-manifest": {
+      "emit_ops": "${xp:dir}/ops.jsonl",
       "domains": [
         {
           "name": "${xp:name(redpanda)}",
@@ -42,6 +44,15 @@
         "domains": {
           "D0": "${xp:name(redpanda)}"
         }
+      },
+      {
+        "name": "dead",
+        "type": "kafka_topic_in",
+        "connection_template": "connection-file:connections/kafka_topic_in_dead.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "${xp:name(redpanda)}"
+        }
       }
     ]
   },
@@ -58,6 +69,118 @@
       {
         "collection": "kafka_time",
         "functionpath": "functions/caps_kafka.py::kafka_in_time"
+      },
+      {
+        "collection": "dead",
+        "functionpath": "functions/caps_kafka_topics.py::kafka_dead"
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "tdd": {
+          "name": "push-employees",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
+          "command": "modify-data",
+          "options": [
+            "--domain",
+            "${xp:name(redpanda)}",
+            "--entity",
+            "employees",
+            "--emit-ops",
+            "${xp:dir}/ops.jsonl"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "push-invalid",
+          "tags": [
+            "live"
+          ],
+          "tool": "domain",
+          "command": "modify-data",
+          "options": [
+            "--domain",
+            "${xp:name(redpanda)}",
+            "--entity",
+            "departments",
+            "--schema-changes",
+            "drop",
+            "--emit-ops",
+            "${xp:dir}/ops.jsonl"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "parallel": {
+          "name": "verify",
+          "tags": [
+            "check"
+          ],
+          "lanes": 0,
+          "actions": [
+            {
+              "python": {
+                "name": "verify-rows",
+                "script": "scripts/verify_kafka.py",
+                "params": [
+                  "${xp:dir}/ops.jsonl",
+                  "kafka_in",
+                  "--expect",
+                  "kafka_employees=employees",
+                  "--time-out",
+                  "5m",
+                  "--profile",
+                  "${td:profile}"
+                ]
+              }
+            },
+            {
+              "python": {
+                "name": "verify-time",
+                "script": "scripts/verify_kafka.py",
+                "params": [
+                  "${xp:dir}/ops.jsonl",
+                  "kafka_time",
+                  "--expect",
+                  "kafka_timed=employees",
+                  "--time-out",
+                  "5m",
+                  "--profile",
+                  "${td:profile}"
+                ]
+              }
+            },
+            {
+              "python": {
+                "name": "verify-dlq",
+                "script": "scripts/verify_kafka.py",
+                "params": [
+                  "${xp:dir}/ops.jsonl",
+                  "kafka_dlq",
+                  "--expect",
+                  "kafka_departments=departments",
+                  "--dead",
+                  "dead/kafka_dead",
+                  "--require-dead",
+                  "--time-out",
+                  "5m",
+                  "--profile",
+                  "${td:profile}"
+                ]
+              }
+            }
+          ]
+        }
       }
     ]
   },

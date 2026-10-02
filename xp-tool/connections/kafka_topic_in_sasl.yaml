@@ -1,0 +1,35 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# Connection template for: kafka-topic-in (stream-src) — consumer group '<prefix>_sasl',
+# AUTHENTICATED. For a redpanda system created with `--sasl on`: every Kafka client of it
+# authenticates as the system's one user, which a domain carries as USER/PASSWORD. With
+# `credentials` set the connector speaks SASL_PLAINTEXT with SCRAM-SHA-256 -- what such a
+# system expects. Against a system without SASL USER is empty and the connection is refused.
+# Secret values use the 'secret:' prefix, or '$secret:D<n>__<KEY>' to read <KEY> from the collection's backing domain D<n> (see suite.json 'domains').
+# A '$secret:' value is resolved on the client when the source/destination is created or updated with this connection.
+# '${D<n>__<KEY>}' reads the same bag but interpolates the value PLAIN and inline — for a name rather than a credential.
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.kafka:KafkaStreamSrcConn
+spec:
+
+  # accepts: <value> | secret:<value>
+  # the redpanda domain's broker list (meta KAFKA_BROKERS, e.g. localhost:19092)
+  #
+  servers: '$secret:D0__KAFKA_BROKERS'
+
+  # accepts: <value> | secret:<value>
+  # A per-collection group, prefixed by the domain so it is per-run as well.
+  #
+  group_id: '${D0__DB}_sasl'
+
+  credentials:
+    kind: userPasswordCredentials
+    apiVersion: '1.0'
+    type: tabsdatak.conn.common.types:UserPassword
+    spec:
+      user: '$secret:D0__USER'
+      password: '$secret:D0__PASSWORD'
+  # schema_registry  (optional, default: none) -- left off, as in kafka_topic_in.yaml

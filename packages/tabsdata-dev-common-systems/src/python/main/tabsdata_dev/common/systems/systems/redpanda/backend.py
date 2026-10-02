@@ -21,15 +21,18 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from urllib.parse import quote, unquote
 
 from tabsdata_dev.common.systems import constants, datagen, emit, naming, options
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import (
     container_exists,
     container_id,
+    docker_exec,
     docker_pull,
     docker_rm,
     docker_run,
+    gen_password,
     require_docker,
 )
 from tabsdata_dev.common.systems.systems._common import container_info
@@ -37,6 +40,25 @@ from tabsdata_dev.common.systems.systems._common.sql import SqlContainerBackend
 from tabsdata_dev.common.systems.systems.redpanda import shape
 
 _REGISTRY_INTERNAL_PORT = 8081
+# The one SASL user a system with --sasl on has, and how it authenticates --
+# what the Kafka connector speaks when its connection has credentials.
+SASL_USER = "tdd"
+SASL_MECHANISM = "SCRAM-SHA-256"
+_ON, _OFF = "on", "off"
+
+
+def client_conf(brokers: str, user: str = "", password: str = "") -> dict:
+    """A confluent-kafka client config for `brokers`, authenticating when the
+    system has a user."""
+    conf = {"bootstrap.servers": brokers}
+    if user:
+        conf |= {
+            "security.protocol": "SASL_PLAINTEXT",
+            "sasl.mechanism": SASL_MECHANISM,
+            "sasl.username": user,
+            "sasl.password": password,
+        }
+    return conf
 
 
 class Redpanda(SqlContainerBackend):
@@ -53,21 +75,47 @@ class Redpanda(SqlContainerBackend):
     internal_port = 9092
 
     def generate_password(self) -> str:
-        return ""  # no SASL in this setup
+        return ""  # a password is generated only for --sasl on (plan_system)
 
     def options(self) -> tuple[options.Option, ...]:
-        return (options.Option("PORT", "port", options.PORT, "a free host port"),)
+        return (
+            options.Option("PORT", "port", options.PORT, "a free host port"),
+            options.Option(
+                "SASL",
+                "sasl",
+                options.SYNTH,
+                "off; on: every client authenticates, SASL/SCRAM-SHA-256 as user "
+                "tdd with a generated password",
+                required=False,
+            ),
+        )
+
+    def synth_default(self, name: str, sys_name: str) -> str:
+        if name == "SASL":
+            return _OFF
+        raise TdxError(f"{self.slug}: no synth default for {name}")
 
     # ---- custom container lifecycle ------------------------------------
 
     def plan_system(
         self, name: str, overrides: dict[str, str] | None = None
     ) -> dict[str, str]:
-        raw = (overrides or {}).get("PORT")
+        o = overrides or {}
+        sasl = (o.get("SASL") or _OFF).strip().lower()
+        if sasl not in (_ON, _OFF):
+            raise TdxError(f"--sasl must be {_ON} or {_OFF} (got: {o.get('SASL')})")
+        raw = o.get("PORT")
         kport = int(raw) if raw else self.next_free_port()
         reg = self.next_free_port()
         while reg == kport:
             reg = self.next_free_port()
+        auth = {"USER": "", "PASSWORD": ""}
+        if sasl == _ON:
+            auth = {
+                "USER": SASL_USER,
+                "PASSWORD": gen_password(),
+                "SASL_MECHANISM": SASL_MECHANISM,
+            }
         return {
             "DOCKER_CONTAINER_NAME": self.container_name(name),
             "IMAGE": self.image,
@@ -76,8 +124,8 @@ class Redpanda(SqlContainerBackend):
             "REGISTRY_PORT": str(reg),
             "SCHEMA_REGISTRY_URL": f"http://{self.hostname}:{reg}",
             "KAFKA_BROKERS": f"{self.hostname}:{kport}",
-            "USER": "",
-            "PASSWORD": "",
+            "SASL": sasl,
+            **auth,
         }
 
     def provision_system(
@@ -125,21 +173,64 @@ class Redpanda(SqlContainerBackend):
         )
         print(f">>> waiting for {self.label} to become ready …")
         self._wait_ready(container, "", self.ready_timeout)
+        if meta.get("USER"):
+            self._enable_sasl(container, meta["USER"], meta["PASSWORD"])
         cid = container_id(container)
         return {"DOCKER_CONTAINER_ID": cid} if cid else {}
+
+    def _enable_sasl(self, container: str, user: str, password: str) -> None:
+        """The user, made a superuser, then SASL turned on for every Kafka
+        listener -- in that order, through the admin API, which SASL does not
+        guard: once it is on, nothing unauthenticated reaches a topic, the
+        broker's own rpk included."""
+        print(f">>> enabling SASL ({SASL_MECHANISM}) for user {user} …")
+        steps = (
+            [
+                "rpk",
+                "security",
+                "user",
+                "create",
+                user,
+                "-p",
+                password,
+                "--mechanism",
+                SASL_MECHANISM,
+            ],
+            ["rpk", "cluster", "config", "set", "superusers", f"['{user}']"],
+            ["rpk", "cluster", "config", "set", "enable_sasl", "true"],
+        )
+        for argv in steps:
+            r = docker_exec(container, *argv)
+            if r.returncode != 0:
+                what = " ".join(argv[:4])
+                raise TdxError(f"{what} failed: {(r.stderr or r.stdout).strip()}")
+        self._wait_ready(container, password, self.ready_timeout)
 
     def check_ready(self, container: str, password: str) -> bool:
         from tabsdata_dev.common.systems.shell import docker_exec_check
 
-        return docker_exec_check(container, "rpk", "cluster", "info")
+        # A password means SASL is on (only --sasl on generates one), and then
+        # rpk must authenticate like any other client.
+        auth = []
+        if password:
+            auth = [
+                "-X",
+                f"user={SASL_USER}",
+                "-X",
+                f"pass={password}",
+                "-X",
+                f"sasl.mechanism={SASL_MECHANISM}",
+            ]
+        return docker_exec_check(container, "rpk", "cluster", "info", *auth)
 
     # ---- topic domain plane (confluent-kafka AdminClient) --------------
 
     def _admin_client(self, meta: dict[str, str]):
         from confluent_kafka.admin import AdminClient
 
+        brokers = f"{meta.get('HOST', 'localhost')}:{meta['PORT']}"
         return AdminClient(
-            {"bootstrap.servers": f"{meta.get('HOST', 'localhost')}:{meta['PORT']}"}
+            client_conf(brokers, meta.get("USER", ""), meta.get("PASSWORD", ""))
         )
 
     def _topics(self, client) -> list[str]:
@@ -170,8 +261,10 @@ class Redpanda(SqlContainerBackend):
         return {
             "HOST": sys_meta["HOST"],
             "PORT": sys_meta["PORT"],
-            "USER": "",  # redpanda has no per-topic auth
-            "PASSWORD": "",
+            # No per-topic auth: a domain uses the system's SASL user, if any.
+            "USER": sys_meta.get("USER", ""),
+            "PASSWORD": sys_meta.get("PASSWORD", ""),
+            "SASL_MECHANISM": sys_meta.get("SASL_MECHANISM", ""),
             "DB": entity_name,
             "IMAGE": sys_meta.get("IMAGE", ""),
             "KAFKA_BROKERS": brokers,
@@ -229,14 +322,23 @@ class Redpanda(SqlContainerBackend):
     def data_plane_uri(self, meta: dict[str, str]):
         # A kafka domain is brokers + a topic prefix, not an addressable
         # endpoint, so the descriptor stores no URI: this composes the handle the
-        # generic data-plane commands pass around, and `_brokers_prefix` takes it
-        # apart again.
-        yield f"kafka://{meta.get('KAFKA_BROKERS', '')}/{meta.get('DB', '')}"
+        # generic data-plane commands pass around -- the SASL user in it when
+        # there is one -- and `_endpoint` takes it apart again.
+        user = meta.get("USER", "")
+        auth = f"{quote(user, safe='')}:{quote(meta.get('PASSWORD', ''), safe='')}@"
+        yield (
+            f"kafka://{auth if user else ''}{meta.get('KAFKA_BROKERS', '')}/"
+            f"{meta.get('DB', '')}"
+        )
 
     @staticmethod
-    def _brokers_prefix(uri: str) -> tuple[str, str]:
-        brokers, _, prefix = uri.split("://", 1)[-1].partition("/")
-        return brokers, prefix
+    def _endpoint(uri: str) -> tuple[dict, str, str]:
+        """``(client config, brokers, topic prefix)`` from a data-plane handle."""
+        rest = uri.split("://", 1)[-1]
+        auth, at, rest = rest.rpartition("@") if "@" in rest else ("", "", rest)
+        brokers, _, prefix = rest.partition("/")
+        user, _, password = auth.partition(":")
+        return client_conf(brokers, unquote(user), unquote(password)), brokers, prefix
 
     def install_schema(
         self, meta: dict[str, str], model: str, *, force: bool = False
@@ -280,11 +382,11 @@ class Redpanda(SqlContainerBackend):
         print(f">>> kafka domain: {len(wanted)} topic(s), partitions {layout}")
 
     def _produce(
-        self, brokers: str, prefix: str, tables: list[emit.Table]
+        self, conf: dict, prefix: str, tables: list[emit.Table]
     ) -> dict[str, int]:
         from confluent_kafka import Producer
 
-        producer = Producer({"bootstrap.servers": brokers})
+        producer = Producer(conf)
         counts: dict[str, int] = {}
         for tbl in tables:
             topic = f"{prefix}.{tbl.name}"
@@ -301,13 +403,13 @@ class Redpanda(SqlContainerBackend):
         return counts
 
     def load_tables(self, uri: str, tables: list[emit.Table]) -> dict[str, int]:
-        brokers, prefix = self._brokers_prefix(uri)
+        conf, brokers, prefix = self._endpoint(uri)
         rows = sum(len(t.rows) for t in tables)
         print(
             f">>> producing {rows} JSON message(s) to {len(tables)} topic(s) "
             f"on {brokers} …"
         )
-        return self._produce(brokers, prefix, tables)
+        return self._produce(conf, prefix, tables)
 
     def apply_changes(
         self,
@@ -336,9 +438,9 @@ class Redpanda(SqlContainerBackend):
             emit.Table(name=t, columns=cols, rows=rows)
             for t, (cols, rows) in by_table.items()
         ]
-        brokers, prefix = self._brokers_prefix(uri)
+        conf, brokers, prefix = self._endpoint(uri)
         print(f">>> producing {len(changes)} JSON message(s) to {brokers} …")
-        produced = self._produce(brokers, prefix, tables)
+        produced = self._produce(conf, prefix, tables)
         new = dict(before)
         for topic, n in produced.items():
             new[topic] = new.get(topic, 0) + n  # kafka log appends
@@ -347,6 +449,5 @@ class Redpanda(SqlContainerBackend):
     def drop_all_tables(self, uri: str) -> None:
         from confluent_kafka.admin import AdminClient
 
-        brokers, prefix = self._brokers_prefix(uri)
-        client = AdminClient({"bootstrap.servers": brokers})
-        self._delete_topics(client, prefix, include_root=False)
+        conf, _, prefix = self._endpoint(uri)
+        self._delete_topics(AdminClient(conf), prefix, include_root=False)

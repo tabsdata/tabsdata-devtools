@@ -60,9 +60,9 @@ connector):
                             "payload": None, "occurred_at": 0})
     producer.flush()
 
-`tdx-domain info --domain <instance>_redpanda --format json` prints both
-endpoints and the `<prefix>` (as `meta.DB`). Until something produces, the stream
-simply waits — an unknown topic is not fatal — so this suite runs green empty.
+The suite's `scripts/produce_events.py --registry` does exactly that, then sends
+a few PLAIN JSON events to the same topic: those must land in
+`<prefix>.registry_dead`, which the suite reads back to count them.
 """
 from __future__ import annotations
 

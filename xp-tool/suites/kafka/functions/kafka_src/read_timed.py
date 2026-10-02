@@ -23,8 +23,11 @@ WHY THIS FUNCTION HAS ITS OWN COLLECTION
     different group: hence its own collection, wired to
     `connections/kafka_topic_in_time.yaml`, whose only difference is `group_id`.
 
-    Publishers on DIFFERENT topics share a group happily, which is why the other
-    four functions in this suite sit together.
+    Publishers on DIFFERENT topics can share a group, which is why the other four
+    functions in this suite sit together -- with cooperative rebalancing (the
+    template sets it): each one registering rebalances the group, and the default
+    protocol takes every member's partitions away and back, so a member re-reads
+    what it had not committed. That staged the seeded employees twice.
 """
 from __future__ import annotations
 

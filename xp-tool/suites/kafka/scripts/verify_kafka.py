@@ -4,8 +4,9 @@
 """Check Kafka stream publishers' tables against the messages a domain was sent.
 
     verify_kafka.py OPS_FILE COLLECTION --expect TABLE[+TABLE...]=ENTITY ...
-                    [--empty TABLE ...] [--dead [COLLECTION/]TABLE [--require-dead]]
-                    [--allow-duplicates] [--time-out DURATION]
+                    [--empty TABLE ...] [--dead [COLLECTION/]TABLE [--require-dead]
+                    [--dead-entities ENTITY ...]]
+                    [--allow-duplicates] [--time-out DURATION] [--profile NAME]
 
 OPS_FILE is the trail ``tdd domain create-data/modify-data --emit-ops``
 appended: on a redpanda domain one insert line per message, its ``row`` the
@@ -27,7 +28,12 @@ never written, or the frames a router could not place.
 row an envelope whose ``original_value`` is the refused message and ``topic``
 the topic it came from. Its messages count as arrived; ``--require-dead``
 fails a run in which none was refused -- a suite sending rows a schema must
-refuse checks that it did.
+refuse checks that it did. ``--dead-entities E...`` names the topics whose
+messages may be refused; a dead letter of any other is a problem, so a message
+a publisher failed to decode is not counted as arrived. An envelope whose
+``error`` is the broker's (``KafkaError{...}``, an unknown topic say) holds no
+message -- the connector sends a broker error there too -- and is noted, not
+counted.
 
 Rows compare on the union of the columns the table and the trail know of, a
 missing field as null: a message left without its last field arrives with that
@@ -56,8 +62,15 @@ from pathlib import Path
 from tdd import TddError, note, tdd  # on the path: xp runs a python step with it
 
 POLL_SECONDS = 10
+#: `--profile NAME` for every tdk call, or nothing: tdk takes it on each command,
+#: after the verb's own options.
+PROFILE: list[str] = []
 _DURATION = re.compile(r"^(\d+(?:\.\d+)?)([smh])$")
-_WHEN = re.compile(r"^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?)?$")
+# A UTC offset is dropped: an Avro timestamp-millis decodes as a UTC time, which
+# a table may print with its zone and a trail writes as ISO with +00:00.
+_WHEN = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?)?(?:Z|[+-]00:?00| ?UTC)?$"
+)
 
 
 def seconds(text: str) -> float:
@@ -112,7 +125,7 @@ class Table:
         try:
             versions = json.loads(
                 tdd("tdk", "table", "versions", "--proj", self.proj, "--coll", self.coll,
-                    "--name", self.name, "--max-result", "0", "--format", "json")
+                    "--name", self.name, "--max-result", "0", "--format", "json", *PROFILE)
             )
         except (TddError, json.JSONDecodeError) as exc:
             # A table no flush has written to yet may not answer; said if it lasts.
@@ -126,7 +139,7 @@ class Table:
         for v in changed:
             f = self.work / f"{self.coll}.{self.name}.{v['id']}.parquet"
             tdd("tdk", "table", "download", "--proj", self.proj, "--coll", self.coll,
-                "--name", self.name, "--version", v["id"], "--file", str(f))
+                "--name", self.name, "--version", v["id"], "--file", str(f), *PROFILE)
             text = tdd("pqt", "csv", str(f))
             self.rows.extend(user_columns(r) for r in csv.DictReader(text.splitlines()))
             self.read.add(v["id"])
@@ -153,12 +166,19 @@ def main() -> int:
                         help="the dead-letter envelopes' table; its messages count as arrived")
     parser.add_argument("--require-dead", action="store_true",
                         help="fail when no message was refused to the dead-letter topic")
+    parser.add_argument("--dead-entities", nargs="+", default=None, metavar="ENTITY",
+                        help="the only topics whose messages may be dead letters (default: any)")
     parser.add_argument("--allow-duplicates", action="store_true",
                         help="a message arriving more than once is noted, not a problem")
     parser.add_argument("--time-out", type=seconds, default=seconds("5m"), metavar="DURATION")
+    parser.add_argument("--profile", default=None, metavar="NAME",
+                        help="the tdk connection to read the tables on; empty or absent: tdk's "
+                        "default (a suite passes --profile ${td:profile})")
     args = parser.parse_args()
-    if args.require_dead and not args.dead:
-        parser.error("--require-dead needs --dead")
+    if args.profile:
+        PROFILE[:] = ["--profile", args.profile]
+    if (args.require_dead or args.dead_entities) and not args.dead:
+        parser.error("--require-dead and --dead-entities need --dead")
     expects = []
     for spec in args.expect:
         tables, sep, entity = spec.partition("=")
@@ -189,9 +209,15 @@ def main() -> int:
     empties = [table((args.collection, t)) for t in args.empty]
     dead = table(table_ref(args.dead, args.collection)) if args.dead else None
 
+    broker_errors: Counter = Counter()
+
     def dead_letters() -> dict[str, list[dict]]:
         out: dict[str, list[dict]] = {}
+        broker_errors.clear()
         for r in dead.rows if dead else []:
+            if (r.get("error") or "").startswith("KafkaError{"):
+                broker_errors[(r.get("error") or "")[:160]] += 1
+                continue
             try:
                 message = json.loads(r.get("original_value") or "")
             except json.JSONDecodeError:
@@ -208,6 +234,9 @@ def main() -> int:
             expected_rows = sent.get(entity, [])
             got_rows = [r for t in group for r in t.rows]
             refused = letters.get(entity, [])
+            if refused and args.dead_entities is not None and entity not in args.dead_entities:
+                problems.append(f"{dead.name}: {len(refused)} {entity} message(s) refused, e.g. {refused[0]}")
+                refused = []
             cols = sorted({c for r in expected_rows for c in r} | {c for t in group for c in t.columns})
 
             def canon(row: dict) -> tuple:
@@ -233,6 +262,8 @@ def main() -> int:
         for t in empties:
             if t.rows:
                 problems.append(f"{t.name}: {len(t.rows)} row(s) in a table that must stay empty, e.g. {t.rows[0]}")
+        for error, n in broker_errors.items():
+            noted.append(f"{dead.name}: {n} broker error(s) sent as dead letters: {error}")
         refused_total = sum(len(v) for v in letters.values())
         if args.require_dead and refused_total == 0:
             problems.append(f"{dead.name}: no message was refused to the dead-letter topic")

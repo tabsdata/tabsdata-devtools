@@ -266,7 +266,15 @@ comment). Kinds repeat, in any order the dependencies allow:
   in its table or as a dead letter -- and fails at `--time-out`: separate publishers carry no
   ordering a sentinel could stand on. `T1+T2=E` is two publishers in one consumer group, where a
   rebalance may hand a partition over before its offsets were committed; `--allow-duplicates`
-  counts those instead of failing on them.
+  counts those instead of failing on them. `--dead-entities` names the topics whose messages may
+  be refused, so a message a publisher failed to decode is not counted as arrived. Every Kafka
+  suite is checked: the connector's variants, the payload formats (`kafka_src`), the schema
+  registry (`kafka_registry`), what stages a batch (`kafka_triggers`: bytes and rows within
+  minutes, against a 10-minute clock a control publisher must not have run out), a publisher
+  disabled and enabled (`kafka_pause_resume`, duplicates not allowed) and SASL credentials
+  (`kafka_sasl`, on a system created `--sasl on`). The domain's data plane writes JSON only;
+  `scripts/produce_events.py` writes the rest -- Avro without a header, Protobuf, Avro in the
+  Confluent wire format through the registry -- and appends to the same trail.
 - **`"enabled": false`** on a function registers it with `tdk fn register --disabled`: a stream
   publisher does not start until `enable-function --project P --collection C --function F`
   (tdk's `fn enable`); `disable-function` stops one. A group project is refused -- its lanes'

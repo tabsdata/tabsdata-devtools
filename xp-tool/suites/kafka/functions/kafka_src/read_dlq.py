@@ -18,16 +18,10 @@ up with rejected messages is the shape of an upstream contract change nobody
 noticed — subscribe to it, or at least alert on its depth.
 
 SEEING IT WORK
-    The 9 seeded department messages all validate, so produce a violating one
-    yourself (`tdx-domain info --domain <instance>_redpanda --format json` prints
-    the prefix as `meta.DB`):
-
-        docker exec -i tdd_redpanda rpk topic produce <prefix>.departments <<'MSG'
-        {"dept_no": 42}
-        MSG
-
-    `dept_name` is required, so that message lands in `<prefix>.dead` rather than
-    in the table.
+    The 9 seeded department messages all validate; the suite then sends a batch
+    with `modify-data --entity departments --schema-changes drop`, every other
+    message without `dept_name`. It is required, so those land in `<prefix>.dead`
+    rather than in the table, and the suite reads them back to count them.
 
 A ROLLOVER OF 5 OVER 9 MESSAGES also shows the other half of the batching rule:
 one batch closes on the count, and the remaining 4 messages wait for

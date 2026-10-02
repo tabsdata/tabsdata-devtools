@@ -1,7 +1,7 @@
 [
   {
     "_copyright": "Copyright 2026 Tabsdata Inc.",
-    "_comment": "EXAMPLE · Kafka source with a SCHEMA REGISTRY. Registry mode is a property of the CONNECTION (connections/kafka_topic_in_registry.yaml sets schema_registry), not of the source — the @stream_publisher here is byte-identical to the registry-less Avro one in examples/kafka_src. What changes is the wire: a registry message is [0x00][4-byte schema id][payload], the consumer fetches THAT schema version to decode it, and old messages keep decoding after the producer evolves. A PLAIN message on a registry topic fails to deserialize — including everything `rpk topic produce` and the redpanda data plane write — so this suite consumes a topic of its own that only a registry-aware producer writes to, with a DLQ, which is exactly how you catch a producer that is not registry-aware. `schema` stays REQUIRED: it is cross-checked against the registry's resolved schema, so drift is caught at decode time. The two registry kinds (Confluent url/credentials/configs; AWS Glue region_name/registry_name/schema_name/credentials) are plain nested mappings with no kind/apiVersion/type envelope; the redpanda domain exports SCHEMA_REGISTRY_URL, interpolated PLAIN because an endpoint is a name, not a credential. Nothing produces to the topic here, so the run is green and the stream waits; the functions file has a confluent_kafka snippet that produces a readable message. NO TRIGGERS AND NONE NEEDED. One function per file under functions/kafka_registry/. Run: `tdx-xp oneshot --suite kafka/kafka_registry --keep`."
+    "_comment": "EXAMPLE \u00b7 Kafka source with a SCHEMA REGISTRY, CHECKED. Registry mode is a property of the CONNECTION (connections/kafka_topic_in_registry.yaml sets schema_registry), not of the source \u2014 the @stream_publisher (functions/kafka_registry/read_registry_avro.py) is byte-identical to the registry-less Avro one in kafka_src. What changes is the wire: a registry message is [0x00][4-byte schema id][payload], the consumer fetches THAT schema version to decode it, and old messages keep decoding after the producer evolves. A PLAIN message on a registry topic fails to deserialize \u2014 everything `rpk topic produce` and the redpanda data plane write \u2014 and goes to the dead-letter topic, which is how a producer that is not registry-aware is caught. `schema` stays REQUIRED: it is cross-checked against the registry's resolved schema. The redpanda domain exports SCHEMA_REGISTRY_URL, interpolated PLAIN because an endpoint is a name, not a credential. STAGES: (1) the domain; (2) actions, tagged live -- scripts/produce_events.py writes 50 events through a registry-aware serializer (the schema registered under <prefix>.registry_events-value) and then 5 plain JSON events to the same topic, each appended to ${xp:dir}/ops.jsonl -- BEFORE the publisher subscribes, so the topic exists when it does (a consumer subscribed to a topic not there yet sees it only at its next metadata refresh, 5 minutes by default); (3) collections -- stream (the registry connection) and dead (kafka_registry_dead over <prefix>.registry_dead, plain JSON envelopes, its own connection); (4) functions; (5) actions, tagged check -- scripts/verify_kafka.py: the 50 in registry_events exactly once, the 5 plain ones as dead letters (--require-dead), polling at most 5m; (6) monitor. Run: `tdd xp one-shot --suite kafka/kafka_registry --keep`."
   },
   {
     "domain-manifest": {
@@ -16,12 +16,51 @@
     }
   },
   {
+    "actions": [
+      {
+        "python": {
+          "name": "produce-registry",
+          "tags": [
+            "live"
+          ],
+          "script": "scripts/produce_events.py",
+          "reqs": [
+            "confluent-kafka[avro,schemaregistry]==2.15.0",
+            "protobuf>=5"
+          ],
+          "params": [
+            "${xp:name(redpanda)}",
+            "registry_events",
+            "--format",
+            "avro",
+            "--registry",
+            "--count",
+            "50",
+            "--plain",
+            "5",
+            "--emit-ops",
+            "${xp:dir}/ops.jsonl"
+          ]
+        }
+      }
+    ]
+  },
+  {
     "collections": [
       {
         "name": "stream",
         "type": "kafka_topic_in",
-        "group": "sources",
         "connection_template": "connection-file:connections/kafka_topic_in_registry.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "${xp:name(redpanda)}"
+        }
+      },
+      {
+        "name": "dead",
+        "type": "kafka_topic_in",
+        "connection_template": "connection-file:connections/kafka_topic_in_dead.yaml",
+        "group": "sources",
         "domains": {
           "D0": "${xp:name(redpanda)}"
         }
@@ -33,6 +72,36 @@
       {
         "collection": "stream",
         "functionpath": "functions/kafka_registry/read_registry_avro.py::read_registry_avro"
+      },
+      {
+        "collection": "dead",
+        "functionpath": "functions/caps_kafka_topics.py::kafka_registry_dead"
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "python": {
+          "name": "verify-registry",
+          "script": "scripts/verify_kafka.py",
+          "params": [
+            "${xp:dir}/ops.jsonl",
+            "stream",
+            "--expect",
+            "registry_events=registry_events",
+            "--dead",
+            "dead/kafka_registry_dead",
+            "--require-dead",
+            "--time-out",
+            "5m",
+            "--profile",
+            "${td:profile}"
+          ],
+          "tags": [
+            "check"
+          ]
+        }
       }
     ]
   },

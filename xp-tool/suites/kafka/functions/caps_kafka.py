@@ -55,15 +55,10 @@ one group would leave one idle (templates: kafka_topic_in.yaml / _dlq / _time):
                       messages arrive at once and are staged as one table version
                       once the 60-second manifest floor passes.
 - ``kafka_in_dlq``  : ``<prefix>.departments`` (9 messages) with a ``dlq_topic``. The
-                      seeded messages all validate, so to see the dead-letter path
-                      produce a violating line yourself and read it back from
-                      ``<prefix>.dead`` (``tdx-domain info --domain <instance>_redpanda
-                      --format json`` prints the prefix as ``meta.DB``):
-                          docker exec -i tdd_redpanda rpk topic produce \\
-                              <prefix>.departments <<'EOF'
-                          {"dept_no": 42}
-                          EOF
-                      A row trigger of 5 is reached at once, but nothing is staged
+                      seeded messages all validate; the suite then sends departments
+                      with ``--schema-changes drop``, and every other message,
+                      without the required ``dept_name``, goes to ``<prefix>.dead``,
+                      which kafka_dead reads back. A row trigger of 5 is reached at once, but nothing is staged
                       before the 60-second manifest floor, so all 9 messages land
                       in one table version.
 - ``kafka_in_time`` : ``<prefix>.employees`` again (own consumer group, so it sees every

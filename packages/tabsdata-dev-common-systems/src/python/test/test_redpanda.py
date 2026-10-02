@@ -192,7 +192,8 @@ def test_messages_are_keyed_and_carry_the_fields_a_row_has(kafka):
     kafka.Producer = Producer
     cols = [emit.Column("id", "int"), emit.Column("name", "varchar(9)")]
     table = emit.Table("t", cols, [{"id": 1, "name": "a"}, {"id": 2}])
-    assert backend.Redpanda()._produce("b:1", "pfx", [table]) == {"pfx.t": 2}
+    conf = backend.client_conf("b:1")
+    assert backend.Redpanda()._produce(conf, "pfx", [table]) == {"pfx.t": 2}
     assert sent == [
         ("pfx.t", b"1", {"id": 1, "name": "a"}),
         ("pfx.t", b"2", {"id": 2}),
@@ -274,3 +275,49 @@ def test_the_dispatcher_resolves_redpandas_own_verbs(verb, own):
         assert args.schema_changes == constants.ENTITY_ALL and args.size == 1
     if verb == "modify-data":
         assert args.schema_changes == "drop"
+
+
+def test_sasl_on_gives_the_system_a_user_its_domains_and_clients_carry(monkeypatch):
+    """--sasl on: one user with a generated password, in the descriptor and in
+    every domain made from it; every client config then authenticates, and the
+    data-plane handle carries the credentials whatever their characters."""
+    from tabsdata_dev.common.systems.systems.redpanda import backend
+
+    system = backend.Redpanda()
+    system.use_ports([29901, 29902, 29903, 29904])
+    off = system.plan_system("rp", {"SASL": "off"})
+    assert off["SASL"] == "off" and off["USER"] == "" and off["PASSWORD"] == ""
+    on = system.plan_system("rp", {"SASL": "ON"})
+    assert on["SASL"] == "on" and on["USER"] == backend.SASL_USER
+    assert len(on["PASSWORD"]) >= 16 and on["SASL_MECHANISM"] == "SCRAM-SHA-256"
+    with pytest.raises(TdxError, match="--sasl must be on or off"):
+        system.plan_system("rp", {"SASL": "maybe"})
+    assert system.synth_default("SASL", "rp") == "off"
+
+    dom = system.domain_meta(on, "pfx", "")
+    assert (dom["USER"], dom["PASSWORD"]) == (on["USER"], on["PASSWORD"])
+    assert backend.client_conf("b:1") == {"bootstrap.servers": "b:1"}
+    conf = backend.client_conf("b:1", "u", "p")
+    assert conf["security.protocol"] == "SASL_PLAINTEXT"
+    assert (conf["sasl.username"], conf["sasl.password"]) == ("u", "p")
+
+    meta = {"KAFKA_BROKERS": "h:1", "DB": "pfx", "USER": "tdd", "PASSWORD": "a:b@c/d%e"}
+    with system.data_plane_uri(meta) as uri:
+        conf, brokers, prefix = system._endpoint(uri)
+    assert (brokers, prefix, conf["sasl.password"]) == ("h:1", "pfx", "a:b@c/d%e")
+    with system.data_plane_uri({"KAFKA_BROKERS": "h:1", "DB": "pfx"}) as uri:
+        assert system._endpoint(uri) == ({"bootstrap.servers": "h:1"}, "h:1", "pfx")
+
+
+def test_a_sasl_systems_probe_authenticates(monkeypatch):
+    from tabsdata_dev.common.systems import shell
+    from tabsdata_dev.common.systems.systems.redpanda import backend
+
+    calls = []
+    monkeypatch.setattr(
+        shell, "docker_exec_check", lambda c, *argv: calls.append(argv) or True
+    )
+    system = backend.Redpanda()
+    assert system.check_ready("c", "") and system.check_ready("c", "pw")
+    assert calls[0] == ("rpk", "cluster", "info")
+    assert "user=tdd" in calls[1] and "pass=pw" in calls[1]
