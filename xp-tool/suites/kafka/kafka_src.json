@@ -11,7 +11,7 @@
           "name": "${xp:name(redpanda)}",
           "system": "redpanda",
           "model": "employees",
-          "data": "xs"
+          "size": 1
         }
       ]
     }

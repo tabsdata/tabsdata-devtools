@@ -9,7 +9,7 @@
           "name": "${xp:name(dev)}",
           "system": "dev",
           "model": null,
-          "data": null
+          "size": null
         }
       ]
     }

@@ -2462,7 +2462,7 @@ def _dm(*domains, emit_ops=None):
     return {"domain-manifest": body}
 
 
-PG = {"name": N("pg"), "system": "postgres", "model": "world", "data": "s"}
+PG = {"name": N("pg"), "system": "postgres", "model": "world", "size": 10}
 FS = {"name": N("fs"), "system": "fs"}
 
 
@@ -2492,14 +2492,28 @@ def test_a_domain_manifest_stage_reads_its_domains_and_emit_settings(xp_root):
         False,
     ]
     assert dm.domains[0].size == 10
+    # a seeded domain with no size loads the base; an unseeded one has none
+    unsized = {k: v for k, v in PG.items() if k != "size"}
+    [seeded, bare] = (
+        build_instance("j", _staged_suite(xp_root, [_dm(unsized, FS)]))
+        .stages[0]
+        .domain_manifest.domains
+    )
+    assert (seeded.size, bare.size) == (1, None)
 
 
 @pytest.mark.parametrize(
     "doc, why",
     [
         ([{"domain-manifest": [PG]}], "domain-manifest takes an object"),
-        ([_dm({**PG, "data": "huge"})], "data 'huge' is not one of"),
-        ([_dm({"name": "x", "system": "fs", "data": "xs"})], "data needs a model"),
+        ([_dm({**PG, "size": 0})], "size 0 is not a positive integer"),
+        ([_dm({**PG, "size": "10"})], "valid integer"),
+        ([_dm({**PG, "size": True})], "valid integer"),
+        ([_dm({"name": "x", "system": "fs", "size": 1})], "size needs a model"),
+        (
+            [_dm({k: v for k, v in PG.items() if k != "size"} | {"data": "s"})],
+            "Extra inputs",
+        ),
         ([_dm(PG, emit_ops="${xp:workdir}/o")], r"\$\{xp:workdir\} is not a token"),
         ([_dm({**PG, "name_in_system": "pinned"})], "Extra inputs"),
         ([_dm(PG), {"domains": calls("pg", "fs")}], f"'{PH}_pg' is created twice"),

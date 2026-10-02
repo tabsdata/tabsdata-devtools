@@ -479,14 +479,10 @@ for _model in (BackgroundBlock, ParallelBlock, LoopBlock, TimeoutBlock):
     _model.model_rebuild()
 
 
-# A domain-manifest entry's `data` size LABEL -> `create-data --size` multiplier
-# (xs=100 rows, s=1k, m=10k, l=100k, xl=1M; --size N loads N x ~100 rows).
-DATA_SIZE_MULT = {"xs": 1, "s": 10, "m": 100, "l": 1000, "xl": 10000}
-
-
 class ManifestDomain(BaseModel):
     """A domain as a domain-manifest stage describes it: its system and, for a
-    seeded one, the model and the data size to load. ``emit`` (default true)
+    seeded one, the model and the size to load -- ``size`` is `create-data
+    --size` itself (N loads ~N x 100 rows; default 1). ``emit`` (default true)
     says whether its seed's operations are captured -- when the stage names an
     ``emit_ops`` file at all."""
 
@@ -495,23 +491,21 @@ class ManifestDomain(BaseModel):
     name: str
     system: str
     model: str | None = None
-    data: str | None = None
+    # strict: a "10" or a true is a typo, not a size.
+    size: int | None = Field(default=None, strict=True)
     emit: bool = True
 
     @model_validator(mode="after")
-    def _a_known_size(self) -> ManifestDomain:
-        if self.data is not None and self.data not in DATA_SIZE_MULT:
+    def _a_positive_size(self) -> ManifestDomain:
+        if self.size is not None and self.size < 1:
             raise ValueError(
-                f"domain {self.name!r}: data {self.data!r} is not one of "
-                f"{', '.join(DATA_SIZE_MULT)}"
+                f"domain {self.name!r}: size {self.size} is not a positive integer"
             )
-        if self.data is not None and not self.model:
-            raise ValueError(f"domain {self.name!r}: data needs a model")
+        if self.size is not None and not self.model:
+            raise ValueError(f"domain {self.name!r}: size needs a model")
+        if self.model and self.size is None:
+            self.size = 1
         return self
-
-    @property
-    def size(self) -> int:
-        return DATA_SIZE_MULT[self.data or "xs"]
 
 
 class DomainManifest(BaseModel):

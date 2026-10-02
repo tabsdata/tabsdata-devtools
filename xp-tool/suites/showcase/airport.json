@@ -9,7 +9,7 @@
           "name": "${xp:name(ap_fs)}",
           "system": "fs",
           "model": "airportdb",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(out)}",

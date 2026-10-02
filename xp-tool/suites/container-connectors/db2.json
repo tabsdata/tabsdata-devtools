@@ -9,19 +9,19 @@
           "name": "${xp:name(dev)}",
           "system": "dev",
           "model": null,
-          "data": null
+          "size": null
         },
         {
           "name": "${xp:name(world_xs)}",
           "system": "db2",
           "model": "world",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(db2)}",
           "system": "db2",
           "model": null,
-          "data": null
+          "size": null
         }
       ]
     }

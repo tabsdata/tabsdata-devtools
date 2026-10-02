@@ -13,19 +13,19 @@
           "name": "${xp:name(world_xs_s3)}",
           "system": "starrocks",
           "model": "world",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(world_xs_az)}",
           "system": "starrocks",
           "model": "world",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(world_xs_gcs)}",
           "system": "starrocks",
           "model": "world",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(s3)}",

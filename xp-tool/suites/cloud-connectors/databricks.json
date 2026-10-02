@@ -13,7 +13,7 @@
           "name": "${xp:name(world_xs)}",
           "system": "databricks",
           "model": "world",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(databricks)}",

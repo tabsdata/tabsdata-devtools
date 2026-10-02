@@ -44,14 +44,14 @@ sys.path.insert(0, str(FN_DIR))
 # The source domain of both categories is a FILE domain carrying the world model: its data
 # plane stages csv/<entity>_<stamp>.csv (plus ndjson/parquet) under the domain root, which
 # is what the LOG publishers read.
-WORLD_DOMAIN = {"name": "fs_world_xs", "system": "fs", "model": "world", "data": "xs"}
+WORLD_DOMAIN = {"name": "fs_world_xs", "system": "fs", "model": "world", "size": 1}
 # `dev` backs the TrashDest sink of the tests (a no-op domain, no keys); `fs_out` is a
 # plain file domain the examples write their parquet output into.
-DEV_DOMAIN = {"name": "dev", "system": "dev", "model": None, "data": None}
-OUT_DOMAIN = {"name": "fs_out", "system": "fs", "model": None, "data": None}
+DEV_DOMAIN = {"name": "dev", "system": "dev", "model": None, "size": None}
+OUT_DOMAIN = {"name": "fs_out", "system": "fs", "model": None, "size": None}
 # The S3 twins: the same world staging, in a bucket prefix instead of a directory.
-S3_WORLD_DOMAIN = {"name": "s3_world_xs", "system": "s3", "model": "world", "data": "xs"}
-S3_OUT_DOMAIN = {"name": "s3_out", "system": "s3", "model": None, "data": None}
+S3_WORLD_DOMAIN = {"name": "s3_world_xs", "system": "s3", "model": "world", "size": 1}
+S3_OUT_DOMAIN = {"name": "s3_out", "system": "s3", "model": None, "size": None}
 
 
 @dataclass(frozen=True)

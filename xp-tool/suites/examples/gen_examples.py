@@ -884,7 +884,7 @@ def read_csv_dialect(products: TableFramesSpec) -> TableFrameSpec:
         [
             {"name": "dev", "system": "dev"},
             {"name": f"{c['system']}_world_xs", "system": c["system"],
-             "model": "world", "data": "xs"},
+             "model": "world", "size": 1},
             {"name": f"{c['system']}_files", "system": c["system"]},
         ],
         [
@@ -1059,7 +1059,7 @@ def read_every_run(city: TableFramesSpec) -> TableFrameSpec:
         f"Run: `tdd xp one-shot --suite examples/{suite} --keep`.",
         [
             {"name": f"{c['system']}_world_xs", "system": c["system"],
-             "model": "world", "data": "xs"},
+             "model": "world", "size": 1},
         ],
         [
             coll("files", c["src_type"], c["src_tpl"], "sources",
@@ -1765,7 +1765,7 @@ def read_no_rows(city: TableFrameSpec) -> TableFrameSpec:
         f"under functions/{suite}/. Run: `tdd xp one-shot --suite examples/{suite}`.",
         [
             {"name": f"{c['system']}_world_xs", "system": c["system"],
-             "model": "world", "data": "xs"},
+             "model": "world", "size": 1},
         ],
         [coll("db", c["type"], c["tpl"], "sources", {"D0": f"{c['system']}_world_xs"})],
         [fn("db", suite, n, n) for n in names],
@@ -1992,7 +1992,7 @@ def read_always_empty(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
         f"Run: `tdd xp one-shot --suite examples/{suite} --keep`, then run-triggers again.",
         [
             {"name": f"{c['system']}_world_xs", "system": c["system"],
-             "model": "world", "data": "xs"},
+             "model": "world", "size": 1},
         ],
         [coll("db", c["type"], c["tpl"], "sources", {"D0": f"{c['system']}_world_xs"})],
         [fn("db", suite, n, n) for n in names],
@@ -2591,7 +2591,7 @@ def write_nothing(city: TableFrameSpec) -> TableFrameSpec:
         [
             {"name": "dev", "system": "dev"},
             {"name": "starrocks_world_xs", "system": "starrocks",
-             "model": "world", "data": "xs"},
+             "model": "world", "size": 1},
             {"name": "stage_store", "system": "s3"},
         ],
         [
@@ -3388,7 +3388,7 @@ def {name}(
         f"Run: `tdd xp one-shot --suite examples/{suite} --keep`.",
         [
             {"name": f"{c['system']}_employees_xs", "system": c["system"],
-             "model": "employees", "data": "xs"},
+             "model": "employees", "size": 1},
         ],
         [
             coll(collection, c["type"], c["tpl"](i), "sources",

@@ -9,7 +9,7 @@
           "name": "${xp:name(world_pg)}",
           "system": "postgres",
           "model": "world",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(out)}",

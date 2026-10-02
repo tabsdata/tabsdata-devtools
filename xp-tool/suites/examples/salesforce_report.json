@@ -10,7 +10,7 @@
           "name": "${xp:name(sf)}",
           "system": "salesforce",
           "model": "salesforce",
-          "data": "xs"
+          "size": 1
         }
       ]
     }

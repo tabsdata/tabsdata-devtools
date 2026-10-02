@@ -10,7 +10,7 @@
           "name": "${xp:name(employees_xs)}",
           "system": "mysqlcdc",
           "model": "employees",
-          "data": "xs"
+          "size": 1
         }
       ]
     }

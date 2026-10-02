@@ -9,13 +9,13 @@
           "name": "${xp:name(world_xs)}",
           "system": "fs",
           "model": "world",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(out)}",
           "system": "fs",
           "model": null,
-          "data": null
+          "size": null
         }
       ]
     }

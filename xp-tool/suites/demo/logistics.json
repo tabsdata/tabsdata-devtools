@@ -1,7 +1,7 @@
 [
   {
     "_copyright": "Copyright 2026 Tabsdata Inc.",
-    "_comment": "DEMO suite 'logistics' — courier operations over the courierlogistics sample staged as files in S3, served back to S3. DOMAINS: s3logistics (system s3, model courierlogistics, data m = `tdx-domain create-data --size 100`; the seed lands one file per entity per format, `<fmt>/<entity>_<YYYYMMDDThhmmss_mmm>.<fmt>`) and s3 (system s3, no model — the serving bucket prefix). INGEST: logistics_src reads the parquet shards of hubs/couriers/customers/shipments/tracking_events with one S3Src publisher (a wildcard per entity; file slots are ARRAYS, folded with concat so later `modify-data` shards are picked up too). MARTS: logistics_marts is a connection-less @transformer collection (group 'marts') building shipments_enriched, in_transit_shipments, failed_deliveries and tracking_timeline with the Tabsdata TableFrame API only (join/filter/select/sort/rename — row-preserving; no polars). SERVE: logistics_s3 writes each mart to a parquet object under logistics/ in the s3 domain. Only the publisher is triggered; the rest cascade by @NEW. Functions in functions/logistics.py. Run: `tdx-xp oneshot --suite demo/logistics`."
+    "_comment": "DEMO suite 'logistics' — courier operations over the courierlogistics sample staged as files in S3, served back to S3. DOMAINS: s3logistics (system s3, model courierlogistics, size 100 = `tdd domain create-data --size 100`; the seed lands one file per entity per format, `<fmt>/<entity>_<YYYYMMDDThhmmss_mmm>.<fmt>`) and s3 (system s3, no model — the serving bucket prefix). INGEST: logistics_src reads the parquet shards of hubs/couriers/customers/shipments/tracking_events with one S3Src publisher (a wildcard per entity; file slots are ARRAYS, folded with concat so later `modify-data` shards are picked up too). MARTS: logistics_marts is a connection-less @transformer collection (group 'marts') building shipments_enriched, in_transit_shipments, failed_deliveries and tracking_timeline with the Tabsdata TableFrame API only (join/filter/select/sort/rename — row-preserving; no polars). SERVE: logistics_s3 writes each mart to a parquet object under logistics/ in the s3 domain. Only the publisher is triggered; the rest cascade by @NEW. Functions in functions/logistics.py. Run: `tdx-xp oneshot --suite demo/logistics`."
   },
   {
     "domain-manifest": {
@@ -10,7 +10,7 @@
           "name": "${xp:name(s3logistics)}",
           "system": "s3",
           "model": "courierlogistics",
-          "data": "m"
+          "size": 100
         },
         {
           "name": "${xp:name(s3)}",

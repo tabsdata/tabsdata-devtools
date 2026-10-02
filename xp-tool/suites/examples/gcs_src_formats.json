@@ -14,7 +14,7 @@
           "name": "${xp:name(world_xs)}",
           "system": "gcs",
           "model": "world",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(files)}",

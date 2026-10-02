@@ -86,15 +86,15 @@ times the phases, `--dry-run` prints the commands.
   given no profile, pass none and get that recorded one. `${td:...}`, not `${xp:...}`: it is
   tdk's setting, not the run's.
 - **A domain-manifest stage is the batch**: `{"domain-manifest": {"emit_ops": FILE?, "domains":
-  [{"name", "system", "model"?, "data"?, "emit"?}]}}` -- an object, not a list, for the setting
+  [{"name", "system", "model"?, "size"?, "emit"?}]}}` -- an object, not a list, for the setting
   beside its entries. xp writes the entries as a manifest (`domains-<n>.yaml`: `name`, `sys`,
   `name-in-system`, `model`, `size`, `emit-ops`) and runs ONE `tdd domain create --manifest`, the
   toolkit's batch: every domain in parallel, heaviest backend first, chaining create ->
-  create-model -> create-data, one step per domain. `data` is a size label (xs=1, s=10, m=100,
-  l=1000, xl=10000 times ~100 rows). With `emit_ops`, each seeded domain whose `emit` is not
-  false (default true) appends its seed's operations to a file of its own under the work dir --
-  two processes appending to one file with no lock can interleave, and on Windows an append is
-  not atomic at all -- and once the batch is done xp appends those files to `emit_ops` in the
+  create-model -> create-data, one step per domain. `size` is `create-data --size` itself, a
+  positive integer (~N x 100 rows; default 1, and only with a `model`). With `emit_ops`, each
+  seeded domain whose `emit` is not false (default true) appends its seed's operations to a
+  file of its own under the work dir -- two processes appending to one file with no lock can
+  interleave, and on Windows an append is not atomic at all -- and once the batch is done xp appends those files to `emit_ops` in the
   order listed, so the trail does not depend on which domain finished first. A failed batch
   appends nothing. The built-in suites use it; the manifest's key is `emit-ops` because every
   manifest key mirrors a flag, the suite's `emit_ops` because every suite key is `_`.

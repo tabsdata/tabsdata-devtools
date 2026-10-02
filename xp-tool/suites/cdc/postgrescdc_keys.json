@@ -10,7 +10,7 @@
           "name": "${xp:name(employeescdc_xs)}",
           "system": "postgrescdc",
           "model": "employeescdc",
-          "data": "xs"
+          "size": 1
         }
       ]
     }

@@ -10,7 +10,7 @@
           "name": "${xp:name(world_xs)}",
           "system": "postgres",
           "model": "world",
-          "data": "xs"
+          "size": 1
         }
       ]
     }

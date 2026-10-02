@@ -9,37 +9,37 @@
           "name": "${xp:name(mysql_bronze_xs)}",
           "system": "mysql",
           "model": "bronze",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(postgres_bronze_xs)}",
           "system": "postgres",
           "model": "bronze",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(oracle_bronze_xs)}",
           "system": "oracle",
           "model": "bronze",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(db2_bronze_xs)}",
           "system": "db2",
           "model": "bronze",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(mssqlserver_bronze_xs)}",
           "system": "mssqlserver",
           "model": "bronze",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(databricks_bronze_xs)}",
           "system": "databricks",
           "model": "bronze",
-          "data": "xs"
+          "size": 1
         },
         {
           "name": "${xp:name(snowflake)}",
