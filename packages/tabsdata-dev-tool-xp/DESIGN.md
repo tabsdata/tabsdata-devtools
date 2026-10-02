@@ -50,7 +50,11 @@ times the phases, `--dry-run` prints the commands.
   JSON, ten passes of the domain's `modify-data --entity employees --size 1000` before the
   publisher is registered -- in passes, as one load builds every table of the model, ~12 rows
   for each employee sent. A type of their own so no connector run takes
-  them, and meant to run one at a time. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
+  them, and meant to run one at a time. `mysql_airportdb` (hand-written, beside the
+  generated ones) is a connector's capability surface at scale: mysql.json's, over an
+  airportdb domain at size 1000, so one table crosses the SQL reader's 100K-row chunk; for
+  it `performance/functions/` carries copies of the shared `caps_datagen.py` and
+  `_srcmeta.py`. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
 - No `bin-reqs`: xp reaches tdk and tdkserver only through `tdd tdk`/`tdd tdkserver`,
   and those launchers declare the binaries themselves -- the requirement belongs to the
   command that runs the program. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run

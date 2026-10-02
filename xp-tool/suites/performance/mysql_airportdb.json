@@ -1,0 +1,152 @@
+[
+  {
+    "_comment": "PERFORMANCE suite: the MySQL connector at a scale where one ingested table has more than 100K rows -- container-connectors/mysql.json's surface, read from a seeded airportdb domain instead of world. Functions in functions/perf_mysql_airportdb.py (caps_datagen.py and _srcmeta.py are copies of container-connectors/functions'). Run: `tdd xp one-shot --suite performance/mysql_airportdb`. SCALE: the source domain loads size 1000 (`create-data --size 1000`, ~131K rows, ~5 MB): booking has exactly 100,000 rows, so the base reads it twice with UNION ALL — one 200,000-row booking table, no join — to cross 100K; size 10000 would give 1M bookings but ~2.2M rows (weather grows 100x) to seed. SOURCE (`mysql_in`, reads mysql_airportdb_l): base (booking UNION ALL booking — the 200K-row ingest — plus flight and airline), _inc (booking_id watermark, LIMIT 10 — re-run to walk), _none (WHERE 1=0), _multiquery (2 slim queries, transactional=False). DEST (`mysql_out`, input from dev datagen `caps_input/cap_rows`): _append (create then accumulate) and _replace (create then DROP+recreate) on distinct tables cap_append/cap_replace; re-run to observe. No schema evolution. Domains: dev (datagen), mysql_airportdb_l (source), mysql (dest). SRC METADATA: mysql_meta_keep and mysql_meta_drop (mysql_in) read the same one-query SELECT over airline (aliased to the code/name columns functions/_srcmeta.py asserts) with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection mysql_meta (group ops) asserts that side, as in container-connectors/mysql.json."
+  },
+  {
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "${xp:name(dev)}",
+          "system": "dev"
+        },
+        {
+          "name": "${xp:name(airportdb_l)}",
+          "system": "mysql",
+          "model": "airportdb",
+          "size": 1000
+        },
+        {
+          "name": "${xp:name(mysql)}",
+          "system": "mysql"
+        }
+      ]
+    }
+  },
+  {
+    "collections": [
+      {
+        "name": "caps_input",
+        "type": "datagen_in",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "${xp:name(dev)}"
+        }
+      },
+      {
+        "name": "mysql_in",
+        "type": "mysql_sql_in",
+        "connection_template": "connection-file:connections/mysql_sql_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "${xp:name(airportdb_l)}"
+        }
+      },
+      {
+        "name": "mysql_out",
+        "type": "mysql_sql_out",
+        "connection_template": "connection-file:connections/mysql_sql_out.yaml",
+        "group": "destinations",
+        "domains": {
+          "D0": "${xp:name(mysql)}"
+        }
+      },
+      {
+        "name": "mysql_meta",
+        "type": "transform",
+        "group": "ops"
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_datagen.py::caps_rows"
+      },
+      {
+        "collection": "mysql_in",
+        "functionpath": "functions/perf_mysql_airportdb.py::mysql_in"
+      },
+      {
+        "collection": "mysql_in",
+        "functionpath": "functions/perf_mysql_airportdb.py::mysql_in_inc"
+      },
+      {
+        "collection": "mysql_in",
+        "functionpath": "functions/perf_mysql_airportdb.py::mysql_in_none"
+      },
+      {
+        "collection": "mysql_in",
+        "functionpath": "functions/perf_mysql_airportdb.py::mysql_in_multiquery"
+      },
+      {
+        "collection": "mysql_out",
+        "functionpath": "functions/perf_mysql_airportdb.py::mysql_out_append"
+      },
+      {
+        "collection": "mysql_out",
+        "functionpath": "functions/perf_mysql_airportdb.py::mysql_out_replace"
+      },
+      {
+        "collection": "mysql_out",
+        "functionpath": "functions/perf_mysql_airportdb.py::mysql_out_none"
+      },
+      {
+        "collection": "mysql_in",
+        "functionpath": "functions/perf_mysql_airportdb.py::mysql_meta_keep"
+      },
+      {
+        "collection": "mysql_in",
+        "functionpath": "functions/perf_mysql_airportdb.py::mysql_meta_drop"
+      },
+      {
+        "collection": "mysql_meta",
+        "functionpath": "functions/perf_mysql_airportdb.py::mysql_meta_keep_check"
+      },
+      {
+        "collection": "mysql_meta",
+        "functionpath": "functions/perf_mysql_airportdb.py::mysql_meta_drop_check"
+      }
+    ]
+  },
+  {
+    "triggers": [
+      {
+        "collection": "caps_input",
+        "function": "caps_rows",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in",
+        "function": "mysql_in",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in",
+        "function": "mysql_in_inc",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in",
+        "function": "mysql_in_multiquery",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in",
+        "function": "mysql_meta_keep",
+        "detached": true
+      },
+      {
+        "collection": "mysql_in",
+        "function": "mysql_meta_drop",
+        "detached": true
+      }
+    ]
+  },
+  {
+    "monitor": {
+      "time_out": "30m"
+    }
+  }
+]
