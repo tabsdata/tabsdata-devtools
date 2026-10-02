@@ -175,18 +175,27 @@ def test_messages_are_keyed_and_carry_the_fields_a_row_has(kafka):
     from tabsdata_dev.common.systems.systems.redpanda import backend
 
     sent = []
+    full = [1]  # the first produce finds the queue full
+    fail = []
 
     class Producer:
         def __init__(self, conf):
-            pass
+            self.pending = []
 
-        def produce(self, topic, value, key=None):
+        def produce(self, topic, value, key=None, on_delivery=None):
+            if full and full.pop():
+                raise BufferError("queue full")
             sent.append((topic, key, json.loads(value)))
+            self.pending.append(on_delivery)
 
         def poll(self, timeout):
+            for cb in self.pending:
+                cb(fail[0] if fail else None, None)
+            self.pending = []
             return 0
 
-        def flush(self):
+        def flush(self, timeout=None):
+            self.poll(0)
             return 0
 
     kafka.Producer = Producer
@@ -198,6 +207,10 @@ def test_messages_are_keyed_and_carry_the_fields_a_row_has(kafka):
         ("pfx.t", b"1", {"id": 1, "name": "a"}),
         ("pfx.t", b"2", {"id": 2}),
     ]
+    # a delivery the broker refused is the produce's error, never a count
+    fail.append("MSG_SIZE_TOO_LARGE")
+    with pytest.raises(TdxError, match="2 failed .first: MSG_SIZE_TOO_LARGE"):
+        backend.Redpanda()._produce(conf, "pfx", [table])
 
 
 def test_data_goes_to_the_entities_named_and_the_trail_is_what_was_sent(

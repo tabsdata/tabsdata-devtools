@@ -387,19 +387,35 @@ class Redpanda(SqlContainerBackend):
         from confluent_kafka import Producer
 
         producer = Producer(conf)
+        failed: list = []
+
+        def delivered(err, _msg) -> None:
+            if err is not None:
+                failed.append(err)
+
         counts: dict[str, int] = {}
         for tbl in tables:
             topic = f"{prefix}.{tbl.name}"
             for row in tbl.rows:
                 record = shape.record(row, tbl.columns)
-                producer.produce(
-                    topic,
-                    json.dumps(record, default=str, separators=(",", ":")).encode(),
-                    key=shape.message_key(row, tbl.columns),
-                )
+                value = json.dumps(record, default=str, separators=(",", ":")).encode()
+                key = shape.message_key(row, tbl.columns)
+                while True:
+                    try:
+                        producer.produce(topic, value, key=key, on_delivery=delivered)
+                        break
+                    except BufferError:
+                        # The local queue is full (100k messages by default): let
+                        # deliveries drain it rather than fail a large batch.
+                        producer.poll(0.1)
                 producer.poll(0)
             counts[topic] = len(tbl.rows)
-        producer.flush()
+        left = producer.flush(120)
+        if left or failed:
+            raise TdxError(
+                f"kafka produce: {left} message(s) undelivered, {len(failed)} failed"
+                + (f" (first: {failed[0]})" if failed else "")
+            )
         return counts
 
     def load_tables(self, uri: str, tables: list[emit.Table]) -> dict[str, int]:
