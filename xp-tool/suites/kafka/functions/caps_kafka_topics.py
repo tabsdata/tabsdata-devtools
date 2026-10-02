@@ -9,12 +9,10 @@ ONE PUBLISHER, SEVERAL TOPICS. ``KafkaStreamSrc`` takes one ``topic``, and the
 consumer subscribes to exactly that string -- which librdkafka reads as a
 REGULAR EXPRESSION when it starts with ``^``. So a publisher of three topics is
 one whose topic is ``^<prefix>\\.(a|b|c)$``. Everything it reads still lands in
-its ONE slot: the frames of a flush come mixed, and its ``@td.kafka.topic``
-column holds the pattern, not the topic a message came from. A frame never
-mixes topics, though -- the encoder starts a new frame whenever a message's
-fields are not a subset of the frame's, and these topics' fields differ -- so
-``_route`` sends each frame to its topic's table by the columns it has, and
-anything it cannot place to ``kafka_unrouted``, which a check expects empty.
+its ONE slot: the frames of a flush come mixed, each holding one topic, named
+by its ``@td.kafka.topic`` column. ``_route`` sends each frame to its topic's
+table by the columns it has (these topics' fields differ), and anything it
+cannot place to ``kafka_unrouted``, which a check expects empty.
 
 The topics exist before the publisher subscribes: a redpanda domain's
 ``create-model`` creates every entity's topic (``--up-to-partitions`` giving
