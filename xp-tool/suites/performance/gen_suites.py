@@ -211,7 +211,7 @@ def kafka_suite() -> list:
                 {
                     "name": name,
                     "type": "kafka_topic_in",
-                    "connection_template": "connection-file:connections/kafka_topic_in.yaml",
+                    "connection_template": "connection-file:connections/kafka_topic_in_perf.yaml",
                     "group": "sources",
                     "domains": {"D0": domain},
                 }

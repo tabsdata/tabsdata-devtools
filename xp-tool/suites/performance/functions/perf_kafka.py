@@ -15,11 +15,20 @@ The JSON Schema is typed and requires every field: the connector validates
 each message against it, which is part of what a JSON source costs and so part
 of what is measured.
 
-Buffer and trigger as the CDC performance publishers have them: large row
-limits make a few large files and versions rather than many small ones, and
-the buffer's 2-second time limit -- what the last partial buffer waits before
-it is written, which ends the measured time -- keeps that wait from swamping a
-backlog read in seconds.
+Tuned to read the backlog as fast as the source can, and to measure only that:
+
+- ``tabsdata.kafka.buffer.max_rows`` 500,000 divides the million, so every
+  file is written on its row count -- two files, the last as the last message
+  arrives -- and no partial buffer waits out ``buffer.max_secs`` at the end,
+  which at several hundred thousand rows a second would be most of the
+  measured time.
+- ``kafka.consume_timeout_seconds`` 1, the shortest the source takes (it is
+  read as a whole number of seconds; 0 would never consume).
+- The connection (``kafka_topic_in_perf.yaml``) sets librdkafka's
+  ``fetch.queue.backoff.ms`` to 0, so the consumer never stalls waiting for
+  its next fetch.
+
+The trigger's limits come after the files, outside what is measured.
 """
 
 from __future__ import annotations
@@ -45,9 +54,9 @@ _SCHEMA = json.dumps({
 })
 
 _CFG = {
-    "kafka.consume_timeout_seconds": 2,
+    "kafka.consume_timeout_seconds": 1,
     "kafka.connection_timeout_seconds": 10,
-    "tabsdata.kafka.buffer.max_rows": 200_000,
+    "tabsdata.kafka.buffer.max_rows": 500_000,
     "tabsdata.kafka.buffer.max_secs": 2,
     "tabsdata.kafka.trigger.max_rows": 500_000,
     "tabsdata.kafka.trigger.max_secs": 60,
