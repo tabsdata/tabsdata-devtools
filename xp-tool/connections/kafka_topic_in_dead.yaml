@@ -25,7 +25,7 @@ spec:
   group_id: '${D0__DB}_dead'
 
   # The dead-letter topic is created by the first message refused, after this consumer
-  # subscribed: re-read the topic list every 10s rather than the default 5 minutes.
+  # subscribed: re-read the topic list every 10s rather than the connector's 30s default.
   conn_cfg:
     topic.metadata.refresh.interval.ms: 10000
   # credentials  (optional, default: none) -- OMITTED: the redpanda domain runs without SASL

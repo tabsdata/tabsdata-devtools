@@ -23,9 +23,10 @@ spec:
   # accepts: <value> | secret:<value>
   # A per-collection group, PREFIXED BY THE DOMAIN so it is per-run as well ('${D0__DB}'
   # is the backing domain's in-system name): the domain also exposes a generated GROUP_ID,
-  # but there is only one of those and each variant needs a distinct group. Offsets are
-  # never committed (the plugin forces enable.auto.commit=False and
-  # auto.offset.reset=earliest), so re-running re-reads the topic from the start.
+  # but there is only one of those and each variant needs a distinct group. The consumer
+  # acknowledges its offsets on the broker once a batch is staged, so a publisher enabled
+  # again goes on from there; a new run's prefix is a new group, which starts at the
+  # beginning of the topic.
   #
   group_id: '${D0__DB}_dlq'
   # credentials  (optional, default: none) -- OMITTED: the redpanda domain runs without SASL

@@ -38,9 +38,9 @@ Publishers -- each suite's collections say which run together:
                            every partition.
 - ``kafka_shared_a`` / ``kafka_shared_b``  dept_emp (3 partitions), both in ONE
                            consumer group, which splits the partitions between
-                           them: what one reads the other does not, unless a
-                           rebalance hands a partition over before its offsets
-                           were committed -- then both stage it.
+                           them: what one reads the other does not, and a
+                           partition the group hands over is staged and
+                           acknowledged by the publisher losing it first.
 - ``kafka_varied``         employees and departments with schema changes:
                            typed schemas requiring only each entity's first
                            field, so an ``add`` or ``drop`` row validates (and
