@@ -41,11 +41,3 @@ spec:
   # Confluent wire format (magic byte + schema id) on every message, which `rpk topic
   # produce` does not write. Fill it in when producing with a registry-aware client.
   # schema_registry: '<FILL: schema_registry>'
-
-  # forwarded to confluent_kafka.Consumer. Several publishers of one collection share this
-  # group even on different topics (kafka_src's stream), and each one registering
-  # rebalances it. The default (eager) protocol revokes every member's partitions then,
-  # and a member re-reads what it had not yet committed: kafka_src staged its 100 seeded
-  # employees twice. Cooperative rebalancing leaves a member the partitions it keeps.
-  conn_cfg:
-    partition.assignment.strategy: cooperative-sticky
