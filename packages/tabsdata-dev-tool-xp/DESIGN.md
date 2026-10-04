@@ -41,13 +41,16 @@ times the phases, `--dry-run` prints the commands.
   and the topic, partition and schema-change suites -- with their functions and
   `verify_kafka.py`. `performance` holds the CDC ingestion suites (`gen_suites.py`
   writes them: per source an initial load and a changes run over a million rows loaded
-  before the stream starts, so it reads a backlog). `scripts/cdc_throughput.py` measures
-  the rows the stream writes to its files per second -- off the worker log's `Buffer flush`
-  lines, from the plugin's `run()` to the last file -- not end to end, whose time is the
-  trigger's and the commit's; the figure is the step's note, PARTIAL rather than failed when
-  a stream is still short after the time-out. `kafka_json` is the Kafka source's, measured by
-  the same script (the stream ledger is every stream source's): a million employees rows as
-  JSON, ten passes of the domain's `modify-data --entity employees --size 1000` before the
+  before the stream starts, so it reads a backlog). `scripts/cdc_throughput.py` measures two
+  figures off the worker log, both before the trigger (whose time, and the commit's, is
+  latency the thresholds choose): READ, the rows the source yielded over the seconds the
+  stream pipeline waited on it (its `Polled` lines), and END TO END, the rows written to
+  the files from the plugin's `run()` to the last file (the ledger's `Wrote` lines), with a
+  steady rate over the files between the first and the last; both are the step's note,
+  PARTIAL rather than failed when a stream is still short after the time-out. `kafka_json`
+  is the Kafka source's, measured by the same script (the stream pipeline and ledger are
+  every stream source's): ten million employees rows as
+  JSON, forty passes of the domain's `modify-data --entity employees --size 2500` before the
   publisher is registered -- in passes, as one load builds every table of the model, ~12 rows
   for each employee sent. A type of their own so no connector run takes
   them, and meant to run one at a time. `mysql_airportdb` (hand-written, beside the

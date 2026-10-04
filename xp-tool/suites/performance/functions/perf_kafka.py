@@ -5,7 +5,7 @@
 """perf_kafka — the Kafka stream source read for throughput (performance/kafka_json).
 
 One ``@stream_publisher`` over ``<prefix>.employees``, which the suite fills
-with a million of the employees model's rows as JSON -- ten passes of the
+with ten million of the employees model's rows as JSON -- forty passes of the
 redpanda domain's own ``modify-data`` -- BEFORE registering it, so it reads a
 backlog as fast as it can. ``scripts/cdc_throughput.py`` measures it as it
 measures a CDC stream: the shared stream ledger logs every file it writes, for
@@ -17,11 +17,15 @@ of what is measured.
 
 Tuned to read the backlog as fast as the source can, and to measure only that:
 
-- ``tabsdata.kafka.buffer.max_rows`` 500,000 divides the million, so every
-  file is written on its row count -- two files, the last as the last message
-  arrives -- and no partial buffer waits out ``buffer.max_secs`` at the end,
-  which at several hundred thousand rows a second would be most of the
-  measured time.
+- ``tabsdata.kafka.buffer.max_rows`` 1,000,000 divides the ten million, so
+  files are written on their row count -- about ten, each soon after the
+  last -- and only a final partial one, if a fetch boundary leaves one, waits
+  out ``buffer.max_secs`` (2) at the end. ``cdc_throughput.py``'s read figure
+  and its steady rate leave that wait and the stream's start out.
+- ``tabsdata.kafka.consume.max_messages`` 100,000, what librdkafka prefetches
+  into its local queue (``queued.min.messages``), so each fetch hands over
+  the most it can and the typed schema lets the source decode the whole
+  fetch as one Arrow table; a larger fetch would wait out the poll.
 - ``tabsdata.kafka.poll.max_secs`` 1, the shortest the source accepts (a
   whole number of seconds, at least 1).
 - The connection (``kafka_topic_in_perf.yaml``) sets librdkafka's
@@ -56,7 +60,8 @@ _SCHEMA = json.dumps({
 _CFG = {
     "tabsdata.kafka.poll.max_secs": 1,
     "kafka.connect_timeout_secs": 10,
-    "tabsdata.kafka.buffer.max_rows": 500_000,
+    "tabsdata.kafka.consume.max_messages": 100_000,
+    "tabsdata.kafka.buffer.max_rows": 1_000_000,
     "tabsdata.kafka.buffer.max_secs": 2,
     "tabsdata.kafka.trigger.max_rows": 500_000,
     "tabsdata.kafka.trigger.max_secs": 60,
