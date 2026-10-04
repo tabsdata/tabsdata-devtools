@@ -553,6 +553,10 @@ common_kubeportforward_start() {
         common_kubeportforward_launch "${PORTFORWARD_ARGS[@]}"
 }
 
+# How long kubectl must have been up for its exit to count as a dropped tunnel,
+# relaunched without a pause (see the supervisor).
+PORTFORWARD_STEADY="${PORTFORWARD_STEADY:-10}"
+
 # The body of the start: what common_run_shown runs and judges.
 common_kubeportforward_launch() {
     local kubeconfig="$1" namespace="$2" service="$3" local_port="$4" remote_port="${5:-$4}" waited=0
@@ -569,15 +573,25 @@ common_kubeportforward_launch() {
     # and the trap ends kubectl and leaves the loop; the pause between relaunches
     # is backgrounded and waited for the same way, so a stop never waits it out.
     # A subshell starts with the script's traps cleared, so the EXIT trap that
-    # stops the forward does not run again inside it.
+    # stops the forward does not run again inside it. A kubectl that had been up
+    # for PORTFORWARD_STEADY seconds dropped a working tunnel and is relaunched
+    # at once -- every second of the pause refuses the requests made in it; one
+    # that died sooner (the service not there yet, the port taken) is paused for,
+    # so a forward that cannot start does not spin.
     (
         child=""
         trap '[ -n "$child" ] && kill "$child" 2>/dev/null; exit 0' TERM INT
         while :; do
+            started=$SECONDS
             kubectl port-forward --kubeconfig "$kubeconfig" --namespace "$namespace" "service/$service" "$local_port:$remote_port" &
             child=$!
             wait "$child"
-            echo "port-forward: kubectl exited $? (the tunnel dropped?); relaunching in 2s"
+            rc=$?
+            if [ $((SECONDS - started)) -ge "$PORTFORWARD_STEADY" ]; then
+                echo "port-forward: kubectl exited $rc after $((SECONDS - started))s (the tunnel dropped?); relaunching now"
+                continue
+            fi
+            echo "port-forward: kubectl exited $rc after $((SECONDS - started))s; relaunching in 2s"
             sleep 2 &
             child=$!
             wait "$child"

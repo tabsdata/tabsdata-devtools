@@ -114,8 +114,10 @@ logged in" -- which is what a dead forward looks like from `tdk`. kubectl does n
 each xp stage opens with `common_kubeportforward_ensure`: the port answers, or the supervisor is
 given up to 20s to bring it back, or the forward is started afresh from the arguments the last
 start was given -- and if that fails, the stage fails in its own words and the suite is skipped.
-A drop now costs the requests in flight and nothing after them; the lanes those requests belonged
-to still fail, since xp does not retry a reset.
+A kubectl that had been up 10s (`PORTFORWARD_STEADY`) dropped a working tunnel and is relaunched
+at once; one that died sooner is paused for 2s, so a forward that cannot start does not spin. A
+drop now costs the requests in flight: xp sends a call that could not connect again for 30s, and
+watches again after a monitor that failed, but a lane whose request was reset mid-flight fails.
 
 `--td-fn-memory` and `--td-fn-disk` size the function pods: `pods.function.resources.memory` and
 `.disk` in `tabsdata.yaml`, rewritten at `configure` beside the `UV_INDEX` line. The template asks

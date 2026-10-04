@@ -122,7 +122,10 @@ times the phases, `--dry-run` prints the commands.
   every lane watching at that moment while their transactions ran on. The run fails once the
   monitor has kept failing for 120s; a watch that lasted 30s reached the server and restarts
   that clock. tdk's own monitor rides out a short outage too (tabsdata-os `live_monitor`); this
-  covers the tdk versions that do not. **The whole watch ends at the monitor's `time_out`**, which
+  covers the tdk versions that do not. Every other tdk call (`shell.run_tdk`) is sent again every
+  2s, for up to 30s, while tdk fails without having connected (urllib3's "Failed to establish a
+  new connection"): the request never left, so even a create is safe to repeat. A reset
+  mid-request is not retried -- a create may have landed. **The whole watch ends at the monitor's `time_out`**, which
   a monitor stage must give (`{"monitor": {"time_out": "30m"}}`; `monitor-project` and
   `run-triggers --monitor` take `--time-out`): transactions still running then fail the run.
   `{"monitor": true}` -- a watch with no end, which is what a hung run looks like -- is refused;

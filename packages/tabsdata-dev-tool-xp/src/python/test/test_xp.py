@@ -860,6 +860,84 @@ def test_the_monitor_fails_the_run_once_its_time_out_passes(
     )
 
 
+#: tdk's words when the port-forward is down, as the eks smoke of 2026-10-04 saw
+#: them -- boxed, and wrapped where the box chose.
+REFUSED = (
+    "│ Failed to create collection: HTTPConnectionPool(host='127.0.0.1', port=11000): │\n"
+    "│ Max retries exceeded (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', │\n"
+    "│ port=11000): Failed to establish a new │\n"
+    '│ connection: [Errno 61] Connection refused")) │'
+)
+
+
+def _fake_tdk(monkeypatch, replies):
+    """Stand in for tdk and the clock: each call takes the next (exit code,
+    stderr) from ``replies``; every call costs a second."""
+    import subprocess
+    import types
+
+    from tabsdata_dev.tool.xp import shell
+
+    now = [0.0]
+    queue = list(replies)
+    sent = []
+
+    def fake(argv, check, stdin_text=None, env=None, timeout=None):
+        sent.append(stdin_text)
+        now[0] += 1
+        rc, err = queue.pop(0)
+        return subprocess.CompletedProcess(argv, rc, "{}" if rc == 0 else "", err)
+
+    def sleep(seconds):
+        now[0] += seconds
+
+    monkeypatch.setattr(shell, "run_cmd", fake)
+    monkeypatch.setattr(
+        shell, "time", types.SimpleNamespace(monotonic=lambda: now[0], sleep=sleep)
+    )
+    return sent
+
+
+def test_a_tdk_call_that_could_not_connect_is_sent_again(xp_root, monkeypatch):
+    """A port-forward drop failed three collection creates in the seconds before
+    its relaunch, and the suite with them. The request never left, so it is safe
+    to send again -- stdin and all."""
+    from tabsdata_dev.tool.xp import shell
+
+    sent = _fake_tdk(monkeypatch, [(1, REFUSED), (1, REFUSED), (0, "")])
+    r = shell.tdk(
+        ["collection", "create", "--conn-file", "-"], want_json=False, stdin_text="c"
+    )
+    assert r.returncode == 0 and sent == ["c", "c", "c"]
+    sent = _fake_tdk(monkeypatch, [(1, REFUSED), (0, "")])
+    assert shell.tdk_read(["collection", "list"]) == ({}, "")
+    assert len(sent) == 2
+
+
+def test_a_tdk_call_that_cannot_connect_fails_once_the_grace_is_spent(
+    xp_root, monkeypatch
+):
+    from tabsdata_dev.tool.xp import shell, state
+
+    sent = _fake_tdk(monkeypatch, [(1, REFUSED)] * 100)
+    with pytest.raises(state.XpError, match="Connection refused"):
+        shell.tdk(["collection", "create"], want_json=False)
+    per_try = shell.NOT_CONNECTED_PAUSE + 1
+    assert len(sent) == int(shell.NOT_CONNECTED_GRACE // per_try) + 1
+
+
+def test_a_tdk_call_that_reached_the_server_is_never_sent_again(xp_root, monkeypatch):
+    """A reset mid-request may have landed a create, and any other failure is
+    tdk's answer: either fails at once."""
+    from tabsdata_dev.tool.xp import shell, state
+
+    for err in ("│ ('Connection aborted.', ConnectionResetError(54)) │", "│ exists │"):
+        sent = _fake_tdk(monkeypatch, [(1, err)])
+        with pytest.raises(state.XpError):
+            shell.tdk(["collection", "create"], want_json=False)
+        assert len(sent) == 1
+
+
 def test_a_monitor_is_never_without_a_time_out(xp_root, capsys):
     assert _run(["monitor-project", "--project", "p1"]) == 1  # argparse: required
     assert "required: --time-out" in capsys.readouterr().err

@@ -643,19 +643,12 @@ def test_every_cluster_smoke_sizes_its_function_pods_before_the_shape_check():
         )
 
 
-def test_the_forward_is_relaunched_when_kubectl_exits_and_checked_before_a_suite(
-    tmp_path,
-):
-    """A port-forward is one stream through the cluster's tunnel, and the tunnel
-    drops on its own (AKS replacing the node that carries its konnectivity agents
-    did it on two consecutive days). kubectl does not reconnect, so the start runs
-    it under a supervisor that relaunches it whenever it exits, and every xp stage
-    opens with an ensure: the port answers, or the supervisor gets a moment, or
-    the forward is started afresh. The fake kubectl records each launch and its
-    own pid, so the test can kill it the way the tunnel would."""
+def _fake_kubectl(tmp_path):
+    """A kubectl whose port-forward listens on the local port and records each
+    launch and its own pid, so a test can kill it the way the tunnel would.
+    Returns (env, record, local port)."""
     import os
     import socket
-    import subprocess
     import textwrap
 
     fakebin = tmp_path / "bin"
@@ -679,6 +672,29 @@ def test_the_forward_is_relaunched_when_kubectl_exits_and_checked_before_a_suite
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         local = probe.getsockname()[1]
+    env = {
+        **os.environ,
+        "PATH": f"{fakebin}:{os.environ['PATH']}",
+        "RECORD": str(record),
+        "PIDFILE": str(pidfile),
+        "NO_COLOR": "1",
+    }
+    return env, record, local
+
+
+def test_the_forward_is_relaunched_when_kubectl_exits_and_checked_before_a_suite(
+    tmp_path,
+):
+    """A port-forward is one stream through the cluster's tunnel, and the tunnel
+    drops on its own (AKS replacing the node that carries its konnectivity agents
+    did it on two consecutive days). kubectl does not reconnect, so the start runs
+    it under a supervisor that relaunches it whenever it exits, and every xp stage
+    opens with an ensure: the port answers, or the supervisor gets a moment, or
+    the forward is started afresh. A kubectl that dies this young is paused for."""
+    import subprocess
+    import textwrap
+
+    env, record, local = _fake_kubectl(tmp_path)
     common = smoke.scripts_dir() / "_common.sh"
     log = tmp_path / "log"
     script = textwrap.dedent(
@@ -715,13 +731,7 @@ def test_the_forward_is_relaunched_when_kubectl_exits_and_checked_before_a_suite
         capture_output=True,
         text=True,
         timeout=120,
-        env={
-            **os.environ,
-            "PATH": f"{fakebin}:{os.environ['PATH']}",
-            "RECORD": str(record),
-            "PIDFILE": str(pidfile),
-            "NO_COLOR": "1",
-        },
+        env=env,
     )
     text = log.read_text()
     assert done.returncode == 0, (done.returncode, done.stdout, done.stderr, text)
@@ -734,6 +744,46 @@ def test_the_forward_is_relaunched_when_kubectl_exits_and_checked_before_a_suite
     assert "the supervisor relaunched kubectl" in text
     assert "port-forward supervisor is gone; starting the forward afresh" in text
     assert text.count("port-forward up:") == 3, text
+
+
+def test_a_forward_that_had_been_up_is_relaunched_without_a_pause(tmp_path):
+    """The eks smoke of 2026-10-04 lost a suite to the pause alone: three
+    collection creates were refused in the 2s before the relaunch. A kubectl
+    that had been up PORTFORWARD_STEADY seconds dropped a working tunnel, so it
+    is relaunched at once (0 here, so the test need not wait)."""
+    import subprocess
+    import textwrap
+
+    env, record, local = _fake_kubectl(tmp_path)
+    common = smoke.scripts_dir() / "_common.sh"
+    log = tmp_path / "log"
+    script = textwrap.dedent(
+        f"""\
+        . "{common}"
+        common_init "{log}" 0
+        common_stage forward-2 "the forward"
+        common_kubeportforward_start /tmp/cfg sm-x net-apiserver {local} 2457 || exit 10
+        first="$(cat "$PIDFILE")"
+        kill "$first"
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+            [ "$(cat "$PIDFILE")" != "$first" ] && break; sleep 0.2
+        done
+        common_kubeportforward_stop
+        exit 0
+        """
+    )
+    done = subprocess.run(
+        ["bash", "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**env, "PORTFORWARD_STEADY": "0"},
+    )
+    text = log.read_text()
+    assert done.returncode == 0, (done.returncode, done.stdout, done.stderr, text)
+    assert len(record.read_text().splitlines()) == 2
+    assert "(the tunnel dropped?); relaunching now" in text
+    assert "relaunching in 2s" not in text
 
 
 def test_every_cluster_smoke_checks_the_forward_before_each_suite_and_skips_it_otherwise():

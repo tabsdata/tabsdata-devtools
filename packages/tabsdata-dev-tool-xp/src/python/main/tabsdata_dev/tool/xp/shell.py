@@ -19,6 +19,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 
 from tabsdata_dev.common.core import proc
 
@@ -27,6 +28,18 @@ from . import state
 # Boilerplate that carries no diagnosis: pydantic closes every validation error
 # with a docs URL, so it would otherwise always win as the "last" stderr line.
 _ERR_NOISE_RE = re.compile(r"For further information visit https?://")
+
+# urllib3's words for a connection that was never made -- refused, unreachable:
+# the request never left, so sending it again is safe whatever it does. A reset
+# mid-request is not this: a create may have landed.
+_NOT_CONNECTED_RE = re.compile(r"Failed\s+to\s+establish\s+a\s+new\s+connection")
+
+#: How long a tdk call that could not connect is tried again, and the pause
+#: between tries. A cluster run reaches the apiserver through a port-forward
+#: that drops and is relaunched in seconds; this outlasts that, and keeps a
+#: server that is simply down from hanging a run for long.
+NOT_CONNECTED_GRACE = 30.0
+NOT_CONNECTED_PAUSE = 2.0
 
 
 def display(argv: list[str]) -> list[str]:
@@ -110,7 +123,40 @@ def run_cmd(
             (r.stdout or "") + (r.stderr or ""),
         )
     if check and r.returncode != 0:
-        state.die(f"command failed: {shell_line(argv)}\n       {err_detail(r)}")
+        die_failed(argv, r)
+    return r
+
+
+def die_failed(argv: list[str], r: subprocess.CompletedProcess) -> None:
+    state.die(f"command failed: {shell_line(argv)}\n       {err_detail(r)}")
+
+
+def not_connected(r: subprocess.CompletedProcess) -> bool:
+    """tdk failed without reaching the server. Matched over the joined lines,
+    since tdk's box may wrap the message anywhere."""
+    return r.returncode != 0 and bool(_NOT_CONNECTED_RE.search(" ".join(err_lines(r))))
+
+
+def run_tdk(
+    argv: list[str], check: bool, stdin_text: str | None = None
+) -> subprocess.CompletedProcess:
+    """`run_cmd` for tdk, sent again while it cannot connect, for up to
+    ``NOT_CONNECTED_GRACE`` seconds. A port-forward drop used to fail every
+    call made in the seconds before its relaunch -- three collection creates
+    once, and with them the suite."""
+    deadline = time.monotonic() + NOT_CONNECTED_GRACE
+    while True:
+        r = run_cmd(argv, check=False, stdin_text=stdin_text)
+        if not not_connected(r) or time.monotonic() >= deadline:
+            break
+        if state.run.reporter is not None:
+            state.run.reporter.note(
+                f"tdk could not connect ({last_err(r)}); sending "
+                f"`{shell_line(argv)}` again in {NOT_CONNECTED_PAUSE:g}s"
+            )
+        time.sleep(NOT_CONNECTED_PAUSE)
+    if check and r.returncode != 0:
+        die_failed(argv, r)
     return r
 
 
@@ -158,7 +204,7 @@ def tdk(
         if not want_json:
             dry_echo(argv)
         return None if want_json else subprocess.CompletedProcess(argv, 0, "", "")
-    r = run_cmd(argv, check=check, stdin_text=stdin_text)
+    r = run_tdk(argv, check=check, stdin_text=stdin_text)
     if want_json:
         if r.returncode != 0:
             return None
@@ -177,7 +223,7 @@ def tdk_read(args: list[str]) -> tuple[object | None, str]:
     argv = tdk_argv(*args, "--format", "json")
     if state.run.dry_run:
         return None, ""
-    r = run_cmd(argv, check=False)
+    r = run_tdk(argv, check=False)
     if r.returncode != 0:
         return None, last_err(r)
     try:
