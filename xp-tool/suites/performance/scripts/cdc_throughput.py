@@ -1,38 +1,59 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""How fast a CDC stream ingests: the rows it writes to its files, per second.
+"""How fast a stream ingests: rows read from its source, and rows written to
+its files, per second.
 
     cdc_throughput.py COLLECTION --expect ROWS [--time-out 10m] [--poll 5s] [--fail-short]
 
-A CDC stream publisher reads its source into a buffer and spills it to parquet
+A stream publisher reads its source into a buffer and spills it to parquet
 files, one a table a spill; a trigger later hands a batch of them over as a
-manifest, which a transaction commits as table versions. What is measured is
-the first half, ingestion: the rows written to those files. The trigger and the
-commit after it are latency the thresholds choose, not the stream's speed.
+manifest, which a transaction commits as table versions. Two figures are
+measured, both before the trigger (the trigger and the commit after it are
+latency the thresholds choose, not the stream's speed):
 
-The files are read off the stream worker's log (``tdk worker list --proj
-$XP_PROJECT`` for COLLECTION's streaming worker, then ``tdk worker logs``), where
-the ledger logs every one it writes -- always, its logger pinned to DEBUG:
+- READ: the rows the source yielded over the seconds the plugin spent waiting
+  on the source for them, from asking for a poll's first record to receiving
+  its last -- the source's own speed, decoding included, with the buffering,
+  the Arrow encoding and the parquet writes left out, and the wait after a
+  poll's last record until the poll reaches its deadline left out too (a poll
+  that finds one record and then idles to its deadline counts the record, not
+  the idling).
+- END TO END: the rows written to the files over the time from the plugin's
+  ``run()`` to the last file -- everything the stream does to land a row. Its
+  STEADY rate leaves out both ends: the rows of the files between the first
+  and the last, over the time between those two files -- not the stream's
+  start (connecting, joining a consumer group) nor a last partial buffer
+  waiting out its age limit. It needs three files; a run of two says none.
 
+Both come off the stream worker's log (``tdk worker list --proj $XP_PROJECT``
+for COLLECTION's streaming worker, then ``tdk worker logs``), where the stream
+pipeline logs every poll that found records (an initial load logs one for each
+table it scans) and the ledger every file it writes -- always, their loggers
+pinned to DEBUG:
+
+    <ts> DEBUG tabsdatak.conn.common._stream._poll: Polled <rows> record(s)
+         from the source in <secs> s
     <ts> DEBUG tabsdatak.conn.common._stream._ledger: Wrote <rows> row(s) and
          <bytes> byte(s) of <table> to <file>
 
-(an older tabsdata worded it ``Buffer flush: writen <table> → <file> (<rows>
-rows & <bytes> bytes)``, which is read too).
+(an older tabsdata worded the latter ``Buffer flush: writen <table> → <file>
+(<rows> rows & <bytes> bytes)``, which is read too, and logged no poll line:
+its read figure is reported as missing).
 
-The clock starts when the worker invokes the source plugin's ``run()`` -- the
-line the streamer logs before it connects -- and stops at the last file
-written. Both times are the worker's own, so another machine's clock does not
-enter. The rows are every file's, so an initial load's count carries its LOAD
-control row, one a table.
+The end-to-end clock starts when the worker invokes the source plugin's
+``run()`` -- the line the streamer logs before it connects -- and stops at the
+last file written. Both times are the worker's own, so another machine's clock
+does not enter. The rows are every file's, so an initial load's count carries
+its LOAD control row, one a table. The read figure sums the poll lines: polls
+that found nothing are not logged, so idle waiting does not dilute it.
 
 It polls the log until the files hold ROWS or the time-out passes, counted from
 when it starts, so a suite fills the source before it registers the stream: the
 stream then reads a backlog, as fast as it can, rather than keeping pace with an
 insert. It is tolerant: a stream short of ROWS at the time-out is reported, not
 failed -- ``PARTIAL`` in the note, what was written and at what rate.
-``--fail-short`` makes that exit 1. The figure is the step's note
+``--fail-short`` makes that exit 1. Both figures are the step's note
 (``tdd.note``), the per-table detail is in the output (run.log), and the whole
 result is written as JSON to ``$XP_WORK_DIR/throughput-COLLECTION.json``.
 """
@@ -63,6 +84,10 @@ _WRITTEN_OLD = re.compile(
     _TS + r" \w+ \S+_ledger: Buffer flush: writen (?P<table>\S+) \S+ (?P<file>\S+) "
     r"\((?P<rows>\d+) rows & (?P<bytes>\d+) bytes\)"
 )
+_POLLED = re.compile(
+    _TS + r" \w+ \S+_poll: Polled (?P<rows>\d+) record\(s\) from the source in "
+    r"(?P<secs>\d+(?:\.\d+)?) s"
+)
 
 
 def duration(text: str) -> float:
@@ -88,9 +113,10 @@ def worker_logs(proj: str, coll: str) -> list[str]:
     return [tdd("tdk", "worker", "logs", "--worker", str(w["id"])) for w in ours]
 
 
-def parse(logs: list[str]) -> tuple[float | None, list[dict]]:
-    """When ``run()`` was first invoked, and every file written, in order."""
-    started, files = None, []
+def parse(logs: list[str]) -> tuple[float | None, list[dict], list[dict]]:
+    """When ``run()`` was first invoked, every file written and every poll that
+    found records, in order."""
+    started, files, polls = None, [], []
     for log in logs:
         for line in log.splitlines():
             if m := _STARTED.search(line):
@@ -100,16 +126,18 @@ def parse(logs: list[str]) -> tuple[float | None, list[dict]]:
                     {"at": _at(m.group(1)), "table": m["table"], "file": m["file"],
                      "rows": int(m["rows"]), "bytes": int(m["bytes"])}
                 )
-    return started, files
+            elif m := _POLLED.search(line):
+                polls.append({"rows": int(m["rows"]), "secs": float(m["secs"])})
+    return started, files, polls
 
 
 def measure(args) -> int:
     proj = os.environ["XP_PROJECT"]
     deadline = time.monotonic() + args.time_out
-    started, files, why = None, [], ""
+    started, files, polls, why = None, [], [], ""
     while True:
         try:
-            started, files = parse(worker_logs(proj, args.collection))
+            started, files, polls = parse(worker_logs(proj, args.collection))
             why = ""
         except (TddError, ValueError) as exc:
             lines = str(exc).strip().splitlines()
@@ -118,15 +146,26 @@ def measure(args) -> int:
         if written >= args.expect or time.monotonic() >= deadline:
             break
         time.sleep(min(args.poll, max(0.0, deadline - time.monotonic())))
-    return report(args, started, files, why)
+    return report(args, started, files, polls, why)
 
 
-def report(args, started, files, why) -> int:
+def _steady(files: list[dict]) -> float | None:
+    if len(files) < 3:
+        return None
+    secs = files[-2]["at"] - files[0]["at"]
+    return sum(f["rows"] for f in files[1:-1]) / secs if secs > 0 else None
+
+
+def report(args, started, files, polls, why) -> int:
     rows = sum(f["rows"] for f in files)
     size = sum(f["bytes"] for f in files)
     done = rows >= args.expect
     secs = files[-1]["at"] - started if files and started is not None else None
     rate = rows / secs if secs else 0.0
+    steady = _steady(files)
+    read_rows = sum(p["rows"] for p in polls)
+    read_secs = sum(p["secs"] for p in polls)
+    read_rate = read_rows / read_secs if read_secs else 0.0
     tables: dict[str, dict] = {}
     for f in files:
         t = tables.setdefault(f["table"], {"rows": 0, "files": 0, "bytes": 0})
@@ -146,7 +185,12 @@ def report(args, started, files, why) -> int:
         "bytes": size,
         "seconds": round(secs, 3) if secs is not None else None,
         "rows_per_second": round(rate, 1),
+        "steady_rows_per_second": round(steady, 1) if steady is not None else None,
         "first_file_seconds": round(files[0]["at"] - started, 3) if files and started is not None else None,
+        "read_rows": read_rows,
+        "read_seconds": round(read_secs, 3),
+        "read_rows_per_second": round(read_rate, 1),
+        "polls": len(polls),
         "tables": tables,
         "error": why or None,
     }
@@ -158,7 +202,15 @@ def report(args, started, files, why) -> int:
         head = "" if done else f"PARTIAL {rows}/{args.expect} rows, "
         body = f"{rows} rows" if done else ""
         took = f"{secs:.2f}s" if secs is not None else "no file"
-        said = f"{head}{body}{', ' if body else ''}{len(files)} files {size / 1e6:.1f}MB in {took}, {rate:.0f} rows/s"
+        end_to_end = f"{head}{body}{', ' if body else ''}{len(files)} files {size / 1e6:.1f}MB in {took}, {rate:.0f} rows/s"
+        read = (
+            f"read {read_rows} rows in {read_secs:.2f}s, {read_rate:.0f} rows/s"
+            if polls
+            else "no read figure (the worker logged no poll line)"
+        )
+        if steady is not None:
+            end_to_end += f" ({steady:.0f} steady)"
+        said = f"{end_to_end} end to end; {read}"
     note(said)
     print(said)
     return 1 if args.fail_short and not done else 0
