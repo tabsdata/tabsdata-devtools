@@ -52,6 +52,11 @@ TABLES = ["accounts", "ledger", "devices", "readings"]
 BASE_SIZE = 100  # rows a table per --size unit (common.systems.datagen.BASE_SIZE)
 SIZE = 2500
 TIME_OUT = "10m"
+# A changes lane waits this long after the load before it registers the
+# publisher: the source has then captured the load in full (Db2 Capture into
+# the CD tables, the WAL, the binlog) and the measured window, which starts at
+# the plugin's run(), holds the read alone rather than the capture lag.
+SETTLE = "60s"
 SCRIPT = "scripts/cdc_throughput.py"
 KAFKA_SIZE = 2500
 KAFKA_PASSES = 40
@@ -102,14 +107,19 @@ def suite(source: str, kind: str) -> list:
         if kind == "initial_load"
         else f"registered from the head: the {rows} are changes it reads from {reads}"
     )
+    settle = (
+        ""
+        if kind == "initial_load"
+        else f", then a {SETTLE} pause so the source has captured the load before the stream starts"
+    )
     comment = (
         f"PERFORMANCE suite: the ingestion throughput of the {source} stream source -- the "
         f"rows a stream publisher writes to its files per second, before a trigger makes them "
         f"a manifest -- over {rows} rows ({per_table} in each of the {MODEL} tables "
         f"{', '.join(TABLES)}), loaded before the stream starts so it reads a backlog. The "
         f"publisher (functions/perf_{source}.py::{name}) is {how}. STAGES: (1) domains -- create "
-        f"the {system} domain, install {MODEL}, create-data --size {SIZE}; (2) collections; "
-        f"(3) functions -- register the publisher, which STARTS it; (4) actions -- {SCRIPT} "
+        f"the {system} domain, install {MODEL}, create-data --size {SIZE}; (2) collections"
+        f"{settle}; (3) functions -- register the publisher, which STARTS it; (4) actions -- {SCRIPT} "
         f"reads the stream worker's log until its files hold {rows} rows or {TIME_OUT} has "
         f"passed, and says in the step's note the end-to-end figure -- rows, files, MB, seconds "
         f"from the plugin's run() to the last file, rows/s -- and the read figure -- rows the "
@@ -138,6 +148,11 @@ def suite(source: str, kind: str) -> list:
                 }
             ]
         },
+        *(
+            []
+            if kind == "initial_load"
+            else [{"actions": [{"sleep": {"name": "settle", "time": SETTLE}}]}]
+        ),
         {
             "functions": [
                 {
