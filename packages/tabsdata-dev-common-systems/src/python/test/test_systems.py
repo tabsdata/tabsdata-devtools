@@ -300,7 +300,7 @@ def test_both_planes_get_a_uri_pair_and_a_container_answers_on_one_address():
         assert "sslmode=require" in gcp[key] and "sslrootcert" not in gcp[key]
 
     pg = _plan("postgres")
-    assert pg["INTERNAL_HOST"] == pg["EXTERNAL_HOST"] == "localhost"
+    assert pg["INTERNAL_HOST"] == pg["EXTERNAL_HOST"] == "127.0.0.1"
     assert pg["INTERNAL_SQLALCHEMY_URI"] == pg["EXTERNAL_SQLALCHEMY_URI"]
     assert "sslmode" not in pg["EXTERNAL_URI"]
 

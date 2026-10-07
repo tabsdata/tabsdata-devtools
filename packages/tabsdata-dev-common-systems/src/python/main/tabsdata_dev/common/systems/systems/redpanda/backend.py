@@ -36,6 +36,7 @@ from tabsdata_dev.common.systems.shell import (
     require_docker,
 )
 from tabsdata_dev.common.systems.systems._common import container_info
+from tabsdata_dev.common.systems.systems._common.host import DEFAULT_HOSTNAME
 from tabsdata_dev.common.systems.systems._common.sql import SqlContainerBackend
 from tabsdata_dev.common.systems.systems.redpanda import shape
 
@@ -228,7 +229,7 @@ class Redpanda(SqlContainerBackend):
     def _admin_client(self, meta: dict[str, str]):
         from confluent_kafka.admin import AdminClient
 
-        brokers = f"{meta.get('HOST', 'localhost')}:{meta['PORT']}"
+        brokers = f"{meta.get('HOST', DEFAULT_HOSTNAME)}:{meta['PORT']}"
         return AdminClient(
             client_conf(brokers, meta.get("USER", ""), meta.get("PASSWORD", ""))
         )

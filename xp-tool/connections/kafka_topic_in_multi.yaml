@@ -20,7 +20,7 @@ type: tabsdatak.conn.kafka:KafkaStreamSrcConn
 spec:
 
   # accepts: <value> | secret:<value>
-  # the redpanda domain's broker list (meta KAFKA_BROKERS, e.g. localhost:19092)
+  # the redpanda domain's broker list (meta KAFKA_BROKERS, e.g. 127.0.0.1:19092)
   #
   servers: '$secret:D0__KAFKA_BROKERS'
 
