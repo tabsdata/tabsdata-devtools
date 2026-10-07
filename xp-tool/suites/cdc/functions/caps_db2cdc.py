@@ -7,8 +7,8 @@
 Unlike every other source in this dir these are STREAM publishers, not batch ones:
 each is a long-lived consumer of Db2 SQL Replication's CD (change-data) tables, which
 the ASN capture program (``asncap``) fills in the background. Each stays running and
-closes a batch whenever the source's buffer/trigger thresholds fire (or
-``flush_interval_mins`` rolls the window over). One input slot per tracked table
+closes a batch whenever the decorator's batch thresholds fire. One input slot per
+tracked table
 (``cardinality = len(tables)``), each slot an ARRAY of the frames that flush carried,
 and NO ``ctx`` parameter (a stream publisher runs in the runtime's stream loop, not
 per transaction).
@@ -59,7 +59,7 @@ from __future__ import annotations
 from tabsdatak.api import TableFrameSpec, TableFramesSpec, stream_publisher
 
 # noinspection PyProtectedMember
-from tabsdatak.conn.common._stream._floor import unsafe_seconds
+from tabsdatak._api import unsafe_seconds
 from tabsdatak.conn.db2 import Db2CdcStreamSrc
 from tabsdatak.tableframe.functions import concat
 
@@ -86,8 +86,6 @@ _OUTPUT = [
 _CFG = {
     "tabsdata.cdc.buffer.max_rows": 100,
     "tabsdata.cdc.buffer.max_secs": 5,
-    "tabsdata.cdc.trigger.max_rows": 10,
-    "tabsdata.cdc.trigger.max_secs": unsafe_seconds(10),
     "tabsdata.cdc.poll.idle_secs": 1,
     "tabsdata.cdc.poll.max_secs": 5,
     "tabsdata.cdc.fetch_size": 500,
@@ -102,7 +100,9 @@ _Out = tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec, Tab
 # mid-stream schema change should surface here rather than be absorbed silently.
 @stream_publisher(
     source=Db2CdcStreamSrc(tables=_TABLES, start_from="tail", src_cfg=_CFG),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(10),
+    batch_max_secs=unsafe_seconds(10),
+    batch_max_rows=10,
     output_tables=_OUTPUT,
 )
 def db2cdc_in(
@@ -117,7 +117,9 @@ def db2cdc_in(
 
 @stream_publisher(
     source=Db2CdcStreamSrc(tables=_TABLES, start_from="head", src_cfg=_CFG),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(10),
+    batch_max_secs=unsafe_seconds(10),
+    batch_max_rows=10,
     output_tables=_OUTPUT,
 )
 def db2cdc_in_head(
@@ -139,7 +141,9 @@ def db2cdc_in_head(
         flatten_columns=False,
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(10),
+    batch_max_secs=unsafe_seconds(10),
+    batch_max_rows=10,
     output_tables=_OUTPUT,
 )
 def db2cdc_in_struct(
@@ -160,7 +164,9 @@ def db2cdc_in_struct(
         columns_format="map",
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(10),
+    batch_max_secs=unsafe_seconds(10),
+    batch_max_rows=10,
     output_tables=_OUTPUT,
 )
 def db2cdc_in_map(

@@ -103,10 +103,10 @@ EVENT_SCHEMA = json.dumps({
         src_cfg={
             "tabsdata.kafka.poll.max_secs": 2,
             "kafka.connect_timeout_secs": 10,
-            "tabsdata.kafka.trigger.max_rows": 25,
         },
     ),
-    flush_interval_mins=1,
+    batch_max_secs=60,
+    batch_max_rows=25,
     output_tables=["registry_events"],
 )
 def read_registry_avro(rows: TableFramesSpec) -> TableFrameSpec:

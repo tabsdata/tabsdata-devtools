@@ -26,9 +26,9 @@ all operational:
     per transaction; declaring `ctx` is an error.
 
   Changes are buffered and written to parquet files per the `tabsdata.cdc.buffer.*`
-  keys; the files are staged as one batch when a `tabsdata.cdc.trigger.*` threshold
-  fires (`src_cfg`) or when `flush_interval_mins` is reached, and never sooner than
-  60 seconds after the previous batch.
+  keys; the files are staged as one batch when a `batch_*` threshold of the
+  decorator fires, and never sooner than `batch_min_secs` (60 by default) after
+  the previous batch.
 
 WHAT `tables` MEANS HERE
     `tables` NAMES THE CD TABLES, NOT THE SOURCE TABLES. Db2 SQL Replication
@@ -88,10 +88,10 @@ WHAT EVERY EMITTED ROW CARRIES
     The CD tables carry the before-image when the registration was created with
     full-row capture, which the `db2cdc` system does.
 
-WHEN A BATCH CLOSES: `src_cfg`
+WHEN A BATCH CLOSES: `src_cfg` and the batch thresholds
     `tabsdata.cdc.buffer.max_rows` / `.max_bytes` / `.max_secs` bound the
-    in-memory buffer; `tabsdata.cdc.trigger.max_rows` / `.max_bytes` /
-    `.max_secs` decide when a batch is emitted; `tabsdata.cdc.poll.max_secs` is
+    in-memory buffer; the decorator's `batch_max_rows` / `batch_max_bytes` /
+    `batch_max_secs` decide when a batch is emitted; `tabsdata.cdc.poll.max_secs` is
     how long one poll waits for changes and `tabsdata.cdc.poll.idle_secs` how
     long the loop rests after a poll that found none. The small values below
     make a demo responsive; production wants larger batches and fewer, bigger
@@ -122,13 +122,12 @@ from tabsdatak.tableframe.functions import concat
         src_cfg={
             "tabsdata.cdc.buffer.max_rows": 100,
             "tabsdata.cdc.buffer.max_secs": 5,
-            "tabsdata.cdc.trigger.max_rows": 10,
-            "tabsdata.cdc.trigger.max_secs": 60,
             "tabsdata.cdc.poll.idle_secs": 1,
             "tabsdata.cdc.poll.max_secs": 5,
         },
     ),
-    flush_interval_mins=1,
+    batch_max_secs=60,
+    batch_max_rows=10,
     output_tables=["emp_changes", "dept_changes"],
 )
 def stream_struct(

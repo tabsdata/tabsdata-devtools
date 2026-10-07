@@ -109,13 +109,12 @@ def pub_finance(
         src_cfg={
             "tabsdata.cdc.buffer.max_rows": 100,
             "tabsdata.cdc.buffer.max_secs": 5,
-            "tabsdata.cdc.trigger.max_rows": 10,
-            "tabsdata.cdc.trigger.max_secs": 60,
             "tabsdata.cdc.poll.idle_secs": 1,
             "tabsdata.cdc.poll.max_secs": 5,
         },
     ),
-    flush_interval_mins=1,
+    batch_max_secs=60,
+    batch_max_rows=10,
     output_tables=["subscription_changes", "subscription_event_changes"],
 )
 def stream_finance_changes(

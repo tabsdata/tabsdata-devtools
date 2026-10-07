@@ -6,8 +6,8 @@
 
 Unlike every other source in this dir these are STREAM publishers, not batch ones:
 each is a long-lived logical-decoding consumer (wal2json) that stays running and
-closes a batch whenever the source's buffer/trigger thresholds fire (or
-``flush_interval_mins`` rolls the window over). One input slot per tracked table
+closes a batch whenever the decorator's batch thresholds fire. One input slot per
+tracked table
 (``cardinality = len(tables)``), each slot an ARRAY of the frames that flush carried,
 and NO ``ctx`` parameter (a stream publisher runs in the runtime's stream loop, not
 per transaction).
@@ -63,7 +63,7 @@ from __future__ import annotations
 from tabsdatak.api import TableFrameSpec, TableFramesSpec, stream_publisher
 
 # noinspection PyProtectedMember
-from tabsdatak.conn.common._stream._floor import unsafe_seconds
+from tabsdatak._api import unsafe_seconds
 from tabsdatak.conn.postgres import PostgresCdcStreamSrc
 from tabsdatak.tableframe.functions import concat
 
@@ -83,8 +83,6 @@ _OUTPUT = [
 _CFG = {
     "tabsdata.cdc.buffer.max_rows": 100,
     "tabsdata.cdc.buffer.max_secs": 5,
-    "tabsdata.cdc.trigger.max_rows": 10,
-    "tabsdata.cdc.trigger.max_secs": unsafe_seconds(10),
     "tabsdata.cdc.poll.idle_secs": 1,
     "tabsdata.cdc.poll.max_secs": 5,
 }
@@ -106,7 +104,9 @@ _Out = tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec, Tab
         start_from="tail",
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(10),
+    batch_max_secs=unsafe_seconds(10),
+    batch_max_rows=10,
     output_tables=_OUTPUT,
 )
 def postgrescdc_in(
@@ -127,7 +127,9 @@ def postgrescdc_in(
         start_from="head",
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(10),
+    batch_max_secs=unsafe_seconds(10),
+    batch_max_rows=10,
     output_tables=_OUTPUT,
 )
 def postgrescdc_in_head(
@@ -151,7 +153,9 @@ def postgrescdc_in_head(
         flatten_columns=False,
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(10),
+    batch_max_secs=unsafe_seconds(10),
+    batch_max_rows=10,
     output_tables=_OUTPUT,
 )
 def postgrescdc_in_struct(
@@ -174,7 +178,9 @@ def postgrescdc_in_struct(
         columns_format="map",
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(10),
+    batch_max_secs=unsafe_seconds(10),
+    batch_max_rows=10,
     output_tables=_OUTPUT,
 )
 def postgrescdc_in_map(

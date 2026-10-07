@@ -27,17 +27,17 @@ FORMAT — `data_format` AND `schema`, BOTH ALWAYS REQUIRED
 TWO LEVELS — buffer files, trigger batches, both in `src_cfg`
     The `tabsdata.kafka.buffer.*` keys (`max_rows`, `max_bytes`, `max_secs`)
     decide when the buffered messages are written to a parquet file. The
-    `tabsdata.kafka.trigger.*` keys decide when the written files are staged as
-    one batch, whichever fires first:
+    decorator's `batch_*` thresholds decide when the written files are staged
+    as one batch, whichever fires first:
 
-    `tabsdata.kafka.trigger.max_rows`   after N messages             (this file)
-    `tabsdata.kafka.trigger.max_secs`   after N seconds, at least 60 (read_timed.py)
-    `tabsdata.kafka.trigger.max_bytes`  after N bytes                (read_avro.py)
+    `batch_max_rows`   after N messages             (this file)
+    `batch_max_secs`   after N seconds, at least 60 (read_timed.py)
+    `batch_max_bytes`  after N bytes                (read_avro.py)
 
-    A batch never comes sooner than 60 seconds after the previous one: a row or
-    byte trigger reached earlier is staged at that mark. `flush_interval_mins`
-    caps the time trigger, so a batch is never stuck waiting for a threshold
-    that will not be reached.
+    A batch never comes sooner than `batch_min_secs` (60 by default) after the
+    previous one: a row or byte threshold reached earlier is staged at that mark.
+    `batch_max_secs` caps the wait, so a batch is never stuck waiting for a
+    threshold that will not be reached.
 
 WHERE THE MESSAGES COME FROM
     A redpanda domain IS a topic namespace: its data plane produces a model's
@@ -96,10 +96,10 @@ EMPLOYEE_SCHEMA = json.dumps({
             "tabsdata.kafka.poll.max_secs": 2,
             "kafka.connect_timeout_secs": 10,
             # 100 seeded messages / 25 per batch -> 4 batches.
-            "tabsdata.kafka.trigger.max_rows": 25,
         },
     ),
-    flush_interval_mins=1,
+    batch_max_secs=60,
+    batch_max_rows=25,
     output_tables=["employees"],
 )
 def read_json(rows: TableFramesSpec) -> TableFrameSpec:

@@ -50,7 +50,7 @@ from __future__ import annotations
 from tabsdatak.api import TableFrameSpec, TableFramesSpec, stream_publisher
 
 # noinspection PyProtectedMember
-from tabsdatak.conn.common._stream._floor import unsafe_seconds
+from tabsdatak._api import unsafe_seconds
 from tabsdatak.conn.mysql import MySQLCdcStreamSrc
 from tabsdatak.tableframe.functions import concat
 
@@ -71,18 +71,9 @@ _SENTINEL_OUTPUT = "xp_sentinel_changes"
 _CFG = {
     "tabsdata.cdc.buffer.max_rows": 100,
     "tabsdata.cdc.buffer.max_secs": 5,
-    "tabsdata.cdc.trigger.max_rows": 10,
-    "tabsdata.cdc.trigger.max_secs": unsafe_seconds(10),
     "tabsdata.cdc.poll.idle_secs": 1,
     "tabsdata.cdc.poll.max_secs": 5,
 }
-
-
-# Under live churn: a manifest at most every 30s. The trigger's seconds are also the
-# floor between manifests, and a publisher run takes one manifest, about every 30s
-# on a local server -- a stream closing one every 10s under steady change falls
-# further behind for as long as the churn lasts.
-_LIVE_CFG = {**_CFG, "tabsdata.cdc.trigger.max_secs": unsafe_seconds(30)}
 
 
 def _source(cfg: dict = _CFG) -> MySQLCdcStreamSrc:
@@ -98,7 +89,9 @@ def _source(cfg: dict = _CFG) -> MySQLCdcStreamSrc:
 # flush carried nothing for this table" guard.
 @stream_publisher(
     source=_source(),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(10),
+    batch_max_secs=unsafe_seconds(10),
+    batch_max_rows=10,
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )
 def mysqlcdc_initial_load(
@@ -117,9 +110,16 @@ def mysqlcdc_initial_load(
     )
 
 
+# Under live churn: a batch at most every 30s. The batch's seconds are also the
+# floor between batches, and a publisher run takes one batch, about every 30s
+# on a local server -- a stream closing one every 10s under steady change falls
+# further behind for as long as the churn lasts (a nested lane once had its last
+# batch published 4.5 minutes after it was staged).
 @stream_publisher(
-    source=_source(_LIVE_CFG),
-    flush_interval_mins=1,
+    source=_source(),
+    batch_min_secs=unsafe_seconds(30),
+    batch_max_secs=unsafe_seconds(30),
+    batch_max_rows=10,
     output_tables=[*_OUTPUT, _SENTINEL_OUTPUT],
 )
 def mysqlcdc_initial_load_live(

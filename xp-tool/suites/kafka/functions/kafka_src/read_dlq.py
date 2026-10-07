@@ -25,7 +25,7 @@ SEEING IT WORK
 
 A ROLLOVER OF 5 OVER 9 MESSAGES also shows the other half of the batching rule:
 one batch closes on the count, and the remaining 4 messages wait for
-`flush_interval_mins` to roll them over. Both paths in one function.
+`batch_max_secs` to roll them over. Both paths in one function.
 """
 from __future__ import annotations
 
@@ -57,10 +57,10 @@ DEPARTMENT_SCHEMA = json.dumps({
         src_cfg={
             "tabsdata.kafka.poll.max_secs": 2,
             "kafka.connect_timeout_secs": 10,
-            "tabsdata.kafka.trigger.max_rows": 5,
         },
     ),
-    flush_interval_mins=1,
+    batch_max_secs=60,
+    batch_max_rows=5,
     output_tables=["departments"],
 )
 def read_dlq(rows: TableFramesSpec) -> TableFrameSpec:

@@ -63,8 +63,6 @@ _CFG = {
     "tabsdata.kafka.consume.max_messages": 100_000,
     "tabsdata.kafka.buffer.max_rows": 1_000_000,
     "tabsdata.kafka.buffer.max_secs": 2,
-    "tabsdata.kafka.trigger.max_rows": 500_000,
-    "tabsdata.kafka.trigger.max_secs": 60,
 }
 
 
@@ -75,7 +73,8 @@ _CFG = {
         schema=_SCHEMA,
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_max_secs=60,
+    batch_max_rows=500_000,
     output_tables=["perf_employees"],
 )
 def kafka_json(rows: TableFramesSpec) -> TableFrameSpec:

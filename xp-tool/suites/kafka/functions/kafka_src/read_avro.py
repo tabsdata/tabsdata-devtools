@@ -8,7 +8,7 @@ WHY AVRO OVER JSON on a busy topic: it is self-describing and strongly typed, so
 a `long` stays a long and a `logicalType` survives the decode — where JSON gives
 you strings and inference. It is also far smaller on the wire.
 
-`tabsdata.kafka.trigger.max_bytes` stages the batch once its files, plus what
+`batch_max_bytes` stages the batch once its files, plus what
 is still buffered, reach N bytes. That is the natural axis for a high-volume
 topic, where what you care about is the SIZE of what lands downstream rather
 than its row count — a million tiny parquet files is its own kind of outage.
@@ -55,10 +55,10 @@ EVENT_SCHEMA = json.dumps({
         src_cfg={
             "tabsdata.kafka.poll.max_secs": 2,
             "kafka.connect_timeout_secs": 10,
-            "tabsdata.kafka.trigger.max_bytes": 1048576,
         },
     ),
-    flush_interval_mins=1,
+    batch_max_secs=60,
+    batch_max_bytes=1048576,
     output_tables=["avro_events"],
 )
 def read_avro(rows: TableFramesSpec) -> TableFrameSpec:

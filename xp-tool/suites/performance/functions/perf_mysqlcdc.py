@@ -41,8 +41,6 @@ _OUTPUT = ["accounts_changes", "ledger_changes", "devices_changes", "readings_ch
 _CFG = {
     "tabsdata.cdc.buffer.max_rows": 200_000,
     "tabsdata.cdc.buffer.max_secs": 2,
-    "tabsdata.cdc.trigger.max_rows": 500_000,
-    "tabsdata.cdc.trigger.max_secs": 60,
 }
 
 _Out4 = tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]
@@ -50,7 +48,8 @@ _Out4 = tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]
 
 @stream_publisher(
     source=MySQLCdcStreamSrc(tables=_TABLES, initial_load=True, src_cfg=_CFG),
-    flush_interval_mins=1,
+    batch_max_secs=60,
+    batch_max_rows=500_000,
     output_tables=_OUTPUT,
 )
 def mysqlcdc_initial_load(
@@ -66,7 +65,8 @@ def mysqlcdc_initial_load(
     source=MySQLCdcStreamSrc(
         tables=_TABLES, start_from="head", src_cfg=_CFG
     ),
-    flush_interval_mins=1,
+    batch_max_secs=60,
+    batch_max_rows=500_000,
     output_tables=_OUTPUT,
 )
 def mysqlcdc_changes(

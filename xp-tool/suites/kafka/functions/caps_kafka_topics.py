@@ -60,7 +60,7 @@ import json
 from tabsdatak.api import TableFrameSpec, TableFramesSpec, stream_publisher
 
 # noinspection PyProtectedMember
-from tabsdatak.conn.common._stream._floor import unsafe_seconds
+from tabsdatak._api import unsafe_seconds
 from tabsdatak.conn.kafka import KafkaStreamSrc
 from tabsdatak.tableframe.functions import concat
 
@@ -146,7 +146,6 @@ def _route(frames, *entities: str) -> tuple:
 _CFG = {
     "tabsdata.kafka.poll.max_secs": 2,
     "kafka.connect_timeout_secs": 10,
-    "tabsdata.kafka.trigger.max_secs": unsafe_seconds(15),
 }
 
 _Out3 = tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]
@@ -160,7 +159,8 @@ _Out2 = tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec]
         schema=_schema("departments", "employees", "dept_emp"),
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(15),
+    batch_max_secs=unsafe_seconds(15),
     output_tables=["kafka_departments", "kafka_employees", "kafka_dept_emp", "kafka_unrouted"],
 )
 def kafka_three_of_four(rows: TableFramesSpec) -> _Out3:
@@ -174,7 +174,8 @@ def kafka_three_of_four(rows: TableFramesSpec) -> _Out3:
         schema=_schema("departments", "employees", "titles"),
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(15),
+    batch_max_secs=unsafe_seconds(15),
     output_tables=["kafka_departments", "kafka_employees", "kafka_titles", "kafka_unrouted"],
 )
 def kafka_two_of_three(rows: TableFramesSpec) -> _Out3:
@@ -189,7 +190,8 @@ def kafka_two_of_three(rows: TableFramesSpec) -> _Out3:
         schema=_schema("dept_manager"),
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(15),
+    batch_max_secs=unsafe_seconds(15),
     output_tables=["kafka_dept_manager"],
 )
 def kafka_one_topic(rows: TableFramesSpec) -> TableFrameSpec:
@@ -203,7 +205,8 @@ def kafka_one_topic(rows: TableFramesSpec) -> TableFrameSpec:
         schema=_schema("dept_emp"),
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(15),
+    batch_max_secs=unsafe_seconds(15),
     output_tables=["kafka_shared_a"],
 )
 def kafka_shared_a(rows: TableFramesSpec) -> TableFrameSpec:
@@ -217,7 +220,8 @@ def kafka_shared_a(rows: TableFramesSpec) -> TableFrameSpec:
         schema=_schema("dept_emp"),
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(15),
+    batch_max_secs=unsafe_seconds(15),
     output_tables=["kafka_shared_b"],
 )
 def kafka_shared_b(rows: TableFramesSpec) -> TableFrameSpec:
@@ -233,7 +237,8 @@ def kafka_shared_b(rows: TableFramesSpec) -> TableFrameSpec:
         dlq_topic=_DEAD_TOPIC,
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(15),
+    batch_max_secs=unsafe_seconds(15),
     output_tables=["kafka_departments", "kafka_employees", "kafka_unrouted"],
 )
 def kafka_varied(rows: TableFramesSpec) -> _Out2:
@@ -254,7 +259,8 @@ _DEAD_SCHEMA = json.dumps({
         schema=_DEAD_SCHEMA,
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(15),
+    batch_max_secs=unsafe_seconds(15),
     output_tables=["kafka_dead"],
 )
 def kafka_dead(rows: TableFramesSpec) -> TableFrameSpec:
@@ -273,7 +279,8 @@ def kafka_dead(rows: TableFramesSpec) -> TableFrameSpec:
         schema=_DEAD_SCHEMA,
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(15),
+    batch_max_secs=unsafe_seconds(15),
     output_tables=["kafka_registry_dead"],
 )
 def kafka_registry_dead(rows: TableFramesSpec) -> TableFrameSpec:
@@ -287,13 +294,12 @@ def kafka_registry_dead(rows: TableFramesSpec) -> TableFrameSpec:
 
 # TRIGGERS. Three publishers over the same topic, each in a group of its own,
 # whose only difference is what may stage a batch before a 10-minute clock: the
-# time trigger and flush_interval_mins are both 10 minutes, so a batch staged
+# time threshold is 10 minutes, so a batch staged
 # within minutes was staged by the byte or row count. The control has neither,
 # and must stage nothing for those 10 minutes.
 _SLOW = {
     "tabsdata.kafka.poll.max_secs": 2,
     "kafka.connect_timeout_secs": 10,
-    "tabsdata.kafka.trigger.max_secs": 600,
 }
 
 
@@ -303,9 +309,10 @@ _SLOW = {
         data_format="json",
         schema=_schema("employees"),
         # ~130 bytes a message: a few dozen messages fill it.
-        src_cfg=_SLOW | {"tabsdata.kafka.trigger.max_bytes": 4096},
+        src_cfg=_SLOW,
     ),
-    flush_interval_mins=10,
+    batch_max_secs=600,
+    batch_max_bytes=4096,
     output_tables=["kafka_by_bytes"],
 )
 def kafka_by_bytes(rows: TableFramesSpec) -> TableFrameSpec:
@@ -317,9 +324,10 @@ def kafka_by_bytes(rows: TableFramesSpec) -> TableFrameSpec:
         topic=f"{_PREFIX}.employees",
         data_format="json",
         schema=_schema("employees"),
-        src_cfg=_SLOW | {"tabsdata.kafka.trigger.max_rows": 50},
+        src_cfg=_SLOW,
     ),
-    flush_interval_mins=10,
+    batch_max_secs=600,
+    batch_max_rows=50,
     output_tables=["kafka_by_rows"],
 )
 def kafka_by_rows(rows: TableFramesSpec) -> TableFrameSpec:
@@ -333,7 +341,7 @@ def kafka_by_rows(rows: TableFramesSpec) -> TableFrameSpec:
         schema=_schema("employees"),
         src_cfg=_SLOW,
     ),
-    flush_interval_mins=10,
+    batch_max_secs=600,
     output_tables=["kafka_by_time"],
 )
 def kafka_by_time(rows: TableFramesSpec) -> TableFrameSpec:
@@ -347,7 +355,8 @@ def kafka_by_time(rows: TableFramesSpec) -> TableFrameSpec:
         schema=_schema("employees"),
         src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(15),
+    batch_max_secs=unsafe_seconds(15),
     output_tables=["kafka_resumed"],
 )
 def kafka_resume(rows: TableFramesSpec) -> TableFrameSpec:

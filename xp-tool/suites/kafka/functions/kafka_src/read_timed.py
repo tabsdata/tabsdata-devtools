@@ -4,11 +4,10 @@
 
 """EXAMPLE — Kafka source: the SAME topic on a TIME trigger.
 
-`tabsdata.kafka.trigger.max_secs` stages a batch every N seconds whatever the
-count. That is the axis to pick when LATENCY matters more than batch size — a
-quiet topic still produces a table version every 60 seconds here, the shortest
-interval allowed, where a count trigger would leave those few messages waiting
-until `flush_interval_mins`.
+`batch_max_secs` stages a batch every N seconds whatever the count. That is
+the axis to pick when LATENCY matters more than batch size — a quiet topic
+still produces a table version every 60 seconds here, the shortest interval
+allowed, where a count threshold alone would leave those few messages waiting.
 
 The three axes combine: once 60 seconds have passed since the last batch,
 whichever threshold has fired closes the next one. Setting a count AND a longer
@@ -61,10 +60,9 @@ EMPLOYEE_SCHEMA = json.dumps({
         src_cfg={
             "tabsdata.kafka.poll.max_secs": 2,
             "kafka.connect_timeout_secs": 10,
-            "tabsdata.kafka.trigger.max_secs": 60,
         },
     ),
-    flush_interval_mins=1,
+    batch_max_secs=60,
     output_tables=["employees_timed"],
 )
 def read_timed(rows: TableFramesSpec) -> TableFrameSpec:

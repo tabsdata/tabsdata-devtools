@@ -8,8 +8,8 @@ connector registers a stream source and no destination, so there is nothing to w
 back to a topic.
 
 Like the CDC suites these are STREAM publishers: long-lived consumers that stay running
-and close a batch each time a ROLLOVER threshold fires (message count, time or size) or
-``flush_interval_mins`` rolls the window over. Cardinality is always 1 (one topic -> one
+and close a batch each time a batch threshold fires (message count, time or size).
+Cardinality is always 1 (one topic -> one
 slot), the slot is an ARRAY of the frames that flush carried, and there is NO ``ctx``
 parameter.
 
@@ -51,7 +51,7 @@ Variants — one COLLECTION each, because every registered stream publisher join
 connection's consumer group and these topics have a single partition, so two consumers in
 one group would leave one idle (templates: kafka_topic_in.yaml / _dlq / _time):
 - ``kafka_in``      : base — ``<prefix>.employees`` with
-                      ``tabsdata.kafka.trigger.max_rows=25`` -> the 100 seeded
+                      ``batch_max_rows=25`` -> the 100 seeded
                       messages arrive at once and are staged as one table version
                       once the 60-second manifest floor passes.
 - ``kafka_in_dlq``  : ``<prefix>.departments`` (9 messages) with a ``dlq_topic``. The
@@ -62,7 +62,7 @@ one group would leave one idle (templates: kafka_topic_in.yaml / _dlq / _time):
                       before the 60-second manifest floor, so all 9 messages land
                       in one table version.
 - ``kafka_in_time`` : ``<prefix>.employees`` again (own consumer group, so it sees every
-                      message too) with ``tabsdata.kafka.trigger.max_secs`` marked
+                      message too) with ``batch_max_secs`` marked
                       down to 15 seconds (``unsafe_seconds(15)``, below the 60-second
                       floor, for tests only) — staged on TIME rather than count.
 
@@ -72,7 +72,7 @@ topics are seeded, and a re-run resumes from the last staged position. A topic t
 not exist yet is not fatal either: the poll loop logs the unknown-topic error and keeps
 going until it appears.
 
-``tabsdata.kafka.trigger.max_bytes`` is the third trigger axis and is not exercised: it
+``batch_max_bytes`` is the third batch axis and is not exercised: it
 would take megabytes of messages to fire. ``avro`` and ``Protobuf(...)`` formats are also left out —
 the redpanda data plane produces JSON, and both alternatives would need an encoder.
 """
@@ -83,7 +83,7 @@ import json
 from tabsdatak.api import TableFrameSpec, TableFramesSpec, stream_publisher
 
 # noinspection PyProtectedMember
-from tabsdatak.conn.common._stream._floor import unsafe_seconds
+from tabsdatak._api import unsafe_seconds
 from tabsdatak.conn.kafka import KafkaStreamSrc
 from tabsdatak.tableframe.functions import concat
 
@@ -131,7 +131,7 @@ _DEPT_SCHEMA = json.dumps({
 })
 
 # Short consume timeout so the poll loop reacts quickly to a fresh message instead of
-# blocking; the trigger knobs are per-variant below.
+# blocking; the batch limits are per variant on the decorators below.
 _CFG = {
     "tabsdata.kafka.poll.max_secs": 2,
     "kafka.connect_timeout_secs": 10,
@@ -146,9 +146,10 @@ _CFG = {
         topic=_EMP_TOPIC,
         data_format="json",
         schema=_EMP_SCHEMA,
-        src_cfg=_CFG | {"tabsdata.kafka.trigger.max_rows": 25},
+        src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_max_secs=60,
+    batch_max_rows=25,
     output_tables=["kafka_employees"],
 )
 def kafka_in(rows: TableFramesSpec) -> TableFrameSpec:
@@ -162,9 +163,10 @@ def kafka_in(rows: TableFramesSpec) -> TableFrameSpec:
         data_format="json",
         schema=_DEPT_SCHEMA,
         dlq_topic=_DEAD_TOPIC,
-        src_cfg=_CFG | {"tabsdata.kafka.trigger.max_rows": 5},
+        src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_max_secs=60,
+    batch_max_rows=5,
     output_tables=["kafka_departments"],
 )
 def kafka_in_dlq(rows: TableFramesSpec) -> TableFrameSpec:
@@ -179,9 +181,10 @@ def kafka_in_dlq(rows: TableFramesSpec) -> TableFrameSpec:
         topic=_EMP_TOPIC,
         data_format="json",
         schema=_EMP_SCHEMA,
-        src_cfg=_CFG | {"tabsdata.kafka.trigger.max_secs": unsafe_seconds(15)},
+        src_cfg=_CFG,
     ),
-    flush_interval_mins=1,
+    batch_min_secs=unsafe_seconds(15),
+    batch_max_secs=unsafe_seconds(15),
     output_tables=["kafka_timed"],
 )
 def kafka_in_time(rows: TableFramesSpec) -> TableFrameSpec:

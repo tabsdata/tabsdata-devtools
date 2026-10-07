@@ -27,7 +27,7 @@ def pub_cdc_full(df: TableFrameSpec) -> TableFrameSpec:
 
 @stream_publisher(
     source=PostgresCdcStreamSrc(tables=["brz_full_snapshot"], replication_slot="td_medallion_slot", publication_name="td_medallion_pub", start_from="tail"),
-    flush_interval_mins=2,
+    batch_max_secs=120,
     output_tables=["cdc_raw"],
 )
 def pub_cdc_stream(df: TableFramesSpec) -> TableFrameSpec:
