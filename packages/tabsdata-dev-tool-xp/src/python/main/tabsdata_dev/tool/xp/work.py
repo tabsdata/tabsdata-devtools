@@ -18,10 +18,13 @@ before any run. Any other ``${xp:...}`` left once the suite is resolved (see
 
 ``${td:profile}`` is the run's tdk connection, for the steps that call tdk
 themselves (``tdd tdk ...``, a check script), written ``"--profile",
-"${td:profile}"``: the name the run was given with ``--profile``, or the empty
-string when it was given none. Any other ``${td:...}`` is refused when the
-suite is read. A separate namespace from ``${xp:...}`` because it is tdk's
-setting, not the run's.
+"${td:profile}"`` (or ``"--profile=${td:profile}"``): the name the run was given
+with ``--profile``. When it was given none, a step's arguments (``expand_args``)
+lose the option altogether -- tdk refuses ``--profile ""``, a profile name
+starting with a letter or digit, so the step then reaches tdk's default
+connection, the one xp's own calls use. Anywhere else in an argument the token is
+the empty string. Any other ``${td:...}`` is refused when the suite is read. A
+separate namespace from ``${xp:...}`` because it is tdk's setting, not the run's.
 """
 
 from __future__ import annotations
@@ -78,3 +81,27 @@ def expand(text: str, project: str | None = None) -> str:
 
     text = text.replace(TD_PROFILE, state.run.profile or "")
     return TOKEN_RE.sub(one, text)
+
+
+PROFILE_OPTION = "--profile"
+
+
+def expand_args(args: list[str], project: str | None = None) -> list[str]:
+    """A step's arguments, each `expand`ed -- and, when the run has no profile,
+    without the ``--profile ${td:profile}`` pair or ``--profile=${td:profile}``
+    that would pass tdk an empty name, which it refuses."""
+    if state.run.profile:
+        return [expand(a, project) for a in args]
+    out: list[str] = []
+    skip = False
+    for i, a in enumerate(args):
+        if skip:
+            skip = False
+            continue
+        if a == PROFILE_OPTION and i + 1 < len(args) and args[i + 1] == TD_PROFILE:
+            skip = True
+            continue
+        if a == f"{PROFILE_OPTION}={TD_PROFILE}":
+            continue
+        out.append(expand(a, project))
+    return out

@@ -86,12 +86,13 @@ times the phases, `--dry-run` prints the commands.
   tdk argv, appends it last, past the verb; no call can miss it or misplace it; the verbs that reach tdk (`create-`/`destroy-`/`monitor-project`, `run-triggers`,
   `run-suite`, `enable-`/`disable-function`, `one-shot`, `bench`) take it and hand it to their fan-out children. The domain verbs never
   reach tdk and do not take it. **A step that calls tdk itself** (`tdd tdk fn disable`, a check
-  script reading tables) writes `"--profile", "${td:profile}"`: the token is the run's profile name,
-  or the empty string when the run has none, in a tdd, exe or python step's options or params
-  (a domain call refuses it, as it does any other `${td:...}`). tdk reads `--profile ""` as
-  its unnamed profile, even where `tdk set --profile` recorded another -- while xp's own calls,
-  given no profile, pass none and get that recorded one. `${td:...}`, not `${xp:...}`: it is
-  tdk's setting, not the run's.
+  script reading tables) writes `"--profile", "${td:profile}"` (or `--profile=${td:profile}`)
+  in a tdd, exe or python step's options or params (a domain call refuses it, as it does any
+  other `${td:...}`): the token is the run's profile name, and a run with none drops the
+  option from the step's argv -- tdk refuses `--profile ""` (a name starts with a letter or
+  digit) -- so the step reaches tdk's default connection, as xp's own calls do. Elsewhere in
+  an argument the token is the empty string. `${td:...}`, not `${xp:...}`: it is tdk's
+  setting, not the run's.
 - **A domain-manifest stage is the batch**: `{"domain-manifest": {"emit_ops": FILE?, "domains":
   [{"name", "system", "model"?, "size"?, "emit"?}]}}` -- an object, not a list, for the setting
   beside its entries. xp writes the entries as a manifest (`domains-<n>.yaml`: `name`, `sys`,

@@ -2887,12 +2887,13 @@ def test_a_runs_summary_counts_every_phases_lane_steps_and_its_lanes_once(tmp_pa
     )
 
 
-def test_td_profile_is_the_runs_profile_name_or_empty(xp_root, monkeypatch):
+def test_td_profile_is_the_runs_profile_name_or_no_option(xp_root, monkeypatch):
     """`${td:profile}` in a tdd, exe or python step's options or params is the
-    run's profile name, or "" when the run has none -- a suite writes
-    `"--profile", "${td:profile}"` on the steps that call tdk. Any other
-    `${td:...}`, or the token in a domain call, is refused when the suite is
-    read."""
+    run's profile name -- a suite writes `"--profile", "${td:profile}"` on the
+    steps that call tdk. A run with no profile drops the option, pair or
+    `--profile=` form alike: tdk refuses `--profile ""`. Elsewhere in an argument
+    the token is "". Any other `${td:...}`, or the token in a domain call, is
+    refused when the suite is read."""
     from tabsdata_dev.tool.xp import actions, models, state
 
     fn = {
@@ -2913,7 +2914,11 @@ def test_td_profile_is_the_runs_profile_name_or_empty(xp_root, monkeypatch):
         "python": {
             "name": "check",
             "script": "scripts/check.py",
-            "params": ["${xp:dir}/ops.jsonl", "--profile=${td:profile}"],
+            "params": [
+                "${xp:dir}/ops.jsonl",
+                "--profile=${td:profile}",
+                "--label=p${td:profile}",
+            ],
         }
     }
     _script(xp_root, "pass\n")
@@ -2921,17 +2926,12 @@ def test_td_profile_is_the_runs_profile_name_or_empty(xp_root, monkeypatch):
     off, chk = inst.actions
 
     monkeypatch.setattr(state.run, "profile", None)
-    assert actions.argv_of(off, inst, "P")[-5:] == [
-        "disable",
-        "--proj",
-        "P",
-        "--profile",
-        "",
-    ]
-    assert actions.argv_of(chk, inst, "P")[-1] == "--profile="
+    assert actions.argv_of(off, inst, "P")[-3:] == ["disable", "--proj", "P"]
+    unprofiled = actions.argv_of(chk, inst, "P")
+    assert unprofiled[-2].endswith("/ops.jsonl") and unprofiled[-1] == "--label=p"
     monkeypatch.setattr(state.run, "profile", "dev")
     assert actions.argv_of(off, inst, "P")[-2:] == ["--profile", "dev"]
-    assert actions.argv_of(chk, inst, "P")[-1] == "--profile=dev"
+    assert actions.argv_of(chk, inst, "P")[-2:] == ["--profile=dev", "--label=pdev"]
 
     with pytest.raises(Exception, match=r"\$\{td:conn\} is not a token"):
         _python_suite(xp_root, [{"tdd": dict(fn["tdd"], options=["${td:conn}"])}])
