@@ -80,6 +80,7 @@ class FileBackend:
     label: str = ""
     kind: str = "file"
     weight: int = 1
+    exclusive: bool = False
     domain_word: str = "prefix"
     max_entity_name_length: int = 255
 

@@ -21,7 +21,7 @@ import yaml
 from tabsdata_dev.common.core import batch as core_batch
 from tabsdata_dev.common.core import proc
 
-from . import lanes, pointers, shell, state, work
+from . import lanes, pointers, seq, shell, state, work
 from .reporter import rep, reporting, scratch
 
 
@@ -177,6 +177,12 @@ def cmd_create_domains(args) -> None:
     ):
         members = pointers.instance_group(args.suite_run)
         if members is not None:
+            members_of = {}
+            for m in members:
+                try:
+                    members_of[m] = pointers.load_instance(m)
+                except state.XpError:
+                    continue
             lanes.dispatch(
                 f"create-domains group '{args.suite_run}'",
                 [
@@ -195,15 +201,17 @@ def cmd_create_domains(args) -> None:
                 ],
                 phase="domains",
                 base=args.suite_run,
+                groups=seq.groups(members_of),
             )
             return
         inst = pointers.load_instance(args.suite_run)
         require_crypto_key()
-        for s in inst.stages:  # every domain stage of either kind, in order
-            if s.domain_manifest is not None:
-                create_from_manifest(inst, s.domain_manifest, s.at)
-            elif s.domains:
-                create_domains(inst, s.domains)
+        with seq.held(inst):
+            for s in inst.stages:  # every domain stage of either kind, in order
+                if s.domain_manifest is not None:
+                    create_from_manifest(inst, s.domain_manifest, s.at)
+                elif s.domains:
+                    create_domains(inst, s.domains)
 
 
 def manifest_entry(inst, d, emit_file: pathlib.Path | None) -> dict:

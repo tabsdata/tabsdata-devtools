@@ -47,7 +47,9 @@ monitor's ``time_out`` -- is
 ``"1.5h"``); a bare number is refused, since nothing says what it counts.
 
 A stage may carry ``_``-prefixed annotations (``_comment``, ``_copyright``), and
-an object holding only those is a comment.
+an object holding only those is a comment. An object holding ``seq`` (a name or a
+list of names) is no stage: it puts the suite's lane in those sequence groups,
+beside the groups of the exclusive systems its domains are on (see ``seq``).
 Kinds may repeat, in any order the dependencies allow (a collection after the
 domains it names, a function after its collection). The older form -- one
 object with a list per kind -- is refused with what to convert it to.
@@ -578,6 +580,7 @@ class Instance(BaseModel):
     # runs them.
     actions: list[Action] = []
     stages: list[Stage] = []
+    seq: list[str] = []
 
     @model_validator(mode="after")
     def _stages_in_dependency_order(self) -> Instance:
@@ -736,6 +739,7 @@ def build_instance(
     except ValueError as exc:
         state.die(str(exc))
     stages = stages_of(doc, definition)
+    seq = seq_of(doc, definition)
     source_dir = definition.parent
 
     def every(kind: str) -> list:
@@ -752,6 +756,7 @@ def build_instance(
             source_dir=str(source_dir),
             base_dir=str(suites.base_dir(source_dir)),
             domains=_created(stages),
+            seq=seq,
             collections=every("collections"),
             functions=every("functions"),
             triggers=every("triggers"),
@@ -783,6 +788,31 @@ def _created(stages: list[dict]) -> list[Domain]:
     return out
 
 
+SEQ = "seq"
+
+
+def seq_of(doc, definition: pathlib.Path) -> list[str]:
+    groups: list[str] = []
+    for i, element in enumerate(doc if isinstance(doc, list) else [], 1):
+        if not isinstance(element, dict) or SEQ not in element:
+            continue
+        value = element[SEQ]
+        names = [value] if isinstance(value, str) else value
+        if (
+            not isinstance(names, list)
+            or not names
+            or not all(isinstance(n, str) and n.strip() for n in names)
+        ):
+            state.die(
+                f"suite {definition}: stage {i}: seq takes a name or a list of names "
+                '(e.g. {"seq": "salesforce"})'
+            )
+        for name in (n.strip() for n in names):
+            if name not in groups:
+                groups.append(name)
+    return groups
+
+
 def stages_of(doc, definition: pathlib.Path) -> list[dict]:
     """The suite's stages, in order, as ``{"kind": K, K: [...]}``."""
     if isinstance(doc, dict):
@@ -803,7 +833,7 @@ def stages_of(doc, definition: pathlib.Path) -> list[dict]:
         # `_`-prefixed keys annotate (`_comment`, `_copyright`); an object
         # holding only those is a comment.
         keys = [k for k in element if not k.startswith("_")]
-        if not keys:
+        if not keys or keys == [SEQ]:
             continue
         if len(keys) != 1 or keys[0] not in (*STAGE_KINDS, *RETIRED_KINDS):
             state.die(

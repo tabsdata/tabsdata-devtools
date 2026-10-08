@@ -87,6 +87,50 @@ def parallel(items: list, worker: Callable) -> None:
             raise error
 
 
+def run_in_sequence(
+    argvs: list[tuple[str, list[str]]],
+    groups: dict[str, frozenset[str]],
+    run_lane: Callable,
+    stopped: Callable[[], bool],
+) -> None:
+    pending = list(argvs)
+    busy: set[str] = set()
+    waited: set[str] = set()
+    turn = threading.Condition()
+
+    def next_lane():
+        with turn:
+            while pending:
+                if state.run.fail_fast and stopped():
+                    return None
+                for i, (lane, argv) in enumerate(pending):
+                    mine = groups.get(lane, frozenset())
+                    if not mine & busy:
+                        busy.update(mine)
+                        return pending.pop(i)
+                for lane, _ in pending:
+                    if lane not in waited:
+                        waited.add(lane)
+                        held = sorted(groups.get(lane, frozenset()) & busy)
+                        rep().note(f"{lane} waits for seq {', '.join(held)}")
+                turn.wait()
+            return None
+
+    def worker() -> None:
+        while (item := next_lane()) is not None:
+            try:
+                run_lane(item)
+            finally:
+                with turn:
+                    busy.difference_update(groups.get(item[0], frozenset()))
+                    turn.notify_all()
+
+    workers = min(len(argvs), core_batch.parallelism())
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for future in [pool.submit(worker) for _ in range(workers)]:
+            future.result()
+
+
 def lane_of(base: str, member: str) -> str:
     """``'<base>_<lane>' -> '<lane>'``: the same token identifies a lane across
     phases keyed by instance name and then by project name."""
@@ -100,6 +144,7 @@ def dispatch(
     base: str | None = None,
     fatal: bool = True,
     plans: dict[str, LanePlan] | None = None,
+    groups: dict[str, frozenset[str]] | None = None,
 ) -> list[str]:
     """Run each ``(lane, argv)`` as a child IN PARALLEL and aggregate their
     progress live. Returns the lanes that FAILED.
@@ -190,6 +235,9 @@ def dispatch(
 
     def run_lane(item) -> None:
         lane, argv = item
+        env = child_env()
+        if groups is not None:
+            env[state.SEQ_ENV] = ",".join(sorted(groups.get(lane, frozenset())))
         log = scratch() / f"lane-{fs_token(lane)}.log"
         # stderr merged into stdout so a chatty child can never deadlock on a
         # full stderr pipe; non-event lines are separated back out by shape.
@@ -200,7 +248,7 @@ def dispatch(
             text=True,
             encoding="utf-8",
             errors="replace",
-            env=child_env(),
+            env=env,
         )
         with lock:
             procs[lane] = p
@@ -261,10 +309,7 @@ def dispatch(
 
     # Lanes are processes, not steps of this run: every lane is joined, and the
     # policy below decides what a failure means.
-    with ThreadPoolExecutor(
-        max_workers=min(len(argvs), core_batch.parallelism())
-    ) as pool:
-        list(pool.map(run_lane, argvs))
+    run_in_sequence(argvs, groups or {}, run_lane, lambda: bool(failed))
 
     if not failed:
         return []

@@ -39,6 +39,7 @@ class Salesforce(ServiceBackend):
 
     supports_models = True
     supports_data = True
+    exclusive = True
 
     slug = "salesforce"
     label = "Salesforce"

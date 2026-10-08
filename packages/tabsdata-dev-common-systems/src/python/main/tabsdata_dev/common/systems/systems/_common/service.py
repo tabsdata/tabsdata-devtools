@@ -36,6 +36,7 @@ class ServiceBackend:
     label: str = ""
     kind: str = "service"
     weight: int = 1
+    exclusive: bool = False
     domain_word: str = "account"
     max_entity_name_length: int = 255
     env_prefix: str = ""

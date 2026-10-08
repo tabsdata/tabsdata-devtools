@@ -40,6 +40,7 @@ class BigQuery:
     label = "BigQuery"
     kind = "file"
     weight = 1
+    exclusive = False
     domain_word = "dataset"
     max_entity_name_length = 1024
     env_prefix = "BIGQUERY"

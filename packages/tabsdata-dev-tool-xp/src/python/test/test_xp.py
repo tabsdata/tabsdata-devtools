@@ -3044,3 +3044,158 @@ def test_one_shot_list_refuses_a_shared_run_and_unknown_selectors_up_front(
     assert not batch.is_batch("demo") and not batch.is_batch("demo/one")
     assert batch.is_batch("all") and batch.is_batch("demo, other")
     assert not batch.is_batch("demo,demo")
+
+
+def _seq_instance(xp_root, name, systems=(), seq=None):
+    from tabsdata_dev.tool.xp import models
+
+    doc = [
+        *([{"seq": seq}] if seq is not None else []),
+        *(
+            [
+                {
+                    "domain-manifest": {
+                        "domains": [
+                            {"name": f"{name}_{s}", "system": s} for s in systems
+                        ]
+                    }
+                }
+            ]
+            if systems
+            else []
+        ),
+        MONITOR,
+    ]
+    path = xp_root / "suites" / "demo" / f"{name}.json"
+    path.write_text(json.dumps(doc))
+    return models.build_instance(name, path)
+
+
+def test_a_suite_declares_its_seq_as_a_name_or_a_list(xp_root):
+    assert _seq_instance(xp_root, "a", seq="salesforce").seq == ["salesforce"]
+    assert _seq_instance(xp_root, "b", seq=["x", "y", "x"]).seq == ["x", "y"]
+    assert _seq_instance(xp_root, "c").seq == []
+    assert [s.kind for s in _seq_instance(xp_root, "d", seq="x").stages] == ["monitor"]
+
+
+@pytest.mark.parametrize("bad", ["", [], [""], [1], {"a": 1}])
+def test_a_malformed_seq_is_refused(xp_root, bad):
+    from tabsdata_dev.tool.xp import state
+
+    with pytest.raises(state.XpError, match="seq takes a name or a list of names"):
+        _seq_instance(xp_root, "bad", seq=bad)
+
+
+def test_a_lanes_groups_are_its_seq_and_its_exclusive_systems(xp_root, monkeypatch):
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import project, seq, state
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    monkeypatch.setattr(project, "exclusive_systems", lambda: {"salesforce"})
+    groups = seq.groups(
+        {
+            "report": _seq_instance(xp_root, "r", systems=["salesforce", "dev"]),
+            "soql": _seq_instance(xp_root, "s", systems=["salesforce"], seq="crm"),
+            "files": _seq_instance(xp_root, "f", systems=["s3"]),
+        }
+    )
+    assert groups == {
+        "report": frozenset({"salesforce"}),
+        "soql": frozenset({"salesforce", "crm"}),
+        "files": frozenset(),
+    }
+
+
+def test_lanes_of_one_seq_never_run_together_while_the_rest_run_beside_them(
+    monkeypatch,
+):
+    import threading
+    import time
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import lanes, state
+
+    monkeypatch.setenv("TDD_PARALLELISM", "4")
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    guard = threading.Lock()
+    running: set[str] = set()
+    overlaps: list[set[str]] = []
+
+    def run_lane(item):
+        lane, _ = item
+        with guard:
+            running.add(lane)
+            overlaps.append(set(running))
+        time.sleep(0.05)
+        with guard:
+            running.discard(lane)
+
+    sf = frozenset({"salesforce"})
+    argvs = [(name, []) for name in ("sf1", "sf2", "sf3", "a", "b")]
+    groups = {"sf1": sf, "sf2": sf, "sf3": sf}
+    lanes.run_in_sequence(argvs, groups, run_lane, lambda: False)
+    assert {lane for seen in overlaps for lane in seen} == {
+        "sf1",
+        "sf2",
+        "sf3",
+        "a",
+        "b",
+    }
+    assert all(len(seen & {"sf1", "sf2", "sf3"}) <= 1 for seen in overlaps)
+    assert any({"a", "b"} <= seen for seen in overlaps)
+
+
+def test_a_lane_child_is_handed_its_groups(monkeypatch, capsys):
+    import sys
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import lanes, state
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    child = (
+        "import json, os; print(json.dumps({'command': 'xp', 'event': 'ok', "
+        "'xp': 'summary', 'message': os.environ.get('_TDD_XP_SEQ', 'unset')}))"
+    )
+    seen = []
+    real = lanes.rep
+
+    def absorbing(label, lane, summary):
+        seen.append((lane, summary["message"]))
+
+    monkeypatch.setattr(real(), "absorb_lane", absorbing)
+    failed = lanes.dispatch(
+        "t",
+        [
+            ("one", [sys.executable, "-c", child]),
+            ("two", [sys.executable, "-c", child]),
+        ],
+        fatal=False,
+        groups={"one": frozenset({"salesforce", "crm"})},
+    )
+    assert failed == []
+    assert sorted(seen) == [("one", "crm,salesforce"), ("two", "")]
+
+
+def test_a_lane_holds_the_lock_of_each_group_it_was_handed(xp_root, monkeypatch):
+    import os
+
+    from tabsdata_dev.common.core import filelock, render
+    from tabsdata_dev.tool.xp import project, seq, state
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    monkeypatch.setattr(
+        project, "exclusive_systems", lambda: pytest.fail("store asked again")
+    )
+    monkeypatch.setenv(state.SEQ_ENV, "salesforce,crm")
+    inst = _seq_instance(xp_root, "held", systems=["salesforce"])
+    with seq.held(inst):
+        for name in ("salesforce", "crm"):
+            fd = os.open(seq.lock_file(name), os.O_RDWR)
+            try:
+                assert not filelock.try_lock(fd)
+            finally:
+                os.close(fd)
+    for name in ("salesforce", "crm"):
+        with filelock.held(seq.lock_file(name)):
+            pass
+    assert state.SEQ_ENV not in os.environ

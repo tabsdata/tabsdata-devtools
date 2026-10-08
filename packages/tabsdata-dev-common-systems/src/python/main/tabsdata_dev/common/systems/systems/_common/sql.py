@@ -116,6 +116,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
     label: str = ""
     kind: str = "sql"
     weight: int = 1
+    exclusive: bool = False
     domain_word: str = "database"
     ready_timeout: int = 300
     max_entity_name_length: int = 63

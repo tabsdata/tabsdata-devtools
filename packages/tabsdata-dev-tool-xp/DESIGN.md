@@ -403,6 +403,19 @@ died against their phase, drops them from later phases and reports them once at 
 nest their scratch under the parent's through `_TDD_XP_SCRATCH`, honoured only with the parent's
 pid in `_TDD_XP_PARENT`, so a stale export is reported and ignored.
 
+**Sequence groups** keep lanes that share something single-tenant apart, as pytest's `_seq`
+groups do. A lane's groups are the names its suite lists in a `{"seq": ...}` element and every
+system its domains are on whose type is **exclusive** (`tdd system list` reports it; Salesforce
+is, since every domain of a system is the one org and a data load wipes the whole org). The
+dispatcher never runs two lanes of one group at once, handing a free slot to the next lane whose
+groups are idle, so the rest of the suite keeps running beside them; a held-back lane says which
+group it waits for. Each lane child also holds a lock file per group under the xp store
+(`seq/<group>.lock`) for its whole run, so two separate runs on one machine take turns as well.
+The parent hands a child its groups in `_TDD_XP_SEQ`, so the child does not read the system store
+again. Found when `examples/salesforce_report` and `examples/salesforce_soql` ran together and
+one's wipe deleted the Accounts the other's Opportunities were being loaded against. A run on
+another machine against the same org is not covered.
+
 `one-shot --suite` also takes a comma list of selectors or `ALL` -- every suite dir holding a
 definition -- the same selector shape as `tdd system` / `tdd domain` (`batch.py`). Each selector is
 a whole `one-shot` child of its own through the generic batch (`common.core.batch`), not a lane:

@@ -9,6 +9,7 @@ something failed) and ``bench``
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shlex
 import time
@@ -24,8 +25,10 @@ from . import (
     domains,
     ids,
     lanes,
+    models,
     pointers,
     project,
+    seq,
     shell,
     state,
     suites,
@@ -95,11 +98,14 @@ def cmd_run_suite(args) -> None:
     force = bool(getattr(args, "force", False))
     if not getattr(args, "project", None):
         args.project = project.default_project(args.suite_run)
-    with reporting(
-        args,
-        "run-suite",
-        args.project,
-        suite=pointers.suite_of_instance(args.suite_run),
+    with (
+        reporting(
+            args,
+            "run-suite",
+            args.project,
+            suite=pointers.suite_of_instance(args.suite_run),
+        ),
+        contextlib.ExitStack() as hold,
     ):
         members = pointers.instance_group(args.suite_run)
         if members is not None:
@@ -110,6 +116,7 @@ def cmd_run_suite(args) -> None:
             # Written first: a failed lane is torn down through this pointer.
             pointers.write_group_project(args.project, [mp for _, mp in pairs])
             plans = {}
+            members_of: dict[str, models.Instance] = {}
             for mi, mp in pairs:
                 try:
                     member = pointers.load_instance(mi)
@@ -121,6 +128,7 @@ def cmd_run_suite(args) -> None:
                     suite_steps(member, sel),
                     tuple(suite_notes(member, mp, sel)),
                 )
+                members_of[mp] = member
             lanes.dispatch(
                 f"run-suite group '{args.project}'",
                 [
@@ -145,9 +153,11 @@ def cmd_run_suite(args) -> None:
                 phase="suite",
                 base=args.project,
                 plans=plans,
+                groups=seq.groups(members_of),
             )
             return
         inst = pointers.load_instance(args.suite_run)
+        hold.enter_context(seq.held(inst))
         domains.require_crypto_key()
         _say_ids(inst)
         (scratch() / "suite.resolved.json").write_text(

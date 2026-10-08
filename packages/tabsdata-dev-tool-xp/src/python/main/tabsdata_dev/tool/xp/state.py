@@ -27,6 +27,7 @@ DEFAULT_SECRET_ENV = "_TDD_CRYPTO_KEY"
 # reported and ignored, never silently written into.
 SCRATCH_ENV = "_TDD_XP_SCRATCH"
 SCRATCH_PARENT_ENV = "_TDD_XP_PARENT"
+SEQ_ENV = "_TDD_XP_SEQ"
 
 
 class XpError(ToolError):

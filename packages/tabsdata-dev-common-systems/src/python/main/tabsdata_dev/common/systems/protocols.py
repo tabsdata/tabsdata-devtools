@@ -25,6 +25,7 @@ class Backend(Protocol):
     domain_word: str
     max_entity_name_length: int
     weight: int  # 1..3 scheduling weight; batch runs the heaviest targets first
+    exclusive: bool
 
     # Managed venvs (see ``_venv``): the env a verb re-execs into. ``sys_toolset``
     # covers the verbs that only touch the system from the outside (create /

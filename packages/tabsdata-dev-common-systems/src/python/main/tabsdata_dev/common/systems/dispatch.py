@@ -505,6 +505,13 @@ def _store_infos(store_dir: Path, role: str, *, strict: bool = False):
     return out
 
 
+def exclusive_type(slug: str) -> bool:
+    try:
+        return bool(getattr(systems.get_class(slug), "exclusive", False))
+    except TdxError:
+        return False
+
+
 def _list_store(store_dir: Path, role: str) -> None:
     rows: list[dict] = []
     if not store_dir.is_dir():
@@ -524,6 +531,8 @@ def _list_store(store_dir: Path, role: str) -> None:
             continue
         row = {"name": name, "system": info.system}
         extra = ""
+        if role == constants.ROLE_SYSTEM:
+            row["exclusive"] = exclusive_type(info.system)
         if isinstance(info, descriptor.DomainInfo):
             row.update(model=info.model, data=info.data, sys=info.sys_name)
             extra = f"  model={info.model or '-'} data={info.data or '-'}"

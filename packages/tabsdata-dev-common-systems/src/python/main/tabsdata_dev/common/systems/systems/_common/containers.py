@@ -43,6 +43,7 @@ class ContainersBackend(PortRangeMixin, HostMixin):
     label: str = ""
     kind: str = "containers"
     weight: int = 1
+    exclusive: bool = False
     domain_word: str = "domain"
     max_entity_name_length: int = 255
     ready_timeout: int = 300

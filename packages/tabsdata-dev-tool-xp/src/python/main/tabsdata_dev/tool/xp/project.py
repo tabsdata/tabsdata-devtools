@@ -64,8 +64,8 @@ def cmd_list_suites(args) -> tuple[str, dict]:
     return text, {"root": str(root), "builtin": not override, "suites": rows}
 
 
-def _store_systems() -> dict[str, str]:
-    """name -> type of every system in the tdd store, asked of `tdd system list`
+def store_rows() -> list[dict]:
+    """Every system in the tdd store (name, type, exclusive), asked of `tdd system list`
     (the descriptors are encrypted; only that tool reads them). Separate so a
     test can stand in for the store."""
     r = subprocess.run(
@@ -89,7 +89,15 @@ def _store_systems() -> dict[str, str]:
         )
         state.die(f"tdd system list failed: {why}")
     ok = next((e for e in reversed(events) if e.get("event") == "ok"), {})
-    return {row["name"]: row["system"] for row in ok.get("systems", [])}
+    return list(ok.get("systems", []))
+
+
+def _store_systems() -> dict[str, str]:
+    return {row["name"]: row["system"] for row in store_rows()}
+
+
+def exclusive_systems() -> set[str]:
+    return {row["name"] for row in store_rows() if row.get("exclusive")}
 
 
 def cmd_list_systems(args) -> tuple[str, dict]:
