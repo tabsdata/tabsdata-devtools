@@ -57,7 +57,20 @@ times the phases, `--dry-run` prints the commands.
   generated ones) is a connector's capability surface at scale: mysql.json's, over an
   airportdb domain at size 1000, so one table crosses the SQL reader's 100K-row chunk; for
   it `performance/functions/` carries copies of the shared `caps_datagen.py` and
-  `_srcmeta.py`. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
+  `_srcmeta.py`. `dataquality/trends/mysqlcdc_airportdb` (hand-written, with its function
+  and `scripts/verify_dq_trends.py`) is the DQ summary's trend table over a live run: a
+  mysqlcdc airportdb (xs) stream with an initial load, triggered once a minute
+  (`batch_min_secs=60`, `batch_max_secs=60` and no `batch_idle_secs`, so a batch is staged
+  only when changes wait), a transformer classifying airport and passenger with six
+  classifiers and `Summary(trend=SummaryTrend(...))`, 30 minutes of `modify-data` at ~1200
+  rows a minute -- whose inserts carry a defect per classifier at a share each run's seed
+  sets (common-systems' design doc), so every pass rate moves every run -- and a check that
+  every CDC version holds changes and they come about a minute apart, that at least five
+  classifiers move from every run to the next, and that the trend's run, week, month and
+  folded rows add up to the summaries. A directory of its own because a suite dir's lanes are
+  its own files, not its subdirs': a bare `--suite dataquality` -- what the smoke runs take,
+  on clusters with no mysqlcdc -- stays the quick, self-contained lanes; its collection's
+  `server_id` is 1012. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
 - No `bin-reqs`: xp reaches tdk and tdkserver only through `tdd tdk`/`tdd tdkserver`,
   and those launchers declare the binaries themselves -- the requirement belongs to the
   command that runs the program. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run

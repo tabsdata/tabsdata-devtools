@@ -2512,10 +2512,17 @@ def test_every_built_in_suite_reads(tmp_path, monkeypatch):
 
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
     root = suites.builtin_root() / "suites"
+    # Every level: a suite dir may nest one (dataquality/trends), kept out of its
+    # parent's lanes.
+    dirs = [d for d in sorted(root.rglob("*")) if d.is_dir()]
     files = [
-        f for d in sorted(root.iterdir()) if d.is_dir() for f in suites.lane_files(d)
+        f
+        for d in dirs
+        if not {"functions", "scripts", "__pycache__"} & set(d.relative_to(root).parts)
+        for f in suites.lane_files(d)
     ]
     assert len(files) > 100
+    assert root / "dataquality" / "trends" / "mysqlcdc_airportdb.json" in files
     for f in files:
         assert build_instance("i", f).stages, f
     staged = build_instance(
