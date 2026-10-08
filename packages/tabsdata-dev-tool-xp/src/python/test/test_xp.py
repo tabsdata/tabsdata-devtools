@@ -2944,3 +2944,103 @@ def test_td_profile_is_the_runs_profile_name_or_no_option(xp_root, monkeypatch):
         _python_suite(xp_root, [{"tdd": dict(fn["tdd"], options=["${td:conn}"])}])
     with pytest.raises(ValueError, match="for a tdd, exe or python step"):
         models._refuse_unknown_tokens("${td:profile}", "domain call")
+
+
+def _fake_one_shots(monkeypatch, fail=()):
+    """Each selector's `tdd xp one-shot` child replaced by a script that echoes
+    its words and exits 1 for the selectors in `fail`."""
+    import sys
+
+    from tabsdata_dev.tool.xp import batch, shell
+
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "k")
+    monkeypatch.delenv("TDD_PARALLELISM", raising=False)
+    monkeypatch.setattr(shell, "require_login", lambda: None)
+    script = f"import sys; print('ran', *sys.argv[1:]); sys.exit(sys.argv[3] in {list(fail)!r})"
+    monkeypatch.setattr(
+        batch, "child_argv", lambda *words: [sys.executable, "-c", script, *words]
+    )
+
+
+def _second_suite_dir(xp_root):
+    (xp_root / "suites" / "other").mkdir()
+    (xp_root / "suites" / "other" / "a.json").write_text(json.dumps([MONITOR]))
+    (xp_root / "suites" / "empty").mkdir()
+    (xp_root / "suites" / "empty" / "notes.json").write_text(
+        json.dumps({"_comment": "not a suite"})
+    )
+
+
+def test_one_shot_ALL_runs_every_suite_dir_one_at_a_time(
+    xp_root, monkeypatch, capsys, tmp_path
+):
+    """ALL is every suite dir holding a definition, each a one-shot child of its
+    own, one after another: they all provision on the same systems and instance.
+    The selection options reach every child; the batch writes the report."""
+    from tabsdata_dev.tool.xp import batch
+
+    _fake_one_shots(monkeypatch)
+    _second_suite_dir(xp_root)
+    report = tmp_path / "report.json"
+    rc = _run(
+        ["one-shot", "--suite", "ALL", *_suites_dir(xp_root)]
+        + ["--tags", "smoke", "--keep", "--report", str(report)]
+    )
+    seen = capsys.readouterr()
+    text = seen.out + seen.err
+    assert rc == 0, text
+    assert "2 suite selector(s), one at a time: demo, other" in text
+    root = (xp_root / "suites").resolve()
+    assert (
+        f"[demo] ran one-shot --suite demo --suites-dir {root} --tags smoke --keep"
+        in text
+    )
+    assert "[other] ran one-shot --suite other" in text and "empty" not in text
+    doc = json.loads(report.read_text())
+    assert [t["name"] for t in doc["tasks"]] == ["demo", "other"]
+    assert doc["parallelism"] == 1 and doc["ok"] == 2
+
+    monkeypatch.setenv("TDD_PARALLELISM", "4")
+    assert batch._workers(2) == 2 and batch._workers(9) == 4
+
+
+def test_one_shot_list_reports_failures_and_fail_fast_starts_no_more(
+    xp_root, monkeypatch, capsys
+):
+    _fake_one_shots(monkeypatch, fail=("demo",))
+    _second_suite_dir(xp_root)
+
+    rc = _run(["one-shot", "--suite", "demo,other", *_suites_dir(xp_root)])
+    seen = capsys.readouterr()
+    assert rc == 1
+    assert "1 of 2 suite selector(s) failed: demo" in seen.err
+    assert "[other] ran one-shot --suite other" in seen.out
+
+    rc = _run(
+        ["one-shot", "--suite", "demo,other", *_suites_dir(xp_root), "--fail-fast"]
+    )
+    seen = capsys.readouterr()
+    assert rc == 1
+    assert "not run after the failure: other" in seen.err
+    assert "[other] ran" not in seen.out
+
+
+def test_one_shot_list_refuses_a_shared_run_and_unknown_selectors_up_front(
+    xp_root, monkeypatch, capsys
+):
+    """A suite run or project names one run, which many selectors cannot share;
+    a mistyped selector stops the batch before any child starts."""
+    from tabsdata_dev.tool.xp import batch
+
+    _fake_one_shots(monkeypatch)
+    rc = _run(["one-shot", "--suite", "ALL", *_suites_dir(xp_root), "--project", "p"])
+    assert rc == 1
+    assert "--project names a single suite run" in capsys.readouterr().err
+
+    rc = _run(["one-shot", "--suite", "demo,nope", *_suites_dir(xp_root)])
+    seen = capsys.readouterr()
+    assert rc == 1 and "nope" in seen.err and "[demo] ran" not in seen.out
+
+    assert not batch.is_batch("demo") and not batch.is_batch("demo/one")
+    assert batch.is_batch("all") and batch.is_batch("demo, other")
+    assert not batch.is_batch("demo,demo")

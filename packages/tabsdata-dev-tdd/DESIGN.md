@@ -21,6 +21,10 @@ The executable half: `tdd-exe` (dispatch, `help`, `_doctor`, `info`, `--reqs`, `
   toolset's `bin/` first on `PATH`, `TDD_DIR` and `_TDD_TOOL` exported. Everything after the
   command word reaches the tool verbatim. Before exec, every `bin-reqs` binary must resolve
   (a pyenv/asdf/mise shim only if its manager wires it) unless `-h`/`--help` is among the args.
+  `bin/<tool>` is the Unix layout: `paths.venv_scripts`/`venv_exe` ask `sysconfig` for the
+  running platform's (`Scripts\<tool>.exe` on Windows), with a twin in `common.core.proc` that a
+  test keeps identical. Windows has no exec, so there the tool runs as a child -- Ctrl-C left to
+  it -- and its exit code is passed on.
 - **Defaults** (`defaults.py`): the `[options]` / `[options.<action>]` tables of
   `<tdd_dir>/<cmd>.toml` merged
   under the typed options, appended -- or inserted before a `--`, after which nothing is an

@@ -96,7 +96,10 @@ dir, so a dir is self-describing and relocatable.
 `tdd-exe` execs `<tdd_dir>/tdd-venvs/<toolset>/bin/<tool>` -- no activation, no `uv run` --
 with the toolset's `bin/` first on `PATH` (a tool finds its pinned binaries) and `TDD_DIR`,
 `_TDD_TOOL` exported (a tool reaches siblings through `proc.run_tool`, never an import). Before
-exec it resolves every declared binary and refuses with the list of missing ones; `--help` is
+exec it resolves every declared binary and refuses with the list of missing ones. The venv layout
+(`bin/` or `Scripts\`, `.exe` or not) is asked of `sysconfig`, as tabsdata-os does, never
+hard-coded. Windows has no exec -- `os.execve` there exits before the tool runs -- so the tool
+runs as a child, Ctrl-C left to it, and its exit code is passed on. `--help` is
 never blocked. `tdd-fn` does the same for shell commands with `command -v`.
 
 ## External binaries

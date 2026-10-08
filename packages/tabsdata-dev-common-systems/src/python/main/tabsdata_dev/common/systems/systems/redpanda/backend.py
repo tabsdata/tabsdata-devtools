@@ -45,7 +45,7 @@ _REGISTRY_INTERNAL_PORT = 8081
 # what the Kafka connector speaks when its connection has credentials.
 SASL_USER = "tdd"
 SASL_MECHANISM = "SCRAM-SHA-256"
-_ON, _OFF = "on", "off"
+SASL_ON, SASL_OFF = "on", "off"
 
 
 def client_conf(brokers: str, user: str = "", password: str = "") -> dict:
@@ -93,7 +93,7 @@ class Redpanda(SqlContainerBackend):
 
     def synth_default(self, name: str, sys_name: str) -> str:
         if name == "SASL":
-            return _OFF
+            return SASL_OFF
         raise TdxError(f"{self.slug}: no synth default for {name}")
 
     # ---- custom container lifecycle ------------------------------------
@@ -102,16 +102,18 @@ class Redpanda(SqlContainerBackend):
         self, name: str, overrides: dict[str, str] | None = None
     ) -> dict[str, str]:
         o = overrides or {}
-        sasl = (o.get("SASL") or _OFF).strip().lower()
-        if sasl not in (_ON, _OFF):
-            raise TdxError(f"--sasl must be {_ON} or {_OFF} (got: {o.get('SASL')})")
+        sasl = (o.get("SASL") or SASL_OFF).strip().lower()
+        if sasl not in (SASL_ON, SASL_OFF):
+            raise TdxError(
+                f"--sasl must be {SASL_ON} or {SASL_OFF} (got: {o.get('SASL')})"
+            )
         raw = o.get("PORT")
         kport = int(raw) if raw else self.next_free_port()
         reg = self.next_free_port()
         while reg == kport:
             reg = self.next_free_port()
         auth = {"USER": "", "PASSWORD": ""}
-        if sasl == _ON:
+        if sasl == SASL_ON:
             auth = {
                 "USER": SASL_USER,
                 "PASSWORD": gen_password(),

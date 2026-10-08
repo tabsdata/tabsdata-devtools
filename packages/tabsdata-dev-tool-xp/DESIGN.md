@@ -300,7 +300,7 @@ comment). Kinds repeat, in any order the dependencies allow:
   registry (`kafka_registry`), what stages a batch (`kafka_triggers`: bytes and rows within
   minutes, against a 10-minute clock a control publisher must not have run out), a publisher
   disabled and enabled (`kafka_pause_resume`, duplicates not allowed) and SASL credentials
-  (`kafka_sasl`, on a system created `--sasl on`). The domain's data plane writes JSON only;
+  (`kafka_sasl`, on a `redpandasasl` system). The domain's data plane writes JSON only;
   `scripts/produce_events.py` writes the rest -- Avro without a header, Protobuf, Avro in the
   Confluent wire format through the registry -- and appends to the same trail.
 - **`"enabled": false`** on a function registers it with `tdk fn register --disabled`: a stream
@@ -402,6 +402,17 @@ kill the rest; without it every lane is attempted, and a multi-phase run records
 died against their phase, drops them from later phases and reports them once at the end. Children
 nest their scratch under the parent's through `_TDD_XP_SCRATCH`, honoured only with the parent's
 pid in `_TDD_XP_PARENT`, so a stale export is reported and ignored.
+
+`one-shot --suite` also takes a comma list of selectors or `ALL` -- every suite dir holding a
+definition -- the same selector shape as `tdd system` / `tdd domain` (`batch.py`). Each selector is
+a whole `one-shot` child of its own through the generic batch (`common.core.batch`), not a lane:
+its own suite run, scratch dir and report, nothing nested under a parent's, so any one can be
+re-run alone. They run **one at a time** unless `TDD_PARALLELISM` is set, unlike the batch's
+default of 10: every child provisions domains on the same systems and the same instance, and a
+pile-up there fails runs for no fault of their own. Each child's lines stream as `[SEL] line`;
+`--fail-fast` (passed on, and starting no further selector), `--report` (the batch's JSON) and
+Ctrl-C mean what they mean for the other batch verbs. `--suite-run` / `--project` name one run,
+so a list refuses them, and every selector is resolved before the first child starts.
 
 The pointer store is `<tdd_dir>/data/xp/`: `i-<R>` for a suite run (a definition file is
 recorded as its path, re-read live for the run, with the run's `xp_id` and `xp_short_id`; a

@@ -344,7 +344,7 @@ def _doctor(dir_: pathlib.Path, out: render.Renderer) -> int:
     for env in sorted(paths.venvs_dir(dir_).glob("*")):
         if not env.is_dir():
             continue
-        python = env / "bin" / "python"
+        python = paths.venv_exe(env, "python")
         if python.exists():
             check(
                 True,
@@ -361,7 +361,7 @@ def _doctor(dir_: pathlib.Path, out: render.Renderer) -> int:
                 env=env.name,
             )
     for name, entry in sorted(catalog["tools"].items()):
-        exe = paths.venvs_dir(dir_) / entry["toolset"] / "bin" / name
+        exe = paths.venv_exe(paths.venvs_dir(dir_) / entry["toolset"], name)
         check(
             exe.is_file(),
             name if exe.is_file() else f"{name}: missing {exe}",

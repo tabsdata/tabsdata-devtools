@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import sysconfig
 
 DEFAULT_DIR_NAME = ".tdd"
 
@@ -34,6 +35,21 @@ def tdd_dir(explicit: str | None = None) -> pathlib.Path:
 
 def venvs_dir(dir_: pathlib.Path) -> pathlib.Path:
     return dir_ / "tdd-venvs"
+
+
+def venv_scripts(venv: pathlib.Path) -> pathlib.Path:
+    """A venv's executables dir -- bin/ on Unix, Scripts\\ on Windows -- as the
+    running interpreter lays venvs out, rather than a hard-coded leaf."""
+    paths = sysconfig.get_paths(
+        scheme="venv", vars={"base": str(venv), "platbase": str(venv)}
+    )
+    return pathlib.Path(paths["scripts"])
+
+
+def venv_exe(venv: pathlib.Path, name: str) -> pathlib.Path:
+    """A program in a venv: its interpreter or a console script, with the
+    platform's executable suffix (.exe on Windows)."""
+    return venv_scripts(venv) / (name + (sysconfig.get_config_var("EXE") or ""))
 
 
 def repo_root() -> pathlib.Path | None:

@@ -47,14 +47,15 @@ def dispatch(
             why={b: note for b, note in gone if note},
         )
 
-    bin_dir = paths.venvs_dir(dir_) / entry["toolset"] / "bin"
-    exe = bin_dir / tool
+    venv = paths.venvs_dir(dir_) / entry["toolset"]
+    bin_dir = paths.venv_scripts(venv)
+    exe = paths.venv_exe(venv, tool)
     if not exe.is_file():
         return out.error(
             f"{tool} is missing from {bin_dir}; run `tdd-install --dir {dir_}`"
         )
 
-    # The toolset's own bin/ goes first so a tool shelling out finds its own
+    # The toolset's own bin/ (Scripts\ on Windows) goes first so a tool shelling out finds its own
     # pinned binaries; TDD_DIR/_TDD_TOOL let it reach siblings and its own
     # catalog entry.
     env = dict(os.environ)
@@ -63,8 +64,26 @@ def dispatch(
     env["_TDD_TOOL"] = tool
 
     out.debug(f"exec {exe} {' '.join(argv)}", toolset=entry["toolset"], exe=str(exe))
+    if os.name == "nt":
+        return _run_child(exe, argv, env)
     os.execve(str(exe), [str(exe), *argv], env)
     return 1  # unreachable; execve does not return
+
+
+def _run_child(exe: pathlib.Path, argv: list[str], env: dict[str, str]) -> int:
+    """Windows has no exec: os.execve there starts the program and ends this
+    process at once, so the caller gets an exit code before the tool has even
+    run. The tool runs as a child instead and its code is passed on. Ctrl-C
+    reaches every process on the console, the tool included; this one ignores
+    it and leaves stopping to the tool."""
+    import signal
+    import subprocess
+
+    previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        return subprocess.run([str(exe), *argv], env=env).returncode
+    finally:
+        signal.signal(signal.SIGINT, previous)
 
 
 def _missing_message(tool: str, gone: list[tuple[str, str]]) -> str:

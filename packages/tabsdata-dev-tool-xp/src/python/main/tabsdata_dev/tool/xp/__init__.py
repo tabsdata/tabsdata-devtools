@@ -40,7 +40,7 @@ manifest this tool writes.
     tdd xp run-suite        --suite-run R [--project P] [--force] [--tags T,...] [--skip-tags T,...] [--no-actions] [--profile NAME] ...
     tdd xp enable-function  --project P --collection C --function F [--profile NAME]
     tdd xp disable-function --project P --collection C --function F [--profile NAME]
-    tdd xp one-shot         --suite SEL [--suite-run R] [--project P] [--force] [--keep] [--tags T,...] [--skip-tags T,...] [--no-actions] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
+    tdd xp one-shot         --suite SEL|s1,s2|ALL [--suite-run R] [--project P] [--force] [--keep] [--tags T,...] [--skip-tags T,...] [--no-actions] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
     tdd xp bench            --suite TYPE [--name N] [--keep] [--profile NAME] [--fail-fast] [--suites-dir DIR] ...
 """
 
@@ -124,7 +124,7 @@ def _fail_fast(c):
     c.add_argument(
         "--fail-fast",
         action="store_true",
-        help="abort the whole run at the first phase in which a lane fails, instead of dropping that lane and carrying on (only bites when --suite is a DIR)",
+        help="abort the whole run at the first phase in which a lane fails, instead of dropping that lane and carrying on (only bites when --suite is a DIR); with a one-shot --suite list or ALL, also start no further selector once one fails",
     )
 
 
@@ -384,7 +384,12 @@ def configure(p: argparse.ArgumentParser) -> None:
         "one-shot",
         help="create-instance + run-suite (the suite's stages, in order), then tear down (--keep preserves)",
     )
-    _suite(c, SUITE_HELP)
+    _suite(
+        c,
+        f"{SUITE_HELP}; a comma list of selectors, or ALL (every suite dir), runs one "
+        "one-shot per selector, one at a time unless TDD_PARALLELISM is set "
+        "(--suite-run and --project are refused then)",
+    )
     _suite_run(c, required=False)
     _project_opt(c)
     c.add_argument(

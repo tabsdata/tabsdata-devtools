@@ -3,7 +3,7 @@
 #
 
 # Connection template for: kafka-topic-in (stream-src) — consumer group '<prefix>_sasl',
-# AUTHENTICATED. For a redpanda system created with `--sasl on`: every Kafka client of it
+# AUTHENTICATED. For a redpandasasl system (redpanda with SASL on): every Kafka client of it
 # authenticates as the system's one user, which a domain carries as USER/PASSWORD. With
 # `credentials` set the connector speaks SASL_PLAINTEXT with SCRAM-SHA-256 -- what such a
 # system expects. Against a system without SASL USER is empty and the connection is refused.

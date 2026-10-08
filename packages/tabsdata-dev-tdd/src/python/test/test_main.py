@@ -3,6 +3,7 @@
 #
 
 import json
+import pathlib
 
 from tabsdata_dev.tdd import __main__ as main_mod
 from tabsdata_dev.tdd import render
@@ -219,6 +220,78 @@ def test_dispatch_refuses_when_a_declared_binary_is_missing(
     with pytest.raises(SystemExit):
         dispatch_mod.dispatch(tmp_path, "demo", ["--help"], out)
     assert called and called[0][1:] == ["--help"]
+
+
+@pytest.mark.parametrize(
+    "scheme, suffix, leaf, name",
+    [("posix_venv", "", "bin", "demo"), ("nt_venv", ".exe", "Scripts", "demo.exe")],
+)
+def test_a_venv_program_is_where_the_interpreter_lays_it_out(
+    tmp_path, monkeypatch, scheme, suffix, leaf, name
+):
+    # bin/demo on Unix, Scripts\demo.exe on Windows: asked of sysconfig, as
+    # tabsdata-os does, never a hard-coded leaf. Each platform's layout is
+    # simulated through its sysconfig scheme.
+    import sysconfig
+
+    from tabsdata_dev.tdd import paths
+
+    real = sysconfig.get_paths
+    monkeypatch.setattr(
+        paths.sysconfig,
+        "get_paths",
+        lambda **kwargs: real(scheme, vars=kwargs["vars"]),
+    )
+    monkeypatch.setattr(paths.sysconfig, "get_config_var", lambda key: suffix)
+    venv = tmp_path / "v"
+    assert paths.venv_scripts(venv).name == leaf
+    assert paths.venv_exe(venv, "demo") == venv / leaf / name
+
+
+def test_on_windows_a_tool_runs_as_a_child_and_its_exit_code_is_passed_on(tmp_path):
+    # Windows has no exec, so dispatch waits on the tool instead; Ctrl-C is the
+    # tool's to handle while it runs, and the dispatcher's own handling is back
+    # once it ends.
+    import signal
+    import sys
+
+    from tabsdata_dev.tdd import dispatch as dispatch_mod
+
+    before = signal.getsignal(signal.SIGINT)
+    script = tmp_path / "tool.py"
+    script.write_text("import sys; sys.exit(int(sys.argv[1]))\n")
+    rc = dispatch_mod._run_child(
+        pathlib.Path(sys.executable), [str(script), "3"], dict(os.environ)
+    )
+    assert rc == 3
+    assert signal.getsignal(signal.SIGINT) is before
+
+
+def test_the_venv_helpers_twins_say_the_same(tmp_path):
+    # common-core cannot import tdd-exe's stdlib-only package, so proc.py
+    # carries the same two helpers; this keeps them saying the same thing.
+    import ast
+
+    from tabsdata_dev.tdd import paths
+
+    root = paths.repo_root()
+    twins = [
+        root / "packages/tabsdata-dev-tdd/src/python/main/tabsdata_dev/tdd/paths.py",
+        root
+        / "packages/tabsdata-dev-common-core/src/python/main/tabsdata_dev/common/core/proc.py",
+    ]
+
+    def bodies(path):
+        tree = ast.parse(path.read_text())
+        return {
+            node.name: ast.dump(ast.Module(body=node.body[1:], type_ignores=[]))
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name in ("venv_scripts", "venv_exe")
+        }
+
+    mine, theirs = (bodies(p) for p in twins)
+    assert set(mine) == {"venv_scripts", "venv_exe"} and mine == theirs
 
 
 def test_a_shim_counts_only_when_its_manager_wires_it(tmp_path, monkeypatch):

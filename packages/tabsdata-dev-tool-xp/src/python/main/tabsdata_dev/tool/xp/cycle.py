@@ -20,6 +20,7 @@ from tabsdata_dev.common.core import batch as core_batch
 
 from . import (
     actions,
+    batch,
     domains,
     ids,
     lanes,
@@ -211,7 +212,10 @@ def cmd_one_shot(args) -> None:
     """Create the suite run (--suite-run, else its XP_ID) and run its stages in
     order (`run-suite`) on its project (--project, else <XP_ID>_<suite>), then
     tear down. A FAILED run stops before teardown, leaving the setup in place
-    for debugging."""
+    for debugging. A comma list of selectors, or ALL, runs one such one-shot
+    per selector (see `batch`)."""
+    if batch.is_batch(args.suite):
+        return batch.cmd_one_shot(args)
     # Fail fast, before any pointer or domain: every lane's domains phase needs
     # the key, and it is checked first because it costs nothing.
     domains.require_crypto_key()

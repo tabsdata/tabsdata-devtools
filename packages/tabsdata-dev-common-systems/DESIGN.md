@@ -71,13 +71,15 @@ run. Its own `create-model`, `create-data` and `modify-data` (`redpanda/domain/`
   each row as sent, so a check reads what the consumer was given. The shared create-data takes the
   reshaping as a `prepare` function from the system's own module rather than a backend hook: a dry
   run must not reach the system, and a test pins that it does not.
-- **`system create --sasl on`** makes a broker every Kafka client authenticates to, as one user
+- **The `redpandasasl` type** is a broker every Kafka client authenticates to, as one user
   (`tdd`, SCRAM-SHA-256, a generated password in the descriptor and in every domain made from it):
   the user is created, made a superuser and SASL then enabled through the admin API, which SASL
   does not guard. Every client the backend makes -- the admin client, the data plane's producer,
   the readiness probe's `rpk` -- authenticates when the meta has a user; the data-plane handle
-  carries the credentials, quoted, so nothing else is needed to reach them. Off by default:
-  one SASL broker beside the plain one rather than a listener of each on one broker, which would
+  carries the credentials, quoted, so nothing else is needed to reach them. It is the redpanda
+  backend with SASL forced on (what `redpanda` gives with `--sasl on`), registered as a type of
+  its own as `mysqlcdc` is to `mysql`: `create --type ALL` makes it and it owns a port slot. One
+  SASL broker beside the plain one rather than a listener of each on one broker, which would
   mean a cluster config per listener for a setup a single suite needs.
 
 ## The two backend bases

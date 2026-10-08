@@ -374,7 +374,7 @@ def _write_source(dir_: pathlib.Path, out: render.Renderer) -> dict[str, pathlib
     opens the other shell. Both come back, keyed by file name, because the
     install message names both.
     """
-    python = paths.venvs_dir(dir_) / SHELL_ENV / "bin" / "python"
+    python = paths.venv_exe(paths.venvs_dir(dir_) / SHELL_ENV, "python")
     if not python.is_file():
         out.warn("shell env missing; no tdd-source loader written")
         return {}

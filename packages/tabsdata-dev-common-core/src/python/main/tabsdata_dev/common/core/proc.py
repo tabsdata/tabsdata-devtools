@@ -17,10 +17,27 @@ import json
 import os
 import pathlib
 import subprocess
+import sysconfig
 
 
 class UndeclaredRequirement(RuntimeError):
     pass
+
+
+def venv_scripts(venv: pathlib.Path) -> pathlib.Path:
+    """A venv's executables dir -- bin/ on Unix, Scripts\\ on Windows -- as the
+    running interpreter lays venvs out. The twin of `tabsdata_dev.tdd.paths`'s,
+    which common-core cannot import."""
+    paths = sysconfig.get_paths(
+        scheme="venv", vars={"base": str(venv), "platbase": str(venv)}
+    )
+    return pathlib.Path(paths["scripts"])
+
+
+def venv_exe(venv: pathlib.Path, name: str) -> pathlib.Path:
+    """A program in a venv, with the platform's executable suffix (.exe on
+    Windows)."""
+    return venv_scripts(venv) / (name + (sysconfig.get_config_var("EXE") or ""))
 
 
 @functools.lru_cache(maxsize=1)
@@ -43,7 +60,8 @@ def _declared() -> frozenset[str]:
 
 @functools.lru_cache(maxsize=1)
 def _toolset_bin() -> pathlib.Path | None:
-    """This tool's own toolset bin/, which tdd puts first on PATH."""
+    """This tool's own toolset bin/ (Scripts\\ on Windows), which tdd puts first
+    on PATH."""
     dir_ = os.environ.get("TDD_DIR")
     tool = os.environ.get("_TDD_TOOL")
     if not dir_ or not tool:
@@ -52,7 +70,7 @@ def _toolset_bin() -> pathlib.Path | None:
     if not catalog.is_file():
         return None
     toolset = json.loads(catalog.read_text())["tools"].get(tool, {}).get("toolset")
-    return pathlib.Path(dir_) / "tdd-venvs" / toolset / "bin" if toolset else None
+    return venv_scripts(pathlib.Path(dir_) / "tdd-venvs" / toolset) if toolset else None
 
 
 def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -106,7 +124,7 @@ def tool_argv(name: str, *args: str) -> list[str]:
 
     dir_ = os.environ.get("TDD_DIR")
     if dir_:
-        exe = str(pathlib.Path(dir_) / "tdd-venvs" / "tdd" / "bin" / "tdd-exe")
+        exe = str(venv_exe(pathlib.Path(dir_) / "tdd-venvs" / "tdd", "tdd-exe"))
         return [exe, "--dir", dir_, name, *args]
     exe = shutil.which("tdd-exe")
     if exe is None:

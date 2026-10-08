@@ -322,6 +322,18 @@ def test_sasl_on_gives_the_system_a_user_its_domains_and_clients_carry(monkeypat
         assert system._endpoint(uri) == ({"bootstrap.servers": "h:1"}, "h:1", "pfx")
 
 
+def test_the_redpandasasl_type_is_redpanda_with_sasl_forced_on():
+    from tabsdata_dev.common.systems.systems.redpanda import backend
+    from tabsdata_dev.common.systems.systems.redpandasasl import Redpandasasl
+
+    system = Redpandasasl()
+    system.use_ports([29905, 29906])
+    assert [o.name for o in system.options()] == ["PORT"]
+    meta = system.plan_system("rps", {"PORT": "29905"})
+    assert meta["SASL"] == "on" and meta["USER"] == backend.SASL_USER
+    assert meta["PORT"] == "29905" and system.slug == "redpandasasl"
+
+
 def test_a_sasl_systems_probe_authenticates(monkeypatch):
     from tabsdata_dev.common.systems import shell
     from tabsdata_dev.common.systems.systems.redpanda import backend

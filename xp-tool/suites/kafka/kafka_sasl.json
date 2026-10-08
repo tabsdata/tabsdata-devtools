@@ -1,7 +1,7 @@
 [
   {
     "_copyright": "Copyright 2026 Tabsdata Inc.",
-    "_comment": "CAPABILITY suite: the Kafka stream source with SASL CREDENTIALS. Needs a redpanda system created with SASL on -- `tdd system create --type redpanda --sys redpanda_sasl --sasl on` -- on which every Kafka client authenticates (SASL/SCRAM-SHA-256, the system's one user tdd, a generated password); a domain carries them as USER/PASSWORD, and connections/kafka_topic_in_sasl.yaml hands them to the connection's credentials, which the connector speaks as SASL_PLAINTEXT. The domain's own data plane authenticates the same way. functions/caps_kafka.py::kafka_in reads <prefix>.employees, unchanged: credentials are the connection's, not the source's. STAGES: (1) the domain on redpanda_sasl, the xs seed appended to ${xp:dir}/ops.jsonl; (2) the collection and (3) the function; (4) actions, tagged live -- a batch to employees; (5) actions, tagged check -- scripts/verify_kafka.py: every employees message in kafka_employees exactly once (polling at most 5m); (6) monitor. Run: `tdd xp one-shot --suite kafka/kafka_sasl --keep`."
+    "_comment": "CAPABILITY suite: the Kafka stream source with SASL CREDENTIALS. Runs on a redpandasasl system (`tdd system create --type redpandasasl`, part of `--type ALL`; the redpanda type with SASL on), on which every Kafka client authenticates (SASL/SCRAM-SHA-256, the system's one user tdd, a generated password); a domain carries them as USER/PASSWORD, and connections/kafka_topic_in_sasl.yaml hands them to the connection's credentials, which the connector speaks as SASL_PLAINTEXT. The domain's own data plane authenticates the same way. functions/caps_kafka.py::kafka_in reads <prefix>.employees, unchanged: credentials are the connection's, not the source's. STAGES: (1) the domain on redpandasasl, the xs seed appended to ${xp:dir}/ops.jsonl; (2) the collection and (3) the function; (4) actions, tagged live -- a batch to employees; (5) actions, tagged check -- scripts/verify_kafka.py: every employees message in kafka_employees exactly once (polling at most 5m); (6) monitor. Run: `tdd xp one-shot --suite kafka/kafka_sasl --keep`."
   },
   {
     "domain-manifest": {
@@ -9,7 +9,7 @@
       "domains": [
         {
           "name": "${xp:name(redpanda)}",
-          "system": "redpanda_sasl",
+          "system": "redpandasasl",
           "model": "employees",
           "size": 1
         }
