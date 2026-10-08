@@ -12,15 +12,27 @@ bucket; every other table is derived from it). Three entities take deltas:
 ``airport`` and ``passenger`` (insert / update — inserts mint unique
 ICAO / passport values disjoint from the seed data) and ``booking`` (delete
 only — a leaf table nothing references).
+
+What ``modify-data`` inserts into ``airport`` and ``passenger`` carries defects, each
+at a rate the run draws from its seed (see ``_defect_rate``): a data-quality check
+over the changes sees a different share of every defect from one run to the next,
+better or worse, and a run stays as repeatable as its seed. The seed data is clean.
 """
 
 from __future__ import annotations
 
+import functools
 import random
 import string
 from datetime import date, datetime, time, timedelta
 
-from tabsdata_dev.common.systems.datagen import Entity, Model, OpKind, base36
+from tabsdata_dev.common.systems.datagen import (
+    FIXED_SEED_INSERT_STRIDE,
+    Entity,
+    Model,
+    OpKind,
+    base36,
+)
 from tabsdata_dev.common.systems.emit import Column, Table
 
 # The *bookings* count is the size bucket; every other table scales from it,
@@ -778,6 +790,52 @@ def _insert_icao(i: int) -> str:
     return f"{(i // _ICAO_BODY) % 10}{base36(i % _ICAO_BODY, 3)}"
 
 
+def _insert_iata(i: int) -> str:
+    """Three upper-case letters from the ordinal. Not unique (``iata`` has no
+    unique key on any backend), only well-formed."""
+    out = ""
+    for _ in range(3):
+        i, r = divmod(i, 26)
+        out = string.ascii_uppercase[r] + out
+    return out
+
+
+# What a defect does to an inserted row, and the classifier that sees it:
+#   iata_missing      airport.iata left NULL            IsNotNull(iata)
+#   iata_lowercase    airport.iata in lower case        Matches(iata, ^[A-Z]{3}$)
+#   name_lowercase    airport.name in lower case        Matches(name, ^\p{Lu})
+#   passport_bad      passportno C<7 digits>X           Matches(passportno, ^[A-Z][0-9]{8}$)
+#   firstname_lower   passenger.firstname lower case    Matches(firstname, ^\p{Lu})
+#   lastname_lower    passenger.lastname lower case     Matches(lastname, ^\p{Lu})
+# No defect is an empty string: Oracle stores '' as NULL, and the names are NOT NULL.
+_DEFECT_RATES = (0.05, 0.60)
+_GOLDEN = (5**0.5 - 1) / 2
+
+
+@functools.lru_cache(maxsize=1024)
+def _seed_rate(defect: str, seed: int) -> float:
+    # A golden-ratio step per seed, from a start of the defect's own: a few seeds
+    # apart, two rates are never close (seeds 3 apart, as the trends suite's
+    # passes run, differ by 8 points or more -- well past the noise of a few
+    # hundred rows), so a check sees the share move on every run. A string seed
+    # hashes the same in every process, unlike ``hash()``.
+    start = random.Random(f"airportdb:{defect}").random()
+    low, high = _DEFECT_RATES
+    return low + (high - low) * ((start + seed * _GOLDEN) % 1.0)
+
+
+def _defect_rate(defect: str, i: int) -> float:
+    """The share of rows `defect` hits in the run inserting ordinal `i`: set by
+    the run's seed, the block of ordinals the run owns
+    (``i // FIXED_SEED_INSERT_STRIDE``), one sequence per defect, so each
+    defect's share moves on its own from run to run."""
+    return _seed_rate(defect, i // FIXED_SEED_INSERT_STRIDE)
+
+
+def _defective(rng: random.Random, defect: str, i: int) -> bool:
+    return rng.random() < _defect_rate(defect, i)
+
+
 class _Airport(Entity):
     table = "airport"
     columns = AIRPORT_COLS
@@ -785,7 +843,14 @@ class _Airport(Entity):
     rows_per_set = 1
 
     def new_row(self, rng: random.Random, i: int) -> dict:
-        return {"icao": _insert_icao(i), "name": f"Change Airport {i}"[:80]}
+        row = {"icao": _insert_icao(i), "name": f"Change Airport {i}"[:80]}
+        # A missing iata is a column left out of the INSERT, so NULL.
+        if not _defective(rng, "iata_missing", i):
+            iata = _insert_iata(i)
+            row["iata"] = iata.lower() if _defective(rng, "iata_lowercase", i) else iata
+        if _defective(rng, "name_lowercase", i):
+            row["name"] = row["name"].lower()
+        return row
 
     def target(self, i: int, existing: int) -> dict:
         return {"airport_id": i + 1}
@@ -801,10 +866,15 @@ class _Passenger(Entity):
     rows_per_set = 1
 
     def new_row(self, rng: random.Random, i: int) -> dict:
+        # A bad passport is still 9 characters and unique: the column has a unique key.
+        bad = _defective(rng, "passport_bad", i)
+        first, last = f"First{i}"[:100], f"Last{i}"[:100]
         return {
-            "passportno": f"C{i:08d}",
-            "firstname": f"First{i}"[:100],
-            "lastname": f"Last{i}"[:100],
+            "passportno": f"C{i:07d}X" if bad else f"C{i:08d}",
+            "firstname": first.lower()
+            if _defective(rng, "firstname_lower", i)
+            else first,
+            "lastname": last.lower() if _defective(rng, "lastname_lower", i) else last,
         }
 
     def target(self, i: int, existing: int) -> dict:

@@ -102,6 +102,17 @@ every dialect. Two session hooks: `session_setup()` runs first on every data-pla
 `--trx-mode interleaved|nested` schedule (`trx`, `sql_runner.run_sql_schedule`) -- the dialect's
 lock-wait timeout, and for MySQL READ COMMITTED -- see the domain design doc for why.
 
+**What `modify-data` inserts into airportdb is defective on purpose** -- `airport.iata`
+missing or lower case, `airport.name`, `passenger.firstname` or `.lastname` lower case, a
+passport `C<7 digits>X` -- each defect at a share the run's seed sets (5-60%, its insert
+block `i // FIXED_SEED_INSERT_STRIDE` stepped by the golden ratio, so a few seeds apart two
+shares are never close). A data-quality check over the changes then sees every share move
+from one run to the next (`xp`'s `dataquality/trends`); the seed data stays clean, and a
+seed repeats exactly. No defect is an empty string, which Oracle stores as NULL in a NOT
+NULL column, and a bad passport keeps the column's unique key. Rejected: a regex in the
+suite over the seed's digits in the inserted values -- it varied as well, but depended on
+the seed stride and the order of the suite's calls, and said nothing to a reader.
+
 **A `postgrescdc` domain owns a replication slot**, named after its database (lowercased,
 hashed past 63 characters) and recorded as `REPLICATION_SLOT`: the slot its stream publishers
 use, with `replication_slot_behavior="reuse"`. Slot names are server-wide, so a slot a function

@@ -2745,3 +2745,65 @@ def test_scan_waits_finds_the_statement_that_would_wait_on_its_own_run():
     rest = plan([t for t in every if t != "readings"])
     sched = trx.schedule([len(t) for t in rest], TrxMode.INTERLEAVED, 8)
     assert trx.scan_waits(rest, sched, {"readings"}) is None
+
+
+def test_airportdb_inserts_carry_defects_at_a_rate_each_seed_sets():
+    """What modify-data inserts into airportdb is defective at a share each
+    run's seed sets, one per defect: a data-quality check over the changes sees
+    every share move from one run to the next (the dataquality/trends suite
+    counts on it), the rows stay valid for the DDL -- unique keys unique, no
+    empty string Oracle would store as NULL -- and a seed repeats exactly."""
+    import random
+    import re
+
+    from tabsdata_dev.common.systems.datagen import ChangeSpec, OpKind, OpSelector
+
+    model = datagen.load_model("airportdb")
+    seeded = {
+        t.name: len(t.rows)
+        for t in model.build_initial(random.Random(datagen.INITIAL_SEED), 100)
+    }
+
+    def inserts(seed: int, entity: str) -> list[dict]:
+        spec = ChangeSpec(
+            entities=[entity],
+            ops=OpSelector.INSERT,
+            sets=600,
+            rows_per_entity={entity: 1},
+            seed=seed,
+            insert_base=seed * datagen.FIXED_SEED_INSERT_STRIDE,
+        )
+        txns = datagen.plan(model, spec, seeded)
+        return [ch.row for t in txns for ch in t if ch.kind is OpKind.INSERT]
+
+    upper = re.compile(r"^[A-Z]")
+    checks = {
+        "airport": {
+            "iata missing": lambda r: "iata" not in r,
+            "iata lower case": lambda r: "iata" in r and r["iata"] != r["iata"].upper(),
+            "name lower case": lambda r: not upper.match(r["name"]),
+        },
+        "passenger": {
+            "passport malformed": lambda r: not re.fullmatch(
+                r"[A-Z][0-9]{8}", r["passportno"]
+            ),
+            "firstname lower case": lambda r: not upper.match(r["firstname"]),
+            "lastname lower case": lambda r: not upper.match(r["lastname"]),
+        },
+    }
+    for entity, defects in checks.items():
+        key = "icao" if entity == "airport" else "passportno"
+        seen: set[str] = set()
+        shares: dict[str, list[float]] = {d: [] for d in defects}
+        for seed in range(1, 31, 3):  # the suite's passes are 3 seeds apart
+            rows = inserts(seed, entity)
+            assert rows == inserts(seed, entity)  # a seed repeats exactly
+            for r in rows:
+                assert r[key].lower() not in seen  # unique, even ignoring case
+                seen.add(r[key].lower())
+                assert all(v != "" for v in r.values())
+            for d, hit in defects.items():
+                shares[d].append(sum(map(hit, rows)) / len(rows))
+        for d, s in shares.items():
+            assert all(0.0 < x < 0.75 for x in s), (d, s)
+            assert all(a != b for a, b in zip(s, s[1:])), (d, s)  # moves every run
