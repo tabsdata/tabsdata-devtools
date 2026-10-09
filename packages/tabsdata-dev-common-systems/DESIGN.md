@@ -115,6 +115,17 @@ NULL column, and a bad passport keeps the column's unique key. Rejected: a regex
 suite over the seed's digits in the inserted values -- it varied as well, but depended on
 the seed stride and the order of the suite's calls, and said nothing to a reader.
 
+**Its `weather` inserts are for categorizers**, which bin a numeric column: the four
+tables that changed had no number but a surrogate key, and `weather` has five measures,
+no foreign key and nothing referencing it. Each reading is spread around a centre at the
+run's phase of that measure (the same golden-ratio step), so a histogram moves from one
+run to the next; 2-10% are sensor faults, 1 or more past the measure's plausible range,
+so a scale spanning that range sees its under- and overflow. The ranges -- station 1-8,
+wind direction 0-360, wind 0-64, humidity 0-100, temperature -30-50 -- are what the
+trends suite's scales span. An insert's key is a minute per ordinal from the day after
+the seed's last; an update rewrites one of station 1's eight readings on that last day,
+which every size has, as the inserted ones' keys cannot be found from an ordinal.
+
 **A `postgrescdc` domain owns a replication slot**, named after its database (lowercased,
 hashed past 63 characters) and recorded as `REPLICATION_SLOT`: the slot its stream publishers
 use, with `replication_slot_behavior="reuse"`. Slot names are server-wide, so a slot a function

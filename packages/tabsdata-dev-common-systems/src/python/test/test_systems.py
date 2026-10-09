@@ -2795,7 +2795,7 @@ def test_airportdb_inserts_carry_defects_at_a_rate_each_seed_sets():
         key = "icao" if entity == "airport" else "passportno"
         seen: set[str] = set()
         shares: dict[str, list[float]] = {d: [] for d in defects}
-        for seed in range(1, 31, 3):  # the suite's passes are 3 seeds apart
+        for seed in range(1, 41, 4):  # the suite's passes are 4 seeds apart
             rows = inserts(seed, entity)
             assert rows == inserts(seed, entity)  # a seed repeats exactly
             for r in rows:
@@ -2815,3 +2815,82 @@ def test_only_salesforce_is_an_exclusive_system_type():
     assert dispatch.exclusive_type("salesforce") is True
     assert dispatch.exclusive_type("postgres") is False
     assert dispatch.exclusive_type("no-such-type") is False
+
+
+def test_airportdb_weather_inserts_move_with_the_seed_and_fault_past_the_ranges():
+    """What modify-data inserts into weather is spread around centres each run's
+    seed sets, with a share of faults past each measure's plausible range: a
+    categorizer over the changes (the dataquality/trends suite's) sees its
+    histogram move from one run to the next and both its ends. The keys never meet
+    the seed's or each other's, the values fit the DDL's decimals, an update
+    addresses a seeded reading every size has, and a seed repeats exactly."""
+    import random
+    import statistics
+
+    from tabsdata_dev.common.systems.datagen import ChangeSpec, OpKind, OpSelector
+
+    model = datagen.load_model("airportdb")
+    tables = {
+        t.name: t for t in model.build_initial(random.Random(datagen.INITIAL_SEED), 100)
+    }
+    seeded = {name: len(t.rows) for name, t in tables.items()}
+    seed_keys = {
+        (r["log_date"], r["log_time"], r["station"]) for r in tables["weather"].rows
+    }
+
+    def plan(seed: int, ops: OpSelector) -> list:
+        spec = ChangeSpec(
+            entities=["weather"],
+            ops=ops,
+            sets=600,
+            rows_per_entity={"weather": 1},
+            seed=seed,
+            insert_base=seed * datagen.FIXED_SEED_INSERT_STRIDE,
+        )
+        return [ch for t in datagen.plan(model, spec, seeded) for ch in t]
+
+    ranges = {
+        "station": (1, 8),
+        "winddirection": (0, 360),
+        "wind": (0, 64),
+        "humidity": (0, 100),
+        "temp": (-30, 50),
+    }
+    # DECIMAL(4,1) and DECIMAL(5,2): what a value must stay inside to load.
+    widths = {"temp": 999.9, "humidity": 999.9, "wind": 999.99}
+    times: set = set()
+    centres: dict[str, list[float]] = {m: [] for m in ranges}
+    ends = {m: [0, 0] for m in ranges}
+    for seed in range(1, 41, 4):  # the suite's passes are 4 seeds apart
+        rows = [ch.row for ch in plan(seed, OpSelector.INSERT)]
+        assert rows == [ch.row for ch in plan(seed, OpSelector.INSERT)]
+        for r in rows:
+            at = (r["log_date"], r["log_time"])
+            assert at not in times and (*at, r["station"]) not in seed_keys
+            times.add(at)
+            for m, width in widths.items():
+                assert abs(r[m]) <= width, (m, r[m])
+            for m, (low, high) in ranges.items():
+                ends[m][0] += r[m] < low
+                ends[m][1] += r[m] > high
+        for m, (low, high) in ranges.items():
+            inside = [r[m] for r in rows if low <= r[m] <= high]
+            # The station's centre is its busiest; the rest, the median reading.
+            centres[m].append(
+                statistics.mode(inside) if m == "station" else statistics.median(inside)
+            )
+    for m, (low, high) in ranges.items():
+        under, over = ends[m]
+        assert 0 < under and 0 < over, (m, ends[m])
+        assert under + over < 0.1 * len(times), (m, ends[m])
+        span = high - low
+        moves = [abs(a - b) for a, b in zip(centres[m], centres[m][1:])]
+        # The wind's exponential spread moves its median least: a twentieth of
+        # its range still puts the readings in other bins.
+        assert min(moves) > span / 20, (m, centres[m])
+
+    updates = [ch for ch in plan(5, OpSelector.UPDATE) if ch.kind is OpKind.UPDATE]
+    assert updates
+    for ch in updates:
+        key = (ch.where["log_date"], ch.where["log_time"], ch.where["station"])
+        assert key in seed_keys  # at size 1, the smallest

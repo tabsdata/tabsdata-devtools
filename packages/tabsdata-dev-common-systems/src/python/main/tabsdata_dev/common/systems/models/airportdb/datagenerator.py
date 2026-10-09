@@ -8,15 +8,19 @@ Builds a deterministic, self-consistent airport ecosystem — airports + geo,
 airlines based at those airports, airplane fleets, employees, passengers,
 recurring flight schedules, materialized flights, seat bookings and weather
 observations — scaled by the requested size (the *bookings* count = the size
-bucket; every other table is derived from it). Three entities take deltas:
+bucket; every other table is derived from it). Four entities take deltas:
 ``airport`` and ``passenger`` (insert / update — inserts mint unique
-ICAO / passport values disjoint from the seed data) and ``booking`` (delete
-only — a leaf table nothing references).
+ICAO / passport values disjoint from the seed data), ``booking`` (delete
+only — a leaf table nothing references) and ``weather`` (insert / update —
+inserts are readings after the seed's last day; nothing references it).
 
 What ``modify-data`` inserts into ``airport`` and ``passenger`` carries defects, each
 at a rate the run draws from its seed (see ``_defect_rate``): a data-quality check
 over the changes sees a different share of every defect from one run to the next,
-better or worse, and a run stays as repeatable as its seed. The seed data is clean.
+better or worse, and a run stays as repeatable as its seed. What it inserts into
+``weather`` is spread around centres the seed sets, with a share of out-of-range
+faults (see ``_Weather``): a categorizer's histogram moves from run to run. The
+seed data is clean.
 """
 
 from __future__ import annotations
@@ -202,6 +206,9 @@ CAPACITY_BY_TYPE = {
 }
 
 DEPARTMENTS = ["Marketing", "Buchhaltung", "Management", "Logistik", "Flugfeld"]
+# The seed's readings end on this day, at every station from 1 and every third hour.
+_WEATHER_LAST_DAY = date(2024, 12, 31)
+
 WEATHER_KINDS = [
     "Nebel",
     "Regen",
@@ -645,7 +652,7 @@ def gen_bookings(n, flights, passengers):
 
 def gen_weather(n_stations, n_days):
     rows = []
-    today = date(2024, 12, 31)
+    today = _WEATHER_LAST_DAY
     for d_off in range(n_days):
         day = today - timedelta(days=d_off)
         for s in range(1, n_stations + 1):
@@ -803,33 +810,38 @@ def _insert_iata(i: int) -> str:
 # What a defect does to an inserted row, and the classifier that sees it:
 #   iata_missing      airport.iata left NULL            IsNotNull(iata)
 #   iata_lowercase    airport.iata in lower case        Matches(iata, ^[A-Z]{3}$)
-#   name_lowercase    airport.name in lower case        Matches(name, ^\p{Lu})
+#   name_lowercase    airport.name in lower case        Matches(name, ^[A-ZÀ-ÖØ-Þ])
 #   passport_bad      passportno C<7 digits>X           Matches(passportno, ^[A-Z][0-9]{8}$)
-#   firstname_lower   passenger.firstname lower case    Matches(firstname, ^\p{Lu})
-#   lastname_lower    passenger.lastname lower case     Matches(lastname, ^\p{Lu})
+#   firstname_lower   passenger.firstname lower case    Matches(firstname, ^[A-ZÀ-ÖØ-Þ])
+#   lastname_lower    passenger.lastname lower case     Matches(lastname, ^[A-ZÀ-ÖØ-Þ])
 # No defect is an empty string: Oracle stores '' as NULL, and the names are NOT NULL.
 _DEFECT_RATES = (0.05, 0.60)
 _GOLDEN = (5**0.5 - 1) / 2
 
 
 @functools.lru_cache(maxsize=1024)
-def _seed_rate(defect: str, seed: int) -> float:
-    # A golden-ratio step per seed, from a start of the defect's own: a few seeds
-    # apart, two rates are never close (seeds 3 apart, as the trends suite's
-    # passes run, differ by 8 points or more -- well past the noise of a few
-    # hundred rows), so a check sees the share move on every run. A string seed
-    # hashes the same in every process, unlike ``hash()``.
-    start = random.Random(f"airportdb:{defect}").random()
-    low, high = _DEFECT_RATES
-    return low + (high - low) * ((start + seed * _GOLDEN) % 1.0)
+def _seed_phase(name: str, seed: int) -> float:
+    # A golden-ratio step per seed, from a start of the name's own: a few seeds
+    # apart, two phases are never close (seeds 4 apart, as the trends suite's
+    # passes run, are 0.47 apart around the circle), so a check sees what the
+    # phase sets move on every run. A string seed hashes the same in every
+    # process, unlike ``hash()``.
+    start = random.Random(f"airportdb:{name}").random()
+    return (start + seed * _GOLDEN) % 1.0
+
+
+def _phase(name: str, i: int) -> float:
+    """`name`'s phase in [0, 1) for the run inserting ordinal `i`: set by the
+    run's seed, the block of ordinals the run owns
+    (``i // FIXED_SEED_INSERT_STRIDE``), one sequence per name, so each moves on
+    its own from run to run."""
+    return _seed_phase(name, i // FIXED_SEED_INSERT_STRIDE)
 
 
 def _defect_rate(defect: str, i: int) -> float:
-    """The share of rows `defect` hits in the run inserting ordinal `i`: set by
-    the run's seed, the block of ordinals the run owns
-    (``i // FIXED_SEED_INSERT_STRIDE``), one sequence per defect, so each
-    defect's share moves on its own from run to run."""
-    return _seed_rate(defect, i // FIXED_SEED_INSERT_STRIDE)
+    """The share of rows `defect` hits in the run inserting ordinal `i`."""
+    low, high = _DEFECT_RATES
+    return low + (high - low) * _phase(defect, i)
 
 
 def _defective(rng: random.Random, defect: str, i: int) -> bool:
@@ -895,8 +907,104 @@ class _Booking(Entity):
         return {"booking_id": i + 1}
 
 
+# What modify-data inserts into weather: readings whose spread the run's seed sets,
+# for categorizers to bin -- each measure's centre (station: its busiest one) at the
+# run's phase of it, so a run's histogram sits elsewhere than the last run's -- and a
+# share of sensor faults, 2-10% per measure and run, each a value outside the
+# measure's plausible range, below or above it. The ranges are what the
+# dataquality/trends suite's scales span, so a fault is an under- or overflow and
+# every other reading lands in a bin:
+#   station        1..8          an integer per station
+#   winddirection  0..360        degrees
+#   wind           0..64         knots, exponentially distributed
+#   humidity       0..100        percent
+#   temp           -30..50       degrees Celsius
+_STATIONS = 8
+_FAULT_RATES = (0.02, 0.10)
+# Inserted readings start the day after the seed's, a minute apart per ordinal, so
+# their key never meets the seed's or another insert's whatever the station.
+_WEATHER_INSERT_START = datetime.combine(
+    _WEATHER_LAST_DAY + timedelta(days=1), time(0, 0)
+)
+
+
+def _faulty(rng: random.Random, measure: str, i: int) -> bool:
+    low, high = _FAULT_RATES
+    return rng.random() < low + (high - low) * _phase(f"{measure}_fault", i)
+
+
+def _reading(
+    rng: random.Random, measure: str, i: int, low: float, high: float, value: float
+) -> float:
+    """`value` held to [low, high], or -- a fault -- a value past one end, by 1 or
+    more so an integer column truncates it to a value still outside."""
+    if _faulty(rng, measure, i):
+        past = rng.uniform(1, (high - low) / 4)
+        return low - past if rng.random() < 0.5 else high + past
+    return min(max(value, low), high)
+
+
+class _Weather(Entity):
+    table = "weather"
+    columns = WEATHER_COLS
+    supports = (OpKind.INSERT, OpKind.UPDATE)
+    rows_per_set = 1
+
+    def new_row(self, rng: random.Random, i: int) -> dict:
+        at = _WEATHER_INSERT_START + timedelta(minutes=i)
+        hub = 1 + int(_STATIONS * _phase("station", i))
+        station = hub if rng.random() < 0.6 else rng.randint(1, _STATIONS)
+        if _faulty(rng, "station", i):
+            station = rng.choice((0, _STATIONS + 1))
+        heading = rng.gauss(360 * _phase("winddirection", i), 45) % 360
+        mean_wind = 1 + 24 * _phase("wind", i)
+        return {
+            "log_date": at.date(),
+            "log_time": at.time(),
+            "station": station,
+            "temp": round(
+                _reading(
+                    rng, "temp", i, -30, 50, rng.gauss(-20 + 45 * _phase("temp", i), 6)
+                ),
+                1,
+            ),
+            "humidity": round(
+                _reading(
+                    rng,
+                    "humidity",
+                    i,
+                    0,
+                    100,
+                    rng.gauss(30 + 65 * _phase("humidity", i), 8),
+                ),
+                1,
+            ),
+            "airpressure": round(rng.gauss(1013, 12), 2),
+            "wind": round(
+                _reading(rng, "wind", i, 0, 64, rng.expovariate(1 / mean_wind)), 2
+            ),
+            "weather": rng.choice(WEATHER_KINDS + [None] * 4),
+            "winddirection": int(_reading(rng, "winddirection", i, 0, 360, heading)),
+        }
+
+    def target(self, i: int, existing: int) -> dict:
+        # The seed's last day at station 1, which every size has: an update
+        # rewrites one of those eight readings.
+        return {
+            "log_date": _WEATHER_LAST_DAY,
+            "log_time": time(3 * (i % 8), 0),
+            "station": 1,
+        }
+
+    def mutate(self, rng: random.Random, i: int, existing: int) -> dict:
+        return {
+            "airpressure": round(rng.gauss(1013, 12), 2),
+            "weather": rng.choice(WEATHER_KINDS),
+        }
+
+
 class _AirportDb(Model):
-    entities = [_Airport(), _Passenger(), _Booking()]
+    entities = [_Airport(), _Passenger(), _Booking(), _Weather()]
 
     def build_initial(self, rng: random.Random, n: int) -> list[Table]:
         random.seed(42)
