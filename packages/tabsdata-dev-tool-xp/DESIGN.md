@@ -63,15 +63,15 @@ times the phases, `--dry-run` prints the commands.
   (`batch_min_secs=60`, `batch_max_secs=60` and no `batch_idle_secs`, so a batch is staged
   only when changes wait), a transformer classifying airport and passenger with six
   classifiers and `Summary(trend=SummaryTrend(...))`, and weather with five
-  `ScaleCategorizer`s, one per scale, and a `Summary` alone (a trend folds boolean
-  classifiers only), 30 minutes of `modify-data` at ~1800 rows a minute -- whose inserts
-  carry a defect per classifier at a share each run's seed sets, and readings around
-  centres it sets with a share out of range (common-systems' design doc), so every pass
-  rate and histogram moves every run -- and a check that every CDC version holds changes
-  and they come about a minute apart, that at least five classifiers move from every run
-  to the next and the trend's run, week, month and folded rows add up to the summaries,
-  and that at least five categorizers' histograms add up, move from every version to the
-  next and see both ends of their scale. `dataquality/trends/datagen_scale_samples` (with
+  `ScaleCategorizer`s, one per scale, and `Summary(trend=None)` (a trend folds boolean
+  classifiers only, and is on by default), 30 minutes of `modify-data` at ~1800 rows a
+  minute -- whose inserts carry a defect per classifier at a share each run's seed sets,
+  and readings around centres it sets with a share out of range (common-systems' design
+  doc), so every pass rate and histogram moves every run -- and a check that every CDC
+  version holds changes and they come about a minute apart, that at least five classifiers
+  move from every run to the next and the trend's run, week, month and folded rows add up
+  to the summaries, and that at least five categorizers' histograms add up, move from
+  every version to the next and see both ends of their scale. `dataquality/trends/datagen_scale_samples` (with
   `functions/scale_plan.py`, `functions/dq_scale_samples.py` and
   `scripts/verify_dq_scale_samples.py`) shows every scale and boolean trends with no system
   at all: `scale_samples_spec.md`'s 22 columns, one relation family each, from `DataGenSrc`

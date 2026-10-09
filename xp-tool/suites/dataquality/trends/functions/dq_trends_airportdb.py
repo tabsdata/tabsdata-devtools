@@ -19,11 +19,11 @@ Two functions:
 - ``dq_airportdb`` (collection ``dq_trends_ops``): passes the ``airport``,
   ``passenger`` and ``weather`` change tables through and carries a ``DataQuality``
   action on each: on airport and passenger three boolean classifiers and a ``Summary``
-  with a ``SummaryTrend``, on weather five ``ScaleCategorizer`` and a ``Summary``
-  alone -- a trend folds boolean classifiers only. Every version it writes adds a
-  ``<table>_dq_summary`` version, and for airport and passenger the server's trend
-  child function (registered with this one) folds that into
-  ``<table>_dq_summary_trends``.
+  with a ``SummaryTrend``, on weather five ``ScaleCategorizer`` and a
+  ``Summary(trend=None)`` -- a trend folds boolean classifiers only, and is on unless
+  opted out of. Every version it writes adds a ``<table>_dq_summary`` version, and for
+  airport and passenger the server's trend child function (registered with this one)
+  folds that into ``<table>_dq_summary_trends``.
 
 Six classifiers, each moving on every run: what ``modify-data`` inserts into airportdb
 carries six defects, each at a share the run's seed sets (5-60%, a few points or more
@@ -140,7 +140,8 @@ WEATHER_DQ = DataQuality(
         ),
         ScaleCategorizer(["temp"], scale=MonomialScale(-30.0, 50.0, power=2.0, bins=8)),
     ],
-    operators=[Summary()],
+    # Summary's trend is on by default, and folds boolean classifiers only.
+    operators=[Summary(trend=None)],
 )
 
 
