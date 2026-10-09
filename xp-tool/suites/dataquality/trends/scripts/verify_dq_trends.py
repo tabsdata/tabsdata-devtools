@@ -1,10 +1,12 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""Check the DQ summary trend tables against the summaries they fold.
+"""Check the DQ summary trend tables against the summaries they fold, and the
+categorizers' summaries.
 
-    verify_dq_trends.py COLLECTION TABLE... [--cdc COLLECTION] [--min-runs N]
-                        [--min-classifiers N] [--moving] [--max-interval D]
+    verify_dq_trends.py COLLECTION TABLE... [--categorized TABLE]... [--cdc COLLECTION]
+                        [--min-runs N] [--min-classifiers N] [--min-categorizers N]
+                        [--moving] [--out-of-range] [--max-interval D]
                         [--time-out D] [--profile NAME]
 
 Each TABLE carries a DataQuality action with a ``Summary`` and a ``SummaryTrend``:
@@ -30,9 +32,28 @@ row for every summary version of every boolean classifier, and fails at
 - ``pass_pct`` is passed / (passed + failed) as a percentage, null when both are 0,
   and every row says the same ``folded_through``;
 - with ``--moving``, its ``pass_pct`` differs from one run row to the next, by bucket:
-  the data's quality moved, for better or worse, on every run.
+  the data's quality moved, for better or worse, on every run -- every run of new
+  data: with ``--cdc``, a run whose input, the latest version of ``<TABLE>_changes``
+  at its time, changed no data is let be. The stream commits every table on each
+  batch, so its last one -- the sentinel's row alone -- triggers the transformer
+  over the rows it classified before, and the summary repeats.
 
 Across the TABLEs, at least ``--min-classifiers`` boolean classifiers (default 1).
+
+A ``--categorized`` TABLE carries ``ScaleCategorizer`` classifiers and a ``Summary``
+with no trend (a trend folds boolean classifiers only): its ``<TABLE>_dq_summary`` is
+read alone, once its latest version is no older than the latest CDC version of
+``<TABLE>_changes`` (with ``--cdc``; else once it has one). Per categorizer:
+
+- at least ``--min-runs`` summary versions carry it, every one from rows classified;
+- in each, its bins (``dq.p000`` on), ``dq.under``, ``dq.over``, ``dq.nan`` and
+  ``dq.none`` add up to ``dq.total``, and ``dq.bins`` is the same in all;
+- with ``--moving``, its histogram, as shares of ``dq.total``, differs from one
+  version to the next, a version of an input that changed no data let be as above;
+- with ``--out-of-range``, its under- and its overflow are each above 0 in some
+  version: the scale's ends are seen.
+
+Across them, at least ``--min-categorizers`` categorizers (default 0).
 
 With ``--cdc COLLECTION``, the stream's own output is checked too: every version of
 ``<TABLE>_changes`` in it that changed data holds rows (a trigger with nothing to
@@ -43,7 +64,8 @@ first minute of changes -- is left out, as it waits on the sentinel stage, not t
 publisher.
 
 The step's note says each table's runs, the rows its summaries classified and the
-intervals between its CDC versions.
+intervals between its CDC versions, and for a categorized table the median shift of
+its histograms from one version to the next (total variation, 0-1).
 """
 
 from __future__ import annotations
@@ -52,6 +74,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import sys
 import statistics
 import time
@@ -66,6 +89,8 @@ COUNTS = ("runs", "passed", "failed", "nulls", "nans")
 # A summary column -> the trend count it is folded into.
 SUMMARY_TO_TREND = {"dq.true": "passed", "dq.false": "failed", "dq.none": "nulls", "dq.nan": "nans"}
 POLL_SECS = 10
+# A categorizer's bin column, dq.p000 on (dq.parameters is not one).
+BIN = re.compile(r"dq\.p\d{3}")
 
 #: `--profile NAME` for every tdk call, or nothing: tdk takes it on each command,
 #: after the verb's own options.
@@ -80,13 +105,33 @@ def seconds(text: str) -> float:
     return float(text[:-1]) * units[text[-1]]
 
 
-def changed_versions(proj: str, coll: str, table: str) -> list[dict]:
-    """`table`'s versions that changed data, oldest first, as tdk lists them."""
+def all_versions(proj: str, coll: str, table: str) -> list[dict]:
+    """`table`'s versions, oldest first, as tdk lists them."""
     found = json.loads(
         tdd("tdk", "table", "versions", "--proj", proj, "--coll", coll, "--name", table,
             "--max-result", "0", "--format", "json", *PROFILE)
     )
-    return sorted((v for v in found if v.get("data_changed")), key=lambda v: instant(v.get("created_at")))
+    return sorted(found, key=lambda v: instant(v.get("created_at")))
+
+
+def changed_versions(proj: str, coll: str, table: str) -> list[dict]:
+    """`table`'s versions that changed data, oldest first."""
+    return [v for v in all_versions(proj, coll, table) if v.get("data_changed")]
+
+
+class Inputs:
+    """A table's CDC versions, to tell a run of new data from a run over an input
+    version that changed none. A version a function writes carries its trigger's
+    ``created_at``; the trend's bucket is the summary's commit, a little later and
+    a batch before the next one."""
+
+    def __init__(self, found: list[dict]) -> None:
+        self.found = [(instant(v.get("created_at")), bool(v.get("data_changed"))) for v in found]
+
+    def unchanged(self, at: float) -> bool:
+        """Whether the latest input version at `at` changed no data."""
+        before = [changed for t, changed in self.found if t <= at]
+        return bool(before) and not before[-1]
 
 
 def versions(proj: str, coll: str, table: str) -> list[str]:
@@ -142,27 +187,35 @@ def num(value: str) -> float:
 
 class Summaries:
     """Every version of a summary table, read once each: per boolean classifier, how
-    many versions carry it and its tallies summed; and the rows classified."""
+    many versions carry it and its tallies summed; per categorizer, its row in each
+    version, oldest first; the rows classified; and when the latest was made."""
 
     def __init__(self) -> None:
         self.read: set[str] = set()
         self.runs: dict[str, int] = defaultdict(int)
         self.sums: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+        self.categories: dict[str, list[tuple[str, float, dict]]] = defaultdict(list)
         self.classified = 0
         self.empty: list[str] = []
+        self.latest = 0.0
 
     def update(self, proj: str, coll: str, table: str, work: Path) -> None:
-        for v in versions(proj, coll, table):
+        for found in changed_versions(proj, coll, table):
+            v = found["id"]
             if v in self.read:
                 continue
             got = rows(proj, coll, table, v, work)
             self.read.add(v)
+            at = instant(found.get("created_at"))
+            self.latest = max(self.latest, at)
             # dq.total is the rows the action saw, on every classifier's row alike.
             total = int(max((num(r.get("dq.total", "")) for r in got), default=0))
             if total < 1:
                 self.empty.append(v)
             self.classified += total
             for r in got:
+                if r.get("dq.type") == "categorical":
+                    self.categories[r["dq.classifier"]].append((v, at, r))
                 if r.get("dq.type") != "boolean":
                     continue
                 c = r["dq.classifier"]
@@ -185,14 +238,24 @@ def behind(summaries: Summaries, trend: list[dict]) -> dict[str, tuple[int, int]
     return {c: (have[c], n) for c, n in summaries.runs.items() if have[c] != n}
 
 
-def check(table: str, summaries: Summaries, trend: list[dict], min_runs: int, moving: bool = False) -> list[str]:
+def check(
+    table: str,
+    summaries: Summaries,
+    trend: list[dict],
+    min_runs: int,
+    moving: bool = False,
+    inputs: Inputs | None = None,
+) -> list[str]:
     problems = []
     if moving:
         series: dict[str, list[tuple[str, str]]] = defaultdict(list)
         for r in sorted((r for r in trend if r["grain"] == RUN), key=lambda r: r["bucket"]):
             series[r["classifier"]].append((r["bucket"], r["pass_pct"]))
         for c, points in series.items():
-            still = [b for (_, a), (b, x) in zip(points, points[1:]) if a == x]
+            still = [
+                b for (_, a), (b, x) in zip(points, points[1:])
+                if a == x and not (inputs and inputs.unchanged(instant(b)))
+            ]
             if still:
                 problems.append(f"{table}: {c} pass_pct did not move into {len(still)} run(s): {still[:3]}")
     by_grain: dict[str, dict[str, dict[str, float]]] = {
@@ -242,15 +305,68 @@ def check(table: str, summaries: Summaries, trend: list[dict], min_runs: int, mo
     return problems
 
 
+def histogram(r: dict) -> tuple[list[float], float]:
+    """A categorizer's summary row as counts -- under, over, nan, none, then every
+    bin column it fills -- and its dq.total."""
+    bins = sorted(k for k in r if BIN.fullmatch(k) and r[k] not in ("", None))
+    return [num(r[k]) for k in ("dq.under", "dq.over", "dq.nan", "dq.none", *bins)], num(r["dq.total"])
+
+
+def check_categories(
+    table: str,
+    summaries: Summaries,
+    min_runs: int,
+    moving: bool,
+    out_of_range: bool,
+    inputs: Inputs | None = None,
+) -> tuple[list[str], list[float]]:
+    """Problems with `table`'s categorizers, and every shift of a histogram from one
+    version to the next (total variation)."""
+    problems, shifts = [], []
+    if summaries.empty:
+        problems.append(f"{table}: {len(summaries.empty)} summary version(s) classified no rows: {summaries.empty}")
+    for c, found in sorted(summaries.categories.items()):
+        if len(found) < min_runs:
+            problems.append(f"{table}: {c} is in {len(found)} summary version(s), fewer than {min_runs}")
+        if len({r["dq.bins"] for _, _, r in found}) != 1:
+            problems.append(f"{table}: {c} dq.bins differs across versions: {sorted({r['dq.bins'] for _, _, r in found})}")
+        previous = None
+        for v, at, r in found:
+            counts, total = histogram(r)
+            if sum(counts) != total:
+                problems.append(f"{table}: {c} version {v} counts {sum(counts):g} rows of a dq.total of {total:g}")
+            shares = [x / total for x in counts] if total else counts
+            if previous is not None and len(previous) == len(shares):
+                if inputs and inputs.unchanged(at):
+                    continue  # the same rows again: neither a shift nor a stall
+                shift = sum(abs(a - b) for a, b in zip(previous, shares)) / 2
+                shifts.append(shift)
+                if moving and shift == 0:
+                    problems.append(f"{table}: {c} histogram did not move into version {v}")
+            previous = shares
+        if out_of_range:
+            for end in ("dq.under", "dq.over"):
+                if not any(num(r[end]) > 0 for _, _, r in found):
+                    problems.append(f"{table}: {c} has no {end} in any version")
+    return problems, shifts
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     parser.add_argument("collection")
     parser.add_argument("tables", nargs="+", metavar="TABLE")
+    parser.add_argument("--categorized", action="append", default=[], metavar="TABLE",
+                        help="a table whose summary carries categorizers and no trend; repeatable")
     parser.add_argument("--min-runs", type=int, default=1, help="run rows each classifier must have (default 1)")
     parser.add_argument("--min-classifiers", type=int, default=1,
                         help="boolean classifiers the TABLEs must carry between them (default 1)")
+    parser.add_argument("--min-categorizers", type=int, default=0,
+                        help="categorizers the --categorized TABLEs must carry between them (default 0)")
     parser.add_argument("--moving", action="store_true",
-                        help="every classifier's pass_pct must change from one run to the next")
+                        help="every classifier's pass_pct, every categorizer's histogram, "
+                             "must change from one run to the next")
+    parser.add_argument("--out-of-range", action="store_true",
+                        help="every categorizer must see an underflow and an overflow")
     parser.add_argument("--cdc", metavar="COLLECTION",
                         help="the stream publisher's collection, holding <TABLE>_changes: check its cadence")
     parser.add_argument("--max-interval", type=seconds, default=seconds("90s"),
@@ -288,7 +404,8 @@ def main() -> int:
         if trend is None:
             continue
         print(f"{table}: {len(summaries.read)} summary version(s), {len(trend)} trend row(s)")
-        problems += check(table, summaries, trend, args.min_runs, args.moving)
+        inputs = Inputs(all_versions(proj, args.cdc, f"{table}_changes")) if args.cdc else None
+        problems += check(table, summaries, trend, args.min_runs, args.moving, inputs)
         classifiers += len(summaries.runs)
         figure = f"{table} {min(summaries.runs.values())} runs {summaries.classified} rows"
         if args.cdc:
@@ -297,9 +414,50 @@ def main() -> int:
             figure += f", {cadence}" if cadence else ""
         figures.append(figure)
 
+    categorizers = 0
+    for table in args.categorized:
+        summaries = Summaries()
+        while True:
+            summaries.update(proj, coll, f"{table}_dq_summary", work)
+            want = 0.0
+            if args.cdc:
+                found = changed_versions(proj, args.cdc, f"{table}_changes")
+                want = instant(found[-1].get("created_at")) if found else 0.0
+            if summaries.categories and summaries.latest >= want:
+                break
+            if time.monotonic() > deadline:
+                problems.append(f"{table}: the summary did not catch up with the stream in {args.time_out:g}s")
+                summaries = None
+                break
+            time.sleep(POLL_SECS)
+        if summaries is None:
+            continue
+        print(f"{table}: {len(summaries.read)} summary version(s), {len(summaries.categories)} categorizer(s)")
+        inputs = Inputs(all_versions(proj, args.cdc, f"{table}_changes")) if args.cdc else None
+        found_problems, shifts = check_categories(
+            table, summaries, args.min_runs, args.moving, args.out_of_range, inputs
+        )
+        problems += found_problems
+        categorizers += len(summaries.categories)
+        figure = (
+            f"{table} {min(len(f) for f in summaries.categories.values())} runs "
+            f"{summaries.classified} rows, histograms shift a median "
+            f"{statistics.median(shifts) if shifts else 0:.2f}"
+        )
+        if args.cdc:
+            cadence_problems, cadence = cdc_cadence(proj, args.cdc, table, args.max_interval)
+            problems += cadence_problems
+            figure += f", {cadence}" if cadence else ""
+        figures.append(figure)
+
     if classifiers < args.min_classifiers:
         problems.append(f"{classifiers} classifier(s) across {', '.join(args.tables)}, fewer than {args.min_classifiers}")
-    note(f"{classifiers} classifiers; " + "; ".join(figures))
+    if categorizers < args.min_categorizers:
+        problems.append(
+            f"{categorizers} categorizer(s) across {', '.join(args.categorized) or 'no table'}, "
+            f"fewer than {args.min_categorizers}"
+        )
+    note(f"{classifiers} classifiers, {categorizers} categorizers; " + "; ".join(figures))
     for p in problems:
         print(p, file=sys.stderr)
     return 1 if problems else 0

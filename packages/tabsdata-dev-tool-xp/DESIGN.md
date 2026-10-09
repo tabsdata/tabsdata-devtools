@@ -62,12 +62,16 @@ times the phases, `--dry-run` prints the commands.
   mysqlcdc airportdb (xs) stream with an initial load, triggered once a minute
   (`batch_min_secs=60`, `batch_max_secs=60` and no `batch_idle_secs`, so a batch is staged
   only when changes wait), a transformer classifying airport and passenger with six
-  classifiers and `Summary(trend=SummaryTrend(...))`, 30 minutes of `modify-data` at ~1200
-  rows a minute -- whose inserts carry a defect per classifier at a share each run's seed
-  sets (common-systems' design doc), so every pass rate moves every run -- and a check that
-  every CDC version holds changes and they come about a minute apart, that at least five
-  classifiers move from every run to the next, and that the trend's run, week, month and
-  folded rows add up to the summaries. A directory of its own because a suite dir's lanes are
+  classifiers and `Summary(trend=SummaryTrend(...))`, and weather with five
+  `ScaleCategorizer`s, one per scale, and a `Summary` alone (a trend folds boolean
+  classifiers only), 30 minutes of `modify-data` at ~1800 rows a minute -- whose inserts
+  carry a defect per classifier at a share each run's seed sets, and readings around
+  centres it sets with a share out of range (common-systems' design doc), so every pass
+  rate and histogram moves every run -- and a check that every CDC version holds changes
+  and they come about a minute apart, that at least five classifiers move from every run
+  to the next and the trend's run, week, month and folded rows add up to the summaries,
+  and that at least five categorizers' histograms add up, move from every version to the
+  next and see both ends of their scale. A directory of its own because a suite dir's lanes are
   its own files, not its subdirs': a bare `--suite dataquality` -- what the smoke runs take,
   on clusters with no mysqlcdc -- stays the quick, self-contained lanes; its collection's
   `server_id` is 1012. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.

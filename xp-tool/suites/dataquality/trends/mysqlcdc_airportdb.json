@@ -1,7 +1,7 @@
 [
   {
     "_copyright": "Copyright 2026 Tabsdata Inc.",
-    "_comment": "DATAQUALITY TRENDS over a MySQL CDC stream: the DQ Summary's trend table (<table>_dq_summary_trends, folded by the trend child function the server registers with every Summary) over a live run of rollovers. DOMAIN: mysqlcdc, model airportdb, size xs (create-data --size 1: 100 bookings, 20 passengers, 10 airports). COLLECTIONS: dq_trends_cdc -- airportdb_cdc, a MySQLCdcStreamSrc over airport, passenger, booking and xp_sentinel with initial_load=True, triggered once a minute (batch_min_secs=60, batch_max_secs=60, no batch_idle_secs: a batch only when changes wait), server_id 1012; dq_trends_ops -- dq_airportdb passes airport and passenger through, each with a DataQuality action of three boolean classifiers -- six in all, each over a defect modify-data inserts at a share the run's seed sets (5-60%, moving every run; the seed data is clean): airport IsNotNull(iata), Matches(iata, ^[A-Z]{3}$), Matches(name, capitalised); passenger Matches(passportno, ^[A-Z][0-9]{8}$), Matches(firstname, lastname, capitalised) -- and Summary(trend=SummaryTrend(days=7, weeks=12, months=24)); booking is streamed but not classified, its one delete a minute being 0% or 100%. Functions in functions/dq_trends_airportdb.py. STAGES: (1) domains; (2) collections; (3) functions -- the publisher registered disabled, then the transformer, so the initial load reaches the classifiers; (4) actions -- `sentinel-data --key after-create-data`, then `tdk fn enable`: the load, then the binlog; (5) sentinel -- the load has flushed; (6) actions, tagged live -- 30 passes a minute apart (the changes in the background beside a 1m sleep), each `modify-data --entity airport --ops Insert --sets 600`, `--entity passenger --ops Insert --sets 600` and `--ops Mix --sets 3` (an insert and an update on airport and passenger, a delete on booking): 1200 inserts and a few updates and deletes a minute, so every rollover's version is a run of the trend; then `sentinel-data --key after-churn`; (7) sentinel; (8) actions, tagged check -- scripts/verify_dq_trends.py: per table, waits for the trend to catch up with the summaries, then at least 5 classifiers, each with at least 28 run rows and a pass_pct that moves from every run to the next, every one from a summary that classified rows, its run rows sum to the summaries' tallies, the week and month rows to the run rows, one folded row per transaction, pass_pct and folded_through consistent; and the stream's <table>_changes versions each hold rows and come a median 90s apart or less; (9) monitor. At xs the seeded rows are few: an update sets a value it set before once the 10 airports (20 passengers) have had one, and MySQL logs no row for it; the inserts are the volume, and the 100 bookings last the 30 deletes. Not under a bare `--suite dataquality` (lanes are a directory's own files), which the smoke runs take. Run: `tdd xp one-shot --suite dataquality/trends/mysqlcdc_airportdb --keep` (~40m)."
+    "_comment": "DATAQUALITY TRENDS over a MySQL CDC stream: the DQ Summary's trend table (<table>_dq_summary_trends, folded by the trend child function the server registers with every Summary) over a live run of rollovers, and the Summary of five ScaleCategorizers, one per scale. DOMAIN: mysqlcdc, model airportdb, size xs (create-data --size 1: 100 bookings, 20 passengers, 10 airports). COLLECTIONS: dq_trends_cdc -- airportdb_cdc, a MySQLCdcStreamSrc over airport, passenger, booking, weather and xp_sentinel with initial_load=True, triggered once a minute (batch_min_secs=60, batch_max_secs=60, no batch_idle_secs: a batch only when changes wait), server_id 1012; dq_trends_ops -- dq_airportdb passes airport, passenger and weather through, airport and passenger each with a DataQuality action of three boolean classifiers -- six in all, each over a defect modify-data inserts at a share the run's seed sets (5-60%, moving every run; the seed data is clean): airport IsNotNull(iata), Matches(iata, ^[A-Z]{3}$), Matches(name, capitalised); passenger Matches(passportno, ^[A-Z][0-9]{8}$), Matches(firstname, lastname, capitalised) -- and Summary(trend=SummaryTrend(days=7, weeks=12, months=24)); weather with five ScaleCategorizers and a Summary with no trend (a trend folds boolean classifiers only) -- station IdentityScale(1, 8, use_bin_zero=True), winddirection LinearScale(0, 360, bins=8), wind ExponentialScale(0, 64, base=2, bins=6), humidity LogarithmicScale(0, 100, base=1.05, bins=8), temp MonomialScale(-30, 50, power=2, bins=8) -- over readings modify-data inserts around centres the run's seed sets, 2-10% of them faults past the measure's range; booking is streamed but not classified, its one delete a minute being 0% or 100%. Functions in functions/dq_trends_airportdb.py. STAGES: (1) domains; (2) collections; (3) functions -- the publisher registered disabled, then the transformer, so the initial load reaches the classifiers; (4) actions -- `sentinel-data --key after-create-data`, then `tdk fn enable`: the load, then the binlog; (5) sentinel -- the load has flushed; (6) actions, tagged live -- 30 passes a minute apart (the changes in the background beside a 1m sleep), each `modify-data --entity airport --ops Insert --sets 600`, `--entity passenger --ops Insert --sets 600`, `--entity weather --ops Insert --sets 600` and `--ops Mix --sets 3` (an insert and an update on airport, passenger and weather, a delete on booking): 1800 inserts and a few updates and deletes a minute, so every rollover's version is a run of the trend; then `sentinel-data --key after-churn`; (7) sentinel; (8) actions, tagged check -- scripts/verify_dq_trends.py: per table, waits for the trend to catch up with the summaries, then at least 5 classifiers, each with at least 28 run rows and a pass_pct that moves from every run to the next, every one from a summary that classified rows, its run rows sum to the summaries' tallies, the week and month rows to the run rows, one folded row per transaction, pass_pct and folded_through consistent; for weather, once its summary is no older than the stream, at least 5 categorizers, each in at least 28 summary versions, bins, under-, overflow, nan and none adding up to dq.total, a histogram that moves from every version to the next, and an under- and an overflow seen; and the stream's <table>_changes versions each hold rows and come a median 90s apart or less; (9) monitor. At xs the seeded rows are few: an update sets a value it set before once the 10 airports (20 passengers) have had one, and MySQL logs no row for it; the inserts are the volume, and the 100 bookings last the 30 deletes. Not under a bare `--suite dataquality` (lanes are a directory's own files), which the smoke runs take. Run: `tdd xp one-shot --suite dataquality/trends/mysqlcdc_airportdb --keep` (~40m)."
   },
   {
     "domain-manifest": {
@@ -147,6 +147,23 @@
                   },
                   {
                     "tdd": {
+                      "name": "insert-weather",
+                      "tool": "domain",
+                      "command": "modify-data",
+                      "options": [
+                        "--domain",
+                        "${xp:name(airportdb_xs)}",
+                        "--entity",
+                        "weather",
+                        "--ops",
+                        "Insert",
+                        "--sets",
+                        "600"
+                      ]
+                    }
+                  },
+                  {
+                    "tdd": {
                       "name": "crud",
                       "tool": "domain",
                       "command": "modify-data",
@@ -221,13 +238,18 @@
             "dq_trends_ops",
             "airport",
             "passenger",
+            "--categorized",
+            "weather",
             "--cdc",
             "dq_trends_cdc",
             "--min-runs",
             "28",
             "--min-classifiers",
             "5",
+            "--min-categorizers",
+            "5",
             "--moving",
+            "--out-of-range",
             "--max-interval",
             "90s",
             "--time-out",

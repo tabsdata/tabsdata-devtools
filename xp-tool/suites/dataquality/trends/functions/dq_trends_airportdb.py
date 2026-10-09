@@ -2,24 +2,28 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""dq_trends_airportdb — data-quality summaries and their trends over a MySQL CDC stream.
+r"""dq_trends_airportdb — data-quality summaries and their trends over a MySQL CDC stream.
 
 Two functions:
 
 - ``airportdb_cdc`` (collection ``dq_trends_cdc``): a ``MySQLCdcStreamSrc`` over the
   ``airportdb`` tables ``modify-data`` changes -- ``airport`` (inserts, updates),
-  ``passenger`` (inserts, updates), ``booking`` (deletes) -- and ``xp_sentinel``,
+  ``passenger`` (inserts, updates), ``booking`` (deletes), ``weather`` (inserts,
+  updates) -- and ``xp_sentinel``,
   started with ``initial_load=True``: each table's rows first, as inserts behind a LOAD
   control row, then the binlog from the position the load is consistent at. It triggers
   once a minute: ``batch_min_secs=60`` and ``batch_max_secs=60`` stage a batch exactly a
   minute after the previous one while changes wait, and with no ``batch_idle_secs`` no
   empty batch is staged -- every version carries CDC changes, and the suite changes the
   tables every minute, so the trend's run tier gets a point a minute.
-- ``dq_airportdb`` (collection ``dq_trends_ops``): passes the ``airport`` and
-  ``passenger`` change tables through and carries a ``DataQuality`` action on each,
-  three boolean classifiers and a ``Summary`` with a ``SummaryTrend``. Every version it
-  writes adds a ``<table>_dq_summary`` version, and the server's trend child function
-  (registered with this one) folds that into ``<table>_dq_summary_trends``.
+- ``dq_airportdb`` (collection ``dq_trends_ops``): passes the ``airport``,
+  ``passenger`` and ``weather`` change tables through and carries a ``DataQuality``
+  action on each: on airport and passenger three boolean classifiers and a ``Summary``
+  with a ``SummaryTrend``, on weather five ``ScaleCategorizer`` and a ``Summary``
+  alone -- a trend folds boolean classifiers only. Every version it writes adds a
+  ``<table>_dq_summary`` version, and for airport and passenger the server's trend
+  child function (registered with this one) folds that into
+  ``<table>_dq_summary_trends``.
 
 Six classifiers, each moving on every run: what ``modify-data`` inserts into airportdb
 carries six defects, each at a share the run's seed sets (5-60%, a few points or more
@@ -35,6 +39,22 @@ it) both read, so no ``\p{Lu}``:
              Matches(firstname, ^[A-ZÀ-ÖØ-Þ])   firstname in lower case
              Matches(lastname, ^[A-ZÀ-ÖØ-Þ])    lastname in lower case
 
+Five categorizers on weather, one per scale, each over a reading ``modify-data``
+inserts around a centre the run's seed sets, with 2-10% of faults out of the
+measure's range (the model's ``_Weather``): the histogram moves every run, and the
+under- and overflow counts are never empty. Which way a scale's bins grow is the
+engine's, which its docstrings have backwards for two of them:
+
+  station        IdentityScale(1, 8, use_bin_zero=True)      a bin per station
+  winddirection  LinearScale(0, 360, bins=8)                 compass sectors
+  wind           ExponentialScale(0, 64, base=2, bins=6)     bins widen with speed
+  humidity       LogarithmicScale(0, 100, base=1.05, bins=8) bins narrow to saturation
+  temp           MonomialScale(-30, 50, power=2, bins=8)     bins widen with warmth
+
+``IdentityScale`` needs ``use_bin_zero``: without it the engine puts ``min_val`` and
+``min_val + 1`` in bin 1 and ``max_val`` in the last bin, not an integer a bin over
+``[min_val, max_val)`` as documented.
+
 ``booking`` is tracked by the stream (a delete a minute) and classified by nothing: one
 row a minute is 0% or 100%, which cannot move every run. The CDC tables' data columns
 keep the source's names; the ``@td.cdc.*`` columns are left alone.
@@ -47,15 +67,27 @@ from __future__ import annotations
 
 from tabsdatak.api import TableFrameSpec, TableFramesSpec, stream_publisher, transformer
 from tabsdatak.conn.mysql import MySQLCdcStreamSrc
-from tabsdatak.dataquality import DataQuality, IsNotNull, Matches, Summary, SummaryTrend
+from tabsdatak.dataquality import (
+    DataQuality,
+    ExponentialScale,
+    IdentityScale,
+    IsNotNull,
+    LinearScale,
+    LogarithmicScale,
+    Matches,
+    MonomialScale,
+    ScaleCategorizer,
+    Summary,
+    SummaryTrend,
+)
 from tabsdatak.tableframe.functions import concat
 
 CDC = "dq_trends_cdc"
 
 # Unqualified: MySQL resolves them against the connection's database, the domain's.
-_TABLES = ["airport", "passenger", "booking"]
+_TABLES = ["airport", "passenger", "booking", "weather"]
 # The tables classified: booking's one delete a minute could not move every run.
-_CHECKED = ["airport", "passenger"]
+_CHECKED = ["airport", "passenger", "weather"]
 _SENTINEL_TABLE = "xp_sentinel"
 
 # The batch limits are the decorator's (a minute, the floor, so no unsafe_seconds).
@@ -96,6 +128,20 @@ PASSENGER_DQ = DataQuality(
     ],
     operators=[_summary()],
 )
+# The ranges are the model's plausible ones: a reading past one is a fault.
+WEATHER_DQ = DataQuality(
+    table="weather",
+    classifiers=[
+        ScaleCategorizer(["station"], scale=IdentityScale(1, 8, use_bin_zero=True)),
+        ScaleCategorizer(["winddirection"], scale=LinearScale(0, 360, bins=8)),
+        ScaleCategorizer(["wind"], scale=ExponentialScale(0.0, 64.0, base=2.0, bins=6)),
+        ScaleCategorizer(
+            ["humidity"], scale=LogarithmicScale(0.0, 100.0, base=1.05, bins=8)
+        ),
+        ScaleCategorizer(["temp"], scale=MonomialScale(-30.0, 50.0, power=2.0, bins=8)),
+    ],
+    operators=[Summary()],
+)
 
 
 @stream_publisher(
@@ -112,20 +158,28 @@ def airportdb_cdc(
     airport: TableFramesSpec,
     passenger: TableFramesSpec,
     booking: TableFramesSpec,
+    weather: TableFramesSpec,
     xp_sentinel: TableFramesSpec,
-) -> tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]:
+) -> tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]:
     # Each slot is the frames this flush carried for its table; `concat` is None for
     # none, and a table with nothing this minute gets no data in its version.
-    return concat(airport), concat(passenger), concat(booking), concat(xp_sentinel)
+    return (
+        concat(airport),
+        concat(passenger),
+        concat(booking),
+        concat(weather),
+        concat(xp_sentinel),
+    )
 
 
 @transformer(
     input_tables=[f"{CDC}/{t}_changes" for t in _CHECKED],
     output_tables=_CHECKED,
-    on_tables=[AIRPORT_DQ, PASSENGER_DQ],
+    on_tables=[AIRPORT_DQ, PASSENGER_DQ, WEATHER_DQ],
 )
 def dq_airportdb(
     airport: TableFrameSpec,
     passenger: TableFrameSpec,
-) -> tuple[TableFrameSpec, TableFrameSpec]:
-    return airport, passenger
+    weather: TableFrameSpec,
+) -> tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec]:
+    return airport, passenger, weather
