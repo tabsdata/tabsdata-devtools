@@ -71,10 +71,22 @@ times the phases, `--dry-run` prints the commands.
   and they come about a minute apart, that at least five classifiers move from every run
   to the next and the trend's run, week, month and folded rows add up to the summaries,
   and that at least five categorizers' histograms add up, move from every version to the
-  next and see both ends of their scale. A directory of its own because a suite dir's lanes are
-  its own files, not its subdirs': a bare `--suite dataquality` -- what the smoke runs take,
-  on clusters with no mysqlcdc -- stays the quick, self-contained lanes; its collection's
-  `server_id` is 1012. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
+  next and see both ends of their scale. `dataquality/trends/datagen_scale_samples` (with
+  `functions/scale_plan.py`, `functions/dq_scale_samples.py` and
+  `scripts/verify_dq_scale_samples.py`) shows every scale and boolean trends with no system
+  at all: `scale_samples_spec.md`'s 22 columns, one relation family each, from `DataGenSrc`
+  publishers -- ten of five tables, 9 with no data quality, 9 with boolean classifiers, 12
+  with scale categorizers, 20 with both, one function's tables carrying all five scale types
+  each -- triggered 100 times through a tick table, a pass every 30s or its plan's time if
+  longer (two plans of one `DataGenSrc` publisher never overlap), 1000 rows a trigger
+  (`chunk_size`). The data is made, not drawn: per column the defects each trigger holds
+  are counts its profile sets -- smooth for a table, jumpy for some columns in every family
+  -- changing every trigger, so the check knows every run's tallies exactly. The plan is
+  standard library only, so the functions build from it and the check reads it. Both are in
+  a directory of their own because a suite dir's lanes are its own files, not its subdirs':
+  a bare `--suite dataquality` -- what the smoke runs take, on clusters with no mysqlcdc --
+  stays the quick, self-contained lanes; the mysqlcdc suite's collection's `server_id` is
+  1012. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
 - No `bin-reqs`: xp reaches tdk and tdkserver only through `tdd tdk`/`tdd tdkserver`,
   and those launchers declare the binaries themselves -- the requirement belongs to the
   command that runs the program. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run
