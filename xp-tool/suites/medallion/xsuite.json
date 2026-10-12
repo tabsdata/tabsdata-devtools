@@ -371,10 +371,6 @@
         "functionpath": "functions/mysql/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
       },
       {
-        "collection": "mysql_in_src",
-        "functionpath": "functions/mysql/src/cdc.py::pub_cdc_full"
-      },
-      {
         "collection": "mysql_in_cdc_src",
         "functionpath": "functions/mysql/src/cdc.py::pub_cdc_stream"
       },
@@ -517,10 +513,6 @@
       {
         "collection": "postgres_in_gold",
         "functionpath": "functions/postgres/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
-      },
-      {
-        "collection": "postgres_in_src",
-        "functionpath": "functions/postgres/src/cdc.py::pub_cdc_full"
       },
       {
         "collection": "postgres_in_cdc_src",
@@ -773,10 +765,6 @@
       {
         "collection": "db2_in_gold",
         "functionpath": "functions/db2/gold/update_stream.py::tfr_dim_upd_entity_ref_type1"
-      },
-      {
-        "collection": "db2_in_src",
-        "functionpath": "functions/db2/src/cdc.py::pub_cdc_full"
       },
       {
         "collection": "db2_in_cdc_src",
@@ -1491,11 +1479,6 @@
         "detached": true
       },
       {
-        "collection": "mysql_in_src",
-        "function": "pub_cdc_full",
-        "detached": true
-      },
-      {
         "collection": "postgres_in_src",
         "function": "pub_append_events",
         "detached": true
@@ -1513,11 +1496,6 @@
       {
         "collection": "postgres_in_src",
         "function": "pub_upd_full",
-        "detached": true
-      },
-      {
-        "collection": "postgres_in_src",
-        "function": "pub_cdc_full",
         "detached": true
       },
       {
@@ -1558,11 +1536,6 @@
       {
         "collection": "db2_in_src",
         "function": "pub_upd_full",
-        "detached": true
-      },
-      {
-        "collection": "db2_in_src",
-        "function": "pub_cdc_full",
         "detached": true
       },
       {
