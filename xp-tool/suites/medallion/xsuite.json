@@ -7,13 +7,13 @@
       "domains": [
         {
           "name": "${xp:name(mysql_bronze_xs)}",
-          "system": "mysql",
+          "system": "mysqlcdc",
           "model": "bronze",
           "size": 1
         },
         {
           "name": "${xp:name(postgres_bronze_xs)}",
-          "system": "postgres",
+          "system": "postgrescdc",
           "model": "bronze",
           "size": 1
         },
@@ -25,7 +25,7 @@
         },
         {
           "name": "${xp:name(db2_bronze_xs)}",
-          "system": "db2",
+          "system": "db2cdc",
           "model": "bronze",
           "size": 1
         },

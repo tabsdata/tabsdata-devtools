@@ -15,7 +15,7 @@ from tabsdatak.tableframe.functions import concat
 
 
 @stream_publisher(
-    source=PostgresCdcStreamSrc(tables=["brz_full_snapshot"], replication_slot="td_medallion_slot", publication_name="td_medallion_pub", initial_load=True),
+    source=PostgresCdcStreamSrc(tables=["public.brz_full_snapshot"], replication_slot="${D0__REPLICATION_SLOT}", replication_slot_behavior="reuse", initial_load=True),
     batch_max_secs=120,
     output_tables=["cdc_raw"],
 )

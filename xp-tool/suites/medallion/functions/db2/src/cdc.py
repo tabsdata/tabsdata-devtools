@@ -15,7 +15,7 @@ from tabsdatak.tableframe.functions import concat
 
 
 @stream_publisher(
-    source=Db2CdcStreamSrc(tables=["brz_full_snapshot"], initial_load=True),
+    source=Db2CdcStreamSrc(tables=["${D0__CD_TABLE_PREFIX}BRZ_FULL_SNAPSHOT"], initial_load=True),
     batch_max_secs=120,
     output_tables=["cdc_raw"],
 )
@@ -24,5 +24,8 @@ def pub_cdc_stream(df: TableFramesSpec) -> TableFrameSpec:
     # snapshot of the table as inserts, then capture changes from the exact log
     # position of that snapshot. To resync later, reset the function's stage
     # (`tdk fn update --reset-stage`). A stream publisher receives the flushed
-    # batch as a list of frames; concat them into one commit.
-    return concat(df)
+    # batch as a list of frames; concat them into one commit. Db2 reports the
+    # unquoted columns upper-cased, so the data columns are lower-cased to match
+    # the other systems; the `@td.*` / `$td.*` metadata columns keep their names.
+    tf = concat(df)
+    return tf.rename({c: c.lower() for c in tf.columns if not c.startswith(("@", "$"))})
