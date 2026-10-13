@@ -2894,3 +2894,19 @@ def test_airportdb_weather_inserts_move_with_the_seed_and_fault_past_the_ranges(
     for ch in updates:
         key = (ch.where["log_date"], ch.where["log_time"], ch.where["station"])
         assert key in seed_keys  # at size 1, the smallest
+
+
+def test_mysqlcdc_domain_has_a_user_refused_the_global_read_lock():
+    """Managed services such as Amazon RDS refuse FLUSH TABLES WITH READ LOCK
+    to every user; a domain user without RELOAD gets the same refusal, so a
+    test can load the way it loads there."""
+    cdc = systems.get("mysqlcdc")
+    create = cdc.create_domain_sql("d_x", "d_x", "pw")
+    assert "GRANT RELOAD ON *.* TO 'd_x'@'%'" in create
+    no_lock = [statement for statement in create if "d_x_nolock" in statement]
+    assert no_lock[0] == "CREATE USER 'd_x_nolock'@'%' IDENTIFIED BY 'pw'"
+    assert not any("RELOAD" in statement for statement in no_lock)
+    assert any("REPLICATION SLAVE, REPLICATION CLIENT" in s for s in no_lock)
+    assert cdc.delete_domain_sql("d_x")[0] == "DROP USER IF EXISTS 'd_x_nolock'@'%'"
+    meta = cdc.domain_meta({"HOST": "h", "PORT": "3306"}, "d_x", "pw")
+    assert meta["NO_LOCK_USER"] == "d_x_nolock"
