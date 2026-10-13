@@ -60,7 +60,8 @@ options:
   --llm-domain SYSTEM
                       create a domain on that system (sm_NAME__<system>; the system
                       must be in the tdd store), read its API key and hand it to
-                      quickstart as --<llm>-key, so the aiagent works; the domain
+                      quickstart as --config <llm>-key=env:LLM__API_KEY (2.2.0 and
+                      older: --<llm>-key), so the aiagent works; the domain
                       is destroyed at the end unless --keep (default: no LLM)
   --expect-pods LIST  comma-separated service names whose pods must be Running
                       and Ready after quickstart and after start, per
@@ -312,18 +313,24 @@ fi
 
 if [ -n "$LLM_SYSTEM" ]; then
     common_stage llm-domain "domain $LLM_DOMAIN on $LLM_SYSTEM, its API key for quickstart"
-    # The key is eval'd into THIS shell, never echoed; the quickstart command
-    # line masks --<llm>-key when displayed.
+    # The key is eval'd (exported) into THIS shell, never echoed; quickstart
+    # reads it from that variable (`--config <llm>-key=env:LLM__API_KEY`), so it
+    # is never on a command line. Releases up to 2.2.0 have no --config and take
+    # the deprecated --<llm>-key, which the displayed command line masks.
     common_run tdd domain create --sys "$LLM_SYSTEM" --domain "$LLM_DOMAIN" --force
     SMOKE_DOMAINS="$SMOKE_DOMAINS $LLM_DOMAIN"
     common_note "eval \$(tdd domain info --domain $LLM_DOMAIN --format export --prefix LLM)   (the key is not shown)"
     eval "$(tdd domain info --domain "$LLM_DOMAIN" --format export --prefix LLM 2>/dev/null)"
     common_run test -n "${LLM__API_KEY:+set}"
+    case "$TD_VERSION" in
+        1.* | 2.0.* | 2.1.* | 2.2.0) LLM_KEY_OPTS=("--$LLM_SYSTEM-key" "$LLM__API_KEY") ;;
+        *) LLM_KEY_OPTS=(--config "$LLM_SYSTEM-key=env:LLM__API_KEY") ;;
+    esac
 fi
 
 common_stage quickstart "tdkserver quickstart --instance $INSTANCE (kminus${LLM_SYSTEM:+, $LLM_SYSTEM key from $LLM_DOMAIN}${LLM_SYSTEM:-, no LLM key})"
 # shellcheck disable=SC2086
-common_run tdd tdkserver quickstart --instance "$INSTANCE" --provider kminus --port "$PORT" ${UV_INDEX_URI:+--uv-index "$UV_INDEX_URI"} ${LLM_SYSTEM:+--$LLM_SYSTEM-key "$LLM__API_KEY"} "${TDK_OPTS[@]}"
+common_run tdd tdkserver quickstart --instance "$INSTANCE" --provider kminus --port "$PORT" ${UV_INDEX_URI:+--uv-index "$UV_INDEX_URI"} ${LLM_KEY_OPTS[@]+"${LLM_KEY_OPTS[@]}"} "${TDK_OPTS[@]}"
 common_run common_tdkserver_expect "$INSTANCE" running
 
 # retried: the pods come up after quickstart/start return
