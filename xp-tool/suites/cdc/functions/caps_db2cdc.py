@@ -51,8 +51,8 @@ Variants (see the suite's _comment for how to drive them):
                          only the old-values payload becomes a map.
 
 Db2 change rows carry the ASN bookkeeping columns (``IBMSNAP_COMMITSEQ`` /
-``IBMSNAP_OPERATION`` / the ``IBMSNAP_LOGMARKER`` the system adds) alongside the
-captured ones.
+``IBMSNAP_INTENTSEQ`` / ``IBMSNAP_OPERATION``) alongside the captured ones; the
+commit's time comes from ``IBMSNAP_UOW``.
 """
 from __future__ import annotations
 

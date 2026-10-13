@@ -1109,7 +1109,7 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
         in s
         for s in sqls
     )
-    assert any(f"drop trigger ASN.LM_{P}EMPLOYEES" in s for s in sqls)
+    assert not any("drop trigger" in s for s in sqls)
     assert any(f"drop table ASN.{P}DEPARTMENTS" in s for s in sqls)
     assert not any("data capture none" in s for s in sqls), "no source table to alter"
 
@@ -1133,7 +1133,7 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
     existing.add("ASN." + P + "EMPLOYEES")
     b.after_install_schema({}, "employees")
     sqls = [c[1] for c in calls if c[0] == "sql"]
-    assert f"drop trigger ASN.LM_{P}EMPLOYEES" in sqls
+    assert not any("drop trigger" in s for s in sqls)
     assert f"drop table ASN.{P}EMPLOYEES" in sqls
     assert "ASN." + P + "EMPLOYEES" not in existing
     assert [c for c in calls if c[0] == "register"] == [
@@ -1860,7 +1860,7 @@ def test_db2cdc_removes_the_cd_table_its_registration_records(monkeypatch):
     b._remove_registrations("tdd_db2cdc", "XP_OLD", ["EMPLOYEES"])
     [body] = bodies
     assert 'db2w -v "drop table ASN.TD_T__EMPLOYEES"' in body
-    assert 'db2w -v "drop trigger ASN.LM_TD_T__EMPLOYEES"' in body
+    assert "drop trigger" not in body
 
 
 def test_a_forced_domain_chain_loads_data_without_reinstalling_the_model():
@@ -1920,8 +1920,8 @@ def test_db2cdc_registers_every_table_in_one_container_call(db2cdc):
     for table in ("A", "B", "D"):
         assert f"alter table S.{table} data capture changes" in call
         assert f"create registration (S.{table})" in call
-        assert "LM_TD_" in call and f"'{table}', 0, 'TDQUAL'" in call
-    assert call.count("IBMSNAP_LOGMARKER TIMESTAMP") == 3
+        assert f"'{table}', 0, 'TDQUAL'" in call
+    assert "IBMSNAP_LOGMARKER" not in call and "create trigger" not in call
     assert call.count("'CAPSTART'") == 3
 
 
@@ -2037,7 +2037,7 @@ def test_db2cdc_removes_every_table_in_one_container_call(db2cdc):
     for statement in (
         "delete from ASN.ibmsnap_register",
         "delete from ASN.ibmsnap_pruncntl",
-        "drop trigger ASN.LM_TD_X__A",
+        "drop table ASN.TD_X__A",
         "drop table ASN.TD_X__B",
     ):
         assert statement in call
