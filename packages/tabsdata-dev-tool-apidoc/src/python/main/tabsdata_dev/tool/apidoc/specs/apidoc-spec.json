@@ -159,11 +159,13 @@
     "sorting": "Sorting",
     "manipulation": "Manipulation",
     "type-casting": "Type Casting",
+    "type": "Data Types",
     "numeric": "Numeric",
     "logic": "Logic",
     "string": "String",
     "conversion": "Conversion",
     "date": "Date",
+    "udf": "User Defined Functions",
     "dq-action": "Data Quality Action",
     "dq-classifier": "Classifiers",
     "dq-operator": "Operations"
@@ -173,7 +175,7 @@
     "connectors": ["Connectors", ["source", "destination", "credentials"]],
     "spi": ["SPI", ["spi"]],
     "errors": ["Errors", ["error"]],
-    "tableframe": ["Tableframe", ["tableframe", "attributes", "description", "aggregation", "generation", "projection", "union", "filters", "join", "sorting", "manipulation", "type-casting", "numeric", "logic", "string", "date", "conversion"]],
+    "tableframe": ["Tableframe", ["tableframe", "attributes", "description", "aggregation", "generation", "projection", "union", "filters", "join", "sorting", "manipulation", "type-casting", "type", "numeric", "logic", "string", "date", "udf", "conversion"]],
     "dataquality": ["Data Quality", ["dq-action", "dq-classifier", "dq-operator"]]
   },
   "intersphinx": {
