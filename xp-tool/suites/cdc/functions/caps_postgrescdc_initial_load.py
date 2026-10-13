@@ -10,11 +10,10 @@ composite primary key), ``devices`` (no primary key, a unique index), ``readings
 (no primary key and no index) -- and its xp_sentinel, but NOT ``audit``, which every
 data command changes too: the database is busy with a table the stream must leave
 out (``verify_cdc_ops.py --untracked audit``). Started with
-``initial_load=True``: the stream first emits a full snapshot of each tracked table --
+``start_from="full"``: the stream first emits a full snapshot of each tracked table --
 its rows as inserts (``@td.cdc.meta.op`` = ``i``), preceded by a LOAD control row per
 table -- and then captures changes from the exact position the snapshot is consistent
-at, so nothing is missed between the two and nothing is repeated. ``start_from`` is
-not allowed with it.
+at, so nothing is missed between the two and nothing is repeated.
 
 The slot is the domain's own: a postgrescdc domain creates one with its database, named
 after it, and destroying the domain drops it (``${D0__REPLICATION_SLOT}``, interpolated
@@ -107,7 +106,7 @@ def _source(cfg: dict = _CFG) -> PostgresCdcStreamSrc:
         tables=[*_TABLES, _SENTINEL_TABLE],
         replication_slot=_SLOT,
         replication_slot_behavior="reuse",
-        initial_load=True,
+        start_from="full",
         src_cfg=cfg,
     )
 

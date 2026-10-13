@@ -9,10 +9,10 @@ every data command changes too: ``verify_cdc_ops.py --untracked audit``) -- one 
 row is identified: ``accounts`` (a primary key every update CHANGES), ``ledger`` (a
 composite primary key), ``devices`` (no primary key, a unique index), ``readings``
 (no primary key and no index) -- and its xp_sentinel, started with
-``initial_load=True``: the stream first emits a full snapshot of each tracked SOURCE
+``start_from="full"``: the stream first emits a full snapshot of each tracked SOURCE
 table -- its rows as inserts (``@td.cdc.meta.op`` = ``i``), preceded by a LOAD control
 row per table -- and then reads the CD tables from the commit sequence the snapshot is
-consistent at. ``start_from`` is not allowed with it. ``tables`` still names the CD
+consistent at. ``tables`` still names the CD
 tables (``${D0__CD_TABLE_PREFIX}<TABLE>``, the domain's own, which the db2cdc system
 registers for every model table); the source behind each is resolved through
 ``ASN.IBMSNAP_REGISTER``, and the snapshot reads it under cursor stability, locking no
@@ -90,7 +90,7 @@ _CFG = {
 def _source(cfg: dict = _CFG) -> Db2CdcStreamSrc:
     return Db2CdcStreamSrc(
         tables=[*_TABLES, _SENTINEL_TABLE],
-        initial_load=True,
+        start_from="full",
         src_cfg=cfg,
     )
 

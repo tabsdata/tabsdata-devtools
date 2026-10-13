@@ -9,10 +9,10 @@ every data command changes too: ``verify_cdc_ops.py --untracked audit``) -- one 
 row is identified: ``accounts`` (a primary key every update CHANGES), ``ledger`` (a
 composite primary key), ``devices`` (no primary key, a unique index), ``readings``
 (no primary key and no index) -- and its xp_sentinel, started with
-``initial_load=True``: the stream first emits a full snapshot of each tracked table --
+``start_from="full"``: the stream first emits a full snapshot of each tracked table --
 its rows as inserts (``@td.cdc.meta.op`` = ``i``), preceded by a LOAD control row per
 table -- and then reads the binlog from the position the snapshot is consistent at.
-``start_from`` is not allowed with it. The position is pinned under a brief global read
+The position is pinned under a brief global read
 lock (``FLUSH TABLES WITH READ LOCK``, hence the domain user's RELOAD grant), held only
 while the GTID set is read, not while the tables are scanned; the server runs
 ``gtid_mode=ON`` and the model's tables are InnoDB, as an initial load requires. The
@@ -79,7 +79,7 @@ _CFG = {
 def _source(cfg: dict = _CFG) -> MySQLCdcStreamSrc:
     return MySQLCdcStreamSrc(
         tables=[*_TABLES, _SENTINEL_TABLE],
-        initial_load=True,
+        start_from="full",
         src_cfg=cfg,
     )
 

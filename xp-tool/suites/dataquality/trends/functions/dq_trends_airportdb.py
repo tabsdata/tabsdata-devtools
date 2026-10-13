@@ -10,7 +10,7 @@ Two functions:
   ``airportdb`` tables ``modify-data`` changes -- ``airport`` (inserts, updates),
   ``passenger`` (inserts, updates), ``booking`` (deletes), ``weather`` (inserts,
   updates) -- and ``xp_sentinel``,
-  started with ``initial_load=True``: each table's rows first, as inserts behind a LOAD
+  started with ``start_from="full"``: each table's rows first, as inserts behind a LOAD
   control row, then the binlog from the position the load is consistent at. It triggers
   once a minute: ``batch_min_secs=60`` and ``batch_max_secs=60`` stage a batch exactly a
   minute after the previous one while changes wait, and with no ``batch_idle_secs`` no
@@ -147,7 +147,7 @@ WEATHER_DQ = DataQuality(
 @stream_publisher(
     source=MySQLCdcStreamSrc(
         tables=[*_TABLES, _SENTINEL_TABLE],
-        initial_load=True,
+        start_from="full",
         src_cfg=_CFG,
     ),
     batch_min_secs=60,

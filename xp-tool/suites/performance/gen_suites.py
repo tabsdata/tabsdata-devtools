@@ -18,7 +18,7 @@ Every suite runs over one domain of the ``employeescdc`` model loaded with
 tables, a million rows in all at 2500 -- BEFORE the stream is registered, so the
 stream reads a backlog as fast as it can instead of keeping pace with an insert:
 
-- ``<source>_initial_load``: registered with ``initial_load=True`` -- its snapshot
+- ``<source>_initial_load``: registered with ``start_from="full"`` -- its snapshot
   is the whole million.
 - ``<source>_changes``: registered from the head -- the million are changes in the
   source's log (the WAL through the domain's slot, the binlog, the CD tables),
@@ -103,7 +103,7 @@ def suite(source: str, kind: str) -> list:
     per_table = BASE_SIZE * SIZE
     rows = per_table * len(TABLES)
     how = (
-        f"registered with initial_load=True: its snapshot is the whole {rows}"
+        f"registered with start_from=full: its snapshot is the whole {rows}"
         if kind == "initial_load"
         else f"registered from the head: the {rows} are changes it reads from {reads}"
     )

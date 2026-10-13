@@ -7,7 +7,7 @@
 Two stream publishers over the four tables of the ``employeescdc`` model, one per
 suite; ``scripts/cdc_throughput.py`` measures how fast they write their files:
 
-- ``postgrescdc_initial_load`` : ``initial_load=True`` over tables already holding
+- ``postgrescdc_initial_load`` : ``start_from="full"`` over tables already holding
                                  the rows -- the snapshot is the whole load.
 - ``postgrescdc_changes``      : from the head, after the rows are inserted -- every
                                  row a change decoded from the WAL, read as a backlog.
@@ -51,7 +51,7 @@ _Out4 = tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]
         tables=_TABLES,
         replication_slot=_SLOT,
         replication_slot_behavior="reuse",
-        initial_load=True,
+        start_from="full",
         src_cfg=_CFG,
     ),
     batch_max_secs=60,

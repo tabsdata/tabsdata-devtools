@@ -15,12 +15,12 @@ from tabsdatak.tableframe.functions import concat
 
 
 @stream_publisher(
-    source=MySQLCdcStreamSrc(tables=["brz_full_snapshot"], initial_load=True),
+    source=MySQLCdcStreamSrc(tables=["brz_full_snapshot"], start_from="full"),
     batch_max_secs=120,
     output_tables=["cdc_raw"],
 )
 def pub_cdc_stream(df: TableFramesSpec) -> TableFrameSpec:
-    # `initial_load=True` makes the stream start with an `l` (load) row and a
+    # `start_from="full"` makes the stream start with an `l` (load) row and a
     # snapshot of the table as inserts, then capture changes from the exact log
     # position of that snapshot. To resync later, reset the function's stage
     # (`tdk fn update --reset-stage`). A stream publisher receives the flushed

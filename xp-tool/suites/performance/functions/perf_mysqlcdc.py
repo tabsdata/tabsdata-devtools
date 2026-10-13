@@ -7,7 +7,7 @@
 Two stream publishers over the four tables of the ``employeescdc`` model, one per
 suite; ``scripts/cdc_throughput.py`` measures how fast they write their files:
 
-- ``mysqlcdc_initial_load`` : ``initial_load=True`` over tables already holding the
+- ``mysqlcdc_initial_load`` : ``start_from="full"`` over tables already holding the
                               rows -- the snapshot is the whole load.
 - ``mysqlcdc_changes``      : from the head, after the rows are inserted -- every row
                               a change read from the binlog, as a backlog. The head
@@ -47,7 +47,7 @@ _Out4 = tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec]
 
 
 @stream_publisher(
-    source=MySQLCdcStreamSrc(tables=_TABLES, initial_load=True, src_cfg=_CFG),
+    source=MySQLCdcStreamSrc(tables=_TABLES, start_from="full", src_cfg=_CFG),
     batch_max_secs=60,
     batch_max_rows=500_000,
     output_tables=_OUTPUT,
