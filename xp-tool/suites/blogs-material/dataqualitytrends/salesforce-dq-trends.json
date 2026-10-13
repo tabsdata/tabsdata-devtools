@@ -1,0 +1,126 @@
+[
+  {
+    "_copyright": "Copyright 2026 Tabsdata Inc.",
+    "_comment": "DATAQUALITY TRENDS of a Salesforce report publisher: a Lead Lifetime report -- 1000 leads named as the report API's columnName, made by functions/sf_leads_plan.py -- published 100 leads a trigger from a DataGenSrc standing in for SalesforceReportSrc, as ten weekly runs of the report would land, at most 30 of every run's rows carrying an issue. DOMAIN: dev (no system). COLLECTIONS sf_leads (datagen_in): leads_report, a DataGenSrc publisher of the table leads; sf_pipeline (transform; sf_leads, a source collection, takes no transformer): leads_pipeline, a transformer over sf_leads/leads adding OPEN_DAYS (an open lead's days in status, null for the rest) and RATINGS (Cold 1, Warm 2, Hot 3, else 0, no rating). INGEST DQ, on leads: ten boolean classifiers with named verdicts -- email_present, email_valid, lead_source_present, company_provided (no web-to-lead placeholder), rating_valid and status_valid (their picklists), employees_in_range (1-10000), phone_valid (a country code), last_name_valid (2-80 characters), revenue_positive -- whose failures improve (missing emails, placeholder companies, missing sources), hold steady (statuses, employees, phones, last names) or go up and down (malformed emails, ratings, revenue) over the ten runs; Summary(trends=Trends()). BIZ DQ, on leads_pipeline: open_days_bucket -- OPEN_DAYS in 30-day buckets over a year (LinearScale(0, 360, bins=12); the open backlog builds up and is worked off, an open lead past a year lands over, one dated after the report under, any other status none) -- and rating_bucket, the rating distribution (IdentityScale(0, 3, use_bin_zero=True); bin 0 holds the leads with no valid rating); a Summary with no trend. functions/dq_salesforce_leads_report.py is leads_report against a real org (SalesforceReportSrc), registered by no suite. STAGES: (1) domains; (2) collections; (3) functions; (4) actions, tagged live -- 10 passes 30s apart, each `tdk fn trigger` on leads_report (and so leads_pipeline) in the background beside a 30s sleep, then a wait for it; (5) actions, tagged check -- scripts/verify_dq_salesforce.py: a leads and a leads_pipeline version per run; a summary of each per run holding exactly the plan's tallies or histograms for that run; the trend's n-th run row run n's counts, and its week, month and folded rows adding up; (6) monitor. The check reuses dataquality/trends/scripts/verify_dq_trends.py. Material for a blog post: functions/dq_salesforce_leads.py is the code it shows. Run: `tdd xp one-shot --suite blogs-material/dataqualitytrends/salesforce-dq-trends --keep`."
+  },
+  {
+    "domain-manifest": {
+      "domains": [
+        {
+          "name": "${xp:name(dev)}",
+          "system": "dev",
+          "model": null,
+          "size": null
+        }
+      ]
+    }
+  },
+  {
+    "collections": [
+      {
+        "name": "sf_leads",
+        "type": "datagen_in",
+        "connection_template": "connection-file:connections/datagen_in.yaml",
+        "group": "sources",
+        "domains": {
+          "D0": "${xp:name(dev)}"
+        }
+      },
+      {
+        "name": "sf_pipeline",
+        "type": "transform",
+        "group": "ops"
+      }
+    ]
+  },
+  {
+    "functions": [
+      {
+        "collection": "sf_leads",
+        "functionpath": "functions/dq_salesforce_leads.py::leads_report"
+      },
+      {
+        "collection": "sf_pipeline",
+        "functionpath": "functions/dq_salesforce_leads.py::leads_pipeline"
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "loop": {
+          "name": "report",
+          "tags": [
+            "live"
+          ],
+          "repeat": 10,
+          "actions": [
+            {
+              "background": {
+                "name": "plan",
+                "actions": [
+                  {
+                    "tdd": {
+                      "name": "run",
+                      "tool": "tdk",
+                      "command": "fn",
+                      "options": [
+                        "trigger",
+                        "--proj",
+                        "${xp:project}",
+                        "--coll",
+                        "sf_leads",
+                        "--name",
+                        "leads_report",
+                        "--profile",
+                        "${td:profile}"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "sleep": {
+                "name": "pace",
+                "time": "30s"
+              }
+            },
+            {
+              "wait": {
+                "name": "planned",
+                "for": [
+                  "plan"
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "actions": [
+      {
+        "python": {
+          "name": "verify-leads",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_dq_salesforce.py",
+          "params": [
+            "--time-out",
+            "10m",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "monitor": {
+      "time_out": "30m"
+    }
+  }
+]

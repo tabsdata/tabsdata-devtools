@@ -86,7 +86,24 @@ times the phases, `--dry-run` prints the commands.
   a directory of their own because a suite dir's lanes are its own files, not its subdirs':
   a bare `--suite dataquality` -- what the smoke runs take, on clusters with no mysqlcdc --
   stays the quick, self-contained lanes; the mysqlcdc suite's collection's `server_id` is
-  1012. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
+  1012. `blogs-material` holds suites written for blog posts: a function file is the code a
+  post shows, and the suite proves it runs. `blogs-material/dataqualitytrends/salesforce-dq-trends`
+  (with `functions/sf_leads_plan.py`, `functions/dq_salesforce_leads.py` and
+  `scripts/verify_dq_salesforce.py`) is a publisher of a Salesforce Lead Lifetime report, a
+  `DataGenSrc` standing in for `SalesforceReportSrc` -- 1000 leads named as the report API
+  names its columns, 100 a trigger, ten triggers 30s apart, at most 30 rows of a run with an
+  issue. The data quality is split the way a team would split it: ingest on the publisher's
+  table -- ten boolean classifiers with named verdicts (`email_valid`, ...) whose failures
+  improve, hold steady or go up and down, and the summary's trend -- and business on a
+  transformer's, in a collection of its own (a source collection takes no transformer): two
+  categorizers, open leads' days in status in 30-day buckets and the rating distribution,
+  over columns the transformer adds, since a categorizer bins numbers. The function file
+  spells every pattern, picklist, range and scale out literally, to read as an example; the
+  plan holds the same values to make the data, and the check, holding every run's tallies and
+  buckets to the plan's, catches a drift between them. `functions/dq_salesforce_leads_report.py`
+  is the same publisher over `SalesforceReportSrc`, for the post, registered by no suite. The
+  check imports `dataquality/trends/scripts/verify_dq_trends.py` across the tree rather than
+  carrying a copy. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
 - No `bin-reqs`: xp reaches tdk and tdkserver only through `tdd tdk`/`tdd tdkserver`,
   and those launchers declare the binaries themselves -- the requirement belongs to the
   command that runs the program. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run
