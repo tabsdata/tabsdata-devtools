@@ -16,12 +16,12 @@ A table's data-quality action rides on its publisher (``on_tables``):
 
 - ``bool`` and ``all``: per column ``IsNotNull``, ``IsBetween`` over the column's
   range and, for a float, ``IsNotNan`` -- each failing the defects its trigger
-  made, a share the profile moves every run -- and ``Summary(trend=SummaryTrend())``,
+  made, a share the profile moves every run -- and ``Summary(trends=Trends())``,
   whose trend folds them run by run.
 - ``scale`` and ``all``: per column the ``ScaleCategorizer`` its relation calls for
   (``scale_plan.scale``) -- ``IdentityScale``, ``LinearScale``, ``MonomialScale``,
-  ``LogarithmicScale``, ``ExponentialScale`` -- and a ``Summary(trend=None)``: a
-  trend folds boolean classifiers only, and is on unless opted out of.
+  ``LogarithmicScale``, ``ExponentialScale`` -- and a plain ``Summary()``: a
+  trend folds boolean classifiers only, and is off unless asked for.
 
 A scale's range is its column's, computed here by the same expression that makes the
 values, so an end value lands in an end bin rather than a bin past it.
@@ -44,7 +44,7 @@ from tabsdatak.dataquality import (
     MonomialScale,
     ScaleCategorizer,
     Summary,
-    SummaryTrend,
+    Trends,
 )
 
 try:
@@ -169,8 +169,8 @@ def quality(table: plan.Table) -> DataQuality | None:
             lo, hi = _RANGES[name]
             spec = plan.scale(plan.COLUMNS[name], table.bins, lo, hi)
             classifiers.append(ScaleCategorizer([name], scale=_scale(spec)))
-    # Summary's trend is on by default; it folds booleans only, so a scale table opts out.
-    summary = Summary(trend=SummaryTrend() if table.booleans else None)
+    # A trend folds booleans only, so a scale table asks for none.
+    summary = Summary(trends=Trends() if table.booleans else None)
     return DataQuality(table=table.name, classifiers=classifiers, operators=[summary])
 
 

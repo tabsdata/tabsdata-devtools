@@ -9,7 +9,7 @@ categorizers' summaries.
                         [--moving] [--out-of-range] [--max-interval D]
                         [--time-out D] [--profile NAME]
 
-Each TABLE carries a DataQuality action with a ``Summary`` and a ``SummaryTrend``:
+Each TABLE carries a DataQuality action with a ``Summary`` with ``Trends``:
 every version of ``<TABLE>_dq_summary`` (one row per classifier) is folded by the
 server's trend function into ``<TABLE>_dq_summary_trends``, which holds a ``run`` row
 per classifier and summary version, ``week`` and ``month`` rows summing those, and one
