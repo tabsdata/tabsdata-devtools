@@ -62,9 +62,9 @@ times the phases, `--dry-run` prints the commands.
   mysqlcdc airportdb (xs) stream with an initial load, triggered once a minute
   (`batch_min_secs=60`, `batch_max_secs=60` and no `batch_idle_secs`, so a batch is staged
   only when changes wait), a transformer classifying airport and passenger with six
-  classifiers and `Summary(trend=SummaryTrend(...))`, and weather with five
-  `ScaleCategorizer`s, one per scale, and `Summary(trend=None)` (a trend folds boolean
-  classifiers only, and is on by default), 30 minutes of `modify-data` at ~1800 rows a
+  classifiers and `Summary(trends=Trends(...))`, and weather with five
+  `ScaleCategorizer`s, one per scale, and a plain `Summary()` (a trend folds boolean
+  classifiers only, and is off by default), 30 minutes of `modify-data` at ~1800 rows a
   minute -- whose inserts carry a defect per classifier at a share each run's seed sets,
   and readings around centres it sets with a share out of range (common-systems' design
   doc), so every pass rate and histogram moves every run -- and a check that every CDC

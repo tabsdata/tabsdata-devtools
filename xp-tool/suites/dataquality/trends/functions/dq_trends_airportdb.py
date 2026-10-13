@@ -19,9 +19,8 @@ Two functions:
 - ``dq_airportdb`` (collection ``dq_trends_ops``): passes the ``airport``,
   ``passenger`` and ``weather`` change tables through and carries a ``DataQuality``
   action on each: on airport and passenger three boolean classifiers and a ``Summary``
-  with a ``SummaryTrend``, on weather five ``ScaleCategorizer`` and a
-  ``Summary(trend=None)`` -- a trend folds boolean classifiers only, and is on unless
-  opted out of. Every version it writes adds a ``<table>_dq_summary`` version, and for
+  with ``Trends``, on weather five ``ScaleCategorizer`` and a plain ``Summary()``
+  -- a trend folds boolean classifiers only, and is off unless asked for. Every version it writes adds a ``<table>_dq_summary`` version, and for
   airport and passenger the server's trend child function (registered with this one)
   folds that into ``<table>_dq_summary_trends``.
 
@@ -78,7 +77,7 @@ from tabsdatak.dataquality import (
     MonomialScale,
     ScaleCategorizer,
     Summary,
-    SummaryTrend,
+    Trends,
 )
 from tabsdatak.tableframe.functions import concat
 
@@ -101,11 +100,11 @@ _CFG = {
 
 # The defaults, spelled out: the run tier keeps every point of a 30-minute run, and
 # its week and month buckets fold them from the first.
-_TREND = SummaryTrend(days=7, weeks=12, months=24)
+_TRENDS = Trends(days=7, weeks=12, months=24)
 
 
 def _summary() -> Summary:
-    return Summary(trend=_TREND)
+    return Summary(trends=_TRENDS)
 
 
 # An upper-case first letter, Latin-1 included (the seed's Müller, Óscar).
@@ -140,8 +139,8 @@ WEATHER_DQ = DataQuality(
         ),
         ScaleCategorizer(["temp"], scale=MonomialScale(-30.0, 50.0, power=2.0, bins=8)),
     ],
-    # Summary's trend is on by default, and folds boolean classifiers only.
-    operators=[Summary(trend=None)],
+    # No trend: it folds boolean classifiers only.
+    operators=[Summary()],
 )
 
 

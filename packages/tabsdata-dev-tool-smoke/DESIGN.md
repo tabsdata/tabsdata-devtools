@@ -94,6 +94,13 @@ run in a real cluster and inherit nothing from the machine the script was launch
 why they write the value into `tabsdata.yaml` instead. Drop the stage when tdkserver hands its
 own `--uv-index` to the pods.
 
+`smoke-km` hands the `--llm-domain` key to quickstart as `--config <system>-key=env:LLM__API_KEY`:
+`tdd domain info --format export` exports it into the script's shell and tdkserver reads it from
+that variable, so the key is on no command line, in no log and in no `ps`. `--config` came after
+2.2.0, deprecating `--anthropic-key`/`--openai-key`, so for 2.2.0 and older the script still
+passes `--<system>-key KEY`, which `common_display` masks. The cluster scripts never took the
+option: they fill the `${{secret:<system>-key?}}` placeholder in `aiagent.yaml`.
+
 `--kube-port-forward` is the local port `kubectl port-forward` listens on -- the one `tdk` logs in
 to -- and it moves that end only. Each script has its own default, so two runs on one machine
 never fight over it: km's instance starts at 10000 (`--port`), eks forwards from 11000, aks from
