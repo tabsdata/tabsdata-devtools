@@ -56,7 +56,6 @@
   ],
   "list_tags": ["categories"],
   "re_exports": {
-    "tabsdatak.tableframe.grok._schema.ColumnDataType": "tabsdatak.tableframe.grok.ColumnDataType",
     "tabsdatak.tableframe.grok._schema.ColumnDefinition": "tabsdatak.tableframe.grok.ColumnDefinition",
     "tabsdatak.dataquality._classifier.BoolClassifier": "tabsdatak.dataquality.BoolClassifier",
     "tabsdatak.dataquality._classifier.Categorizer": "tabsdatak.dataquality.Categorizer",
