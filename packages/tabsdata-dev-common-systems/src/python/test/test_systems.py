@@ -2187,6 +2187,29 @@ def test_a_verbatim_name_in_system_that_is_taken_fails_before_writing(
     assert [d["name"] for d in events[-1]["domains"]] == ["a"]
 
 
+def test_a_verbatim_name_in_system_longer_than_the_system_takes_is_refused(
+    small_store, capsys
+):
+    """A name xp builds from its IDs is taken as given, never cut, so one past
+    the system's limit fails before anything is written."""
+    rc, events = _run_json(
+        capsys,
+        "domain",
+        "create",
+        "--sys",
+        "fs1",
+        "--domain",
+        "a",
+        "--name-in-system",
+        "x" * 256,
+    )
+    assert rc == 1
+    message = events[-1]["message"]
+    assert "is 256 characters; system 'fs1' takes names of at most 255" in message
+    rc, events = _run_json(capsys, "domain", "list")
+    assert events[-1]["domains"] == []
+
+
 # ---------------------------------------------------------------- trx modes
 
 

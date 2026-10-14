@@ -191,17 +191,23 @@ times the phases, `--dry-run` prints the commands.
 
 ## Run identity and names
 
-- **A suite run has an `XP_ID`**, `xp_<USER>_<BUILD>_<YYYYMMDD>T<hhmmss>`: tabsdata-os's build
-  identity (`$TD_BUILD_USER`, else the OS login; `$TD_BUILD_NUMBER`, else `0`) and the second,
-  UTC, the run began. Its **`XP_SHORT_ID`** is the same in 12 characters, `<UUU><BB>_<TTTTTT>`
-  -- the user's first 3 characters, the build's last 2 digits, the seconds since 2026-01-01Z in
-  base 36, 6 wide (until 2094; fixed width, so names sort as the runs did) -- for the names a run
-  leaves inside systems, whose identifiers are short (Postgres: 63 bytes). Lower case only:
-  Postgres folds an unquoted name to lower case and DB2/Oracle/Snowflake to upper, so a
-  mixed-case alphabet makes two seconds one name. Rejected: one base-62 character per field
-  (`a` and `A` fold together), `(YYYY-2026)MMDDhhmmss` as one number in base 36 (7 characters
-  from 2027). Runs one process starts are a second apart (`ids.new`), so a suite dir's lanes,
-  each a run of its own, never share an ID. run.log says both IDs at the run's start and end.
+- **A suite run has an `XP_ID`**, `xp_<USER>_<BUILD>_s<SS>_<YYYYMMDD>T<hhmmss>`: tabsdata-os's
+  build identity (`$TD_BUILD_USER`, else the OS login; `$TD_BUILD_NUMBER`, else `0`), the
+  process's slot and the second, UTC, the run began. Its **`XP_SHORT_ID`** is the same in 14
+  characters, `<UUU><BB><SS>_<TTTTTT>` -- the user's first 3 characters, the build's last 2
+  digits, the slot, the seconds since 2026-01-01Z in base 36, 6 wide (until 2094; fixed width,
+  so names sort as the runs did) -- for the names a run leaves inside systems, whose
+  identifiers are short (Postgres: 63 bytes). Lower case only: Postgres folds an unquoted name
+  to lower case and DB2/Oracle/Snowflake to upper, so a mixed-case alphabet makes two seconds
+  one name. Rejected: one base-62 character per field (`a` and `A` fold together),
+  `(YYYY-2026)MMDDhhmmss` as one number in base 36 (7 characters from 2027). Runs one process
+  starts are a second apart (`ids.new`), so a suite dir's lanes, each a run of its own, never
+  share an ID. Processes started together keep apart by their **slot**, two base-36
+  characters (1296 slots, `00` unless given): a one-shot over many suites starts each suite's
+  child with `--id-slot <k>`, so children that draw the same second still differ. A name built
+  from these IDs is taken by `tdd domain create --name-in-system` as given, never cut: one
+  longer than the system takes fails before anything is written. run.log says both IDs at the
+  run's start and end.
 - **A suite is resolved for its run as it is read**: `${xp:name(x)}` is `<XP_ID>_x`, the domain
   in the tdd store, and `${xp:id}` / `${xp:short_id}` the IDs -- in every string of the suite,
   which is then plain values (a collection's `D0` must equal a domain's name, a string compare).

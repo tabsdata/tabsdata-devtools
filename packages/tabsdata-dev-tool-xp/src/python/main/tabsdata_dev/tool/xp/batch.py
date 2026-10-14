@@ -5,7 +5,9 @@
 comma list of selectors. Each selector is a full ``tdd xp one-shot --suite SEL``
 of its own, run as a child through the generic batch -- one at a time unless
 ``TDD_PARALLELISM`` is set, since every child provisions domains on the same
-systems and instance. Its output streams as ``[SEL] line`` rows as it is
+systems and instance. Each child mints its IDs in a slot of its own
+(``--id-slot``), so children that start in the same second never share one.
+Its output streams as ``[SEL] line`` rows as it is
 written; ``--fail-fast`` and ``--report`` mean what they mean for ``tdd system``
 and ``tdd domain`` lists.
 """
@@ -19,7 +21,7 @@ import pathlib
 from tabsdata_dev.common.core import batch as core_batch
 from tabsdata_dev.common.core import render
 
-from . import domains, shell, state, suites
+from . import domains, ids, shell, state, suites
 from .lanes import child_argv
 
 ALL = "ALL"
@@ -128,14 +130,27 @@ def cmd_one_shot(args: argparse.Namespace) -> tuple[str, dict]:
     names = selectors(args.suite, root)
     if not names:
         state.die(f"no suite dirs under {root}")
+    if len(names) > ids.SLOTS:
+        state.die(
+            f"{len(names)} suite selectors, but a one-shot keeps at most {ids.SLOTS} "
+            "apart (one ID slot each)"
+        )
     domains.require_crypto_key()
     shell.require_login()
     passthrough = _passthrough(args)
+    # Each child mints its IDs in a slot of its own, so children started in
+    # the same second never draw the same XP_ID.
     tasks = [
         core_batch.Task(
-            name, 0, [child_argv("one-shot", "--suite", name, *passthrough)]
+            name,
+            0,
+            [
+                child_argv(
+                    "one-shot", "--suite", name, "--id-slot", str(slot), *passthrough
+                )
+            ],
         )
-        for name in names
+        for slot, name in enumerate(names)
     ]
     workers = _workers(len(tasks))
     out = state.run.out

@@ -226,6 +226,8 @@ def cmd_one_shot(args) -> None:
     per selector (see `batch`)."""
     if batch.is_batch(args.suite):
         return batch.cmd_one_shot(args)
+    if getattr(args, "id_slot", None) is not None:
+        ids.use_slot(args.id_slot)
     # Fail fast, before any pointer or domain: every lane's domains phase needs
     # the key, and it is checked first because it costs nothing.
     domains.require_crypto_key()

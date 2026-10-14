@@ -3,24 +3,29 @@
 #
 """A suite run's identity: ``XP_ID`` and the ``XP_SHORT_ID`` derived with it.
 
-``XP_ID`` is ``xp_<USER>_<BUILD>_<YYYYMMDD>T<hhmmss>`` (UTC): tabsdata-os's
-build identity -- ``$TD_BUILD_USER``, else the OS login, and
-``$TD_BUILD_NUMBER``, else ``0`` -- and the second the run began. It names the
-run's domains (``${xp:name(x)}`` is ``<XP_ID>_x``) and, by default, the suite
-run and its project.
+``XP_ID`` is ``xp_<USER>_<BUILD>_s<SS>_<YYYYMMDD>T<hhmmss>`` (UTC):
+tabsdata-os's build identity -- ``$TD_BUILD_USER``, else the OS login, and
+``$TD_BUILD_NUMBER``, else ``0`` -- the process's slot and the second the run
+began. It names the run's domains (``${xp:name(x)}`` is ``<XP_ID>_x``) and, by
+default, the suite run and its project.
 
-``XP_SHORT_ID`` is the same identity in 12 characters, ``<UUU><BB>_<TTTTTT>``,
-for the names a run leaves inside external systems, where identifiers are
-short (Postgres stops at 63 bytes): the user's first 3 characters, the
-build's last 2 digits and the seconds since 2026-01-01T00:00:00Z in base 36,
-6 wide -- until 2094, and sorting as the runs did. Lower case only: Postgres
-folds an unquoted name to lower case and DB2, Oracle and Snowflake to upper,
-so a mixed-case alphabet would make two seconds one name. Rejected: one
-base-62 character per field (``a`` and ``A`` fold together), and
-``(YYYY-2026)MMDDhhmmss`` as one number in base 36 (7 characters from 2027).
+``XP_SHORT_ID`` is the same identity in 14 characters,
+``<UUU><BB><SS>_<TTTTTT>``, for the names a run leaves inside external
+systems, where identifiers are short (Postgres stops at 63 bytes): the user's
+first 3 characters, the build's last 2 digits, the slot and the seconds since
+2026-01-01T00:00:00Z in base 36, 6 wide -- until 2094, and sorting as the runs
+did. Lower case only: Postgres folds an unquoted name to lower case and DB2,
+Oracle and Snowflake to upper, so a mixed-case alphabet would make two seconds
+one name. Rejected: one base-62 character per field (``a`` and ``A`` fold
+together), and ``(YYYY-2026)MMDDhhmmss`` as one number in base 36 (7
+characters from 2027).
 
 Two runs one process starts are a second apart at least (`new`): a suite dir's
-lanes each get an ID of their own as they are created.
+lanes each get an ID of their own as they are created. Processes started
+together keep apart by their slot, two base-36 characters (`SLOTS`): a
+one-shot over many suites gives each suite's process its own (`--id-slot`),
+so their IDs differ whatever second each one draws. A process given none is
+slot ``00``.
 """
 
 from __future__ import annotations
@@ -35,9 +40,11 @@ from datetime import datetime, timezone
 EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz"
 SHORT_TIME_WIDTH = 6
+SLOT_WIDTH = 2
+SLOTS = len(DIGITS) ** SLOT_WIDTH
 #: What a suite reads as when no run is behind it (list-suites, list-systems):
 #: the shape of a real ID, so the names it makes are the shape of real ones.
-PLACEHOLDER = ("xp_user_0_20260101T000000", "use00_000000")
+PLACEHOLDER = ("xp_user_0_s00_20260101T000000", "use0000_000000")
 
 # Looked up at call time, so a test can run the clock.
 clock = time.time
@@ -45,6 +52,7 @@ sleep = time.sleep
 
 _lock = threading.Lock()
 _last = -1
+_slot = 0
 
 
 def _token(value: str) -> str:
@@ -73,16 +81,31 @@ def base36(n: int, width: int) -> str:
     return out.rjust(width, "0")
 
 
-def make(user: str, build: str, seconds: int) -> tuple[str, str]:
-    """``(XP_ID, XP_SHORT_ID)`` of a run begun at `seconds` (since the epoch)."""
+def slot_token(slot: int) -> str:
+    if not 0 <= slot < SLOTS:
+        raise ValueError(f"slot {slot} is outside 0..{SLOTS - 1}")
+    return base36(slot, SLOT_WIDTH)
+
+
+def make(user: str, build: str, seconds: int, slot: int = 0) -> tuple[str, str]:
+    """``(XP_ID, XP_SHORT_ID)`` of a run begun at `seconds` (since the epoch) in
+    `slot`."""
     when = datetime.fromtimestamp(seconds, tz=timezone.utc)
-    xp_id = f"xp_{user}_{build}_{when:%Y%m%dT%H%M%S}"
+    ss = slot_token(slot)
+    xp_id = f"xp_{user}_{build}_s{ss}_{when:%Y%m%dT%H%M%S}"
     uuu = re.sub(r"[^a-z0-9]", "", user.lower())[:3].ljust(3, "x")
     bb = (re.sub(r"[^0-9]", "", build)[-2:] or "0").rjust(2, "0")
     since = int((when - EPOCH).total_seconds())
     if since < 0:
         raise ValueError(f"{when:%Y-%m-%d} is before {EPOCH:%Y-%m-%d}")
-    return xp_id, f"{uuu}{bb}_{base36(since, SHORT_TIME_WIDTH)}"
+    return xp_id, f"{uuu}{bb}{ss}_{base36(since, SHORT_TIME_WIDTH)}"
+
+
+def use_slot(slot: int) -> None:
+    """Make every later ID of this process in `slot`."""
+    global _slot
+    slot_token(slot)
+    _slot = slot
 
 
 def new() -> tuple[str, str]:
@@ -95,7 +118,7 @@ def new() -> tuple[str, str]:
             sleep(_last + 1 - clock())
             now = int(clock())
         _last = now
-    return make(build_user(), build_number(), now)
+    return make(build_user(), build_number(), now, _slot)
 
 
 # ------------------------------------------------------------ resolving ----

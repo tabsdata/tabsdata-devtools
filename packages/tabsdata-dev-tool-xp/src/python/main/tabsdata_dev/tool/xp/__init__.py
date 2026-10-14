@@ -397,6 +397,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="leave the suite run, project and domains set up afterwards",
     )
+    c.add_argument("--id-slot", type=int, default=None, help=argparse.SUPPRESS)
     _selection(c)
     for add in (_fail_fast, _secret_env, _profile, _latch, _report, _dry_run, _common):
         add(c)

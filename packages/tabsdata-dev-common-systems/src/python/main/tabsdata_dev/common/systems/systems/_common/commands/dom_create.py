@@ -56,6 +56,11 @@ def run(ctx: cli.Context) -> int:
     console.out(f"▶ creating domain '{domain}' in system '{sys_name}' …")
     if a.name_in_system:
         entity = a.name_in_system
+        if len(entity) > sysobj.max_entity_name_length:
+            raise TdxError(
+                f"'{entity}' is {len(entity)} characters; system '{sys_name}' "
+                f"takes names of at most {sysobj.max_entity_name_length}"
+            )
         # Named verbatim by its caller, so nothing here picks a free one: one
         # already in the system belongs to someone else -- another run that
         # drew the same name, or one left behind -- and provisioning over it

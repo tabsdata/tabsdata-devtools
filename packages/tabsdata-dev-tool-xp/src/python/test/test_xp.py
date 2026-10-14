@@ -10,11 +10,11 @@ import pytest
 
 #: The suite run's IDs under the fixture's clock and build identity: the first
 #: run a test makes; each next one is a second on.
-XP_ID = "xp_tucu_0_20261001T093012"
-XP_SHORT = "tuc00_0e2aec"
+XP_ID = "xp_tucu_0_s00_20261001T093012"
+XP_SHORT = "tuc0000_0e2aec"
 #: What a suite read with no run behind it (`build_instance` without IDs) names
 #: its own domains by.
-PH = "xp_user_0_20260101T000000"
+PH = "xp_user_0_s00_20260101T000000"
 
 
 MONITOR = {"monitor": {"time_out": "30m"}}
@@ -114,6 +114,7 @@ def _run_the_clock(monkeypatch):
     monkeypatch.setattr(ids, "clock", lambda: now[0])
     monkeypatch.setattr(ids, "sleep", lambda s: now.__setitem__(0, now[0] + max(s, 0)))
     monkeypatch.setattr(ids, "_last", -1)
+    monkeypatch.setattr(ids, "_slot", 0)
 
 
 def _run(argv):
@@ -264,17 +265,19 @@ def test_a_runs_domain_is_named_by_its_ids_and_a_fixed_one_as_written(xp_root):
     assert inst.collections[0].domains == {"D0": f"{XP_ID}_world"}
 
 
-def test_a_run_id_is_its_build_identity_and_second_and_the_short_one_fits_12():
+def test_a_run_id_is_its_build_identity_slot_and_second_and_the_short_one_fits_14():
     from tabsdata_dev.tool.xp import ids
 
     t = 1790847012  # 2026-10-01T09:30:12Z
     assert ids.make("tucu", "0", t) == (XP_ID, XP_SHORT)
-    assert ids.make("Al", "build_1234", t) == (
-        "xp_Al_build_1234_20261001T093012",
-        "alx34_0e2aec",
+    assert ids.make("Al", "build_1234", t, 1295) == (
+        "xp_Al_build_1234_szz_20261001T093012",
+        "alx34zz_0e2aec",
     )
     # 2094 is where six base-36 digits run out; the width holds until then
-    assert len(ids.make("u", "7", t + 60 * 365 * 86400)[1]) == 12
+    assert len(ids.make("u", "7", t + 60 * 365 * 86400)[1]) == 14
+    with pytest.raises(ValueError, match="outside 0..1295"):
+        ids.make("u", "0", t, 1296)
     with pytest.raises(ValueError, match="before 2026-01-01"):
         ids.make("u", "0", t - 400 * 86400)
 
@@ -284,7 +287,16 @@ def test_two_runs_one_process_starts_are_a_second_apart(xp_root):
 
     first, second = ids.new(), ids.new()
     assert first == (XP_ID, XP_SHORT)
-    assert second[0] == "xp_tucu_0_20261001T093013" and second[1] != first[1]
+    assert second[0] == "xp_tucu_0_s00_20261001T093013" and second[1] != first[1]
+
+
+def test_processes_in_different_slots_never_share_an_id_in_the_same_second(xp_root):
+    from tabsdata_dev.tool.xp import ids
+
+    ids.use_slot(37)
+    assert ids.new() == ("xp_tucu_0_s11_20261001T093012", "tuc0011_0e2aec")
+    with pytest.raises(ValueError, match="outside"):
+        ids.use_slot(-1)
 
 
 @pytest.mark.parametrize(
@@ -2235,7 +2247,7 @@ def test_a_domain_call_expands_its_tokens_and_a_create_gets_its_backend_name(
     ].system == "fs"
     argv = domains.call_argv(inst, create)
     assert argv[-6:-2] == ["--domain", f"{PH}_d", "--sys", "fs"]
-    assert argv[-2:] == ["--name-in-system", "use00_000000_d"]
+    assert argv[-2:] == ["--name-in-system", "use0000_000000_d"]
     assert domains.call_argv(inst, data)[-2:] == [
         "--emit-ops",
         f"{work.work_dir()}/ops.jsonl",
@@ -2391,7 +2403,7 @@ def test_a_python_step_gets_its_params_env_path_and_the_tdd_module(xp_root, laun
         "XP_WORK_DIR": str(work.work_dir()),
         "XP_PROJECT": "proj",
         "XP_ID": PH,
-        "XP_SHORT_ID": "use00_000000",
+        "XP_SHORT_ID": "use0000_000000",
         "XP_SUITE_RUN": "i",
     }
     assert seen["path0"] == "/fake/tdd/bin"
@@ -2655,7 +2667,7 @@ def test_a_domain_manifest_seeds_to_files_of_their_own_then_joins_them_in_order(
     assert set(by) == {"pg", "fs", "quiet", "pg2"}
     assert "emit-ops" not in by["fs"] and "emit-ops" not in by["quiet"]
     assert by["pg"]["emit-ops"] != by["pg2"]["emit-ops"]  # one file each
-    assert by["pg"]["size"] == 10 and by["pg"]["name-in-system"] == "use00_000000_pg"
+    assert by["pg"]["size"] == 10 and by["pg"]["name-in-system"] == "use0000_000000_pg"
     assert final.read_text() == f"earlier\n{PH}_pg\n{PH}_pg2\n"
 
 
@@ -2738,10 +2750,10 @@ def test_a_suite_dirs_lanes_are_suite_runs_with_ids_of_their_own(xp_root):
     )
     assert pointers.instance_group("g") == ["g_one", "g_two"]
     assert pointers.ids_of("g")[0] == XP_ID
-    assert pointers.ids_of("g_one")[0] == "xp_tucu_0_20261001T093013"
-    assert pointers.ids_of("g_two")[0] == "xp_tucu_0_20261001T093014"
+    assert pointers.ids_of("g_one")[0] == "xp_tucu_0_s00_20261001T093013"
+    assert pointers.ids_of("g_two")[0] == "xp_tucu_0_s00_20261001T093014"
     one = pointers.load_instance("g_one")
-    assert one.domains[0].name == "xp_tucu_0_20261001T093013_fs"
+    assert one.domains[0].name == "xp_tucu_0_s00_20261001T093013_fs"
 
 
 def test_the_project_is_the_runs_xp_id_and_suite_unless_named(xp_root, capsys):
@@ -2992,10 +3004,11 @@ def test_one_shot_ALL_runs_every_suite_dir_one_at_a_time(
     assert "2 suite selector(s), one at a time: demo, other" in text
     root = (xp_root / "suites").resolve()
     assert (
-        f"[demo] ran one-shot --suite demo --suites-dir {root} --tags smoke --keep"
-        in text
+        f"[demo] ran one-shot --suite demo --id-slot 0 --suites-dir {root} --tags "
+        "smoke --keep" in text
     )
-    assert "[other] ran one-shot --suite other" in text and "empty" not in text
+    assert "[other] ran one-shot --suite other --id-slot 1" in text
+    assert "empty" not in text
     doc = json.loads(report.read_text())
     assert [t["name"] for t in doc["tasks"]] == ["demo", "other"]
     assert doc["parallelism"] == 1 and doc["ok"] == 2
