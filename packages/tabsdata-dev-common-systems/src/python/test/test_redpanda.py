@@ -275,11 +275,14 @@ def test_data_goes_to_the_entities_named_and_the_trail_is_what_was_sent(
         ("modify-data", ["--entity", "a", "--schema-changes", "drop"]),
     ],
 )
-def test_the_dispatcher_resolves_redpandas_own_verbs(verb, own):
+@pytest.mark.parametrize("slug", ["redpanda", "redpandasasl"])
+def test_the_dispatcher_resolves_redpandas_own_verbs(slug, verb, own):
     """redpanda's create-model, create-data and modify-data are its own, with
-    the shared options and theirs."""
-    module = dispatch._command_module(constants.DOM_TOOL, "redpanda", verb)
-    assert module.__name__.endswith(f"redpanda.domain.{verb.replace('-', '_')}")
+    the shared options and theirs; redpandasasl gets the same three, since the
+    dispatcher finds commands by slug and would otherwise hand it the shared."""
+    module = dispatch._command_module(constants.DOM_TOOL, slug, verb)
+    assert module.__name__.endswith(f"{slug}.domain.{verb.replace('-', '_')}")
+    assert module.run.__module__.endswith(f"redpanda.domain.{verb.replace('-', '_')}")
     parser = argparse.ArgumentParser()
     module.add_arguments(parser)
     args = parser.parse_args(["--domain", "d", *own])

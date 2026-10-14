@@ -80,7 +80,10 @@ run. Its own `create-model`, `create-data` and `modify-data` (`redpanda/domain/`
   backend with SASL forced on (what `redpanda` gives with `--sasl on`), registered as a type of
   its own as `mysqlcdc` is to `mysql`: `create --type ALL` makes it and it owns a port slot. One
   SASL broker beside the plain one rather than a listener of each on one broker, which would
-  mean a cluster config per listener for a setup a single suite needs.
+  mean a cluster config per listener for a setup a single suite needs. Its `domain/` re-exports
+  redpanda's create-model, create-data and modify-data: the dispatcher finds a type's commands by
+  its slug, not its base class, so without them it would get the shared ones (no partitions or
+  schema changes, and an update/delete recipe a topic refuses).
 
 ## The two backend bases
 
