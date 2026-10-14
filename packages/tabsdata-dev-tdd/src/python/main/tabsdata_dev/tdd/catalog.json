@@ -1,5 +1,5 @@
 {
-  "fingerprint": "529c079f1672a438",
+  "fingerprint": "7d78c4e459c6dae9",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
@@ -33,6 +33,10 @@
       "tabsdata-dev-deps-systems",
       "tabsdata-dev-tool-domain",
       "tabsdata-dev-tool-system"
+    ],
+    "twine": [
+      "tabsdata-dev-deps-twine",
+      "tabsdata-dev-tool-twine"
     ],
     "xp": [
       "tabsdata-dev-common-core",
@@ -321,6 +325,15 @@
       "summary": "run tabsdata's tdkserver inside the venv last activated (managed by tdd venv or not)",
       "toolset": "launchers"
     },
+    "twine": {
+      "commons": [],
+      "hidden": false,
+      "launcher": true,
+      "package": "tabsdata-dev-tool-twine",
+      "reqs": [],
+      "summary": "run twine (upload, check distributions) from its own toolset",
+      "toolset": "twine"
+    },
     "xp": {
       "commons": [
         "tabsdata-dev-common-core"
@@ -338,6 +351,7 @@
     "pypi",
     "salesforce",
     "systems",
+    "twine",
     "xp"
   ]
 }

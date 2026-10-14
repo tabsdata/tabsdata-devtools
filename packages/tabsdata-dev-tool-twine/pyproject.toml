@@ -1,0 +1,39 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+[project]
+name = "tabsdata-dev-tool-twine"
+dynamic = ["version"]
+description = "run twine (upload, check distributions) from its own toolset"
+requires-python = ">=3.11"
+dependencies = ["tabsdata-dev-deps-twine"]
+
+[project.scripts]
+# twine's own entry point, not a module of ours: twine installs a `twine`
+# script into the same venv, and of two different scripts with one name the
+# last installed silently wins. Declaring the identical one makes the order
+# irrelevant -- see DESIGN.md.
+twine = "twine.__main__:main"
+
+[tool.tdd]
+# every argument is the program's, so there are no options to configure
+launcher = true
+
+[tool.hatch.version]
+path = "../../VERSION"
+pattern = '^(?P<version>\S+)'
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src/python/main/tabsdata_dev"]
+sources = ["src/python/main"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/python/test"]
+
+[tool.uv.sources]
+tabsdata-dev-deps-twine = { path = "../tabsdata-dev-deps-twine", editable = true }

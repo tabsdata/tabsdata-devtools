@@ -35,7 +35,7 @@ tdd [--dir TDD_PATH] [--format json|view] [--verbose] <command> [args...]
 `--dir` defaults to `$TDD_DIR`, then `~/.tdd`; everything after the word reaches the command
 verbatim; `--format`/`--verbose` before the word also travel on to it. Commands: `venv`,
 `_tdd-env`, `env` (shell, marked `*` in `tdd help`), `system`, `domain`,
-`xp`, `gsx`, `pycache`, `mexe`, `apidoc`, `tdk`, `tdkserver`, `km`, `pqt`, `jq`, `ci`, `_1p` (Python).
+`xp`, `gsx`, `pycache`, `mexe`, `apidoc`, `tdk`, `tdkserver`, `km`, `pqt`, `jq`, `twine`, `ci`, `_1p` (Python).
 `tdd help` merges both halves from `tdd-exe --porcelain` and the shell registry.
 
 **Command config**: `<tdd_dir>/<command>.toml`, one file per command, holding both what the
@@ -166,6 +166,7 @@ the tree and the generator blind to it.
 | [`smoke`](../packages/tabsdata-dev-tool-smoke/DESIGN.md) | the end-to-end smoke scripts, carried as data: run one, or export them to edit |
 | [`pycache`](../packages/tabsdata-dev-tool-pycache/DESIGN.md) | purge the uv and pip caches by package prefix |
 | [`pqt`](../packages/tabsdata-dev-tool-pqt/DESIGN.md), [`jq`](../packages/tabsdata-dev-tool-jq/DESIGN.md) | parquet-tools (pinned by `xp`) and the machine's jq, passed through |
+| [`twine`](../packages/tabsdata-dev-tool-twine/DESIGN.md) | twine, pinned in a toolset of its own, passed through (credentials from `tdd env set --pypi-twine`) |
 | [`ci`](../packages/tabsdata-dev-tool-ci/DESIGN.md) | GitHub Actions runs through `gh`: download a run's artifacts in parallel |
 | [`_1p`](../packages/tabsdata-dev-tool-1p/DESIGN.md) | 1Password: the crypto key and a vault's secrets as export lines (for `tdd env set`), and pushing an item to a vault |
 | [`mexe`](../packages/tabsdata-dev-tool-mexe/DESIGN.md) | the same shell commands in several directories, in parallel or serial (one after the other), inside the active managed venv |
