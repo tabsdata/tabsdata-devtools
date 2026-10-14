@@ -7,9 +7,9 @@ Copyright 2026 Tabsdata Inc.
 What tdd fetches from and pushes to 1Password:
 
 - `tdd _1p fetch [--crypto [1p:VAULT] [--item ITEM] [--field FIELD]] [--secrets [1p:VAULT]]
-  [--format export|view|json]`: the descriptor crypto key and/or a shared vault's secrets, by
-  default printed as `export` lines -- the outcome of the command -- for `tdd env set
-  --crypto/--secrets` to apply. `view` names what was fetched without the values; `json`
+  [--pypi-twine [1p:VAULT]] [--format export|view|json]`: the descriptor crypto key, a shared
+  vault's secrets and/or the PyPI upload credentials, by default printed as `export` lines -- the
+  outcome of the command -- for `tdd env set --crypto/--secrets/--pypi-twine` to apply. `view` names what was fetched without the values; `json`
   carries them (`values`).
 - `tdd _1p push --vault 1p:VAULT --entry PATH|-`: file one item in a vault, replacing what is
   filed under its title -- the item `tdd system 1p-template` or `tdd system info --format 1p`
@@ -39,6 +39,12 @@ What tdd fetches from and pushes to 1Password:
   `1p:dev_xp`, the team's; literals, never a variable of the environment. They are the same two
   `tdd env` keeps in `env.toml`, which a test holds in step. `--item`/`--field` say where in the
   vault the key is and default to `DevSecrets`/`TD_BACKENDS_CRYPTO_KEY`.
+- **`--pypi-twine` renames on the way out.** The upload credentials sit in the crypto key's item,
+  `DevSecrets`, as `PYPI_TWINE_USERNAME`/`PYPI_TWINE_PASSWORD`; `fetch` exports them as
+  `TWINE_USERNAME`/`TWINE_PASSWORD`, the names twine reads, so the mapping is in one place
+  (`TWINE_FIELDS`) and `env` in both shells only applies lines. Given alone it reads
+  `1p:Employee`, the crypto key's vault; the item is fixed -- `--item`/`--field` say where the
+  crypto key is, and stay that.
 - **`export` is a `--format`, and `fetch`'s default.** The lines to eval are what the command
   is for, so they are the outcome with no flag; `common.core.cli.run(formats=...)` lets a
   command add a format it renders itself beside `json`/`view`. `view` is for a person at a

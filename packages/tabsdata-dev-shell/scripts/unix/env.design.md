@@ -18,7 +18,14 @@ crypto key, the 1Password secrets, tabsdata's `TD_*` settings and the Python ind
   becomes a variable in this shell, and that is how an item says it is somebody's note rather
   than a system's config. Until 2026-09-28 these were two `system` verbs (`crypto-key`,
   `secrets`), two child processes in the `systems` env; see the `_1p` design doc.
-- `--vault` is one form for both, the provider ref `1p:NAME`, and both defaults are **literals**:
+- `set --pypi-twine` is the third 1Password selection, in the same one fetch: `_1p fetch
+  --pypi-twine=VAULT` (default the crypto key's vault, `1p:Employee`) reads the fields
+  `PYPI_TWINE_USERNAME` and `PYPI_TWINE_PASSWORD` of `DevSecrets` and prints them as
+  `TWINE_USERNAME`/`TWINE_PASSWORD`, the names `twine upload` reads -- the rename lives in `_1p`,
+  so this half only applies lines. Unlike `--crypto` it is fetched every time: nothing else in
+  tdd needs the variables, so there is no "already set" to save a trip for. `unset --pypi-twine`
+  removes both; `show` lists them in the PyPi group, the password masked by name.
+- `--vault` is one form for every selection, the provider ref `1p:NAME`, and the defaults are **literals**:
   no `ONE_PASSWORD_*` variable decides which vault a key comes from. `_1p fetch` takes the ref
   as it is, for both.
 - A secret on a command line is masked wherever tdd echoes one back: `_tdd_mask_argv` (common.sh)

@@ -11,6 +11,8 @@ if (-not $global:_TDD_COMMON_LOADED) { . $env:_TDD_COMMON_PS1 }
 #                                          or verbatim from --value
 #     secrets    <PREFIX>__<KEY>..., _TDD_SYSTEMS   via `tdd _1p fetch --secrets`; the latter lists
 #                                                  the prefixes, which is how unset knows what to remove
+#     pypi-twine TWINE_USERNAME, TWINE_PASSWORD    the PyPI upload credentials, via `tdd _1p fetch
+#                                                  --pypi-twine` (DevSecrets' PYPI_TWINE_USERNAME/_PASSWORD)
 #     td         TD_*                              (unset only)
 #     vars       <PREFIX>*                         (unset only)
 #     py-idx     UV_INDEX, PIP_EXTRA_INDEX_URL     the extra Python package index, with UV_INDEX_STRATEGY=
@@ -19,7 +21,7 @@ if (-not $global:_TDD_COMMON_LOADED) { . $env:_TDD_COMMON_PS1 }
 #
 # `set` exports, `unset` removes, `show` lists them all (`-` marks unset) in
 # three sorted groups: TD (everything starting with TD that is set, the two
-# above always), PyPi (the index variables), Secrets.
+# above always), PyPi (the index variables and twine's credentials), Secrets.
 #
 # The twin of env.sh; edit both. PowerShell forces three mechanisms to differ,
 # and only three: a variable is set through the Env: provider rather than
@@ -41,6 +43,10 @@ $global:_TDD_VAULT_CRYPTO = '1p:Employee'
 $global:_TDD_VAULT_SECRETS = '1p:dev_xp'
 $global:_TDD_CRYPTO_MIN = 12
 $global:_TDD_VARS_SYSTEMS = '_TDD_SYSTEMS'
+# What --pypi-twine sets: the names twine reads, so `twine upload` needs
+# nothing else. They come from the crypto key's vault and item, under the
+# fields PYPI_TWINE_USERNAME/_PASSWORD (`_1p fetch` owns that mapping).
+$global:_TDD_VARS_PYPI_TWINE = @('TWINE_USERNAME', 'TWINE_PASSWORD')
 $global:_TDD_VARS_PY_EXTRA = @('UV_INDEX', 'PIP_EXTRA_INDEX_URL')
 $global:_TDD_VARS_PY_EXTRA_LEGACY = @('UV_EXTRA_INDEX_URL')
 # An extra index only matters if uv may pick a package from it over the
@@ -57,7 +63,7 @@ $global:_TDD_VARS_PY_DEFAULT_LEGACY = @('UV_INDEX_URL')
 # and what `--show` compares against.
 function tdd_defaults_env {
     @(
-        "set|--vault|crypto: $($global:_TDD_VAULT_CRYPTO); secrets: $($global:_TDD_VAULT_SECRETS)",
+        "set|--vault|crypto, pypi-twine: $($global:_TDD_VAULT_CRYPTO); secrets: $($global:_TDD_VAULT_SECRETS)",
         'set|--item|DevSecrets', 'set|--field|TD_BACKENDS_CRYPTO_KEY', 'set|--value|', 'set|--force|false',
         'show|--group|all', 'show|--reveal|false'
     )
@@ -113,20 +119,21 @@ example: tdd env set --crypto --secrets && tdd env show
 
 function _tdd_vars_help_set {
     _tdd_help_text @'
-usage: tdd env set (--crypto | --secrets | --py-idx URL | --py-default-idx URL)...
+usage: tdd env set (--crypto | --secrets | --pypi-twine | --py-idx URL | --py-default-idx URL)...
                    [--vault 1p:VAULT] [--item ITEM] [--field FIELD] [--value VALUE] [--force]
 
 Export the selected variables in THIS shell; several selections combine in one call. The
-crypto key and the secrets come from 1Password, through one `tdd _1p fetch` whose export
-lines are read here, so nothing is written to disk. Both vault
+crypto key, the secrets and the PyPI upload credentials come from 1Password, through one
+`tdd _1p fetch` whose export lines are read here, so nothing is written to disk. The vault
 defaults are literals: no variable of the environment decides which vault a key comes from.
 
 options:
   --crypto  _TDD_CRYPTO_KEY, the key that encrypts the system and domain descriptors; read only when the variable is not already set, unless --force (or --value, which reads nothing)
   --secrets  every <PREFIX>__<KEY> secret of a shared vault, plus _TDD_SYSTEMS, the prefix list that `unset --secrets` reads back
+  --pypi-twine  the PyPI upload credentials, for twine: the fields PYPI_TWINE_USERNAME and PYPI_TWINE_PASSWORD of item DevSecrets (the crypto key's item and vault) exported as TWINE_USERNAME and TWINE_PASSWORD, the names `twine upload` reads. Fetched every time, set or not
   --py-idx URL  the extra Python package index: UV_INDEX and PIP_EXTRA_INDEX_URL, plus UV_INDEX_STRATEGY=unsafe-best-match so uv considers it. URL is a URL, or @dev for the development index (https://d3mm0r95u5i3hf.cloudfront.net/simple/) or @prod for the published one (https://pypi.tabsdata.com/simple/) -- quote a marker, since a bare @dev is PowerShell's splatting syntax
   --py-default-idx URL  the default Python package index: UV_DEFAULT_INDEX and PIP_INDEX_URL. Takes '@dev' and '@prod' too
-  --vault 1p:VAULT  the vault to read from, as a provider ref (1p is the only provider today). Defaults: --crypto 1p:Employee, --secrets 1p:dev_xp
+  --vault 1p:VAULT  the vault to read from, as a provider ref (1p is the only provider today). Defaults: --crypto and --pypi-twine 1p:Employee, --secrets 1p:dev_xp
   --item ITEM  --crypto: the item in the vault (default: DevSecrets)
   --field FIELD  --crypto: the field of that item (default: TD_BACKENDS_CRYPTO_KEY)
   --value VALUE  --crypto: this value IS the key (at least 12 characters); nothing is read from 1Password and the variable is replaced whether or not it is set. Not with --vault, --item or --field
@@ -136,13 +143,14 @@ options:
 
 function _tdd_vars_help_unset {
     _tdd_help_text @'
-usage: tdd env unset (--crypto | --secrets | --td | --vars PREFIX | --py-idx | --py-default-idx)...
+usage: tdd env unset (--crypto | --secrets | --pypi-twine | --td | --vars PREFIX | --py-idx | --py-default-idx)...
 
 Remove the selected variables from THIS shell; several selections combine in one call.
 
 options:
   --crypto  _TDD_CRYPTO_KEY
   --secrets  every secret _TDD_SYSTEMS names, and the list itself
+  --pypi-twine  TWINE_USERNAME and TWINE_PASSWORD
   --td  every variable starting with TD_ -- tabsdata's own. tdd's _TDD_SYSTEMS and _TDD_CRYPTO_KEY are not among them; --secrets and --crypto remove those
   --vars PREFIX  every variable starting with PREFIX (repeatable). TDD_DIR, the tdd dir itself, is never unset
   --py-idx  UV_INDEX and PIP_EXTRA_INDEX_URL, and the legacy UV_EXTRA_INDEX_URL with them
@@ -167,9 +175,9 @@ usage: tdd env show [--group {all,td,pypi,secrets}] [--reveal]
 
 Every variable these commands handle, NAME=value when set and -NAME when not, in three sorted
 groups: TD (every variable starting with TD, plus _TDD_CRYPTO_KEY, and _TDD_SYSTEMS while it
-is set), PyPi (the index variables) and Secrets. A value whose name says PASSWORD, SECRET,
-TOKEN, KEY, PASS, _PAT, _PEM or PEM_ is masked in every group -- a certificate is both a
-credential and unreadable in a listing.
+is set), PyPi (the index variables and TWINE_USERNAME/TWINE_PASSWORD) and Secrets. A value
+whose name says PASSWORD, SECRET, TOKEN, KEY, PASS, _PAT, _PEM or PEM_ is masked in every
+group -- a certificate is both a credential and unreadable in a listing.
 
 options:
   --group {all,td,pypi,secrets}  print one group instead of all three (default: all)
@@ -365,6 +373,7 @@ function _tdd_vars_set {
     param([string[]]$Argv)
     $crypto = $false
     $secrets = $false
+    $pypiTwine = $false
     $pyExtra = ''
     $pyDefault = ''
     $vault = ''
@@ -377,6 +386,7 @@ function _tdd_vars_set {
         switch -Regex ($Argv[$i]) {
             '^--crypto$' { $crypto = $true; $i++; continue }
             '^--secrets$' { $secrets = $true; $i++; continue }
+            '^--pypi-twine$' { $pypiTwine = $true; $i++; continue }
             '^(--force|-f)$' { $force = $true; $i++; continue }
             '^--vault(=.*)?$' {
                 if (-not (_tdd_optval $Argv $i)) { _tdd_error '--vault needs a value'; return }
@@ -443,8 +453,8 @@ function _tdd_vars_set {
         _tdd_error '--value is the crypto key itself; pass --crypto to say so'
         return
     }
-    if (-not $crypto -and -not $secrets -and -not $pyExtra -and -not $pyDefault) {
-        _tdd_error 'nothing selected: --crypto, --secrets, --py-idx URL and/or --py-default-idx URL (see --help)'
+    if (-not $crypto -and -not $secrets -and -not $pypiTwine -and -not $pyExtra -and -not $pyDefault) {
+        _tdd_error 'nothing selected: --crypto, --secrets, --pypi-twine, --py-idx URL and/or --py-default-idx URL (see --help)'
         return
     }
     if ($vault) {
@@ -478,12 +488,12 @@ function _tdd_vars_set {
         # in every shell); --force refetches.
         $kept = $global:_TDD_VARS_CRYPTO
         # The ok says it when the key was the only selection; otherwise say it here.
-        if ($secrets -or $pyExtra -or $pyDefault) {
+        if ($secrets -or $pypiTwine -or $pyExtra -or $pyDefault) {
             _tdd_info "$($global:_TDD_VARS_CRYPTO) is already set; not fetched (use --force to refetch)"
         }
         $crypto = $false
     }
-    # Both selections are one fetch: one child, one trip through `op` sign-in.
+    # Every 1Password selection is one fetch: one child, one trip through `op` sign-in.
     $fetchArgs = @()
     if ($crypto) {
         $v = if ($vault) { $vault } else { $global:_TDD_VAULT_CRYPTO }
@@ -494,6 +504,10 @@ function _tdd_vars_set {
     if ($secrets) {
         $v = if ($vault) { $vault } else { $global:_TDD_VAULT_SECRETS }
         $fetchArgs += "--secrets=$v"
+    }
+    if ($pypiTwine) {
+        $v = if ($vault) { $vault } else { $global:_TDD_VAULT_CRYPTO }
+        $fetchArgs += "--pypi-twine=$v"
     }
     if ($fetchArgs.Count -gt 0) {
         _tdd_info "tdd _1p fetch $($fetchArgs -join ' ')"
@@ -536,6 +550,7 @@ function _tdd_vars_unset {
     param([string[]]$Argv)
     $crypto = $false
     $secrets = $false
+    $pypiTwine = $false
     $td = $false
     $prefixes = @()
     $pyExtra = $false
@@ -544,6 +559,7 @@ function _tdd_vars_unset {
         switch -Regex ($Argv[$i]) {
             '^--crypto$' { $crypto = $true; $i++; continue }
             '^--secrets$' { $secrets = $true; $i++; continue }
+            '^--pypi-twine$' { $pypiTwine = $true; $i++; continue }
             '^--td$' { $td = $true; $i++; continue }
             '^--vars(=.*)?$' {
                 if (-not (_tdd_optval $Argv $i)) { _tdd_error '--vars needs a PREFIX'; return }
@@ -563,8 +579,8 @@ function _tdd_vars_unset {
     if ($global:_TDD_HELP) { _tdd_vars_help_unset; return }
     _tdd_cmd_check
     if (_tdd_failed) { return }
-    if (-not $crypto -and -not $secrets -and -not $td -and $prefixes.Count -eq 0 -and -not $pyExtra -and -not $pyDefault) {
-        _tdd_error 'nothing selected: --crypto, --secrets, --td, --vars PREFIX, --py-idx and/or --py-default-idx (see --help)'
+    if (-not $crypto -and -not $secrets -and -not $pypiTwine -and -not $td -and $prefixes.Count -eq 0 -and -not $pyExtra -and -not $pyDefault) {
+        _tdd_error 'nothing selected: --crypto, --secrets, --pypi-twine, --td, --vars PREFIX, --py-idx and/or --py-default-idx (see --help)'
         return
     }
     $wanted = [System.Collections.Generic.List[string]]::new()
@@ -579,6 +595,7 @@ function _tdd_vars_unset {
             $wanted.Add($global:_TDD_VARS_SYSTEMS)
         }
     }
+    if ($pypiTwine) { foreach ($n in $global:_TDD_VARS_PYPI_TWINE) { $wanted.Add($n) } }
     if ($td) { foreach ($n in (_tdd_vars_names '^TD_')) { $wanted.Add($n) } }
     foreach ($p in $prefixes) {
         foreach ($n in (_tdd_vars_names "^${p}")) { $wanted.Add($n) }
@@ -764,7 +781,8 @@ function _tdd_vars_show {
     }
     if (_tdd_vars_wanted $group pypi) {
         $names = $global:_TDD_VARS_PY_EXTRA + $global:_TDD_VARS_PY_EXTRA_LEGACY +
-            @($global:_TDD_VARS_PY_STRATEGY) + $global:_TDD_VARS_PY_DEFAULT + $global:_TDD_VARS_PY_DEFAULT_LEGACY
+            @($global:_TDD_VARS_PY_STRATEGY) + $global:_TDD_VARS_PY_DEFAULT + $global:_TDD_VARS_PY_DEFAULT_LEGACY +
+            $global:_TDD_VARS_PYPI_TWINE
         _tdd_vars_show_group PyPi pypi $names $reveal $rows $vars
     }
     if (_tdd_vars_wanted $group secrets) {

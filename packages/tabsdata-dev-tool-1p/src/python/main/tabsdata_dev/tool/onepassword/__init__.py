@@ -5,16 +5,19 @@
 """``tdd _1p`` -- what tdd fetches from and pushes to 1Password.
 
     tdd _1p fetch [--crypto [1p:VAULT] [--item ITEM] [--field FIELD]]
-                  [--secrets [1p:VAULT]] [--format export|json|view]
+                  [--secrets [1p:VAULT]] [--pypi-twine [1p:VAULT]]
+                  [--format export|json|view]
     tdd _1p push --vault 1p:VAULT --entry PATH|-
 
 ``--crypto`` reads the one field that is the descriptor key
 (``_TDD_CRYPTO_KEY``) out of a personal vault; ``--secrets`` sweeps a shared
 vault, every item's fields becoming ``<ITEM>__<FIELD>`` variables, plus
-``_TDD_SYSTEMS``, the list of the prefixes it set. Both, one call: the result is
+``_TDD_SYSTEMS``, the list of the prefixes it set; ``--pypi-twine`` reads the
+package-upload credentials next to the key and names them as twine reads them,
+``TWINE_USERNAME``/``TWINE_PASSWORD``. Any mix, one call: the result is
 ``export`` lines, printed as the outcome for the caller to apply.
 
-This is plumbing for ``tdd env set --crypto/--secrets``. A Python process
+This is plumbing for ``tdd env set --crypto/--secrets/--pypi-twine``. A Python process
 cannot change the shell that runs it, so ``env`` -- a shell command -- runs this
 and applies the lines, and nothing is written to disk. The providers live in
 ``common.core.secrets``; this tool only chooses what to read and checks it.
@@ -55,6 +58,14 @@ DEFAULT_CRYPTO_VAULT = "1p:Employee"
 DEFAULT_SECRETS_VAULT = "1p:dev_xp"
 DEFAULT_CRYPTO_ITEM = "DevSecrets"
 DEFAULT_CRYPTO_FIELD = "TD_BACKENDS_CRYPTO_KEY"
+# The PyPI upload credentials live in the crypto key's item, under names of
+# their own; exported under the names twine reads, so `twine upload` (and
+# `uv publish`'s twine fallback) needs nothing else.
+TWINE_ITEM = DEFAULT_CRYPTO_ITEM
+TWINE_FIELDS = (
+    ("PYPI_TWINE_USERNAME", "TWINE_USERNAME"),
+    ("PYPI_TWINE_PASSWORD", "TWINE_PASSWORD"),
+)
 
 
 def _ref(option: str, value: str) -> tuple[str, str]:
@@ -143,20 +154,28 @@ def _push(args: argparse.Namespace, out: render.Renderer) -> int:
 
 
 def _fetch(args: argparse.Namespace, out: render.Renderer) -> int:
-    if not args.crypto and not args.secrets:
+    if not args.crypto and not args.secrets and not args.pypi_twine:
         raise ToolError(
-            "nothing to fetch: pass --crypto [1p:VAULT] and/or --secrets [1p:VAULT]"
+            "nothing to fetch: pass --crypto [1p:VAULT], --secrets [1p:VAULT] "
+            "and/or --pypi-twine [1p:VAULT]"
         )
     if (args.item or args.field) and not args.crypto:
         raise ToolError("--item and --field say where the crypto key is; pass --crypto")
     if args.secrets:
         _ref("--secrets", args.secrets)  # refused before anything is read
+    if args.pypi_twine:
+        _ref("--pypi-twine", args.pypi_twine)
     found: dict[str, str] = {}
     if args.crypto:
         item = args.item or DEFAULT_CRYPTO_ITEM
         field = args.field or DEFAULT_CRYPTO_FIELD
         out.debug(f"reading {args.crypto}/{item}/{field}")
         found[secrets.CRYPTO_KEY_ENV] = crypto_key(args.crypto, item, field)
+    if args.pypi_twine:
+        scheme, vault = _ref("--pypi-twine", args.pypi_twine)
+        for field, name in TWINE_FIELDS:
+            out.debug(f"reading {args.pypi_twine}/{TWINE_ITEM}/{field}")
+            found[name] = secrets.read_field(scheme, vault, TWINE_ITEM, field)
     if args.secrets:
         out.debug(f"reading every item of {args.secrets}")
         found.update(secrets.with_systems_var(secrets.fetch(args.secrets)))
@@ -213,10 +232,12 @@ def configure(p: argparse.ArgumentParser) -> None:
     sub = p.add_subparsers(dest="action", metavar="SUBCOMMAND")
     fetch = sub.add_parser(
         FETCH,
-        help="fetches the crypto key and/or a vault's secrets, as export lines",
+        help="fetches the crypto key, a vault's secrets and/or the PyPI upload "
+        "credentials, as export lines",
         description=(
-            "Fetches the descriptor crypto key (--crypto) and/or every secret of a "
-            "shared vault (--secrets) from 1Password. By default (--format export) "
+            "Fetches the descriptor crypto key (--crypto), every secret of a "
+            "shared vault (--secrets) and/or the PyPI upload credentials "
+            "(--pypi-twine) from 1Password. By default (--format export) "
             "they are printed as export lines, the outcome of the command, for a "
             "shell to apply -- `tdd env set --crypto --secrets` does; view names "
             "what was fetched without the values, json carries them."
@@ -252,6 +273,16 @@ def configure(p: argparse.ArgumentParser) -> None:
         help=f"fetch every item of this vault (alone: {DEFAULT_SECRETS_VAULT}) as "
         f"<ITEM>__<FIELD> variables, plus {secrets.SYSTEMS_ENV}, the prefixes "
         "set; an item titled _* is skipped",
+    )
+    fetch.add_argument(
+        "--pypi-twine",
+        nargs="?",
+        const=DEFAULT_CRYPTO_VAULT,
+        default=None,
+        metavar="1p:VAULT",
+        help=f"fetch {' and '.join(f for f, _ in TWINE_FIELDS)} from item "
+        f"{TWINE_ITEM} of this vault (alone: {DEFAULT_CRYPTO_VAULT}) as "
+        f"{' and '.join(n for _, n in TWINE_FIELDS)}, the names twine reads",
     )
     _common(
         fetch,

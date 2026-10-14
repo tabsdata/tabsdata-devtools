@@ -351,6 +351,7 @@ def test_env_routes_set_unset_show_and_owns_every_managed_variable():
     for opt in (
         "--crypto)",
         "--secrets)",
+        "--pypi-twine)",
         "--td)",
         # the tdd dir itself survives any prefix
         "TDD_DIR kept (tdd needs it; never unset)",
@@ -430,12 +431,16 @@ def test_env_set_takes_provider_refs_a_literal_default_and_a_crypto_value():
     # both selections are one `_1p fetch`, each passing its ref as it is
     assert '_tdd_args=" --crypto=${_tdd_vault:-$_TDD_VAULT_CRYPTO}"' in text
     assert '_tdd_args="$_tdd_args --secrets=${_tdd_vault:-$_TDD_VAULT_SECRETS}"' in text
+    assert (
+        '_tdd_args="$_tdd_args --pypi-twine=${_tdd_vault:-$_TDD_VAULT_CRYPTO}"' in text
+    )
     assert 'tdd-exe _1p fetch "$@"' in text
     assert "tdd-exe system" not in text
     ps1 = (shell.scripts_dir("powershell") / "env.ps1").read_text()
     assert (
         '$fetchArgs += "--crypto=$v"' in ps1 and '$fetchArgs += "--secrets=$v"' in ps1
     )
+    assert '$fetchArgs += "--pypi-twine=$v"' in ps1
     assert "tdd-exe _1p fetch @FetchArgs" in ps1 and "tdd-exe system" not in ps1
     # --value: the key itself, at least MIN_SECRET_LEN characters, crypto only
     assert "_TDD_CRYPTO_MIN=12" in text
@@ -1193,3 +1198,88 @@ def test_a_shell_command_named_with_an_underscore_is_hidden_like_a_tool():
     for family, suffix in ((shell.UNIX, ".sh"), (shell.POWERSHELL, ".ps1")):
         text = (shell.scripts_dir(family) / f"_tdd-env{suffix}").read_text()
         assert "tdd_fn_register _tdd-env " in text
+
+
+def _pypi_twine(shell_bin: str, tmp_path) -> tuple[str, str]:
+    """`env set --pypi-twine` then `env unset --pypi-twine` in one half, against
+    a stand-in `tdd-exe` that records its argv and prints what `_1p fetch`
+    would: (the argv it got, `rc USER PASS` after set + `rc USER PASS` after
+    unset)."""
+    import os
+    import subprocess
+
+    calls = tmp_path / "argv"
+    fake = tmp_path / "tdd-exe"
+    fake.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$*" >> "{calls}"\n'
+        'printf "export TWINE_USERNAME=__token__\\n"\n'
+        "printf \"export TWINE_PASSWORD='p w'\\n\"\n"
+    )
+    fake.chmod(0o755)
+    show = '"$?" "${TWINE_USERNAME-unset}" "${TWINE_PASSWORD-unset}"'
+    if shell_bin == "pwsh":
+        line = (
+            '[Console]::Out.WriteLine("$($global:_TDD_RC) '
+            "$(if ($null -ne $env:TWINE_USERNAME) { $env:TWINE_USERNAME } else { 'unset' }) "
+            "$(if ($null -ne $env:TWINE_PASSWORD) { $env:TWINE_PASSWORD } else { 'unset' })\")\n"
+        )
+        script = (
+            f". '{_ps_dir() / PS_COMMON}'\n"
+            "function tdd_fn_register { param($Name, $Summary) }\n"
+            f". '{_ps_dir() / 'env.ps1'}'\n"
+            "_tdd_cmd_reset\n"
+            "tddfn_env @('set', '--pypi-twine') | Out-Null\n"
+            + line
+            + "_tdd_cmd_reset\n"
+            "tddfn_env @('unset', '--pypi-twine') | Out-Null\n" + line
+        )
+        argv = [shell_bin, "-NoProfile", "-Command", script]
+    else:
+        script = (
+            f'. "{shell.scripts_dir() / COMMON}"\n'
+            f'. "{shell.scripts_dir() / "env.sh"}" 2>/dev/null\n'
+            "_tdd_cmd_reset\n"
+            "tddfn_env set --pypi-twine >/dev/null 2>&1\n"
+            f"printf '%s %s %s\\n' {show}\n"
+            "_tdd_cmd_reset\n"
+            "tddfn_env unset --pypi-twine >/dev/null 2>&1\n"
+            f"printf '%s %s %s\\n' {show}\n"
+        )
+        argv = [shell_bin, "-c", script]
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("TWINE_USERNAME", "TWINE_PASSWORD")
+    }
+    done = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        env={
+            **env,
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "NO_COLOR": "1",
+            "_TDD_COMMON_SH": str(shell.scripts_dir() / COMMON),
+            "_TDD_COMMON_PS1": str(_ps_dir() / PS_COMMON),
+        },
+    )
+    return calls.read_text().strip(), done.stdout.strip()
+
+
+def test_pypi_twine_exports_twines_names_from_the_crypto_vault(tmp_path):
+    """`env set --pypi-twine` asks `_1p fetch` for the upload credentials in the
+    crypto key's vault and exports what it prints -- TWINE_USERNAME and
+    TWINE_PASSWORD, the names twine reads -- and `unset --pypi-twine` removes
+    both, in every half."""
+    import shutil
+
+    for shell_bin in [s for s in ("bash", "zsh", "pwsh") if shutil.which(s)]:
+        run = tmp_path / shell_bin
+        run.mkdir()
+        argv, out = _pypi_twine(shell_bin, run)
+        assert argv == "_1p fetch --pypi-twine=1p:Employee", (shell_bin, argv)
+        assert out.splitlines() == ["0 __token__ p w", "0 unset unset"], (
+            shell_bin,
+            out,
+        )

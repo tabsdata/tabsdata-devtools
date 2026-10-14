@@ -21,7 +21,11 @@ KEY = "a-key-long-enough"
 def op(monkeypatch):
     """1Password as two dicts: fields read one at a time, and vault sweeps."""
     reads: list[tuple] = []
-    fields = {("Employee", "DevSecrets", "TD_BACKENDS_CRYPTO_KEY"): KEY}
+    fields = {
+        ("Employee", "DevSecrets", "TD_BACKENDS_CRYPTO_KEY"): KEY,
+        ("Employee", "DevSecrets", "PYPI_TWINE_USERNAME"): "__token__",
+        ("Employee", "DevSecrets", "PYPI_TWINE_PASSWORD"): "pypi-s3cr'et",
+    }
     vaults = {"dev_xp": {"PG__PASSWORD": "p w'd", "PG__HOST": "h", "S3__BUCKET": "b"}}
 
     def read_field(vault, item, field):
@@ -106,6 +110,31 @@ def test_crypto_takes_another_item_and_field(op, monkeypatch, capsys):
     assert code == 0 and events[-1]["values"] == {"_TDD_CRYPTO_KEY": KEY}
 
 
+def test_pypi_twine_exports_the_upload_credentials_under_twines_names(
+    op, monkeypatch, capsys
+):
+    """`--pypi-twine` alone reads DevSecrets' PYPI_TWINE_USERNAME/_PASSWORD in
+    the crypto key's vault and exports them as the names twine reads."""
+    code, out, _ = _stdout(["fetch", "--pypi-twine"], monkeypatch, capsys)
+    assert code == 0
+    assert _exports(out) == {
+        "TWINE_USERNAME": "__token__",
+        "TWINE_PASSWORD": "pypi-s3cr'et",
+    }
+    assert op.reads == [
+        ("Employee", "DevSecrets", "PYPI_TWINE_USERNAME"),
+        ("Employee", "DevSecrets", "PYPI_TWINE_PASSWORD"),
+    ]
+
+
+def test_pypi_twine_combines_with_the_rest_in_one_call(op, monkeypatch, capsys):
+    code, out, _ = _stdout(
+        ["fetch", "--crypto", "--pypi-twine", "--secrets"], monkeypatch, capsys
+    )
+    assert code == 0
+    assert {"_TDD_CRYPTO_KEY", "TWINE_USERNAME", "TWINE_PASSWORD"} <= set(_exports(out))
+
+
 def test_a_short_key_is_refused_with_where_it_came_from(op, monkeypatch, capsys):
     op.fields[("Employee", "DevSecrets", "TD_BACKENDS_CRYPTO_KEY")] = "short"
     code, events = _run(
@@ -124,6 +153,7 @@ def test_a_short_key_is_refused_with_where_it_came_from(op, monkeypatch, capsys)
         (["fetch", "--crypto", "Employee"], "--crypto takes a provider ref, 1p:VAULT"),
         (["fetch", "--secrets", "1p:"], "--secrets takes a provider ref"),
         (["fetch", "--secrets", "1p:dev_xp", "--item", "X"], "pass --crypto"),
+        (["fetch", "--pypi-twine", "Employee"], "--pypi-twine takes a provider ref"),
         ([], "a subcommand is required: fetch, push"),
     ],
 )
