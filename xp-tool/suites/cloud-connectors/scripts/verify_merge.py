@@ -16,7 +16,8 @@ trigger``, which has waited for the merge to commit.
 The connection is the domain's own, from ``tdd domain info --format json``:
 the same descriptor the suite's connection template reads, so the check looks
 where the subscriber wrote. JSON, not ``export``: BigQuery's service-account
-key is a multi-line value. Each system needs its client, which the step's
+key is a multi-line value. The JSON is tdd's event stream; the descriptor is a
+field of its ``ok`` event. Each system needs its client, which the step's
 ``reqs`` provide -- imported only for the system asked for.
 
 Columns are matched without case: Snowflake folds the unquoted names the
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -37,7 +39,14 @@ import _merge_plan as plan  # noqa: E402 -- standard library only
 
 
 def domain_meta(domain: str) -> dict[str, str]:
-    return json.loads(tdd("domain", "info", "--domain", domain, "--format", "json"))["meta"]
+    """The domain descriptor's meta. `--format json` is tdd's event stream, one
+    JSON object a line; the descriptors are fields of the run's `ok` event."""
+    out = tdd("domain", "info", "--domain", domain, "--format", "json")
+    for line in out.splitlines():
+        event = json.loads(line) if line.startswith("{") else {}
+        if event.get("event") == "ok" and event.get("descriptors"):
+            return event["descriptors"][0]["meta"]
+    raise TddError(("domain", "info", "--domain", domain), 0, f"no descriptor in:\n{out}")
 
 
 def read_bigquery(meta: dict[str, str], target: str) -> tuple[list[str], list[tuple]]:
@@ -57,17 +66,28 @@ def read_snowflake(meta: dict[str, str], target: str) -> tuple[list[str], list[t
     import snowflake.connector
 
     # The connection the destination opens (connections/snowflake_bulk_out.yaml),
-    # so the unquoted name resolves in the same schema.
+    # and the namespace it then asserts: connect() takes database and schema as
+    # login parameters only, and a session that cannot adopt them falls back to
+    # the role's default without a word. The connector issues USE with an
+    # identifier-shaped name unquoted, so Snowflake folds it onto the stored
+    # (upper-case) schema; so does this.
+    #
+    # The table is another matter: the connector double-quotes every part of a
+    # table name as written (_impl._fq_for_sql), so tables=["cap_merge"] is the
+    # lower-case "cap_merge", not CAP_MERGE. Quoted here the same way.
+    def ident(name: str) -> str:
+        return name if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", name) else '"' + name.replace('"', '""') + '"'
+
     with snowflake.connector.connect(
         account=meta["ACCOUNT"],
         user=meta["USERNAME"],
         password=meta["PAT"],
-        database=meta["DATABASE"],
-        schema=meta["SCHEMA"],
         warehouse=meta["WAREHOUSE"],
     ) as conn:
         cursor = conn.cursor()
-        cursor.execute(f"SELECT * FROM {target}")
+        cursor.execute(f"USE DATABASE {ident(meta['DATABASE'])}")
+        cursor.execute(f"USE SCHEMA {ident(meta['SCHEMA'])}")
+        cursor.execute(f'SELECT * FROM "{target}"')
         return [column[0] for column in cursor.description], cursor.fetchall()
 
 

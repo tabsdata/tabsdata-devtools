@@ -10,8 +10,8 @@ schema_evolution). Input from the dev datagen ``caps_input/cap_rows`` frame.
 - ``snowflake_out_none``    : return-None contract.
 - ``snowflake_merge_<batch>`` : ``if_table_exists="merge"`` of the CDC batches in
   ``_merge_plan.py`` onto each batch's target (``cap_merge``, ``cap_merge_from_load``,
-  ``cap_merge_from_truncate``, upper-cased by Snowflake) -- changes, initial loads,
-  truncates. A merge requires ``snowflake.schema_evolution_engine="iceberg"``.
+  ``cap_merge_from_truncate``; the connector quotes a table name as written, so
+  these are lower case in Snowflake) -- changes, initial loads, truncates. A merge requires ``snowflake.schema_evolution_engine="iceberg"``.
 """
 from __future__ import annotations
 
