@@ -3,12 +3,12 @@
 #
 """Datatype coverage — cast to the narrow / parametric / nested dtypes that the
 rest of the suite never exercises (UInt8 / Int16 / Int32 / Float32 / Boolean /
-Decimal / Categorical) and carry Struct / List columns through a select.
+Decimal / Categorical / Map) and carry Struct / List columns through a select.
 
 Uses SPECIAL verifiers instead of the default frame-equal: ``dtype_check`` asserts
 the RESULT column's dtype is exactly the intended one (the datatype IS the thing
 under test) and then compares values dtype-insensitively; ``nested_is`` asserts a
-column is a Struct / List and compares values. (Value-insensitivity to dtype means
+column is a Struct / List / Map and compares values. (Value-insensitivity to dtype means
 these still report a clean pass/fail on the intended dtype even where a storage
 round-trip would promote a narrow type.)"""
 from __future__ import annotations
@@ -40,7 +40,7 @@ def dtype_check(**expect):
 
 def nested_is(**expect):
     """Verifier factory: assert each named column is an instance of the given
-    nested dtype (Struct / List), then compare values (order/dtype-insensitive)."""
+    nested dtype (Struct / List / Map), then compare values (order/dtype-insensitive)."""
 
     def verify(received: pl.DataFrame, expected: pl.DataFrame) -> None:
         for col, base in expect.items():
@@ -57,6 +57,12 @@ _INPUT = pl.DataFrame(
         "s": ["x", "y", "x", "z"],
         "st": [{"p": 1, "q": 2}, {"p": 3, "q": 4}, {"p": 5, "q": 6}, {"p": 7, "q": 8}],
         "li": [[1, 2], [3], [4, 5], [6]],
+        "kv": [
+            [{"key": "a", "value": 1}],
+            [{"key": "b", "value": 2}, {"key": "c", "value": 3}],
+            [],
+            [{"key": "d", "value": 4}],
+        ],
     }
 )
 CASE = TFCase(
@@ -71,6 +77,7 @@ CASE = TFCase(
         Check("dtc_categorical", lambda f, t: t.select(f.col("s").cast(pl.Categorical).alias("r")), dtype_check(r=pl.Categorical)),
         Check("dtc_struct", lambda f, t: t.select("st"), nested_is(st=pl.Struct)),
         Check("dtc_list", lambda f, t: t.select("li"), nested_is(li=pl.List)),
+        Check("dtc_map", lambda f, t: t.select(f.col("kv").cast(pl.Map(pl.String, pl.Int64)).alias("r")), nested_is(r=pl.Map)),
     ],
 )
 
@@ -84,6 +91,7 @@ def dtc_pub(t: TableFrameSpec) -> TableFrameSpec:
 def dtc_tfr(
     t: TableFrameSpec,
 ) -> tuple[
+    TableFrameSpec,
     TableFrameSpec,
     TableFrameSpec,
     TableFrameSpec,
@@ -108,6 +116,7 @@ def dtc_sub(
     c6: TableFrameSpec,
     c7: TableFrameSpec,
     c8: TableFrameSpec,
+    c9: TableFrameSpec,
 ) -> TableFrameSpec:
-    CASE.verify([c0, c1, c2, c3, c4, c5, c6, c7, c8])
+    CASE.verify([c0, c1, c2, c3, c4, c5, c6, c7, c8, c9])
     return TableFrame.empty()

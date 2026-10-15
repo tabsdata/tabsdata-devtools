@@ -31,7 +31,6 @@ _INPUT = pl.DataFrame({"k": ["x", "x", "y", "y", "z"], "v": [1, 2, 3, 4, 5]})
 CASE = TFCase(
     inputs={"gbr_in": _INPUT},
     checks=[
-        Check("gbr_count", lambda f, t: t.group_by("k").count(), unordered_equal),
         Check("gbr_len", lambda f, t: t.group_by("k").len(), unordered_equal),
     ],
 )
@@ -43,11 +42,11 @@ def gbr_pub(t: TableFrameSpec) -> TableFrameSpec:
 
 
 @transformer(input_tables=[f"{SRC}/gbr_in@NEW"], output_tables=CASE.output_names)
-def gbr_tfr(t: TableFrameSpec) -> tuple[TableFrameSpec, TableFrameSpec]:
+def gbr_tfr(t: TableFrameSpec) -> tuple[TableFrameSpec]:
     return CASE.transform(t)
 
 
 @subscriber(destination=TrashDest(), input_tables=[f"{OPS}/{n}" for n in CASE.output_names])
-def gbr_sub(c0: TableFrameSpec, c1: TableFrameSpec) -> TableFrameSpec:
-    CASE.verify([c0, c1])
+def gbr_sub(c0: TableFrameSpec) -> TableFrameSpec:
+    CASE.verify([c0])
     return TableFrame.empty()

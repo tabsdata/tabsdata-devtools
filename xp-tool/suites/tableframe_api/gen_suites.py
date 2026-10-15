@@ -87,8 +87,8 @@ CATEGORIES: dict[str, tuple[str, list[str]]] = {
         ["tf_expr_round", "tf_expr_clip_sign"],
     ),
     "expr_math": (
-        "Expr math (trig / hyperbolic / degrees-radians / exp / log / sqrt / cbrt).",
-        ["tf_expr_trig", "tf_expr_hyper", "tf_expr_explog"],
+        "Expr math (trig / hyperbolic / degrees-radians / exp / log / sqrt / cbrt / erf / erfc).",
+        ["tf_expr_trig", "tf_expr_hyper", "tf_expr_explog", "tf_expr_special"],
     ),
     "expr_aggregation": (
         "Expr aggregations (min/max/sum/mean/median/n_unique/count/len/first/last/is_unique).",
@@ -108,13 +108,13 @@ CATEGORIES: dict[str, tuple[str, list[str]]] = {
     ),
     "expr_datetime": (
         "Expr .dt namespace (components/extract/boundary/convert/duration/timezone) and "
-        "add_business_days/combine/datetime/with_time_unit.",
+        "add_business_days/combine and dropping a time zone.",
         ["tf_dt_component", "tf_dt_component2", "tf_dt_extract", "tf_dt_boundary",
          "tf_dt_convert", "tf_dt_duration", "tf_dt_tz", "tf_dt_more"],
     ),
     "dtypes": (
         "Datatype coverage: cast to narrow/parametric/nested dtypes (UInt8/Int16/Int32/"
-        "Float32/Boolean/Decimal/Categorical) and carry Struct/List, with dtype-asserting "
+        "Float32/Boolean/Decimal/Categorical/Map) and carry Struct/List, with dtype-asserting "
         "special verifiers.",
         ["tf_dtypes"],
     ),
@@ -131,7 +131,7 @@ COLLECTIONS = [
     {"name": "tf_ops", "type": "transform", "group": "ops"},
     {"name": "tf_sink", "type": "trash_out", "connection_template": "connection-file:connections/trash_out.yaml", "group": "destinations", "domains": {"D0": "dev"}},
 ]
-DOMAINS = [{"name": "dev", "system": "dev", "model": None, "data": None}]
+DOMAINS = [{"name": "dev", "system": "dev", "model": None, "size": None}]
 
 KIND_TO_COLLECTION = {"PublisherInfo": "tf_src", "TransformerInfo": "tf_ops", "SubscriberInfo": "tf_sink"}
 

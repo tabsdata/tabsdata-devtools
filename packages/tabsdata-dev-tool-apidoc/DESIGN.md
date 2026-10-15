@@ -16,7 +16,7 @@ tdd apidoc generate --out FILE [--spec FILE] [--doc-format json|markdown] [--ind
 tdd apidoc export-spec --dir DIR [--force]
 ```
 
-Toolset `launchers`, with `griffe==2.1.0` added to `deps-launchers` — the pin tdx-apidocgen runs
+Toolset `launchers`, with `griffe==2.3.2` added to `deps-launchers` — the pin tdx-apidocgen runs
 on. griffe is pure Python with one dependency (colorama), so a toolset venv of its own would have
 cost a whole environment for it, the reason `pycache` joined `launchers` too. No `bin-reqs`: the
 one program it runs is the current venv's `python`, a name the toolset's own `bin/` has.

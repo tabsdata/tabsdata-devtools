@@ -1,7 +1,7 @@
 #
 # Copyright 2026 Tabsdata Inc.
 #
-"""Expr datetime extras — dt.add_business_days / combine / datetime / with_time_unit."""
+"""Expr datetime extras — dt.add_business_days / combine / replace_time_zone(None)."""
 from __future__ import annotations
 
 import polars as pl
@@ -29,8 +29,7 @@ CASE = TFCase(
     checks=[
         Check("dmr_add_bdays", lambda f, t: t.select(f.col("ts").dt.add_business_days(3).alias("r")), unordered_equal),
         Check("dmr_combine", lambda f, t: t.select(f.col("ts").dt.combine(time(6, 30)).alias("r")), unordered_equal),
-        Check("dmr_datetime", lambda f, t: t.select(f.col("ts").dt.datetime().alias("r")), unordered_equal),
-        Check("dmr_with_unit", lambda f, t: t.select(f.col("ts").dt.with_time_unit("ms").alias("r")), unordered_equal),
+        Check("dmr_naive", lambda f, t: t.select(f.col("ts").dt.replace_time_zone(None).alias("r")), unordered_equal),
     ],
 )
 
@@ -47,7 +46,6 @@ def dmr_tfr(
     TableFrameSpec,
     TableFrameSpec,
     TableFrameSpec,
-    TableFrameSpec,
 ]:
     return CASE.transform(t)
 
@@ -57,7 +55,6 @@ def dmr_sub(
     c0: TableFrameSpec,
     c1: TableFrameSpec,
     c2: TableFrameSpec,
-    c3: TableFrameSpec,
 ) -> TableFrameSpec:
-    CASE.verify([c0, c1, c2, c3])
+    CASE.verify([c0, c1, c2])
     return TableFrame.empty()

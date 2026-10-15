@@ -16,12 +16,12 @@ dependencies = [
     "pytest==9.1.1",
     # S3 and CloudFront. The tool talks to AWS through boto3 alone, never the
     # aws CLI, so the plans it prints and the calls it makes cannot disagree.
-    "boto3==1.43.82",
+    "boto3==1.43.114",
     # config/lanes.yaml and each tree's yanked.yaml.
     "pyyaml==6.0.3",
     # PEP 440 comparison: which release is newest, and what a wheel's filename
     # says it is. Version parsing is not something to hand-roll.
-    "packaging==25.0",
+    "packaging==26.3",
 ]
 
 [tool.hatch.version]

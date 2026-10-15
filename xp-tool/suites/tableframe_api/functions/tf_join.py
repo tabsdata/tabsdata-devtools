@@ -25,7 +25,6 @@ CASE = TFCase(
         Check("join_left", lambda f, l, r: l.join(r, on="id", how="left"), unordered_equal),
         Check("join_right", lambda f, l, r: l.join(r, on="id", how="right"), unordered_equal),
         Check("join_full", lambda f, l, r: l.join(r, on="id", how="full"), unordered_equal),
-        Check("join_outer", lambda f, l, r: l.join(r, on="id", how="outer"), unordered_equal),
         Check("join_semi", lambda f, l, r: l.join(r, on="id", how="semi"), unordered_equal),
         Check("join_anti", lambda f, l, r: l.join(r, on="id", how="anti"), unordered_equal),
         Check("join_cross", lambda f, l, r: l.join(r, how="cross"), unordered_equal),
@@ -68,7 +67,6 @@ def join_tfr(
     TableFrameSpec,
     TableFrameSpec,
     TableFrameSpec,
-    TableFrameSpec,
 ]:
     return CASE.transform(left, right)
 
@@ -86,7 +84,6 @@ def join_sub(
     c6: TableFrameSpec,
     c7: TableFrameSpec,
     c8: TableFrameSpec,
-    c9: TableFrameSpec,
 ) -> TableFrameSpec:
-    CASE.verify([c0, c1, c2, c3, c4, c5, c6, c7, c8, c9])
+    CASE.verify([c0, c1, c2, c3, c4, c5, c6, c7, c8])
     return TableFrame.empty()

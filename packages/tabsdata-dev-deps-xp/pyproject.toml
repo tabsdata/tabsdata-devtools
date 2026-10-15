@@ -15,7 +15,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pytest==9.1.1",
     # The suite definition.
-    "pydantic==2.13.5",
+    "pydantic==2.14.1",
     # The domain manifests xp writes for `tdd domain create --manifest`.
     "pyyaml==6.0.3",
     # A suite's execute scripts run on xp's python and read the table versions
