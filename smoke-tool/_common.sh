@@ -44,6 +44,8 @@
 #   common_fill_pem FILE... -- PLACEHOLDER VALUE
 #                                         the same for a multi-line PEM: a YAML block scalar
 #   common_placeholders_left DIR          fail while a required placeholder remains in DIR/*.yaml
+#   common_xp_expand_all                  --xp-suites ALL -> every suite dir, in SUITE_LIST and
+#                                         STAGE_NAMES; once tdd is loaded, before the first stage
 #                                         `tdkserver status` must agree with the expected state
 #   common_tabsdata_setup_info common_screen|common_note
 #                                         the instance (running?), the venv, how to use/stop/remove them
@@ -979,6 +981,43 @@ common_placeholders_left() {
     fi
     echo "no required placeholder left in $1"
     return 0
+}
+
+# common_xp_expand_all -- `--xp-suites ALL` becomes the suite dirs `tdd xp
+# one-shot --suite ALL` would run (`list-suites` reports them as `dirs`), one
+# entry of SUITE_LIST each, and the `xp-ALL` of STAGE_NAMES their `xp-<dir>`
+# stages: a smoke runs one stage and one named project per selector, and a
+# one-shot over many selectors refuses --suite-run/--project. Any other
+# SUITE_LIST is left as given. Call it once tdd is loaded and before the first
+# `common_stage`; it exits when xp names no dir.
+common_xp_expand_all() {
+    local all dirs dir name
+    local names=()
+    [ "${#SUITE_LIST[@]}" -eq 1 ] || return 0
+    all="${SUITE_LIST[0]}"
+    [ "$(printf '%s' "$all" | tr '[:lower:]' '[:upper:]')" = ALL ] || return 0
+    dirs="$(tdd xp list-suites --format json | python3 -c '
+import json, sys
+for line in sys.stdin:
+    event = json.loads(line)
+    if event.get("event") == "ok":
+        print("\n".join(event.get("dirs", [])))
+')"
+    if [ -z "$dirs" ]; then
+        common_screen "${RED}$(basename "$0"): --xp-suites $all: tdd xp list-suites named no suite dir${RESET}"
+        exit 1
+    fi
+    SUITE_LIST=()
+    for dir in $dirs; do SUITE_LIST[${#SUITE_LIST[@]}]="$dir"; done
+    for name in "${STAGE_NAMES[@]}"; do
+        if [ "$name" = "xp-$all" ]; then
+            for dir in "${SUITE_LIST[@]}"; do names[${#names[@]}]="xp-$dir"; done
+        else
+            names[${#names[@]}]="$name"
+        fi
+    done
+    STAGE_NAMES=("${names[@]}")
+    common_screen "  --xp-suites $all -> ${SUITE_LIST[*]}"
 }
 
 # common_instance_gone NAME -- after `tdkserver delete --trash true`: no km

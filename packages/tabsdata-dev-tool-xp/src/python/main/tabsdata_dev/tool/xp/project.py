@@ -61,7 +61,12 @@ def cmd_list_suites(args) -> tuple[str, dict]:
         + "\n  --suite <type>/<name> = one descriptor; --suite <type> = every *.json in it, "
         "one instance/project per file"
     )
-    return text, {"root": str(root), "builtin": not override, "suites": rows}
+    return text, {
+        "root": str(root),
+        "builtin": not override,
+        "suites": rows,
+        "dirs": suites.suite_dirs(root),
+    }
 
 
 def store_rows() -> list[dict]:

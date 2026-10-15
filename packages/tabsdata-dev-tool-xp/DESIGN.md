@@ -467,6 +467,9 @@ pile-up there fails runs for no fault of their own. Each child's lines stream as
 `--fail-fast` (passed on, and starting no further selector), `--report` (the batch's JSON) and
 Ctrl-C mean what they mean for the other batch verbs. `--suite-run` / `--project` name one run,
 so a list refuses them, and every selector is resolved before the first child starts.
+`list-suites` reports what `ALL` stands for as `dirs` (`suites.suite_dirs`, the one
+definition of it), so the smoke scripts expand `--xp-suites ALL` the way xp does and keep a
+stage and a named project per dir -- which a one-shot over many selectors would refuse.
 
 The pointer store is `<tdd_dir>/data/xp/`: `i-<R>` for a suite run (a definition file is
 recorded as its path, re-read live for the run, with the run's `xp_id` and `xp_short_id`; a

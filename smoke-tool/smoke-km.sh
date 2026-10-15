@@ -54,7 +54,8 @@ options:
                       (default: none -- whatever uv is already configured with)
   --xp-suites LIST    comma-separated xp suite selectors to run, one stage each;
                       <type>/<name> for one definition, <type> for every
-                      definition in that dir -- see `tdd xp list-suites`
+                      definition in that dir, ALL for every suite dir --
+                      see `tdd xp list-suites`
                       (default: test,tableframe_api,dataquality,grok,
                       container-connectors,cdc,kafka,cloud-connectors)
   --llm-domain SYSTEM
@@ -226,6 +227,7 @@ if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
 fi
 # shellcheck disable=SC1090
 . "$TDD_DIR_OPT/tdd-source.sh"
+common_xp_expand_all
 
 
 common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"

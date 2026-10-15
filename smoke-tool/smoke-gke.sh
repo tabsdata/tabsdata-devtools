@@ -95,7 +95,8 @@ options:
                       (https://d3mm0r95u5i3hf.cloudfront.net/simple/) or @prod
                       for the published one (https://pypi.tabsdata.com/simple/)
                       (default: none -- whatever uv is already configured with)
-  --xp-suites LIST    comma-separated xp suite selectors, one stage each
+  --xp-suites LIST    comma-separated xp suite selectors, one stage each;
+                      ALL for every suite dir
                       (default: test,tableframe_api,dataquality,grok/s3_examples,
                       grok/s3_world_csv,cloud-connectors -- cloud-connectors covers
                       cloud-connectors/gcs; container-connectors and the fs-backed
@@ -437,6 +438,7 @@ if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
 fi
 # shellcheck disable=SC1090
 . "$TDD_DIR_OPT/tdd-source.sh"
+common_xp_expand_all
 
 common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"
 common_run tdd env unset --td

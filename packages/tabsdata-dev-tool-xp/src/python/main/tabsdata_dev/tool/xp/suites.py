@@ -60,6 +60,13 @@ def lane_files(directory: pathlib.Path) -> list[pathlib.Path]:
     return [p for p in sorted(directory.glob("*.json")) if is_suite_def(p)]
 
 
+def suite_dirs(root: pathlib.Path) -> list[str]:
+    """What `--suite ALL` stands for: every dir directly under `root` holding a
+    definition of its own, by name. `list-suites` reports it too, so a caller
+    that needs one stage per dir (the smoke scripts) expands ALL as xp does."""
+    return sorted(p.name for p in root.iterdir() if p.is_dir() and lane_files(p))
+
+
 #: The checkout keeps the XP tree here, at the repo root, where it is read and
 #: edited; a wheel build copies it in beside this module (force-include). One
 #: name in both layouts, so nothing has to say which is which.

@@ -469,6 +469,8 @@ def test_bench_rejects_a_single_file_and_list_suites_reports(xp_root, capsys):
         "demo/two",
     ]
     assert last["builtin"] is False
+    # what --suite ALL runs, so a smoke script can keep one stage per dir
+    assert last["dirs"] == ["demo"]
 
 
 def test_the_login_probe_does_not_open_an_unlabelled_reporter(

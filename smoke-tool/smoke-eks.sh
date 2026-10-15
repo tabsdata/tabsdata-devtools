@@ -73,7 +73,8 @@ options:
   --py-version VERSION
                       interpreter for the venv (default: 3.12.13 -- the exact
                       version the instance builds its own environments with)
-  --xp-suites LIST    comma-separated xp suite selectors, one stage each
+  --xp-suites LIST    comma-separated xp suite selectors, one stage each;
+                      ALL for every suite dir
                       (default: test,tableframe_api,dataquality,grok/s3_examples,
                       grok/s3_world_csv,cloud-connectors -- container-connectors and
                       the fs-backed grok suites stay out: docker systems and local
@@ -371,6 +372,7 @@ if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
 fi
 # shellcheck disable=SC1090
 . "$TDD_DIR_OPT/tdd-source.sh"
+common_xp_expand_all
 
 common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"
 common_run tdd env unset --td

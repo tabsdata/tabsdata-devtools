@@ -47,9 +47,7 @@ def selectors(spec: str, root: pathlib.Path) -> list[str]:
     """ALL: every suite dir under `root` holding a definition, by name. A list:
     its selectors, each resolved up front so a typo fails before anything runs."""
     if _is_all(spec):
-        return sorted(
-            p.name for p in root.iterdir() if p.is_dir() and suites.lane_files(p)
-        )
+        return suites.suite_dirs(root)
     names = _names(spec)
     for name in names:
         suites.resolve(name, root)
