@@ -2832,10 +2832,12 @@ def test_airportdb_inserts_carry_defects_at_a_rate_each_seed_sets():
             assert all(a != b for a, b in zip(s, s[1:])), (d, s)  # moves every run
 
 
-def test_only_salesforce_is_an_exclusive_system_type():
+def test_only_salesforce_and_db2cdc_are_exclusive_system_types():
     exclusive = {s for s in systems.all_slugs() if systems.get_class(s).exclusive}
-    assert exclusive == {"salesforce"}
+    assert exclusive == {"salesforce", "db2cdc"}
     assert dispatch.exclusive_type("salesforce") is True
+    assert dispatch.exclusive_type("db2cdc") is True
+    assert dispatch.exclusive_type("db2") is False
     assert dispatch.exclusive_type("postgres") is False
     assert dispatch.exclusive_type("no-such-type") is False
 

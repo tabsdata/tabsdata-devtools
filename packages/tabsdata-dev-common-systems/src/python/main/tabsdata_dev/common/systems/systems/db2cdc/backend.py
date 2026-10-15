@@ -120,6 +120,7 @@ class Db2Cdc(Db2):
     slug = "db2cdc"
     label = "IBM Db2 Community (CDC)"
     ddl_from_slug = "db2"
+    exclusive = True
 
     # ---- CLP plumbing --------------------------------------------------
 

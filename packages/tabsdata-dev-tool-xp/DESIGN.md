@@ -445,7 +445,9 @@ pid in `_TDD_XP_PARENT`, so a stale export is reported and ignored.
 **Sequence groups** keep lanes that share something single-tenant apart, as pytest's `_seq`
 groups do. A lane's groups are the names its suite lists in a `{"seq": ...}` element and every
 system its domains are on whose type is **exclusive** (`tdd system list` reports it; Salesforce
-is, since every domain of a system is the one org and a data load wipes the whole org). The
+is, since every domain of a system is the one org and a data load wipes the whole org, and so is
+db2cdc, since every domain of a container is captured by its one asncap, which a large load or
+another domain's churn stalls for all). The
 dispatcher never runs two lanes of one group at once, handing a free slot to the next lane whose
 groups are idle, so the rest of the suite keeps running beside them; a held-back lane says which
 group it waits for. Each lane child also holds a lock file per group under the xp store
