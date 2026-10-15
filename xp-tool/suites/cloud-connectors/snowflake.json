@@ -1,6 +1,6 @@
 [
   {
-    "_comment": "CAPABILITY suite for Snowflake bulk dest (create/append/replace; no schema evolution), via `--type connectors/snowflake.json`. Functions in functions/caps_snowflake.py; input from dev datagen caps_input/cap_rows. append->cap_append (grows on re-run), replace->cap_replace (stays 3). Domains: dev (datagen), snowflake (dest)."
+    "_comment": "CAPABILITY suite for Snowflake bulk dest (create/append/replace; no schema evolution), via `--type connectors/snowflake.json`. Functions in functions/caps_snowflake.py; input from dev datagen caps_input/cap_rows. append->cap_append (grows on re-run), replace->cap_replace (stays 3). Domains: dev (datagen), snowflake (dest). MERGE (if_table_exists=\"merge\", CDC markers i/u/d/l/t): the 12 batches of functions/_merge_plan.py, each a caps_input publisher caps_merge_<batch> (functions/caps_merge_batches.py) and a snowflake_out subscriber snowflake_merge_<batch> onto the batch's target keyed on cap_id, marker in op (snowflake.schema_evolution_engine=iceberg, which a merge requires). Not auto-triggered: after the monitor, an actions stage triggers them in order (a non-detached tdk fn trigger, which waits for the merge) and after each reads the target from Snowflake itself (scripts/verify_merge.py, tagged check) and fails unless it holds exactly the rows the plan says. cap_merge: b1 creates it, b2 is an initial load over stale rows, b3 coalesces several changes per key, b4 truncates, b5 merges onto the empty table, b6 loads then truncates mid-batch (the last reset wins), b7 merges onto what it left, b8 is an initial load of an empty table (a bare l). cap_merge_from_load: load1 is an initial load as the first write, load2 merges onto what it created. cap_merge_from_truncate: trunc1 is a bare t as the first write (an empty table), trunc2 merges onto it. A load is only ever a batch's first row, as a CDC source emits it."
   },
   {
     "domain-manifest": {
@@ -55,6 +55,102 @@
       {
         "collection": "snowflake_out",
         "functionpath": "functions/caps_snowflake.py::snowflake_out_none"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b1"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b2"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b3"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b4"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b5"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b6"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b7"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b8"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_load1"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_load2"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_trunc1"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_trunc2"
+      },
+      {
+        "collection": "snowflake_out",
+        "functionpath": "functions/caps_snowflake.py::snowflake_merge_b1"
+      },
+      {
+        "collection": "snowflake_out",
+        "functionpath": "functions/caps_snowflake.py::snowflake_merge_b2"
+      },
+      {
+        "collection": "snowflake_out",
+        "functionpath": "functions/caps_snowflake.py::snowflake_merge_b3"
+      },
+      {
+        "collection": "snowflake_out",
+        "functionpath": "functions/caps_snowflake.py::snowflake_merge_b4"
+      },
+      {
+        "collection": "snowflake_out",
+        "functionpath": "functions/caps_snowflake.py::snowflake_merge_b5"
+      },
+      {
+        "collection": "snowflake_out",
+        "functionpath": "functions/caps_snowflake.py::snowflake_merge_b6"
+      },
+      {
+        "collection": "snowflake_out",
+        "functionpath": "functions/caps_snowflake.py::snowflake_merge_b7"
+      },
+      {
+        "collection": "snowflake_out",
+        "functionpath": "functions/caps_snowflake.py::snowflake_merge_b8"
+      },
+      {
+        "collection": "snowflake_out",
+        "functionpath": "functions/caps_snowflake.py::snowflake_merge_load1"
+      },
+      {
+        "collection": "snowflake_out",
+        "functionpath": "functions/caps_snowflake.py::snowflake_merge_load2"
+      },
+      {
+        "collection": "snowflake_out",
+        "functionpath": "functions/caps_snowflake.py::snowflake_merge_trunc1"
+      },
+      {
+        "collection": "snowflake_out",
+        "functionpath": "functions/caps_snowflake.py::snowflake_merge_trunc2"
       }
     ]
   },
@@ -71,5 +167,501 @@
     "monitor": {
       "time_out": "30m"
     }
+  },
+  {
+    "actions": [
+      {
+        "tdd": {
+          "name": "merge-b1",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b1",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b1",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "snowflake",
+            "--domain",
+            "${xp:name(snowflake)}",
+            "--batch",
+            "b1"
+          ],
+          "reqs": [
+            "snowflake-connector-python==4.7.3"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b2",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b2",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b2",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "snowflake",
+            "--domain",
+            "${xp:name(snowflake)}",
+            "--batch",
+            "b2"
+          ],
+          "reqs": [
+            "snowflake-connector-python==4.7.3"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b3",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b3",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b3",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "snowflake",
+            "--domain",
+            "${xp:name(snowflake)}",
+            "--batch",
+            "b3"
+          ],
+          "reqs": [
+            "snowflake-connector-python==4.7.3"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b4",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b4",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b4",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "snowflake",
+            "--domain",
+            "${xp:name(snowflake)}",
+            "--batch",
+            "b4"
+          ],
+          "reqs": [
+            "snowflake-connector-python==4.7.3"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b5",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b5",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b5",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "snowflake",
+            "--domain",
+            "${xp:name(snowflake)}",
+            "--batch",
+            "b5"
+          ],
+          "reqs": [
+            "snowflake-connector-python==4.7.3"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b6",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b6",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b6",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "snowflake",
+            "--domain",
+            "${xp:name(snowflake)}",
+            "--batch",
+            "b6"
+          ],
+          "reqs": [
+            "snowflake-connector-python==4.7.3"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b7",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b7",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b7",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "snowflake",
+            "--domain",
+            "${xp:name(snowflake)}",
+            "--batch",
+            "b7"
+          ],
+          "reqs": [
+            "snowflake-connector-python==4.7.3"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b8",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b8",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b8",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "snowflake",
+            "--domain",
+            "${xp:name(snowflake)}",
+            "--batch",
+            "b8"
+          ],
+          "reqs": [
+            "snowflake-connector-python==4.7.3"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-load1",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_load1",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-load1",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "snowflake",
+            "--domain",
+            "${xp:name(snowflake)}",
+            "--batch",
+            "load1"
+          ],
+          "reqs": [
+            "snowflake-connector-python==4.7.3"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-load2",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_load2",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-load2",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "snowflake",
+            "--domain",
+            "${xp:name(snowflake)}",
+            "--batch",
+            "load2"
+          ],
+          "reqs": [
+            "snowflake-connector-python==4.7.3"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-trunc1",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_trunc1",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-trunc1",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "snowflake",
+            "--domain",
+            "${xp:name(snowflake)}",
+            "--batch",
+            "trunc1"
+          ],
+          "reqs": [
+            "snowflake-connector-python==4.7.3"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-trunc2",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_trunc2",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-trunc2",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "snowflake",
+            "--domain",
+            "${xp:name(snowflake)}",
+            "--batch",
+            "trunc2"
+          ],
+          "reqs": [
+            "snowflake-connector-python==4.7.3"
+          ]
+        }
+      }
+    ]
   }
 ]

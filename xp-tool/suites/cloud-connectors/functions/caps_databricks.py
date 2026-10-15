@@ -14,6 +14,9 @@ DEST (`@subscriber`, collection ``databricks_out``, input from datagen):
 - ``databricks_out_append`` / ``databricks_out_replace`` / ``databricks_out_none``.
 - ``databricks_evolve_v1`` (narrow -> creates cap_evolve) then ``databricks_evolve_v2``
   (wide, ``schema_evolution="update"`` -> mergeSchema adds column). Run v1 then v2.
+- ``databricks_merge_<batch>``: ``if_table_exists="merge"`` of the CDC batches in
+  ``_merge_plan.py`` onto each batch's target (``cap_merge``, ``cap_merge_from_load``,
+  ``cap_merge_from_truncate``) -- changes, initial loads, truncates.
 
 SRC METADATA — the ``tabsdata.src_metadata.drop`` contract: ``databricks_meta_keep`` and
 ``databricks_meta_drop`` (collection ``databricks_in``) read the same one-query
@@ -27,7 +30,7 @@ explains why one transformer over both tables cannot work.
 from __future__ import annotations
 
 from tabsdatak.api import TableFrameSpec, TrxCtx, publisher, subscriber, transformer
-from tabsdatak.conn.databricks import DatabricksDest, DatabricksSrc
+from tabsdatak.conn.databricks import DatabricksDest, MergeCfg, DatabricksSrc
 
 try:
     from ._srcmeta import (
@@ -165,3 +168,111 @@ def databricks_meta_keep_check(keep: TableFrameSpec) -> TableFrameSpec:
 @transformer(input_tables=["databricks_in/meta_drop@NEW"], output_tables=["meta_drop_ok"])
 def databricks_meta_drop_check(drop: TableFrameSpec) -> TableFrameSpec:
     return check_drop(drop, QUERY_COLUMNS)
+
+
+# --- MERGE (`if_table_exists="merge"`) -------------------------------------
+# One subscriber per batch of _merge_plan.py onto the batch's target, keyed on
+# `cap_id` with the CDC marker in `op`; the suite triggers the batches in order
+# and checks the target after each (scripts/verify_merge.py).
+def _merge_dest(table: str) -> DatabricksDest:
+    return DatabricksDest(
+        tables=[table],
+        if_table_exists="merge",
+        merge_cfg=[MergeCfg(on=["cap_id"], op_column="op")],
+    )
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b1"],
+)
+def databricks_merge_b1(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b2"],
+)
+def databricks_merge_b2(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b3"],
+)
+def databricks_merge_b3(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b4"],
+)
+def databricks_merge_b4(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b5"],
+)
+def databricks_merge_b5(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b6"],
+)
+def databricks_merge_b6(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b7"],
+)
+def databricks_merge_b7(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b8"],
+)
+def databricks_merge_b8(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge_from_load"),
+    input_tables=["caps_input/cap_merge_load1"],
+)
+def databricks_merge_load1(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge_from_load"),
+    input_tables=["caps_input/cap_merge_load2"],
+)
+def databricks_merge_load2(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge_from_truncate"),
+    input_tables=["caps_input/cap_merge_trunc1"],
+)
+def databricks_merge_trunc1(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge_from_truncate"),
+    input_tables=["caps_input/cap_merge_trunc2"],
+)
+def databricks_merge_trunc2(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows

@@ -1,6 +1,6 @@
 [
   {
-    "_comment": "CAPABILITY suite for Databricks (SQL src modes + bulk dest full matrix incl. schema evolution `update`), via `--type connectors/databricks.json`. Functions in functions/caps_databricks.py. SOURCE (databricks_in, reads seeded databricks_world_xs): base/_inc(LIMIT 10)/_none. DEST (databricks_out, input from datagen): append/replace on cap_append/cap_replace; SCHEMA EVOLUTION two-phase (evolve_v1 creates cap_evolve, then trigger caps_evo_v2 -> evolve_v2 appends wide with schema_evolution=update/mergeSchema). NOTE the dest needs the staging Volume from the connection to already exist. Domains: dev, databricks_world_xs (source), databricks (dest). SRC METADATA: databricks_meta_keep and databricks_meta_drop (databricks_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection databricks_meta (group ops) asserts that side: databricks_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, databricks_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing)."
+    "_comment": "CAPABILITY suite for Databricks (SQL src modes + bulk dest full matrix incl. schema evolution `update`), via `--type connectors/databricks.json`. Functions in functions/caps_databricks.py. SOURCE (databricks_in, reads seeded databricks_world_xs): base/_inc(LIMIT 10)/_none. DEST (databricks_out, input from datagen): append/replace on cap_append/cap_replace; SCHEMA EVOLUTION two-phase (evolve_v1 creates cap_evolve, then trigger caps_evo_v2 -> evolve_v2 appends wide with schema_evolution=update/mergeSchema). NOTE the dest needs the staging Volume from the connection to already exist. Domains: dev, databricks_world_xs (source), databricks (dest). SRC METADATA: databricks_meta_keep and databricks_meta_drop (databricks_in) read the same one-query SELECT with and without the `tabsdata.src_metadata.drop` src_cfg key, and one transformer each in collection databricks_meta (group ops) asserts that side: databricks_meta_keep_check that the `@td.sql.query` and `@td.sql.initial_values` metadata columns are there plus exactly the expected data columns, databricks_meta_drop_check that no `@td.` column is left and the data columns are unchanged (functions/_srcmeta.py — which also explains why ONE transformer over both tables cannot work: an input reference puts the function in the producing plan, so it would run in each publisher's plan with the other's table missing). MERGE (if_table_exists=\"merge\", CDC markers i/u/d/l/t): the 12 batches of functions/_merge_plan.py, each a caps_input publisher caps_merge_<batch> (functions/caps_merge_batches.py) and a databricks_out subscriber databricks_merge_<batch> onto the batch's target keyed on cap_id, marker in op. Not auto-triggered: after the monitor, an actions stage triggers them in order (a non-detached tdk fn trigger, which waits for the merge) and after each reads the target from Databricks itself (scripts/verify_merge.py, tagged check) and fails unless it holds exactly the rows the plan says. cap_merge: b1 creates it, b2 is an initial load over stale rows, b3 coalesces several changes per key, b4 truncates, b5 merges onto the empty table, b6 loads then truncates mid-batch (the last reset wins), b7 merges onto what it left, b8 is an initial load of an empty table (a bare l). cap_merge_from_load: load1 is an initial load as the first write, load2 merges onto what it created. cap_merge_from_truncate: trunc1 is a bare t as the first write (an empty table), trunc2 merges onto it. A load is only ever a batch's first row, as a CDC source emits it."
   },
   {
     "domain-manifest": {
@@ -119,6 +119,102 @@
       {
         "collection": "databricks_meta",
         "functionpath": "functions/caps_databricks.py::databricks_meta_drop_check"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b1"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b2"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b3"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b4"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b5"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b6"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b7"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_b8"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_load1"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_load2"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_trunc1"
+      },
+      {
+        "collection": "caps_input",
+        "functionpath": "functions/caps_merge_batches.py::caps_merge_trunc2"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_merge_b1"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_merge_b2"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_merge_b3"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_merge_b4"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_merge_b5"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_merge_b6"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_merge_b7"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_merge_b8"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_merge_load1"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_merge_load2"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_merge_trunc1"
+      },
+      {
+        "collection": "databricks_out",
+        "functionpath": "functions/caps_databricks.py::databricks_merge_trunc2"
       }
     ]
   },
@@ -160,5 +256,501 @@
     "monitor": {
       "time_out": "30m"
     }
+  },
+  {
+    "actions": [
+      {
+        "tdd": {
+          "name": "merge-b1",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b1",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b1",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "databricks",
+            "--domain",
+            "${xp:name(databricks)}",
+            "--batch",
+            "b1"
+          ],
+          "reqs": [
+            "databricks-sql-connector==4.5.0"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b2",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b2",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b2",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "databricks",
+            "--domain",
+            "${xp:name(databricks)}",
+            "--batch",
+            "b2"
+          ],
+          "reqs": [
+            "databricks-sql-connector==4.5.0"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b3",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b3",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b3",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "databricks",
+            "--domain",
+            "${xp:name(databricks)}",
+            "--batch",
+            "b3"
+          ],
+          "reqs": [
+            "databricks-sql-connector==4.5.0"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b4",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b4",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b4",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "databricks",
+            "--domain",
+            "${xp:name(databricks)}",
+            "--batch",
+            "b4"
+          ],
+          "reqs": [
+            "databricks-sql-connector==4.5.0"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b5",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b5",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b5",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "databricks",
+            "--domain",
+            "${xp:name(databricks)}",
+            "--batch",
+            "b5"
+          ],
+          "reqs": [
+            "databricks-sql-connector==4.5.0"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b6",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b6",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b6",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "databricks",
+            "--domain",
+            "${xp:name(databricks)}",
+            "--batch",
+            "b6"
+          ],
+          "reqs": [
+            "databricks-sql-connector==4.5.0"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b7",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b7",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b7",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "databricks",
+            "--domain",
+            "${xp:name(databricks)}",
+            "--batch",
+            "b7"
+          ],
+          "reqs": [
+            "databricks-sql-connector==4.5.0"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-b8",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_b8",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-b8",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "databricks",
+            "--domain",
+            "${xp:name(databricks)}",
+            "--batch",
+            "b8"
+          ],
+          "reqs": [
+            "databricks-sql-connector==4.5.0"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-load1",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_load1",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-load1",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "databricks",
+            "--domain",
+            "${xp:name(databricks)}",
+            "--batch",
+            "load1"
+          ],
+          "reqs": [
+            "databricks-sql-connector==4.5.0"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-load2",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_load2",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-load2",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "databricks",
+            "--domain",
+            "${xp:name(databricks)}",
+            "--batch",
+            "load2"
+          ],
+          "reqs": [
+            "databricks-sql-connector==4.5.0"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-trunc1",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_trunc1",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-trunc1",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "databricks",
+            "--domain",
+            "${xp:name(databricks)}",
+            "--batch",
+            "trunc1"
+          ],
+          "reqs": [
+            "databricks-sql-connector==4.5.0"
+          ]
+        }
+      },
+      {
+        "tdd": {
+          "name": "merge-trunc2",
+          "tags": [
+            "merge"
+          ],
+          "tool": "tdk",
+          "command": "fn",
+          "options": [
+            "trigger",
+            "--proj",
+            "${xp:project}",
+            "--coll",
+            "caps_input",
+            "--name",
+            "caps_merge_trunc2",
+            "--profile",
+            "${td:profile}"
+          ]
+        }
+      },
+      {
+        "python": {
+          "name": "check-merge-trunc2",
+          "tags": [
+            "check"
+          ],
+          "script": "scripts/verify_merge.py",
+          "params": [
+            "--system",
+            "databricks",
+            "--domain",
+            "${xp:name(databricks)}",
+            "--batch",
+            "trunc2"
+          ],
+          "reqs": [
+            "databricks-sql-connector==4.5.0"
+          ]
+        }
+      }
+    ]
   }
 ]

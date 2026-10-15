@@ -26,7 +26,16 @@ times the phases, `--dry-run` prints the commands.
   the smoke scripts and the shell package's assets.
 - tabsdata-xp's `connectors` dir is split here into `container-connectors` (docker/local
   systems) and `cloud-connectors` (lanes needing a cloud store or warehouse: az, bigquery,
-  databricks, gcs, s3, snowflake). clickhouse and starrocks are container-connectors although
+  databricks, gcs, s3, snowflake). The bigquery, databricks and snowflake lanes also drive
+  `if_table_exists="merge"` through twelve CDC batches, `functions/_merge_plan.py` -- changes,
+  an initial load over stale rows, a truncate, a load then a truncate mid-batch, a load of
+  an empty table, and on targets of their own a load and a bare truncate as the first write;
+  a load only ever as a batch's first row, where a CDC source puts it -- one publisher and
+  one subscriber each onto the batch's target, triggered in turn from an actions stage, and
+  after each `scripts/verify_merge.py` reads the target from the warehouse itself with the
+  domain's descriptor and fails unless it holds exactly the plan's rows: a non-detached `tdk
+  fn trigger` exits 0 when a run failed, so every batch leaves its target different, or
+  creates it. clickhouse and starrocks are container-connectors although
   they stage through s3/az/gcs: the aks/eks/gke smoke runs take `cloud-connectors`, and those
   two are not to run there. `cdc` holds the CDC stream sources' suites, the scenarios a source
   must survive, one suite each -- from an empty database, an initial load, an initial load

@@ -8,11 +8,15 @@ schema_evolution). Input from the dev datagen ``caps_input/cap_rows`` frame.
 - ``snowflake_out_append``  : ``if_table_exists="append"`` — create then accumulate.
 - ``snowflake_out_replace`` : ``if_table_exists="replace"`` — create then TRUNCATE+reload.
 - ``snowflake_out_none``    : return-None contract.
+- ``snowflake_merge_<batch>`` : ``if_table_exists="merge"`` of the CDC batches in
+  ``_merge_plan.py`` onto each batch's target (``cap_merge``, ``cap_merge_from_load``,
+  ``cap_merge_from_truncate``, upper-cased by Snowflake) -- changes, initial loads,
+  truncates. A merge requires ``snowflake.schema_evolution_engine="iceberg"``.
 """
 from __future__ import annotations
 
 from tabsdatak.api import TableFrameSpec, subscriber
-from tabsdatak.conn.snowflake import SnowflakeDest
+from tabsdatak.conn.snowflake import SnowflakeDest, MergeCfg
 
 
 @subscriber(
@@ -37,3 +41,112 @@ def snowflake_out_replace(rows: TableFrameSpec) -> TableFrameSpec:
 )
 def snowflake_out_none(rows: TableFrameSpec) -> TableFrameSpec:
     return None
+
+
+# --- MERGE (`if_table_exists="merge"`) -------------------------------------
+# One subscriber per batch of _merge_plan.py onto the batch's target, keyed on
+# `cap_id` with the CDC marker in `op`; the suite triggers the batches in order
+# and checks the target after each (scripts/verify_merge.py).
+def _merge_dest(table: str) -> SnowflakeDest:
+    return SnowflakeDest(
+        tables=[table],
+        if_table_exists="merge",
+        merge_cfg=[MergeCfg(on=["cap_id"], op_column="op")],
+        dest_cfg={"snowflake.schema_evolution_engine": "iceberg"},
+    )
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b1"],
+)
+def snowflake_merge_b1(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b2"],
+)
+def snowflake_merge_b2(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b3"],
+)
+def snowflake_merge_b3(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b4"],
+)
+def snowflake_merge_b4(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b5"],
+)
+def snowflake_merge_b5(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b6"],
+)
+def snowflake_merge_b6(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b7"],
+)
+def snowflake_merge_b7(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge"),
+    input_tables=["caps_input/cap_merge_b8"],
+)
+def snowflake_merge_b8(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge_from_load"),
+    input_tables=["caps_input/cap_merge_load1"],
+)
+def snowflake_merge_load1(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge_from_load"),
+    input_tables=["caps_input/cap_merge_load2"],
+)
+def snowflake_merge_load2(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge_from_truncate"),
+    input_tables=["caps_input/cap_merge_trunc1"],
+)
+def snowflake_merge_trunc1(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+@subscriber(
+    destination=_merge_dest("cap_merge_from_truncate"),
+    input_tables=["caps_input/cap_merge_trunc2"],
+)
+def snowflake_merge_trunc2(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
