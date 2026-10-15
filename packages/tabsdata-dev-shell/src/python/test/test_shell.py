@@ -388,6 +388,9 @@ def test_prompt_marks_tdd_in_red_and_the_venv_in_green():
     assert "_tdd_ps1_wrap()" in (shell.scripts_dir() / COMMON).read_text()
     template = shell.source_template()
     assert "_tdd_star=\"$(_tdd_ps1_wrap red '*') \"" in template
+    # TD_TDD_PROMPT replaces the default verbatim (no space added); empty = none
+    assert '_tdd_star="$(_tdd_ps1_wrap red "$TD_TDD_PROMPT")"' in template
+    assert "_tdd_star=''" in template
     assert 'PS1="$_tdd_star${PS1-}"' in template
     # re-sourced (a reinstall): the previous marker is removed, never stacked
     assert 'PS1="${PS1/"$_TDD_PROMPT_MARK"/}"' in template
@@ -400,6 +403,8 @@ def test_prompt_marks_tdd_in_red_and_the_venv_in_green():
         '"$_tdd_name" "$_tdd_reloc")"' in venv
     )
     assert "printf '(%s/%s/%s%s)'" in venv
+    # the marker tdd-source.sh wrote, not a fresh default star
+    assert '_tdd_star="${_TDD_PROMPT_MARK:-}"' in venv
     assert '"$_tdd_star"*) PS1="$_tdd_star$_tdd_mark${_tdd_ps1#"$_tdd_star"}"' in venv
 
 

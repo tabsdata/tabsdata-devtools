@@ -520,11 +520,12 @@ _tdd_venv_enter() {
     # the venv's own python rather than read from the marker: it is what runs
     # now) and /reloc when it is relocatable -- placed after the red `* `
     # tdd-source.sh put first, so that stays first; ahead of everything when
-    # the prompt does not start with it.
+    # the prompt does not start with it. The marker is the one tdd-source.sh
+    # remembered, since TD_TDD_PROMPT may have made it something else.
     _tdd_py="$("$_tdd_dir/bin/python" --version 2>&1)"
     _tdd_py="${_tdd_py#Python }"
     _tdd_mark="$(_tdd_ps1_wrap green "$(_tdd_venv_mark_text "$_tdd_type" "$_tdd_py" "$_tdd_name" "$_tdd_reloc")") "
-    _tdd_star="$(_tdd_ps1_wrap red '*') "
+    _tdd_star="${_TDD_PROMPT_MARK:-}"
     case "$_tdd_ps1" in
         "$_tdd_star"*) PS1="$_tdd_star$_tdd_mark${_tdd_ps1#"$_tdd_star"}" ;;
         *) PS1="$_tdd_mark$_tdd_ps1" ;;

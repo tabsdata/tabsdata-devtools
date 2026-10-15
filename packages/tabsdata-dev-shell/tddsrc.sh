@@ -548,7 +548,16 @@ _tdd_load_commands
 # time is remembered and removed first, wherever a venv marker left it (also
 # from the prompt a venv activation saved to restore). A prompt theme that
 # rewrites PS1 afterwards wins; source this file after it in that case.
-_tdd_star="$(_tdd_ps1_wrap red '*') "
+# TD_TDD_PROMPT replaces `* ` verbatim, spacing included and still in red, so
+# a prompt that has its own leading glyph can take ` ●`; set but empty, no
+# marker is written at all.
+if [ -z "${TD_TDD_PROMPT+x}" ]; then
+    _tdd_star="$(_tdd_ps1_wrap red '*') "
+elif [ -n "$TD_TDD_PROMPT" ]; then
+    _tdd_star="$(_tdd_ps1_wrap red "$TD_TDD_PROMPT")"
+else
+    _tdd_star=''
+fi
 if [ -n "${_TDD_PROMPT_MARK:-}" ]; then
     PS1="${PS1/"$_TDD_PROMPT_MARK"/}"
     [ -n "${_TDD_VENV_PS1:-}" ] && _TDD_VENV_PS1="${_TDD_VENV_PS1/"$_TDD_PROMPT_MARK"/}"

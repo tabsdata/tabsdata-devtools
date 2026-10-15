@@ -555,7 +555,15 @@ $global:_TDD_PROMPT_ORIGINAL = (Get-Command prompt -CommandType Function -ErrorA
 if (-not $global:_TDD_PROMPT_ORIGINAL) {
     $global:_TDD_PROMPT_ORIGINAL = { "PS $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) " }
 }
-$global:_TDD_PROMPT_MARK = (_tdd_ps1_wrap red '*') + ' '
+# TD_TDD_PROMPT replaces `* ` verbatim, spacing included and still in red; set
+# but empty, no mark is written at all.
+$global:_TDD_PROMPT_MARK = if (-not (Test-Path env:TD_TDD_PROMPT)) {
+    (_tdd_ps1_wrap red '*') + ' '
+} elseif ($env:TD_TDD_PROMPT) {
+    _tdd_ps1_wrap red $env:TD_TDD_PROMPT
+} else {
+    ''
+}
 function global:prompt {
     $global:_TDD_PROMPT_MARK + (& $global:_TDD_PROMPT_ORIGINAL)
 }

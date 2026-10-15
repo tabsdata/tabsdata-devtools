@@ -65,6 +65,9 @@ tdd dir, always, because which shell someone will open is not the installer's to
   every option, default and event.
 - Prompt: sourcing puts a red `* ` first (replacing the marker of an earlier source, remembered
   in `_TDD_PROMPT_MARK`); `venv` inserts its green `(<type>/<python>/<name>)` after it.
+  `TD_TDD_PROMPT`, when set, replaces `* ` verbatim -- spacing is the user's, colour stays red
+  (`export TD_TDD_PROMPT=' ●'`); set but empty, no marker. `venv` reads the remembered marker,
+  never recomputes the default.
 - Everything runs unmodified in bash 3.2 and zsh: no arrays, quoted expansions, `_tdd_`
   temporaries unset before return, `return` never `exit`, and `${var}` braces wherever text
   follows a variable -- `$var[options]` is an array subscript in zsh, and a bad one is a fatal
