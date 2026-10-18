@@ -20,12 +20,12 @@ pattern = '^(?P<version>\S+)'
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# specs/apidoc-spec.json is package data under this tree, so the wheel and an
-# editable install carry it at the same place -- no force-include: the spec is
-# edited in tabsdata-os, and this is the copy the tool ships with.
 [tool.hatch.build.targets.wheel]
 only-include = ["src/python/main/tabsdata_dev"]
 sources = ["src/python/main"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/resources/main" = "tabsdata_dev/tool/apidoc/resources"
 
 [tool.pytest.ini_options]
 testpaths = ["src/python/test"]

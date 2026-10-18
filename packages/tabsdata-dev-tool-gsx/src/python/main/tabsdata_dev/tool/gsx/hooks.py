@@ -5,11 +5,11 @@
 """Installing the two hooks gsx relies on.
 
 - **pre-push**, the guard: the only thing that protects a clone whose owner
-  never reads the docs. gsx's own, in `assets/pre-push`.
+  never reads the docs. gsx's own, in the resource `hooks/pre-push`.
 - **commit-msg**, Gerrit's: it gives every commit a `Change-Id:` trailer, an
   identity that survives every rebase, cherry-pick and conflict resolution
   because it lives in the message rather than in the sha or the patch. Shipped
-  verbatim in `assets/commit-msg`, Apache header and all -- the one file in
+  verbatim in the resource `hooks/commit-msg`, Apache header and all -- the one file in
   this tree that does not start with the house header, because it is not ours
   and a Gerrit user should be able to diff it against the original.
 
@@ -34,8 +34,8 @@ from __future__ import annotations
 
 import pathlib
 import stat
-from importlib.resources import files
 
+from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.core.errors import ToolError
 
 from . import gh
@@ -43,11 +43,13 @@ from . import gh
 GUARD = "pre-push"
 CHANGE_ID = "commit-msg"
 
-#: Inside the package, found with importlib.resources: a hook is a resource
-#: this tool ships, not a file anyone edits in place. Order is install order
-#: and report order: the guard first, because it is the one the refusal is
-#: about.
-ASSETS = {GUARD: "assets/pre-push", CHANGE_ID: "assets/commit-msg"}
+#: This package, whose resources hold the hooks and the quick-reference card.
+PACKAGE = "tabsdata_dev.tool.gsx"
+
+#: In the package's resources: a hook is a file this tool ships, not one anyone
+#: edits in place. Order is install order and report order: the guard first,
+#: because it is the one the refusal is about.
+ASSETS = {GUARD: "hooks/pre-push", CHANGE_ID: "hooks/commit-msg"}
 HOOKS = tuple(ASSETS)
 
 #: Where the commit-msg hook comes from, and the line in it that says which
@@ -56,7 +58,7 @@ HOOKS = tuple(ASSETS)
 #: the URL again and replacing the asset byte for byte.
 CHANGE_ID_SOURCE = "https://gerrit-review.googlesource.com/tools/hooks/commit-msg"
 CHANGE_ID_STAMP = "# From Gerrit Code Review "
-QUICK_REF = "assets/quick-ref.txt"
+QUICK_REF = "quick-ref.txt"
 
 DIRECTORY = ".githooks"
 
@@ -70,7 +72,7 @@ NONE = "none"
 
 def script(hook: str = GUARD) -> str:
     """A hook's text, as shipped."""
-    return (files("tabsdata_dev.tool.gsx") / ASSETS[hook]).read_text(encoding="utf-8")
+    return resources.text(PACKAGE, ASSETS[hook])
 
 
 def change_id_version() -> str:
@@ -85,11 +87,11 @@ def change_id_version() -> str:
 def quick_ref() -> str:
     """The one-screen card, as shipped.
 
-    An asset rather than a string in the source, because `docs/stack-workflow.md`
-    prints the same bytes and a test pins the two together: a card that has
-    drifted from the guide is worse than no card.
+    A resource rather than a string in the source, because
+    `docs/stack-workflow.md` prints the same bytes and a test pins the two
+    together: a card that has drifted from the guide is worse than no card.
     """
-    return (files("tabsdata_dev.tool.gsx") / QUICK_REF).read_text(encoding="utf-8")
+    return resources.text(PACKAGE, QUICK_REF)
 
 
 def top_level(runner: gh.Runner) -> pathlib.Path:

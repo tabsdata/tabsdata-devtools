@@ -54,10 +54,9 @@ but `json` is already the event stream's there: `--format json` could not mean b
 goes to `--out`, never stdout, so the event stream stays the only thing on stdout; `--out` is
 required rather than defaulted, since a document is only useful where the caller put it.
 
-**The spec is package data, not a force-included tree.** The smoke scripts and xp's suites are
-edited where they live, at the repo root. This spec is edited in tabsdata-os
-(`variant/config/apidoc-spec.json`, copied from `064c2c66c`); `specs/apidoc-spec.json` is the
-copy the tool ships, found with `importlib.resources` in both install layouts. Refresh it by
+**The spec is one of the package's resources.** It is edited in tabsdata-os
+(`variant/config/apidoc-spec.json`, copied from `064c2c66c`); `src/resources/main/apidoc-spec.json`
+is the copy the tool ships, read through `common.core.resources` in both install layouts. Refresh it by
 copying the file over — a test checks it stays consistent (every category grouped), not that it
 matches upstream, which a test here cannot see. `export-spec` refuses an existing file without
 `--force`: the reason to export is to edit.

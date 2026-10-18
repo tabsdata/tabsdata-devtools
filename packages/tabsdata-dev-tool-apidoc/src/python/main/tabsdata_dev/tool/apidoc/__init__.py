@@ -28,22 +28,27 @@ import os
 import pathlib
 import shutil
 import tempfile
-from importlib import resources
 
-from tabsdata_dev.common.core import cli, errors, managedvenv, proc, render
+from tabsdata_dev.common.core import (
+    cli,
+    errors,
+    managedvenv,
+    proc,
+    render,
+    resources,
+)
 
 DESCRIPTION = "generates a Python package's API as JSON, for documentation generation"
 
 #: The spec this package carries: tabsdata-os's variant/config/apidoc-spec.json.
 SPEC_NAME = "apidoc-spec.json"
+#: This package, whose resources hold the spec.
+PACKAGE = "tabsdata_dev.tool.apidoc"
 
 
 def bundled_spec() -> pathlib.Path:
-    """The carried spec. Package data, found through importlib.resources, so the
-    wheel and an editable install read it from the same place."""
-    return pathlib.Path(
-        str(resources.files("tabsdata_dev.tool.apidoc") / "specs" / SPEC_NAME)
-    )
+    """The carried spec, one of this package's resources."""
+    return resources.path(PACKAGE, SPEC_NAME)
 
 
 def load_spec(path: pathlib.Path | None) -> tuple[dict, pathlib.Path]:

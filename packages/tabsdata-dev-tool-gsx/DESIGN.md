@@ -1094,7 +1094,7 @@ licence asks. `git config gerrit.createChangeId false` turns it off, and the hoo
 fetched from <https://gerrit-review.googlesource.com/tools/hooks/commit-msg> on 2026-09-13; the
 file's own second line says so, `init` and `--check` print what that line says rather than a
 constant of their own, and a test pins it, so upgrading the asset is a visible change. Upgrading
-is: fetch the URL again, replace `assets/commit-msg` byte for byte, then `init --force` and a
+is: fetch the URL again, replace `src/resources/main/hooks/commit-msg` byte for byte, then `init --force` and a
 commit in each repository that carries it.
 
 **`update` carries the trailers through its amend.** It rebuilds the message from the issue and
