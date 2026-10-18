@@ -118,6 +118,56 @@ def test_run_refuses_an_undeclared_binary(monkeypatch, tmp_path):
             launch(["jq", "."])
 
 
+@pytest.fixture
+def dispatched(monkeypatch, tmp_path):
+    """A tool `demo` run by tdd, declaring `git`, its toolset's bin/ empty."""
+    catalog = {"tools": {"demo": {"toolset": "demo-env", "reqs": ["git"]}}}
+    (tmp_path / "catalog.json").write_text(json.dumps(catalog))
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    monkeypatch.setenv("_TDD_TOOL", "demo")
+    proc._declared.cache_clear()
+    proc._toolset_bin.cache_clear()
+    bin_dir = proc.venv_scripts(tmp_path / "tdd-venvs" / "demo-env")
+    bin_dir.mkdir(parents=True)
+    yield bin_dir
+    proc._declared.cache_clear()
+    proc._toolset_bin.cache_clear()
+
+
+def test_on_windows_a_program_is_known_by_its_name_without_suffix_in_any_case(
+    dispatched,
+    monkeypatch,
+):
+    """Windows runs `git` as git.exe and matches names in any case; a pinned
+    `uv` sits in the toolset's Scripts\\ as uv.exe. Neither may read as an
+    undeclared binary there -- and a suffix Windows does not execute is still
+    a different name."""
+    monkeypatch.setattr(proc, "WINDOWS", True)
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    (dispatched / "uv.exe").write_text("")
+    for argv0 in (
+        "git",
+        "git.exe",
+        "GIT.EXE",
+        r"C:\Program Files\Git\git.exe",
+        "uv",
+    ):
+        proc._check([argv0])
+    for argv0 in ("git.sh", "jq", "jq.exe"):
+        with pytest.raises(proc.UndeclaredRequirement):
+            proc._check([argv0])
+
+
+def test_elsewhere_a_program_name_is_exact(dispatched, monkeypatch):
+    monkeypatch.setattr(proc, "WINDOWS", False)
+    (dispatched / "uv").write_text("")
+    proc._check(["git"])
+    proc._check(["uv"])
+    for argv0 in ("git.exe", "GIT", "uv.exe"):
+        with pytest.raises(proc.UndeclaredRequirement):
+            proc._check([argv0])
+
+
 def test_run_maps_sys_exit_and_interrupt_to_the_model(tmp_path, monkeypatch, capsys):
     import sys
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import functools
 import json
+import ntpath
 import os
 import pathlib
 import subprocess
@@ -22,6 +23,38 @@ import sysconfig
 
 class UndeclaredRequirement(RuntimeError):
     pass
+
+
+#: Windows finds a program by its name with or without an executable suffix
+#: (PATHEXT: .exe, .cmd, ...) and in any case: `uv`, `uv.exe` and `UV.EXE` are
+#: one program there. A flag of its own so the rule can be tested anywhere.
+WINDOWS = os.name == "nt"
+#: What Windows itself falls back to when PATHEXT is not set.
+DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
+
+
+def _pathext() -> tuple[str, ...]:
+    # PATHEXT is always `;`-separated -- it is Windows' own variable.
+    text = os.environ.get("PATHEXT", DEFAULT_PATHEXT)
+    return tuple(ext.lower() for ext in text.split(";") if ext)
+
+
+def _program(name: str) -> str:
+    """`name` as the OS compares program names: on Windows without an
+    executable suffix and in lower case; elsewhere exactly as written."""
+    if not WINDOWS:
+        return name
+    stem, suffix = os.path.splitext(name)
+    return (stem if suffix.lower() in _pathext() else name).lower()
+
+
+def _pinned(bin_dir: pathlib.Path, binary: str) -> bool:
+    """Whether the toolset's own bin/ holds `binary` -- on Windows under any
+    of its executable suffixes, as `uv` is `uv.exe` there."""
+    if not WINDOWS:
+        return (bin_dir / binary).exists()
+    stem = _program(binary)
+    return any((bin_dir / (stem + ext)).exists() for ext in ("", *_pathext()))
 
 
 def venv_scripts(venv: pathlib.Path) -> pathlib.Path:
@@ -92,11 +125,13 @@ def popen(argv: list[str], **kwargs) -> subprocess.Popen:
 
 
 def _check(argv: list[str]) -> None:
-    binary = pathlib.Path(argv[0]).name
+    # ntpath splits on both separators, as Windows does: `C:\Git\git.exe`.
+    binary = ntpath.basename(argv[0]) if WINDOWS else pathlib.Path(argv[0]).name
     if os.environ.get("_TDD_TOOL"):
         bin_dir = _toolset_bin()
-        pinned = bool(bin_dir and (bin_dir / binary).exists())
-        if not pinned and binary not in _declared():
+        pinned = bool(bin_dir and _pinned(bin_dir, binary))
+        declared = {_program(name) for name in _declared()}
+        if not pinned and _program(binary) not in declared:
             tool = os.environ["_TDD_TOOL"]
             dir_ = os.environ.get("TDD_DIR", "")
             # The catalog is what is read, and it is written at install: a
