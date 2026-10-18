@@ -1,0 +1,16 @@
+{#-
+  Copyright 2026 Tabsdata Inc.
+
+  Every PEP 503 page: a pip-readable skeleton around one body. Values arrive
+  escaped as indexhtml escapes them; autoescape covers anything else.
+-#}
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="pypi:repository-version" content="1.0">
+<title>{{ title }}</title>
+</head>
+<body>
+{% block body %}{% endblock %}
+</body>
+</html>

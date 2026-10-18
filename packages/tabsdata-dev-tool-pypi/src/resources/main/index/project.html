@@ -1,0 +1,16 @@
+{#-
+  Copyright 2026 Tabsdata Inc.
+
+  simple/<project>/: one anchor per file, one per line, with the PEP 503, 658
+  and 592 attributes a file has.
+-#}
+{% extends "index/page.html" %}
+{% block body %}
+{%- for row in rows -%}
+{{ "\n" if not loop.first else "" }}<a href="{{ row.href }}"
+{%- if row.requires_python %} data-requires-python="{{ row.requires_python }}"{% endif %}
+{%- if row.core_metadata %} data-core-metadata="sha256={{ row.core_metadata }}"{% endif %}
+{%- if row.yanked %} data-yanked="{{ row.yanked }}"{% endif -%}
+>{{ row.name }}</a><br/>
+{%- endfor %}
+{%- endblock %}

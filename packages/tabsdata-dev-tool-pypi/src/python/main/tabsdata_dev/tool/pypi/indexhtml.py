@@ -17,21 +17,27 @@ import html
 from collections import defaultdict
 from urllib.parse import quote
 
+from markupsafe import Markup
 from packaging.version import InvalidVersion, Version
+
+from tabsdata_dev.common.core import resources
 
 from .model import Dist
 
-_PAGE = """<!DOCTYPE html>
-<html>
-<head>
-<meta name="pypi:repository-version" content="1.0">
-<title>{title}</title>
-</head>
-<body>
-{body}
-</body>
-</html>
-"""
+#: The templates are index/<page>.html in this package's resources.
+PACKAGE = "tabsdata_dev.tool.pypi"
+
+
+def _page(name: str, **values) -> str:
+    return resources.render(PACKAGE, f"index/{name}.html", **values)
+
+
+def _escaped(text: str) -> Markup:
+    """`text` escaped as these pages always have been -- html.escape, quotes
+    included -- and so not escaped again by the template. Jinja's own escaping
+    spells quotes differently (&#34; for &quot;), and a page that changes byte
+    for byte is a page the push plan uploads again."""
+    return Markup(html.escape(text, quote=True))
 
 
 def _sort_key(d: Dist) -> tuple:
@@ -53,36 +59,31 @@ def render_landing() -> str:
     The distribution's default root object resolves to <base_path>/index.html,
     which would otherwise not exist.
     """
-    return _PAGE.format(
-        title="Tabsdata package index",
-        body='<a href="simple/">simple/</a><br/>',
-    )
+    return _page("landing", title="Tabsdata package index")
 
 
 def render_root(projects: set[str]) -> str:
-    body = "\n".join(f'<a href="{p}/">{p}</a><br/>' for p in sorted(projects))
-    return _PAGE.format(title="Simple index", body=body)
+    return _page("root", title="Simple index", projects=sorted(projects))
 
 
 def render_project(project: str, dists: list[Dist]) -> str:
-    rows = []
-    for d in sorted(dists, key=_sort_key):
-        attrs = ""
-        if d.requires_python:
-            rp = html.escape(d.requires_python, quote=True)
-            attrs += f' data-requires-python="{rp}"'
-        if d.core_metadata_sha256:
-            attrs += f' data-core-metadata="sha256={d.core_metadata_sha256}"'
-        if d.yanked:
-            # PEP 592. pip keeps resolving this file for anyone pinning the exact
-            # version, and refuses to select it otherwise.
-            attrs += f' data-yanked="{html.escape(d.yanked, quote=True)}"'
-        # Relative on purpose: resolves against the viewer URL, so the same tree
-        # works at localhost, on a vanilla CloudFront domain, and at the custom
-        # domain — and is unaffected by the distribution's origin path.
-        href = f"../../files/{quote(d.filename)}#sha256={d.sha256}"
-        rows.append(f'<a href="{href}"{attrs}>{html.escape(d.filename)}</a><br/>')
-    return _PAGE.format(title=f"Links for {project}", body="\n".join(rows))
+    rows = [
+        {
+            # Relative on purpose: resolves against the viewer URL, so the same
+            # tree works at localhost, on a vanilla CloudFront domain, and at the
+            # custom domain -- and is unaffected by the distribution's origin
+            # path. quote() leaves nothing an attribute would need escaped.
+            "href": Markup(f"../../files/{quote(d.filename)}#sha256={d.sha256}"),
+            "requires_python": _escaped(d.requires_python or ""),
+            "core_metadata": d.core_metadata_sha256 or "",
+            # PEP 592. pip keeps resolving this file for anyone pinning the
+            # exact version, and refuses to select it otherwise.
+            "yanked": _escaped(d.yanked or ""),
+            "name": Markup(html.escape(d.filename)),
+        }
+        for d in sorted(dists, key=_sort_key)
+    ]
+    return _page("project", title=f"Links for {project}", rows=rows)
 
 
 def render_all(dists: list[Dist]) -> dict[str, str]:

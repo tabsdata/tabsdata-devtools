@@ -1,0 +1,11 @@
+{#-
+  Copyright 2026 Tabsdata Inc.
+
+  simple/: one link per project, one per line.
+-#}
+{% extends "index/page.html" %}
+{% block body %}
+{%- for project in projects -%}
+{{ "\n" if not loop.first else "" }}<a href="{{ project }}/">{{ project }}</a><br/>
+{%- endfor %}
+{%- endblock %}

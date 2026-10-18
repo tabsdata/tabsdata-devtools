@@ -16,35 +16,17 @@ from pathlib import Path
 
 import yaml
 
+from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.core.errors import ToolError
 
 from .model import Dist, normalize
 
 YANKED = "yanked.yaml"
+PACKAGE = "tabsdata_dev.tool.pypi"
 
-HEADER = """\
-# Yanked files for this tree (PEP 592).
-#
-# Hand-edited. No tdd pypi command ever writes this file: generate (staging) and
-# promote (prod) READ it and mark every matching file yanked, in the pages and in
-# index.json. pip then refuses to select a yanked file unless the user pins that
-# exact version -- so nobody new gets it, and nobody's lockfile breaks. Each tree
-# has its own list; staging's is not copied to prod by promote.
-#
-# One entry per line, each a mask  <PACKAGE>-<VERSION>-<OS>  where * means ALL
-# for that element:
-#
-#   - tabsdata-2.0.0-*                     every 2.0.0 wheel of tabsdata
-#   - tabsdata-agent-*-macosx_11_0_arm64   every macOS wheel of tabsdata-agent
-#   - "*-2.0.1-*"                          everything in 2.0.1  (quote a leading *)
-#
-# PACKAGE is the project name, tabsdata-agent or tabsdata_agent, either form.
-# VERSION is the exact version string. OS is the wheel's platform tag:
-# manylinux1_x86_64, macosx_11_0_arm64, win_amd64. Shell-style patterns work in
-# every element. The mask that matched is what pip shows as the yank reason.
-#
-# Apply with: tdd pypi generate (staging) or tdd pypi promote (prod), then push.
-"""
+#: What a new yanked.yaml starts as: the instructions, as comments, and no
+#: entries. A file in this package's resources, written out byte for byte.
+NEW_FILE = "yanked.yaml"
 
 
 def yanked_path(tree: Path) -> Path:
@@ -57,7 +39,7 @@ def load_masks(tree: Path) -> list[str]:
     path = yanked_path(tree)
     if not path.exists():
         tree.mkdir(parents=True, exist_ok=True)
-        path.write_text(HEADER)
+        path.write_text(resources.text(PACKAGE, NEW_FILE))
         return []
     doc = yaml.safe_load(path.read_text())
     if doc is None:
