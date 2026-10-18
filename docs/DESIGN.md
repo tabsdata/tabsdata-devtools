@@ -141,8 +141,14 @@ install --managed-python --no-bin --no-registry` (nothing lands on `PATH` or in 
 registry), then creates and syncs each env with `--managed-python --python <exact>` -- uv's own
 interpreters only, never pyenv's, homebrew's, the system's or the active venv's -- and rebuilds an
 env found on any other version. The exact version also keeps an env off uv's minor link
-(`cpython-3.12-...`), which uv re-points whenever it installs a newer patch. The cargo-make tasks
-and xp's python steps pass the same flags; the toolset locks resolve for that minor only.
+(`cpython-3.12-...`), which uv re-points whenever it installs a newer patch; the toolset locks
+resolve for that minor only. Never `uv run --python <version>`: it takes an active venv, conda env
+or `./.venv` of that version over `--managed-python`, and runs inside it. So the cargo-make tasks
+run from their own env, `<tdd dir>/tdd-venvs/make`, which `make/venv.sh` builds with `uv venv`
+from `PYTHON` and `make/requirements.txt` (ruff, pytest) and rebuilds when either changes -- it
+keeps a copy of both, so the check is two small files compared. tdd runs there from the
+checkout on `PYTHONPATH`, never installed: one env serves every checkout. xp's python steps name
+xp's own base interpreter by path.
 
 `VERSION` at the repo root is the only version: every `pyproject.toml` is `dynamic` and reads
 it; `-tdd` force-includes it; `tdd-install` stamps `<tdd_dir>/VERSION`, which `tdd --version`

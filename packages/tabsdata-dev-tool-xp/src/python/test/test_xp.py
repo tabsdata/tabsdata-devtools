@@ -2369,7 +2369,7 @@ def test_a_python_step_is_uv_run_on_xps_interpreter_with_its_reqs(
     xp_root,
     resource_folder,
 ):
-    import platform
+    import sys
 
     from tabsdata_dev.tool.xp import actions
 
@@ -2384,7 +2384,7 @@ def test_a_python_step_is_uv_run_on_xps_interpreter_with_its_reqs(
         "--no-project",
         "--managed-python",
         "--python",
-        platform.python_version(),
+        sys._base_executable,
         "--with",
         "polars==1.9.0",
         "--with",

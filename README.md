@@ -55,7 +55,7 @@ cargo make help         # every build task; `cargo make uninstall` removes ~/.td
 ```bash
 cargo make test          # every package's tests, each inside the toolset venv its code ships with
 cargo make check         # what CI runs: ruff lint + tests + `tdd --reqs` (fails on a missing declared binary)
-cargo make fmt           # ruff format, at the version pinned in Makefile.toml
+cargo make fmt           # ruff format, at the version pinned in make/requirements.txt
 ```
 
 Both need an initialized tdd dir (`cargo make install` or `dev`; `~/.tdd` unless `TDD_DIR` or

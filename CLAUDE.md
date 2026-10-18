@@ -134,7 +134,7 @@ in wheels mode, a reinstall to see source changes.
   short and complete; `docs/design.md` stays the mechanics, not a tour.
 - Comments explain **why**, not what; docstrings on modules and non-obvious functions.
 - Tests live in `src/python/test/` and run inside the toolset venv the code ships with.
-- `ruff format` and `ruff check` must pass at the version pinned in `Makefile.toml`.
+- `ruff format` and `ruff check` must pass at the version pinned in `make/requirements.txt`.
 - Every command owns `<tdd_dir>/<command>.toml`: its `[options]` defaults (`[options.<action>]`
   for one action, merged under what was typed) and whatever else it keeps. The `config` action
   (`--show`/`--default`/`--create [--force]`) comes from the shared layer on both sides and is

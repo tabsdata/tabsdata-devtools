@@ -1,0 +1,8 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+# The tools the cargo-make tasks run, installed into their own env,
+# <tdd dir>/tdd-venvs/make (make/venv.sh). Changing a line rebuilds it.
+
+pytest==9.1.1
+ruff==0.14.2

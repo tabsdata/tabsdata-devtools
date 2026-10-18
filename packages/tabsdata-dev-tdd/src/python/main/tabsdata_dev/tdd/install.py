@@ -98,3 +98,9 @@ def _fallback(argv: list[str]) -> render.Renderer:
         elif arg.startswith("--format=") and arg[9:] in ("json", "view"):
             fmt = arg[9:]
     return render.Renderer(COMMAND, fmt=fmt)
+
+
+if __name__ == "__main__":
+    # `python -m tabsdata_dev.tdd.install`: how `cargo make dev` runs it, from
+    # the checkout, with no console script installed anywhere.
+    raise SystemExit(main())

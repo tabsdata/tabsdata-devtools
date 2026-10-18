@@ -57,9 +57,9 @@ from __future__ import annotations
 import argparse
 import os
 import pathlib
-import platform
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -490,16 +490,18 @@ def argv_of(a: Action, inst: Instance, project: str | None) -> list[str]:
 
 
 def uv_run() -> list[str]:
-    """How a python step starts: on exactly the interpreter xp runs on (its
-    toolset's, the repo's PYTHON), uv-managed only -- left to itself, uv would
-    pick whatever python the machine offers first."""
+    """How a python step starts: on the very interpreter xp runs on -- its
+    toolset's base, uv's own build of the repo's PYTHON -- named by path.
+    A version is not enough: with a venv active in the shell, `uv run` takes
+    that venv's interpreter even under --managed-python, and the step keeps
+    VIRTUAL_ENV, which `tdd tdk` inside it reads to find the user's venv."""
     return [
         "uv",
         "run",
         "--no-project",
         "--managed-python",
         "--python",
-        platform.python_version(),
+        sys._base_executable,
     ]
 
 
