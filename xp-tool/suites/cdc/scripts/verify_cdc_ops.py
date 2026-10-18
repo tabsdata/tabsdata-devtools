@@ -111,44 +111,10 @@ CHANGED, SAME, ABSENT = "changed", "same", "absent"
 # What is checked: the stream's operations one by one, or the state they leave.
 OPS, STATE = "ops", "state"
 
-# A stream row -> the trail's shape: `op` and `entity`, the source `tx`, its
-# commit position `seg` (kept a string: db2's runs to 38 digits) and `sq`,
-# `row` (the new values, the user's columns only) and `old` (the before-image).
-# A delete carries the row it removed in the data columns and leaves the
-# before-image empty: the row is its before-image. LOAD rows only mark where a
-# table's load begins, and go.
-_TO_OPS = r"""
-  select(.["@td.cdc.meta.op"] != "l")
-  | . as $r
-  | ($r | with_entries(select(.key | (startswith("@td.") or startswith("$td.")) | not))) as $new
-  | ($r | with_entries(select(.key | startswith("@td.cdc.data.col.old."))
-                       | .key |= ltrimstr("@td.cdc.data.col.old."))) as $old
-  | {"i": "insert", "u": "update", "d": "delete"}[$r["@td.cdc.meta.op"]] as $op
-  | {op: $op, entity: $entity, tx: $r["@td.cdc.meta.tx"], seg: ($r["@td.cdc.meta.seg"] // ""),
-     sq: ($r["@td.cdc.meta.sq"] | tonumber),
-     row: $new,
-     old: (if $op == "delete" and ($old | [.[]] | all(. == "")) then $new else $old end)}
-"""
-# The snapshot first, then the changes in commit order and by position within
-# a transaction. The commit order is `seg`, a non-negative integer padded to 40
-# digits and sorted as a string -- never through tonumber, which rounds past 2^53
-# and db2's commit sequence goes well beyond. A stream without `seg` falls back
-# to its source transaction: a number (postgres' xid), a GTID, `<server
-# uuid>:<n>` (mysql), ordered by its n -- every change comes from the one server
-# -- or db2's 32 hex digits, which order as they read: fixed width, so as a
-# string. A postgres xid is the order transactions BEGAN, which is not the order
-# they commit once several are open at once (modify-data --trx-mode).
-_IN_ORDER = r"""
-  def pad: ("0000000000000000000000000000000000000000"[0:(40 - length)]) + .;
-  def txkey: if test("^[0-9a-fA-F]{32}$") then ascii_downcase
-             elif test("^[0-9]+$") then tonumber
-             elif test(":[0-9]+$") then (split(":") | last | tonumber)
-             else . end;
-  sort_by([.tx != "initial-load",
-           (if .tx != "initial-load" and (.seg | test("^[0-9]+$")) then (.seg | pad) else "" end),
-           (if .tx == "initial-load" then 0 else (.tx | txkey) end),
-           .sq]) | .[]
-"""
+#: A stream row -> the trail's shape (to_ops.jq says which fields).
+_TO_OPS = Path(__file__).with_name("to_ops.jq")
+#: The snapshot first, then the changes in commit order (in_order.jq says how).
+_IN_ORDER = Path(__file__).with_name("in_order.jq")
 
 
 # ---------------------------------------------------------------- tools ----
@@ -196,7 +162,7 @@ def to_ops(file: Path, entity: str) -> Path:
     """A table's rows as operations in the trail's shape, snapshot first and
     then the changes in order (jq)."""
     dest = file.with_name(f"{entity}_changes.ops.jsonl")
-    ops = tdd("jq", "-c", "--arg", "entity", entity, _TO_OPS, str(file))
+    ops = tdd("jq", "-c", "--arg", "entity", entity, "-f", str(_TO_OPS), str(file))
     return _jq_sorted(ops, dest)
 
 
@@ -214,7 +180,7 @@ def in_order(file: Path, dest: Path) -> Path:
 def _jq_sorted(jsonl: str, dest: Path) -> Path:
     staged = dest.with_suffix(".unsorted.jsonl")
     staged.write_text(jsonl, encoding="utf-8")
-    tdd("jq", "-c", "-s", _IN_ORDER, str(staged), out=dest)
+    tdd("jq", "-c", "-s", "-f", str(_IN_ORDER), str(staged), out=dest)
     return dest
 
 

@@ -80,21 +80,16 @@ def _stages(doc: dict) -> list:
 
 
 @pytest.fixture
-def xp_root(tmp_path, monkeypatch):
+def xp_root(tmp_path, monkeypatch, resource_folder):
+    """An XP tree: the fixed files from the resources (a connection template, a
+    function, a JSON file that is not a suite), and the demo suites built from
+    SUITE, which the tests also read."""
+    import shutil
+
     root = tmp_path / "xp"
-    (root / "suites" / "demo" / "functions").mkdir(parents=True)
-    (root / "connections").mkdir()
+    shutil.copytree(resource_folder / "xp", root)
     (root / "suites" / "demo" / "one.json").write_text(json.dumps(_stages(SUITE)))
     (root / "suites" / "demo" / "two.json").write_text(json.dumps([MONITOR]))
-    (root / "suites" / "demo" / "notes.json").write_text(
-        json.dumps({"_comment": "not a suite"})
-    )
-    (root / "suites" / "demo" / "functions" / "f.py").write_text(
-        "# ${D0__DB} is the domain\n"
-    )
-    (root / "connections" / "local_file_in.yaml").write_text(
-        "kind: connectionDef\ntype: tabsdatak.conn.localfile:LocalFileSrcConn\nspec:\n  base_path: ''\n  token: $secret:D0__TOKEN\n  label: '${D0__DB}_x'\n"
-    )
     monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
     monkeypatch.delenv("_TDD_XP_SCRATCH", raising=False)
     monkeypatch.delenv("_TDD_XP_PARENT", raising=False)
@@ -970,26 +965,38 @@ def test_a_watch_that_reached_the_server_restarts_the_outage_clock(
     assert rc == 0 and watched[-1] == 0
 
 
+def _lane_child(resource_folder, events_file, events: list, status: int = 0) -> list:
+    """The argv of a lane child that prints `events` and exits `status`."""
+    import sys
+
+    events_file.write_text(json.dumps(events))
+    return [
+        sys.executable,
+        resource_folder / "children" / "emit_events.py",
+        events_file,
+        str(status),
+    ]
+
+
 def test_a_failed_lane_shows_its_own_error_not_just_its_exit_code(
-    xp_root, monkeypatch, capsys
+    xp_root, monkeypatch, capsys, tmp_path, resource_folder
 ):
     """A lane speaks json, so its only non-event output is usually nothing:
     the reason it failed is its own error event, and the console shows that
     -- without the lane's summary block, which its log keeps."""
-    import sys
-
+    from tabsdata_dev.common.core import render
     from tabsdata_dev.tool.xp import lanes, state
 
-    child = (
-        "import json; print(json.dumps({'command': 'xp', 'event': 'error', "
-        "'xp': 'summary', 'message': 'KEY must be set (see --secret-env)\\n"
-        "demo/one - summary - 0 step(s), 0 ok, run failed in 0.0s - /tmp/x'}));"
-        " raise SystemExit(1)"
-    )
-    from tabsdata_dev.common.core import render
-
+    error = {
+        "command": "xp",
+        "event": "error",
+        "xp": "summary",
+        "message": "KEY must be set (see --secret-env)\n"
+        "demo/one - summary - 0 step(s), 0 ok, run failed in 0.0s - /tmp/x",
+    }
+    child = _lane_child(resource_folder, tmp_path / "l1.json", [error], status=1)
     state.bind(render.Renderer(state.TOOL), argparse_ns())
-    failed = lanes.dispatch("t", [("l1", [sys.executable, "-c", child])], fatal=False)
+    failed = lanes.dispatch("t", [("l1", child)], fatal=False)
     err = capsys.readouterr().err
     assert failed == ["l1"]
     assert "FAILED lane l1 -- 1 line(s) of detail" in err
@@ -999,12 +1006,10 @@ def test_a_failed_lane_shows_its_own_error_not_just_its_exit_code(
 
 @pytest.mark.parametrize("planned", [True, False])
 def test_lanes_share_their_columns_from_the_first_line(
-    xp_root, monkeypatch, capsys, planned
+    xp_root, monkeypatch, capsys, planned, tmp_path, resource_folder
 ):
     """Lanes one after another, their labels and totals unlike: every line
     keeps the same columns, and with plans [N/M] is the run's from the first."""
-    import sys
-
     from tabsdata_dev.common.core import render
     from tabsdata_dev.tool.xp import lanes, pointers, state
     from tabsdata_dev.tool.xp.reporter import strip_ansi
@@ -1024,10 +1029,9 @@ def test_lanes_share_their_columns_from_the_first_line(
             for n in range(1, total + 1)
         ]  # fmt: skip
         done = {"command": "xp", "event": "ok", "message": "-", "xp": "summary"}
-        code = "import json\n" + "".join(
-            f"print(json.dumps({s!r}))\n" for s in [*steps, done]
-        )
-        return (lane, [sys.executable, "-c", code, "--suite-run", lane])
+        events = tmp_path / f"{lane}.json"
+        argv = _lane_child(resource_folder, events, [*steps, done])
+        return (lane, [*argv, "--suite-run", lane])
 
     state.bind(render.Renderer(state.TOOL), argparse_ns())
     plans = {"a": lanes.LanePlan(12, ("postgres_cdc",)), "b": lanes.LanePlan(3)}
@@ -2203,10 +2207,14 @@ def test_run_suite_dry_run_shows_the_sentinel_after_the_stages_before_it(
     assert any("until 'k' is in one, at most 90s" in ln for ln in lines)
 
 
-def _script(xp_root, body: str, name: str = "check.py") -> str:
+def _script(xp_root, source: pathlib.Path, name: str = "check.py") -> str:
+    """Put the step script `source` (from the resources) into the staged
+    suite as scripts/<name>, the path its python step names."""
+    import shutil
+
     path = xp_root / "suites" / "staged" / "scripts" / name
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body)
+    shutil.copy(source, path)
     return f"scripts/{name}"
 
 
@@ -2357,12 +2365,15 @@ def launcher(monkeypatch, xp_root):
     return actions
 
 
-def test_a_python_step_is_uv_run_on_xps_interpreter_with_its_reqs(xp_root):
+def test_a_python_step_is_uv_run_on_xps_interpreter_with_its_reqs(
+    xp_root,
+    resource_folder,
+):
     import platform
 
     from tabsdata_dev.tool.xp import actions
 
-    _script(xp_root, "pass\n")
+    _script(xp_root, resource_folder / "steps" / "pass.py")
     inst = _python_suite(
         xp_root, [_py("c", "scripts/check.py", "a", reqs=["polars==1.9.0", "rich"])]
     )
@@ -2382,21 +2393,18 @@ def test_a_python_step_is_uv_run_on_xps_interpreter_with_its_reqs(xp_root):
     assert argv[10].endswith("scripts/check.py") and argv[11:] == ["a"]
 
 
-def test_a_python_step_gets_its_params_env_path_and_the_tdd_module(xp_root, launcher):
+def test_a_python_step_gets_its_params_env_path_and_the_tdd_module(
+    xp_root,
+    launcher,
+    resource_folder,
+):
     """Run from the suite dir, params expanded, the run's names in its
     environment, tdd-exe first on its PATH and `from tdd import tdd` working."""
     from tabsdata_dev.tool.xp import work
 
-    out = xp_root / "seen.json"
-    _script(
-        xp_root,
-        "import json, os, sys\n"
-        "from tdd import note, tdd\n"
-        f"json.dump({{'argv': sys.argv[1:], 'cwd': os.getcwd(), "
-        "'env': {k: os.environ[k] for k in ('XP_WORK_DIR', 'XP_PROJECT', 'XP_ID', "
-        "'XP_SHORT_ID', 'XP_SUITE_RUN')}, "
-        f"'path0': os.environ['PATH'].split(os.pathsep)[0]}}, open({str(out)!r}, 'w'))\n",
-    )
+    script = _script(xp_root, resource_folder / "steps" / "seen.py")
+    # seen.py writes what it was handed beside itself
+    out = (xp_root / "suites" / "staged" / script).with_name("seen.json")
     inst = _python_suite(
         xp_root,
         [_py("c", "scripts/check.py", "${xp:dir}/ops.jsonl", "${xp:project}")],
@@ -2417,11 +2425,16 @@ def test_a_python_step_gets_its_params_env_path_and_the_tdd_module(xp_root, laun
     assert seen["path0"] == "/fake/tdd/bin"
 
 
-def test_a_failed_step_stops_the_run_unless_it_continues_on_fail(xp_root, launcher):
+def test_a_failed_step_stops_the_run_unless_it_continues_on_fail(
+    xp_root,
+    launcher,
+    resource_folder,
+):
     from tabsdata_dev.tool.xp import state
 
-    _script(xp_root, "print('row 3 differs'); raise SystemExit(1)\n", "bad.py")
-    _script(xp_root, "raise SystemExit(0)\n", "good.py")
+    steps = resource_folder / "steps"
+    _script(xp_root, steps / "row_differs.py", "bad.py")
+    _script(xp_root, steps / "succeed.py", "good.py")
     bad = _py("bad", "scripts/bad.py")
     good = _py("good", "scripts/good.py")
     bad_goes_on = _py("bad", "scripts/bad.py", continue_on_fail=True)
@@ -2436,18 +2449,19 @@ def test_a_failed_step_stops_the_run_unless_it_continues_on_fail(xp_root, launch
         launcher.run_script(inst, "p", launcher.Selection())
 
 
-def test_a_python_step_says_its_note_on_a_marked_line(xp_root, launcher):
+def test_a_python_step_says_its_note_on_a_marked_line(
+    xp_root,
+    launcher,
+    resource_folder,
+):
     """The last `xp-note:` line is in the note, passed or failed; unmarked
     output is not, and a failure that continues keeps saying so."""
     from tabsdata_dev.tool.xp import state
 
-    _script(
-        xp_root,
-        "print('xp-note: first'); print('noise'); print('xp-note:  10/10 rows ')\n",
-        "good.py",
-    )
-    _script(xp_root, "print('xp-note: 3/10 rows'); raise SystemExit(1)\n", "bad.py")
-    _script(xp_root, "print('nothing marked')\n", "plain.py")
+    steps = resource_folder / "steps"
+    _script(xp_root, steps / "notes.py", "good.py")
+    _script(xp_root, steps / "note_failed.py", "bad.py")
+    _script(xp_root, steps / "plain.py", "plain.py")
     inst = _python_suite(
         xp_root,
         [
@@ -2461,22 +2475,30 @@ def test_a_python_step_says_its_note_on_a_marked_line(xp_root, launcher):
     assert notes == ["good; 10/10 rows", "bad; 3/10 rows; continue_on_fail", "plain"]
 
 
-def test_a_steps_output_goes_to_run_log_line_by_line_under_its_label(xp_root, launcher):
+def test_a_steps_output_goes_to_run_log_line_by_line_under_its_label(
+    xp_root,
+    launcher,
+    resource_folder,
+):
     import sys
 
     from tabsdata_dev.tool.xp import state
 
-    code = "print('one'); print('two')"
+    script = str(resource_folder / "steps" / "prints_two.py")
     inst = _python_suite(
         xp_root,
-        [{"exe": {"name": "e", "program": sys.executable, "params": ["-c", code]}}],
+        [{"exe": {"name": "e", "program": sys.executable, "params": [script]}}],
     )
     assert launcher.run_script(inst, "p", launcher.Selection()) == 0
     log = state.run.reporter.log_path.read_text()
     assert "e | one\ne | two\n" in log
 
 
-def test_what_still_runs_when_the_run_ends_is_killed(xp_root, launcher):
+def test_what_still_runs_when_the_run_ends_is_killed(
+    xp_root,
+    launcher,
+    resource_folder,
+):
     """A timed-out block left running is the run's to end: its process group
     is killed, not waited for."""
     import sys
@@ -2486,7 +2508,7 @@ def test_what_still_runs_when_the_run_ends_is_killed(xp_root, launcher):
         "exe": {
             "name": "hang",
             "program": sys.executable,
-            "params": ["-c", "import time; time.sleep(60)"],
+            "params": [str(resource_folder / "steps" / "hangs.py")],
         }
     }
     inst = _python_suite(xp_root, [_tmo("t", "0.2s", hang, stop=False)])
@@ -2803,19 +2825,21 @@ def test_run_suite_leaves_the_suite_as_it_resolved_it(xp_root, capsys):
     assert doc[1]["collections"][0]["domains"] == {"D0": f"{XP_ID}_world"}
 
 
-def _fake_tdd_exe(bin_dir: pathlib.Path) -> None:
+def _fake_tdd_exe(resource_folder, bin_dir: pathlib.Path) -> None:
     """A tdd-exe that echoes its arguments, and fails on `boom`."""
+    import shutil
+
     bin_dir.mkdir(parents=True, exist_ok=True)
     exe = bin_dir / "tdd-exe"
-    exe.write_text(
-        "#!/bin/sh\n"
-        'if [ "$1" = boom ]; then echo "it broke" >&2; exit 3; fi\n'
-        'echo "args: $*"\n'
-    )
+    shutil.copy(resource_folder / "fake_tdd_exe.sh", exe)
     exe.chmod(0o755)
 
 
-def test_the_tdd_module_runs_tdd_exe_and_says_how_it_failed(tmp_path, monkeypatch):
+def test_the_tdd_module_runs_tdd_exe_and_says_how_it_failed(
+    tmp_path,
+    monkeypatch,
+    resource_folder,
+):
     """`from tdd import tdd`, as a python step has it: `tdd()` is tdd-exe, its
     output back and its failure a TddError carrying status and what it said."""
     import os
@@ -2824,17 +2848,8 @@ def test_the_tdd_module_runs_tdd_exe_and_says_how_it_failed(tmp_path, monkeypatc
 
     from tabsdata_dev.tool.xp import actions
 
-    _fake_tdd_exe(tmp_path / "bin")
-    script = tmp_path / "check.py"
-    script.write_text(
-        "from tdd import tdd, note, TddError\n"
-        "print(tdd('pqt', 'csv', 'f.parquet').strip())\n"
-        "try:\n"
-        "    tdd('boom')\n"
-        "except TddError as exc:\n"
-        "    print('failed', exc.status, exc.output.strip())\n"
-        "note('812 rows,\\n  3 rows/s')\n"
-    )
+    _fake_tdd_exe(resource_folder, tmp_path / "bin")
+    script = resource_folder / "steps" / "uses_tdd_module.py"
     env = {
         **os.environ,
         "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
@@ -2914,7 +2929,11 @@ def test_a_runs_summary_counts_every_phases_lane_steps_and_its_lanes_once(tmp_pa
     )
 
 
-def test_td_profile_is_the_runs_profile_name_or_no_option(xp_root, monkeypatch):
+def test_td_profile_is_the_runs_profile_name_or_no_option(
+    xp_root,
+    monkeypatch,
+    resource_folder,
+):
     """`${td:profile}` in a tdd, exe or python step's options or params is the
     run's profile name -- a suite writes `"--profile", "${td:profile}"` on the
     steps that call tdk. A run with no profile drops the option, pair or
@@ -2948,7 +2967,7 @@ def test_td_profile_is_the_runs_profile_name_or_no_option(xp_root, monkeypatch):
             ],
         }
     }
-    _script(xp_root, "pass\n")
+    _script(xp_root, resource_folder / "steps" / "pass.py")
     inst = _python_suite(xp_root, [fn, check])
     off, chk = inst.actions
 
@@ -2966,19 +2985,22 @@ def test_td_profile_is_the_runs_profile_name_or_no_option(xp_root, monkeypatch):
         models._refuse_unknown_tokens("${td:profile}", "domain call")
 
 
-def _fake_one_shots(monkeypatch, fail=()):
-    """Each selector's `tdd xp one-shot` child replaced by a script that echoes
-    its words and exits 1 for the selectors in `fail`."""
+def _fake_one_shots(monkeypatch, resource_folder, fail=()):
+    """Each selector's `tdd xp one-shot` child replaced by one_shot.py, which
+    echoes its words and exits 1 for the selectors in `fail`."""
     import sys
 
     from tabsdata_dev.tool.xp import batch, shell
 
     monkeypatch.setenv("_TDD_CRYPTO_KEY", "k")
     monkeypatch.delenv("TDD_PARALLELISM", raising=False)
+    monkeypatch.setenv("ONE_SHOT_FAIL", ",".join(fail))
     monkeypatch.setattr(shell, "require_login", lambda: None)
-    script = f"import sys; print('ran', *sys.argv[1:]); sys.exit(sys.argv[3] in {list(fail)!r})"
+    script = resource_folder / "children" / "one_shot.py"
     monkeypatch.setattr(
-        batch, "child_argv", lambda *words: [sys.executable, "-c", script, *words]
+        batch,
+        "child_argv",
+        lambda *words: [sys.executable, script, *words],
     )
 
 
@@ -2992,14 +3014,14 @@ def _second_suite_dir(xp_root):
 
 
 def test_one_shot_ALL_runs_every_suite_dir_one_at_a_time(
-    xp_root, monkeypatch, capsys, tmp_path
+    xp_root, monkeypatch, capsys, tmp_path, resource_folder
 ):
     """ALL is every suite dir holding a definition, each a one-shot child of its
     own, one after another: they all provision on the same systems and instance.
     The selection options reach every child; the batch writes the report."""
     from tabsdata_dev.tool.xp import batch
 
-    _fake_one_shots(monkeypatch)
+    _fake_one_shots(monkeypatch, resource_folder)
     _second_suite_dir(xp_root)
     report = tmp_path / "report.json"
     rc = _run(
@@ -3026,9 +3048,9 @@ def test_one_shot_ALL_runs_every_suite_dir_one_at_a_time(
 
 
 def test_one_shot_list_reports_failures_and_fail_fast_starts_no_more(
-    xp_root, monkeypatch, capsys
+    xp_root, monkeypatch, capsys, resource_folder
 ):
-    _fake_one_shots(monkeypatch, fail=("demo",))
+    _fake_one_shots(monkeypatch, resource_folder, fail=("demo",))
     _second_suite_dir(xp_root)
 
     rc = _run(["one-shot", "--suite", "demo,other", *_suites_dir(xp_root)])
@@ -3047,13 +3069,13 @@ def test_one_shot_list_reports_failures_and_fail_fast_starts_no_more(
 
 
 def test_one_shot_list_refuses_a_shared_run_and_unknown_selectors_up_front(
-    xp_root, monkeypatch, capsys
+    xp_root, monkeypatch, capsys, resource_folder
 ):
     """A suite run or project names one run, which many selectors cannot share;
     a mistyped selector stops the batch before any child starts."""
     from tabsdata_dev.tool.xp import batch
 
-    _fake_one_shots(monkeypatch)
+    _fake_one_shots(monkeypatch, resource_folder)
     rc = _run(["one-shot", "--suite", "ALL", *_suites_dir(xp_root), "--project", "p"])
     assert rc == 1
     assert "--project names a single suite run" in capsys.readouterr().err
@@ -3166,17 +3188,14 @@ def test_lanes_of_one_seq_never_run_together_while_the_rest_run_beside_them(
     assert any({"a", "b"} <= seen for seen in overlaps)
 
 
-def test_a_lane_child_is_handed_its_groups(monkeypatch, capsys):
+def test_a_lane_child_is_handed_its_groups(monkeypatch, capsys, resource_folder):
     import sys
 
     from tabsdata_dev.common.core import render
     from tabsdata_dev.tool.xp import lanes, state
 
     state.bind(render.Renderer(state.TOOL), argparse_ns())
-    child = (
-        "import json, os; print(json.dumps({'command': 'xp', 'event': 'ok', "
-        "'xp': 'summary', 'message': os.environ.get('_TDD_XP_SEQ', 'unset')}))"
-    )
+    child = [sys.executable, resource_folder / "children" / "echo_seq.py"]
     seen = []
     real = lanes.rep
 
@@ -3187,8 +3206,8 @@ def test_a_lane_child_is_handed_its_groups(monkeypatch, capsys):
     failed = lanes.dispatch(
         "t",
         [
-            ("one", [sys.executable, "-c", child]),
-            ("two", [sys.executable, "-c", child]),
+            ("one", child),
+            ("two", child),
         ],
         fatal=False,
         groups={"one": frozenset({"salesforce", "crm"})},

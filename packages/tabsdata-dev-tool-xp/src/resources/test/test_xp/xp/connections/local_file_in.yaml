@@ -1,0 +1,6 @@
+kind: connectionDef
+type: tabsdatak.conn.localfile:LocalFileSrcConn
+spec:
+  base_path: ''
+  token: $secret:D0__TOKEN
+  label: '${D0__DB}_x'
