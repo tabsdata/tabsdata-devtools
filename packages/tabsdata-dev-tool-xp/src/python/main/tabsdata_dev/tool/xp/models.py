@@ -325,7 +325,7 @@ class ExeStep(_Entry):
 
 class PythonStep(_Entry):
     """``uv run --no-project --with REQ... SCRIPT PARAMS...`` from the suite
-    dir, the ``tdd`` module on its path. ``reqs`` are requirement strings, as
+    dir, on xp's own interpreter, the ``tdd`` module on its path. ``reqs`` are requirement strings, as
     uv takes them."""
 
     script: str

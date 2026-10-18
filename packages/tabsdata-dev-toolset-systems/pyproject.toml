@@ -8,7 +8,7 @@
 name = "tabsdata-dev-toolset-systems"
 version = "0.1.0"
 description = "toolset systems: materialized environment"
-requires-python = ">=3.12,<3.13"
+requires-python = "==3.12.*"
 dependencies = [
     "tabsdata-dev-deps-systems",
     "tabsdata-dev-tool-domain",

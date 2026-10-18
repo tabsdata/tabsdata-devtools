@@ -1,5 +1,6 @@
 {
   "fingerprint": "7d78c4e459c6dae9",
+  "interpreter": "3.12.13",
   "members": {
     "launchers": [
       "tabsdata-dev-common-core",
@@ -46,8 +47,12 @@
     ]
   },
   "python": {
-    "salesforce": "3.12",
-    "systems": "3.12"
+    "launchers": "3.12.13",
+    "pypi": "3.12.13",
+    "salesforce": "3.12.13",
+    "systems": "3.12.13",
+    "twine": "3.12.13",
+    "xp": "3.12.13"
   },
   "schema": 1,
   "shell": {

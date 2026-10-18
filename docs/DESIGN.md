@@ -134,6 +134,16 @@ checkout; edits live; not relocatable) and wheels (`<dir>/wheels` + hashed expor
 checkout needed). `cargo make install` evicts `tabsdata-dev-*` from the uv cache first -- uv
 caches wheels by filename and the version does not change between builds.
 
+Every env runs exactly one interpreter, the version in the root `PYTHON` file (3.12.13; a
+`-deps-*` may override it, exactly, with `[tool.tdd] python`). The generator writes it into the
+catalog, so a wheels-mode install builds on the same one. `tdd-install` first runs `uv python
+install --managed-python --no-bin --no-registry` (nothing lands on `PATH` or in the Windows
+registry), then creates and syncs each env with `--managed-python --python <exact>` -- uv's own
+interpreters only, never pyenv's, homebrew's, the system's or the active venv's -- and rebuilds an
+env found on any other version. The exact version also keeps an env off uv's minor link
+(`cpython-3.12-...`), which uv re-points whenever it installs a newer patch. The cargo-make tasks
+and xp's python steps pass the same flags; the toolset locks resolve for that minor only.
+
 `VERSION` at the repo root is the only version: every `pyproject.toml` is `dynamic` and reads
 it; `-tdd` force-includes it; `tdd-install` stamps `<tdd_dir>/VERSION`, which `tdd --version`
 prints.

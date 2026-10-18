@@ -8,7 +8,7 @@
 name = "tabsdata-dev-toolset-twine"
 version = "0.1.0"
 description = "toolset twine: materialized environment"
-requires-python = ">=3.11"
+requires-python = "==3.12.*"
 dependencies = [
     "tabsdata-dev-deps-twine",
     "tabsdata-dev-tool-twine",

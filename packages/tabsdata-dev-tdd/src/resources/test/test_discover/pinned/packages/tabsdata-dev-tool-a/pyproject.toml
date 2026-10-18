@@ -1,0 +1,10 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+[project]
+name = "tabsdata-dev-tool-a"
+dependencies = ["tabsdata-dev-deps-d"]
+
+[project.scripts]
+a = "m:main"

@@ -27,7 +27,7 @@ requires-python = ">=3.11"
 dependencies = ["pytest==8.4.2", "packaging==23.2", "pydantic<2"]
 
 [tool.tdd]
-python = "3.12"            # optional: the interpreter the toolset's venv is created on
+python = "3.12.13"         # optional, exact: overrides the repo's PYTHON for this toolset
 
 [tool.hatch.version]
 path = "../../VERSION"

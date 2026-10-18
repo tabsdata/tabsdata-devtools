@@ -1,0 +1,9 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+[project]
+name = "tabsdata-dev-deps-d"
+
+[tool.tdd]
+python = "3.12.12"

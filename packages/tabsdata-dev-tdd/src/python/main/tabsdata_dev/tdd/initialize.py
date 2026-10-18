@@ -108,20 +108,21 @@ def _from_source(dir_: pathlib.Path, out: render.Renderer, relock: bool) -> dict
     envs = paths.venvs_dir(dir_)
     envs.mkdir(parents=True, exist_ok=True)
 
+    _install_pythons(catalog, out)
     for toolset in catalog["toolsets"]:
         project = root / "packages" / (generate_mod.TOOLSET_PREFIX + toolset)
         target = envs / toolset
-        python = catalog.get("python", {}).get(toolset)
+        python = catalog["python"][toolset]
         out.info(
-            f"syncing toolset {toolset} -> {target}"
-            + (f" (python {python})" if python else ""),
+            f"syncing toolset {toolset} -> {target} (python {python})",
             step="sync",
             toolset=toolset,
             python=python,
         )
         # uv sync would create the env itself, but not relocatably; make it
-        # first so sync populates a relocatable venv instead.
-        if not target.exists():
+        # first so sync populates a relocatable venv instead. An env on another
+        # interpreter -- built before the pin, or by hand -- is rebuilt.
+        if not _built_on(target, python):
             _make_venv(target, out, python)
         # Against the lock's own index, and --locked: an install never
         # rewrites a committed lock -- a stale one is an error naming `cargo
@@ -135,6 +136,7 @@ def _from_source(dir_: pathlib.Path, out: render.Renderer, relock: bool) -> dict
             str(project),
             "--default-index",
             LOCK_INDEX,
+            *_python_args(python),
         ]
         argv.append("--upgrade" if relock else "--locked")
         _uv(
@@ -157,7 +159,7 @@ def _from_source(dir_: pathlib.Path, out: render.Renderer, relock: bool) -> dict
         out.info(f"installing {label} -> {target}", step="install", env=env_name)
         # Neither is a uv project, so unlike the toolsets they must be created
         # before anything can be installed into them.
-        _make_venv(target, out)
+        _make_venv(target, out, catalog["interpreter"])
         _venv_install(
             target,
             ["--editable", str(root / "packages" / dist)],
@@ -186,6 +188,7 @@ def _from_wheels(dir_: pathlib.Path, out: render.Renderer) -> dict | None:
     envs = paths.venvs_dir(dir_)
     envs.mkdir(parents=True, exist_ok=True)
 
+    _install_pythons(catalog, out)
     for toolset in catalog["toolsets"]:
         _install_locked(
             envs / toolset,
@@ -194,7 +197,7 @@ def _from_wheels(dir_: pathlib.Path, out: render.Renderer) -> dict | None:
             catalog["members"][toolset],
             f"toolset {toolset}",
             out,
-            python=catalog.get("python", {}).get(toolset),
+            catalog["python"][toolset],
         )
     for env_name, dist, label in (
         (_TDD_VENV, TDD_DIST, "tdd-exe"),
@@ -207,6 +210,7 @@ def _from_wheels(dir_: pathlib.Path, out: render.Renderer) -> dict | None:
             [dist],
             label,
             out,
+            catalog["interpreter"],
         )
     return catalog
 
@@ -218,7 +222,7 @@ def _install_locked(
     dists: list[str],
     label: str,
     out: render.Renderer,
-    python: str | None = None,
+    python: str,
 ) -> None:
     """Install `dists` into `target` against an exported lock.
 
@@ -304,22 +308,77 @@ def _venv_install(
     )
 
 
-def _make_venv(
-    target: pathlib.Path, out: render.Renderer, python: str | None = None
-) -> None:
-    """Create a relocatable venv. Copies rather than hardlinks from the cache,
-    so the result survives being archived or moved to another filesystem.
+def _python_args(python: str) -> list[str]:
+    """Exactly `python`, and only one uv installed: never a pyenv, homebrew or
+    system interpreter, nor the venv that happens to be active. The exact
+    version also keeps the env off uv's minor link (cpython-3.12-...), which
+    uv re-points whenever it installs a newer patch."""
+    return [
+        "--managed-python",
+        "--python",
+        python,
+    ]
+
+
+def _install_pythons(catalog: dict, out: render.Renderer) -> None:
+    """Install every interpreter the envs are built on, before any is needed.
+    --no-bin and --no-registry: nothing lands on PATH (uv would link
+    python3.X into ~/.local/bin) or in the Windows registry (where the `py`
+    launcher looks), so the machine's own `python` stays what it was."""
+    for python in sorted({catalog["interpreter"], *catalog["python"].values()}):
+        _uv(
+            [
+                "uv",
+                "python",
+                "install",
+                "--quiet",
+                "--managed-python",
+                "--no-bin",
+                "--no-registry",
+                python,
+            ],
+            out,
+            f"failed to install python {python}",
+        )
+
+
+def _built_on(target: pathlib.Path, python: str) -> bool:
+    """Whether the env at `target` stands on uv's own folder for exactly
+    `python` (cpython-3.12.13-<platform>). Its version alone is not enough: an
+    env on uv's minor link (cpython-3.12-<platform>) runs 3.12.13 today and
+    whatever patch uv installs next tomorrow, and pyenv's 3.12.13 is not uv's."""
+    cfg = target / "pyvenv.cfg"
+    if not cfg.is_file():
+        return False
+    for line in cfg.read_text(encoding="utf-8").splitlines():
+        key, _, value = line.partition("=")
+        if key.strip() == "home":
+            return f"cpython-{python}-" in value
+    return False
+
+
+def _make_venv(target: pathlib.Path, out: render.Renderer, python: str) -> None:
+    """Create a relocatable venv on exactly `python`. Copies rather than
+    hardlinks from the cache, so the result survives being archived or moved
+    to another filesystem.
 
     --clear because re-running init over an existing tdd dir is the documented
     way to pick up a dependency change, and uv refuses to overwrite a venv
     without it. A rebuilt env starts empty, which is what "re-init" should mean.
-    `python` pins the interpreter minor a toolset's bundle asked for; uv finds
-    or fetches it.
     """
-    argv = ["uv", "venv", "--quiet", "--clear", "--relocatable"]
-    if python:
-        argv += ["--python", python]
-    _uv([*argv, str(target)], out, f"failed to create the venv {target}")
+    _uv(
+        [
+            "uv",
+            "venv",
+            "--quiet",
+            "--clear",
+            "--relocatable",
+            *_python_args(python),
+            str(target),
+        ],
+        out,
+        f"failed to create the venv {target}",
+    )
 
 
 # --------------------------------------------------------------- shared tail

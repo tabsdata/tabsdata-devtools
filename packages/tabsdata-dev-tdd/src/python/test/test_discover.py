@@ -168,6 +168,44 @@ def test_every_tool_and_shell_command_has_a_design_doc():
         assert len(text.splitlines()) >= 6, f"{d} says nothing"
 
 
+def test_a_toolset_overrides_the_interpreter_only_with_an_exact_version(
+    tmp_path,
+    resource_folder,
+):
+    """A minor would follow whatever patch uv installed last -- the drift the
+    exact PYTHON exists to prevent -- so a bundle's override is exact too."""
+    import shutil
+
+    import pytest
+
+    shutil.copytree(resource_folder / "pinned", tmp_path, dirs_exist_ok=True)
+    assert discover.discover(tmp_path)["python"] == {"d": "3.12.12"}
+    bundle = tmp_path / "packages" / "tabsdata-dev-deps-d" / "pyproject.toml"
+    bundle.write_text(bundle.read_text().replace('"3.12.12"', '"3.12"'))
+    with pytest.raises(discover.LayoutError, match="like 3.12.13"):
+        discover.discover(tmp_path)
+
+
+def test_every_toolset_is_generated_for_the_interpreter_the_catalog_names():
+    """The shipped catalog gives every toolset an exact interpreter, and each
+    generated toolset resolves its lock for that minor and no other."""
+    import tomllib
+
+    from tabsdata_dev.tdd import catalog, generate
+
+    root = paths.repo_root()
+    assert root is not None
+    shipped = catalog.shipped()
+    assert shipped["interpreter"] == generate.interpreter(root)
+    assert sorted(shipped["python"]) == shipped["toolsets"]
+    for toolset, python in shipped["python"].items():
+        assert discover.EXACT_PYTHON.fullmatch(python)
+        pkg = root / "packages" / (generate.TOOLSET_PREFIX + toolset)
+        project = tomllib.loads((pkg / "pyproject.toml").read_text())["project"]
+        minor = ".".join(python.split(".")[:2])
+        assert project["requires-python"] == f"=={minor}.*", toolset
+
+
 def test_every_resources_folder_ships_beside_its_module():
     """A package's src/resources/main reaches its wheel only through
     force-include, and common.core.resources looks for it as `resources/`

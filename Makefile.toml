@@ -22,6 +22,10 @@ PACKAGES = "${CARGO_MAKE_WORKING_DIRECTORY}/packages"
 # and force-included into the tool's wheel
 XP_TOOL = "${CARGO_MAKE_WORKING_DIRECTORY}/xp-tool"
 TDD_PKG = "${CARGO_MAKE_WORKING_DIRECTORY}/packages/tabsdata-dev-tdd"
+# The one interpreter every env and every task runs on (the PYTHON file):
+# exact, and uv-managed only -- never pyenv's, homebrew's, the system's or
+# the active venv's. tdd-install reads the same file through the catalog.
+TDD_PYTHON = { script = ["cat \"${CARGO_MAKE_WORKING_DIRECTORY}/PYTHON\""] }
 
 # --------------------------------------------------------------------- default
 
@@ -88,7 +92,7 @@ description = "Format every package with the pinned ruff"
 script_runner = "@shell"
 script = '''
 set -euo pipefail
-uv run --no-project --with ruff==0.14.2 ruff format packages
+uv run --no-project --managed-python --python "${TDD_PYTHON}" --with ruff==0.14.2 ruff format packages
 '''
 
 [tasks.lint]
@@ -96,7 +100,7 @@ description = "Lint every package with the pinned ruff"
 script_runner = "@shell"
 script = '''
 set -euo pipefail
-uv run --no-project --with ruff==0.14.2 ruff check packages
+uv run --no-project --managed-python --python "${TDD_PYTHON}" --with ruff==0.14.2 ruff check packages
 '''
 
 # --------------------------------------------------------------------- tests
@@ -107,7 +111,7 @@ script_runner = "@shell"
 script = '''
 set -euo pipefail
 echo "== tabsdata-dev-tdd"
-uv run --no-project --with pytest --with-editable "${TDD_PKG}" \
+uv run --no-project --managed-python --python "${TDD_PYTHON}" --with pytest --with-editable "${TDD_PKG}" \
     pytest "${TDD_PKG}/src/python/test" -q
 '''
 
@@ -185,7 +189,8 @@ set -euo pipefail
 # Run the generator out of an ephemeral env so this works before `cargo make
 # dev` -- and so the catalog baked into the wheels is never stale. It is a
 # module, not a tdd word: nobody regenerates a catalog from a finished install.
-uv run --no-project --with-editable "${TDD_PKG}" python -m tabsdata_dev.tdd.generate
+uv run --no-project --managed-python --python "${TDD_PYTHON}" --with-editable "${TDD_PKG}" \
+    python -m tabsdata_dev.tdd.generate
 '''
 
 [tasks.lock]
@@ -209,7 +214,8 @@ for pkg in "${PACKAGES}"/tabsdata-dev-toolset-*; do
     toolset="$(basename "$pkg")"
     toolset="${toolset#tabsdata-dev-toolset-}"
     echo "== locking $toolset"
-    uv lock --quiet --upgrade --project "$pkg" --default-index https://pypi.org/simple
+    uv lock --quiet --upgrade --project "$pkg" --managed-python --python "${TDD_PYTHON}" \
+        --default-index https://pypi.org/simple
 done
 
 echo
@@ -233,7 +239,7 @@ for pkg in "${PACKAGES}"/tabsdata-dev-*; do
         tabsdata-dev-toolset-*) continue ;;
     esac
     echo "== building $name"
-    uv build --quiet --wheel "$pkg" --out-dir "${WHEELS_OUT}"
+    uv build --quiet --wheel "$pkg" --managed-python --python "${TDD_PYTHON}" --out-dir "${WHEELS_OUT}"
 done
 
 # Every first-party package is excluded from the exports: the locks carry the
@@ -252,8 +258,11 @@ for pkg in "${PACKAGES}"/tabsdata-dev-toolset-*; do
     toolset="$(basename "$pkg")"
     toolset="${toolset#tabsdata-dev-toolset-}"
     echo "== exporting lock for toolset $toolset"
+    # --frozen: export the committed lock as it is. Without it uv re-locks
+    # first whenever it finds the lock stale -- a shell whose UV_DEFAULT_INDEX
+    # spells PyPI differently is enough -- and rewrites every uv.lock.
     # shellcheck disable=SC2086
-    uv export --quiet --project "$pkg" --format requirements-txt \
+    uv export --quiet --frozen --project "$pkg" --format requirements-txt \
         --no-emit-project --no-annotate $NO_EMIT \
         -o "${WHEELS_OUT}/${toolset}.lock"
     # uv's header embeds an absolute path from the build machine; these locks
@@ -316,7 +325,8 @@ if [ "$EDITABLE" = 1 ]; then
     # and creates the real envs inside the tdd dir, tdd-exe's included, every
     # first-party package linked to this checkout. No wheels are involved, so
     # `wheels` is invoked below rather than declared as a task dependency.
-    uv run --no-project --with-editable "${TDD_PKG}" tdd-install --dir "$DIR"
+    uv run --no-project --managed-python --python "${TDD_PYTHON}" --with-editable "${TDD_PKG}" \
+        tdd-install --dir "$DIR"
     exit 0
 fi
 
@@ -332,7 +342,7 @@ $(ls -1 "$DIR"/wheels/*.lock | wc -l | tr -d ' ') locks in $DIR/wheels"
 # wheels-mode install is deliberately non-editable, so its catalog is a frozen
 # snapshot. Nothing lands on PATH; the envs go inside the tdd dir. --refresh
 # because uv caches by wheel filename and a rebuild keeps the same VERSION.
-uvx --quiet --refresh --from "${WHEELS_OUT}"/tabsdata_dev_tdd-*.whl \
+uvx --quiet --refresh --managed-python --python "${TDD_PYTHON}" --from "${WHEELS_OUT}"/tabsdata_dev_tdd-*.whl \
     tdd-install --dir "$DIR" --from-wheels
 '''
 

@@ -24,6 +24,8 @@ TOOLSET_PREFIX = "tabsdata-dev-toolset-"
 COMMON_PREFIX = "tabsdata-dev-common-"
 SHELL_DIST = "tabsdata-dev-shell"
 BIN_REQS = "bin-reqs.txt"
+#: An interpreter version as every env is built on: major.minor.patch.
+EXACT_PYTHON = re.compile(r"3\.\d+\.\d+")
 
 #: The shell families: each one's command-file suffix and its shared helper
 #: file, which is not a command. A family is the shell the user is in, not the
@@ -243,16 +245,16 @@ def discover(root: pathlib.Path) -> dict:
         bundle = pkgs / (DEPS_PREFIX + name)
         if not bundle.is_dir():
             raise LayoutError(f"missing deps bundle {bundle.name} for toolset {name}")
-        # `[tool.tdd] python = "3.12"` in a bundle pins the toolset's interpreter
-        # minor: drivers without wheels for the newest CPython are the usual
-        # reason a toolset cannot ride the default interpreter.
+        # `[tool.tdd] python = "3.12.13"` in a bundle overrides the repo's
+        # interpreter (the PYTHON file) for that toolset. An exact version, as
+        # PYTHON is: a minor would follow whatever patch uv installed last.
         cfg_path = bundle / "pyproject.toml"
         cfg = tomllib.loads(cfg_path.read_text()) if cfg_path.is_file() else {}
         python = cfg.get("tool", {}).get("tdd", {}).get("python")
         if python:
-            if not re.fullmatch(r"3\.\d+", str(python)):
+            if not EXACT_PYTHON.fullmatch(str(python)):
                 raise LayoutError(
-                    f"{bundle.name}: [tool.tdd] python must be like 3.12, got {python!r}"
+                    f"{bundle.name}: [tool.tdd] python must be like 3.12.13, got {python!r}"
                 )
             pythons[name] = str(python)
 

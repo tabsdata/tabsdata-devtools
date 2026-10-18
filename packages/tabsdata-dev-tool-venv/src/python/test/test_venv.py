@@ -140,7 +140,10 @@ def test_a_pre_json_marker_is_migrated_before_anything_else(tdd_dir, capsys):
     prefix = tdd_dir / "managed-venvs" / "uv" / "old"
     (prefix / "bin").mkdir(parents=True)
     os.symlink(sys.executable, prefix / "bin" / "python")
-    (prefix / "pyvenv.cfg").write_text("home = /x\nrelocatable = true\n")
+    # A real home: 3.13 trusts it to find the stdlib, and a python that cannot
+    # start probes as no version at all.
+    home = pathlib.Path(sys._base_executable).parent
+    (prefix / "pyvenv.cfg").write_text(f"home = {home}\nrelocatable = true\n")
     (tdd_dir / "managed-venvs" / "old.env").write_text("uv\n")
     rc, events = run(capsys, "list")
     assert rc == 0 and [v["name"] for v in events[-1]["venvs"]] == ["old"]

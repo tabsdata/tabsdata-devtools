@@ -19,7 +19,8 @@ An entry is one of five steps or four blocks (``models.Action``)::
 
 ``tdd`` runs ``tdd-exe TOOL COMMAND OPTIONS...``, any Python tool as typed;
 ``exe`` any program on the PATH; ``python`` ``uv run --no-project --with REQ...
-SCRIPT PARAMS...`` from the suite dir, with the ``tdd`` module on its
+SCRIPT PARAMS...`` from the suite dir, on xp's own interpreter (``uv_run()``),
+with the ``tdd`` module on its
 PYTHONPATH (``from tdd import tdd``), ``tdd-exe`` on its PATH and the run's
 ``XP_*`` in its environment -- a stdout line ``xp-note: <text>`` is its step's
 note. ``sleep`` pauses, ``wait`` holds until the entries it names have
@@ -56,6 +57,7 @@ from __future__ import annotations
 import argparse
 import os
 import pathlib
+import platform
 import signal
 import subprocess
 import threading
@@ -484,7 +486,21 @@ def argv_of(a: Action, inst: Instance, project: str | None) -> list[str]:
         return [b.program, *params]
     withs = [w for r in b.reqs for w in ("--with", r)]
     script = str(pathlib.Path(inst.source_dir) / b.script)
-    return ["uv", "run", "--no-project", *withs, script, *params]
+    return [*uv_run(), *withs, script, *params]
+
+
+def uv_run() -> list[str]:
+    """How a python step starts: on exactly the interpreter xp runs on (its
+    toolset's, the repo's PYTHON), uv-managed only -- left to itself, uv would
+    pick whatever python the machine offers first."""
+    return [
+        "uv",
+        "run",
+        "--no-project",
+        "--managed-python",
+        "--python",
+        platform.python_version(),
+    ]
 
 
 def read_note(lines: list[str]) -> str:

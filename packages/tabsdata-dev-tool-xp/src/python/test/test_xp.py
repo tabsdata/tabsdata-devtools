@@ -2340,8 +2340,9 @@ def launcher(monkeypatch, xp_root):
 
     def argv_of(a, inst, project):
         argv = real(a, inst, project)
-        if argv[:3] == ["uv", "run", "--no-project"]:
-            rest = argv[3:]
+        uv_run = actions.uv_run()
+        if argv[: len(uv_run)] == uv_run:
+            rest = argv[len(uv_run) :]
             while rest[:1] == ["--with"]:
                 rest = rest[2:]
             return [sys.executable, *rest]
@@ -2356,7 +2357,9 @@ def launcher(monkeypatch, xp_root):
     return actions
 
 
-def test_a_python_step_is_uv_run_with_its_reqs(xp_root):
+def test_a_python_step_is_uv_run_on_xps_interpreter_with_its_reqs(xp_root):
+    import platform
+
     from tabsdata_dev.tool.xp import actions
 
     _script(xp_root, "pass\n")
@@ -2364,16 +2367,19 @@ def test_a_python_step_is_uv_run_with_its_reqs(xp_root):
         xp_root, [_py("c", "scripts/check.py", "a", reqs=["polars==1.9.0", "rich"])]
     )
     argv = actions.argv_of(inst.actions[0], inst, "p")
-    assert argv[:7] == [
+    assert argv[:10] == [
         "uv",
         "run",
         "--no-project",
+        "--managed-python",
+        "--python",
+        platform.python_version(),
         "--with",
         "polars==1.9.0",
         "--with",
         "rich",
     ]
-    assert argv[7].endswith("scripts/check.py") and argv[8:] == ["a"]
+    assert argv[10].endswith("scripts/check.py") and argv[11:] == ["a"]
 
 
 def test_a_python_step_gets_its_params_env_path_and_the_tdd_module(xp_root, launcher):

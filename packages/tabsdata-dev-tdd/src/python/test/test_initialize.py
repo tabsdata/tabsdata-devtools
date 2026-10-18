@@ -9,13 +9,19 @@ installer's -- a re-init to pick up a dependency change must leave them intact.
 The heavy uv steps are stubbed so this stays a fast unit test; what it pins is
 which paths initialize is allowed to write."""
 
+import pathlib
+
 from tabsdata_dev.tdd import initialize, paths
+
+
+PYTHON = "3.12.13"
 
 
 def _fake_catalog():
     return {
         "toolsets": ["launchers"],
-        "python": {},
+        "interpreter": PYTHON,
+        "python": {"launchers": PYTHON},
         "tools": {"gsx": {"toolset": "launchers"}},
     }
 
@@ -46,7 +52,7 @@ def test_initialize_from_source_preserves_user_state(tmp_path, monkeypatch):
     monkeypatch.setattr(
         initialize,
         "_make_venv",
-        lambda target, out, python=None: (
+        lambda target, out, python: (
             target.mkdir(parents=True, exist_ok=True),
             made.append(target),
         ),
@@ -131,9 +137,10 @@ def test_the_toolset_sync_is_locked_to_pypi_whatever_the_shell_says(
     monkeypatch.setattr(
         initialize,
         "_make_venv",
-        lambda target, out, python=None: target.mkdir(parents=True, exist_ok=True),
+        lambda target, out, python: target.mkdir(parents=True, exist_ok=True),
     )
     monkeypatch.setattr(initialize, "_venv_install", lambda *a, **k: None)
+    monkeypatch.setattr(initialize, "_install_pythons", lambda catalog, out: None)
     syncs: list = []
     monkeypatch.setattr(
         initialize,
@@ -150,6 +157,76 @@ def test_the_toolset_sync_is_locked_to_pypi_whatever_the_shell_says(
         assert argv[argv.index("--default-index") + 1] == "https://pypi.org/simple"
         assert flag in argv and not_flag not in argv
         assert set(drop_env) >= {"UV_INDEX", "UV_DEFAULT_INDEX"}
+        assert argv[argv.index("--python") + 1] == PYTHON
+        assert "--managed-python" in argv
+
+
+def test_every_env_is_built_on_exactly_the_catalogs_interpreters(tmp_path, monkeypatch):
+    """The interpreters are installed first, off PATH; a toolset env on the
+    right version is synced in place, one on any other version rebuilt; the
+    tdd and shells envs take the catalog's interpreter."""
+    catalog = dict(_fake_catalog(), toolsets=["launchers", "xp"])
+    catalog["python"] = {"launchers": PYTHON, "xp": "3.12.12"}
+    made, steps = {}, []
+    monkeypatch.setattr(initialize.generate_mod, "generate", lambda root, out: catalog)
+    monkeypatch.setattr(initialize, "_venv_install", lambda *a, **k: None)
+    # Every existing env stands on PYTHON: launchers is right, xp is not.
+    monkeypatch.setattr(
+        initialize,
+        "_built_on",
+        lambda target, python: python == PYTHON,
+    )
+    monkeypatch.setattr(
+        initialize,
+        "_make_venv",
+        lambda target, out, python: made.update({target.name: python}),
+    )
+    monkeypatch.setattr(
+        initialize,
+        "_uv",
+        lambda argv, out, failure, **env: steps.append(argv),
+    )
+
+    assert initialize.initialize(tmp_path / "tdd", _Out()) == 0
+    installs = [argv for argv in steps if argv[:3] == ["uv", "python", "install"]]
+    assert [argv[-1] for argv in installs] == ["3.12.12", PYTHON]
+    for argv in installs:
+        assert {"--managed-python", "--no-bin", "--no-registry"} <= set(argv)
+    assert made == {"xp": "3.12.12", "tdd": PYTHON, "shells": PYTHON}
+
+
+def test_only_an_env_on_uvs_exact_folder_counts_as_built_on_it(
+    tmp_path,
+    resource_folder,
+):
+    """uv's minor link runs the right version today and the next patch
+    tomorrow; pyenv's interpreter of the same version is not uv's."""
+    import shutil
+
+    for env, built in (
+        ("exact", True),
+        ("minor-link", False),
+        ("pyenv", False),
+        ("empty", False),
+    ):
+        target = tmp_path / env
+        shutil.copytree(resource_folder / env, target)
+        assert initialize._built_on(target, PYTHON) is built, env
+    assert initialize._built_on(tmp_path / "missing", PYTHON) is False
+
+
+def test_a_venv_is_made_relocatable_on_the_exact_managed_interpreter(monkeypatch):
+    steps = []
+    monkeypatch.setattr(
+        initialize,
+        "_uv",
+        lambda argv, out, failure, **env: steps.append(argv),
+    )
+    initialize._make_venv(pathlib.Path("/x/env"), _Out(), PYTHON)
+    [argv] = steps
+    assert argv[:2] == ["uv", "venv"] and argv[-1] == "/x/env"
+    assert {"--relocatable", "--clear", "--managed-python"} <= set(argv)
+    assert argv[argv.index("--python") + 1] == PYTHON
 
 
 def test_uv_steps_run_without_the_dropped_variables(monkeypatch):

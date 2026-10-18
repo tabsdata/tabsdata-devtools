@@ -85,7 +85,10 @@ holds the user's system and domain descriptors.
     file; disabled comments the tool out -- the generator treats the package as absent. A tool
     whose name starts with `_` is plumbing by convention and hidden without the marker; `tdd -x`
     lists every hidden tool.
-12. **A `-deps-*` may pin its interpreter** with `[tool.tdd] python = "3.12"`.
+12. **Every env runs exactly the interpreter in the root `PYTHON` file** (3.12.13), uv-managed
+    only (`--managed-python --python <exact>`): never pyenv's, homebrew's, the system's or the
+    active venv's, nor uv's minor link. A `-deps-*` may override it with an exact
+    `[tool.tdd] python = "X.Y.Z"`; tasks and xp's python steps use the same flags.
 13. **Generic code goes in `common-core`, family code in a `common-<family>`.**
 14. **Variables**: `TDD_*` public (`TDD_DIR`, `TDD_PARALLELISM`), `_TDD_*` private
     to the tool chain (`_TDD_TOOL`, `_TDD_VENV`/`_TDD_VENV_ACTIVATED`, `_TDD_COMMON_SH`, `_TDD_CRYPTO_KEY`, `_TDD_SYSTEMS`,
@@ -123,8 +126,8 @@ in wheels mode, a reinstall to see source changes.
 ## Conventions
 
 - Every file starts with the house header — `#`, `# Copyright 2026 Tabsdata Inc.`, `#` (an HTML
-  comment in Markdown). Exceptions are parsed data or machine-owned: `VERSION`, `catalog.json`,
-  `uv.lock`, the model data files (`.csv`, `.ddl`), the bundled xp suites.
+  comment in Markdown). Exceptions are parsed data or machine-owned: `VERSION`, `PYTHON`,
+  `catalog.json`, `uv.lock`, the model data files (`.csv`, `.ddl`), the bundled xp suites.
 - A new tool or shell command comes with its design doc (a test enforces it); keep every doc
   short and complete; `docs/design.md` stays the mechanics, not a tour.
 - Comments explain **why**, not what; docstrings on modules and non-obvious functions.

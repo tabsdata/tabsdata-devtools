@@ -40,11 +40,6 @@ dependencies = [
     "ibm_db_sa==0.4.4",
 ]
 
-# Several drivers ship no wheels for the newest CPython yet; this toolset's
-# venv is created on 3.12 (uv finds or fetches it).
-[tool.tdd]
-python = "3.12"
-
 [tool.hatch.version]
 path = "../../VERSION"
 pattern = '^(?P<version>\S+)'

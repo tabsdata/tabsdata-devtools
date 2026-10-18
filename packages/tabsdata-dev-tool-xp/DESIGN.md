@@ -379,7 +379,8 @@ digits, `_`, `-`; unique across the suite) and may have `tags`:
   the suite is read: `tdd-exe` cannot reach a shell function. **`exe` runs any program on the
   PATH**; having it is the suite's business, nothing is declared. **`python` runs `uv run
   --no-project --with REQ... SCRIPT PARAMS...`** from the suite dir (the script a `.py` in it,
-  checked when the suite is read), with `scriptlib/`'s `tdd` module on its PYTHONPATH -- `from
+  checked when the suite is read), on exactly xp's own interpreter (`--managed-python --python
+  <xp's version>`, the repo's PYTHON), with `scriptlib/`'s `tdd` module on its PYTHONPATH -- `from
   tdd import tdd`, every tool one call away -- whatever the reqs make, since it is the standard
   library only. It replaced `tdd _xp-execute` and its one-off venvs: uv caches the environment a
   set of reqs makes, and PEP 723 inline metadata works too. A step gets `XP_WORK_DIR`,

@@ -21,9 +21,6 @@ dependencies = [
     "simple-salesforce==1.12.9",
     "snowfakery==4.2.1",]
 
-[tool.tdd]
-python = "3.12"
-
 [tool.hatch.version]
 path = "../../VERSION"
 pattern = '^(?P<version>\S+)'
