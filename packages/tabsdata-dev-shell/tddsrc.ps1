@@ -103,7 +103,7 @@ if (-not $_tdd_scripts) {
 # tdd-exe lives in its own venv inside the tdd dir, so nothing needs to be
 # installed globally and no venv has to be active for `tdd` to work. Wrapping
 # it as a function keeps that env's other binaries off PATH.
-function tdd-exe {
+function _tdd_body_tdd_exe {
     $venv = Join-Path (Join-Path $env:TDD_DIR 'tdd-venvs') 'tdd'
     $exe = _tdd_venv_exe $venv 'tdd-exe'
     if (-not $exe) {
@@ -122,6 +122,27 @@ function tdd-exe {
     }
     & $exe @args
     $global:_TDD_RC = $LASTEXITCODE
+}
+
+# The three public entry points. Each body sets $_TDD_RC on every path it can
+# take -- a dozen early returns among them -- and the wrapper copies it to
+# $LASTEXITCODE once, on the way out, so `tdd ...; if ($LASTEXITCODE) {...}`
+# reads a tdd command like any native program, a shell command included.
+# The arguments travel splatted, element by element, so a comma list stays one
+# argument (see _tdd_argv_text).
+function tdd-exe {
+    _tdd_body_tdd_exe @args
+    $global:LASTEXITCODE = $global:_TDD_RC
+}
+
+function tdd-fn {
+    _tdd_body_tdd_fn @args
+    $global:LASTEXITCODE = $global:_TDD_RC
+}
+
+function tdd {
+    _tdd_body_tdd @args
+    $global:LASTEXITCODE = $global:_TDD_RC
 }
 
 # Registry of loaded commands, one object per command: Name, Summary, Reqs.
@@ -389,7 +410,7 @@ function _tdd_argv_text {
 }
 
 # The shell half of the pair: the same role as tdd-exe, for loaded functions.
-function tdd-fn {
+function _tdd_body_tdd_fn {
     if ($args.Count -eq 0) {
         _tdd_cmd_reset
         _tdd_fn_help
@@ -439,7 +460,7 @@ function _tdd_scan_common {
 
 # The front door. Routes to tdd-fn when the command is a loaded one, and to
 # tdd-exe otherwise, so a caller never has to know which half owns a command.
-function tdd {
+function _tdd_body_tdd {
     _tdd_cmd_reset
     $global:_TDD_CMD = 'tdd'
     $dirArgs = @()

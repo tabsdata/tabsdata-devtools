@@ -15,7 +15,8 @@ CATALOG_NAME = "catalog.json"
 
 def shipped() -> dict:
     """The catalog baked into this installed package."""
-    return json.loads(files("tabsdata_dev.tdd").joinpath(CATALOG_NAME).read_text())
+    text = files("tabsdata_dev.tdd").joinpath(CATALOG_NAME).read_text(encoding="utf-8")
+    return json.loads(text)
 
 
 def shipped_path() -> pathlib.Path:
@@ -27,12 +28,15 @@ def installed(dir_: pathlib.Path) -> dict:
     path = dir_ / CATALOG_NAME
     if not path.is_file():
         raise NotInitialized(dir_)
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def write(path: pathlib.Path, catalog: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(catalog, indent=2, sort_keys=True) + "\n")
+    path.write_text(
+        json.dumps(catalog, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def is_stale(dir_: pathlib.Path) -> bool:

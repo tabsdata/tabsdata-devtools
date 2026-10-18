@@ -450,7 +450,10 @@ def _write_source(dir_: pathlib.Path, out: render.Renderer) -> dict[str, pathlib
     written: dict[str, pathlib.Path] = {}
     for family, (name, template) in sorted(json.loads(found.stdout).items()):
         target = dir_ / name
-        target.write_text(template.replace("__TDD_DIR__", str(dir_)))
+        target.write_text(
+            template.replace("__TDD_DIR__", str(dir_)),
+            encoding="utf-8",
+        )
         target.chmod(0o644)
         out.debug(f"wrote {target}", family=family)
         written[name] = target

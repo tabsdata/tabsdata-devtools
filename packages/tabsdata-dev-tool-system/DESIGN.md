@@ -78,7 +78,7 @@ connection details kept as encrypted descriptors.
   another toolset is left to its child, as before. Parallel
   creates cannot compete for ports: every type owns a fixed slot, and `--ports` pins them.
 - The long verbs (`create`, `destroy`, `purge`) take `--latch FILE` so a background run is
-  waitable, and their chatty detail goes to `/tmp/tdd-system-<verb>-...` while the console keeps
+  waitable, and their chatty detail goes to `<temp>/tdd-system-<verb>-...` while the console keeps
   to brief progress.
 - All logic is in `common-systems`; this package exists so the tool has a name, a toolset and a
   requirements file.

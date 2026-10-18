@@ -43,10 +43,13 @@ Everything after the command word belongs to the command, and `--help` is shown 
 ## Exit codes and the failure log
 
 `0`: did what was asked. `1`: anything else -- no `2`, no `127`, no passing a subprocess's code
-through. On `1` the command writes `/tmp/tdd-<command>-<YYYYmmdd-HHMMSS>-<pid>.log` -- command
+through. On `1` the command writes `<temp>/tdd-<command>-<YYYYmmdd-HHMMSS>-<pid>.log` -- command
 line, cwd, `TDD_DIR`, version, time, error, traceback, complete subprocess output -- and names it:
 `details: <path>` on stderr in view, the `log` field of the `error` line in json. The terminal
 keeps *what* went wrong; the file has the *why*.
+`<temp>` is the system temp folder, found the same way by all three halves: Python's
+`tempfile.gettempdir()`, `${TMPDIR:-/tmp}` in sh and `[IO.Path]::GetTempPath()` in PowerShell --
+`$TMPDIR` or `/tmp` on Unix (macOS gives every user their own), `%TEMP%` on Windows.
 
 **The why includes what the failing system said.** A driver's one-line summary is what the
 terminal gets; the log gets everything behind it, pulled at the raise site and carried as

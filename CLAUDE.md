@@ -18,7 +18,7 @@ reach a project's dependencies. This file is the working contract; the design li
   in writing the design doc.
 - [docs/command-cli-guidelines.md](docs/command-cli-guidelines.md) — the contract every
   command's CLI meets: long `--options`, `--help`/`--verbose`/`--format json|view`, exit 0/1,
-  a failure log in `/tmp`, events never prints.
+  a failure log in the system temp folder, events never prints.
 - `.claude/DECISIONS.md` (every decision, why, what was rejected — do not relitigate without a
   reason), `.claude/VERIFIED.md` (proven facts; re-testing is waste), `.claude/OPEN.md` (gaps).
 

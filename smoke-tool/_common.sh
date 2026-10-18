@@ -72,6 +72,11 @@
 #
 # bash 3.2 (macOS) is enough: indexed arrays, no associative ones.
 
+# The system's temp folder, as Python's tempfile finds it: $TMPDIR, else /tmp
+# (macOS gives every user their own). Logs and work folders default under it.
+COMMON_TMP="${TMPDIR:-/tmp}"
+COMMON_TMP="${COMMON_TMP%/}"
+
 WINDOW="${WINDOW:-10}"
 
 common_init() {

@@ -19,6 +19,7 @@ those.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
@@ -41,7 +42,7 @@ def _norm(s: str) -> str:
 
 
 def _require(cmd: str) -> None:
-    if subprocess.run(["which", cmd], capture_output=True).returncode != 0:
+    if shutil.which(cmd) is None:
         raise ToolError(f"'{cmd}' not found in PATH")
 
 

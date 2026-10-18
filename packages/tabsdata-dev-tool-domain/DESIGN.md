@@ -120,7 +120,7 @@ manifests so a test suite gets the same data on every backend.
   never picks it. A repeated key is refused on SQL, appended on the file and kafka backends.
   Gated like modify-data; salesforce's model has none, its objects living in the org.
 - **The long verbs are waitable.** `create`, `destroy`, `create-model`, `create-data`,
-  `modify-data`, `sentinel-data`, `delete-data` and `delete-model` take `--latch FILE`, and their chatty detail goes to `/tmp/tdd-domain-<verb>-...`
+  `modify-data`, `sentinel-data`, `delete-data` and `delete-model` take `--latch FILE`, and their chatty detail goes to `<temp>/tdd-domain-<verb>-...`
   while the console keeps to brief progress.
 - **Toolset hops are invisible.** A backend declares the toolset its data plane needs
   (`dom_toolset`) and a model may override it (`models/<model>/model.json`); when that is not the

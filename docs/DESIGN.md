@@ -48,7 +48,7 @@ a temporary file and one rename. It is user state: `tdd-install` never writes or
 
 **Events everywhere**: one model on both sides -- `command` + `event` (`ok`, `error`, `warn`,
 `info`, `debug`) + `message` + fields; json is one line per event, view puts `ok` on stdout and
-the rest on stderr; exit 0/1; a failure log in `/tmp`. Shell commands get it from `common.sh`,
+the rest on stderr; exit 0/1; a failure log in the system temp folder. Shell commands get it from `common.sh`,
 Python tools from `common.core.cli.run()`/`render`; `tdd-exe`, `tdd-install` and the generator
 from `tabsdata_dev.tdd.render`, a byte-identical twin kept so by a test.
 

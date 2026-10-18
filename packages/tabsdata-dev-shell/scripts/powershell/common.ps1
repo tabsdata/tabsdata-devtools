@@ -443,11 +443,9 @@ function _tdd_mask_argv {
     return ($Line -replace '(--(value|password|secret|token|key))([= ])[^ ]*', '$1$3****')
 }
 
-# Where the failure log goes. /tmp when there is one, so the path is the one
-# docs/command-cli-guidelines.md names and the two halves agree; the platform's
-# own temp directory otherwise, which is what Windows has.
+# Where the failure log goes: the system's temp folder, as both other halves
+# find it -- $TMPDIR, else /tmp, on macOS and Linux; %TEMP% on Windows.
 function _tdd_temp_dir {
-    if (Test-Path -LiteralPath '/tmp' -PathType Container) { return '/tmp' }
     return [System.IO.Path]::GetTempPath().TrimEnd([System.IO.Path]::DirectorySeparatorChar)
 }
 

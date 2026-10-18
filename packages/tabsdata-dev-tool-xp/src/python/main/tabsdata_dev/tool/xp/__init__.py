@@ -17,7 +17,7 @@ resolved for it, so ``${xp:name(x)}`` names its domain ``<XP_ID>_x``; a
 PROJECT is created on the server for it, ``<XP_ID>_<suite>`` unless
 ``--project`` names one. Pointers live under
 ``<tdd_dir>/data/xp``; each run's manifests, logs and report land in one
-scratch dir under ``/tmp/tdd-xp/``, announced at startup.
+scratch dir under ``<temp>/tdd-xp/``, announced at startup.
 
 tdk runs inside the venv last activated, managed by `tdd venv` or not
 (``tdd tdk`` picks it and says which), on the connection ``--profile`` names when given

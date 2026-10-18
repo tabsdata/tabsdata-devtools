@@ -37,7 +37,7 @@ with per-system DDL. The tools `system`, `domain` and `domain-sf` are thin entry
   drifting from the CLI -- the ten verbs handled in `dispatch` had no table at all while their
   parsers were built inline.
 - Output follows the guidelines through the `console` adapter; chatty verbs log to
-  `/tmp/tdd-<tool>-<verb>-<name>-<stamp>.log`, which is also the failure log.
+  `<temp>/tdd-<tool>-<verb>-<name>-<stamp>.log`, which is also the failure log.
 - `diagnostics.py`: what the database said, for that log. Every SQL failure path
   (`sql_runner`, the backends' `_run_admin`/`_query_admin`) attaches `db_failure()` to the
   `TdxError` -- SQLSTATE, the server's DETAIL/HINT/CONTEXT, the schema/table/constraint it

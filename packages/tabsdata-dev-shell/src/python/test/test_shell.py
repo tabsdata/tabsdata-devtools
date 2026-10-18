@@ -1194,6 +1194,31 @@ def test_the_powershell_loader_passes_an_unquoted_comma_list_as_typed(
     ]
 
 
+def test_the_powershell_entry_points_set_lastexitcode_from_tdd_rc(resource_folder):
+    """common.ps1 promises the dispatcher copies $_TDD_RC to $LASTEXITCODE; only
+    tdd-exe's native call ever set it, so a shell command's failure read as 0.
+    Each public entry point now wraps its body and copies the status once, on
+    the way out, passing its arguments through untouched -- an unquoted a,b
+    stays ONE array argument, which the body's _tdd_argv_text joins back."""
+    import shutil
+    import subprocess
+
+    import pytest
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("pwsh not installed")
+    loader = shell._root() / shell.TEMPLATES[shell.POWERSHELL]
+    done = subprocess.run(
+        [pwsh, "-NoProfile", "-File", resource_folder / "lastexitcode.ps1", loader],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+    expected = ["2|3|x", "rc=3", "3|0|--dirs|[a,b]", "rc=0"]
+    assert done.stdout.splitlines() == expected * 3
+
+
 def test_a_shell_command_named_with_an_underscore_is_hidden_like_a_tool():
     """`_tdd-env` is plumbing, as `_venv` and `_1p` are: both loaders leave a
     `_` shell command out of `tdd help`, and `-x` lists it, as `tdd-exe

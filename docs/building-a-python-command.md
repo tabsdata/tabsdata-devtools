@@ -113,7 +113,7 @@ def body(args, out: render.Renderer) -> int:
     out.info("scanning")                      # always shown; json line or stderr
     out.debug(f"paths: {args.paths}")         # only with --verbose
     if not args.paths:
-        return out.error("nothing to audit")  # writes the /tmp log, returns 1
+        return out.error("nothing to audit")  # writes the failure log, returns 1
     return out.ok("3 pins checked", pins=3)   # the one result, returns 0
 
 def configure(parser):                        # your options; the common ones exist already

@@ -41,7 +41,11 @@ def tdd(*args: str, out: Path | None = None, check: bool = True) -> str:
     """Run `tdd ARGS...` and return its stdout, or write it to `out` (and return
     it too). A failure raises TddError with what the command said -- or, with
     ``check=False``, returns its stdout anyway."""
-    done = subprocess.run(["tdd-exe", *args], capture_output=True, text=True)
+    done = subprocess.run(
+        ["tdd-exe", *args],
+        capture_output=True,
+        encoding="utf-8",
+    )
     if done.returncode != 0 and check:
         raise TddError(args, done.returncode, done.stderr or done.stdout)
     if out is not None:

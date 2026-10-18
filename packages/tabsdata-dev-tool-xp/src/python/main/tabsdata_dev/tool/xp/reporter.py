@@ -21,7 +21,7 @@ the first failure, so its existence answers "did this run go wrong"); the whole
 run is written to ``<scratch>/report.json`` at the end and becomes the fields
 of the run's final ``ok``/``error``.
 
-Every run gets ONE scratch directory under ``/tmp/tdd-xp/``, announced at
+Every run gets ONE scratch directory under ``<temp>/tdd-xp/``, announced at
 startup and not deleted: the domain manifests it authors, the logs, the report,
 and -- for a fanned-out run -- one subdir per lane all land there.
 """
@@ -72,7 +72,7 @@ def fs_token(value: str) -> str:
 def scratch_init(label: str) -> pathlib.Path:
     """Create (once) and return this run's scratch dir. Under $_TDD_XP_SCRATCH --
     i.e. in a fan-out child -- it is a `<label>` subdir of the parent's tree;
-    standalone it is a fresh `/tmp/tdd-xp/<ts>_<label>_<uniq>`."""
+    standalone it is a fresh `<temp>/tdd-xp/<ts>_<label>_<uniq>`."""
     if state.run.scratch is not None:
         return state.run.scratch
     inherited = os.environ.get(state.SCRATCH_ENV)

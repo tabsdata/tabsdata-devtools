@@ -13,7 +13,7 @@ dependencies are declared as ranges; each toolset's lock pins them.
 - `cli.run()` / `render` -- the command contract: `--help`, `--verbose`, `--format json|view`
   (plus any `formats={name: what}` the command renders itself, `_1p fetch`'s `export`; it may be
   the `default_format`, and the renderer is view for it),
-  events `ok|error|warn|info|debug` with colours, exit 0/1, the `/tmp/tdd-<cmd>-<stamp>.log`.
+  events `ok|error|warn|info|debug` with colours, exit 0/1, the `<temp>/tdd-<cmd>-<stamp>.log`.
   Commands never print; they hand the renderer events, and help is coloured by structure
   (headings bold, terms cyan) on both halves. A message that paints its own pieces instead of
   taking one colour by kind -- `config --show` -- takes them from `render.PAINTS` and is printed

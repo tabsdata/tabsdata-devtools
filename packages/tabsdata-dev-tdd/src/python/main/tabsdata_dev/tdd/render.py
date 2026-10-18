@@ -26,6 +26,7 @@ import os
 import re
 import pathlib
 import shutil
+import tempfile
 import sys
 from typing import Any, TextIO
 
@@ -67,7 +68,9 @@ PAINTS = {
     "soft-brown": "38;5;137",
 }
 
-LOG_DIR = pathlib.Path("/tmp")
+# The system's temp folder: $TMPDIR, else /tmp, on Unix (macOS gives every
+# user their own); %TEMP% on Windows.
+LOG_DIR = pathlib.Path(tempfile.gettempdir())
 
 
 @dataclasses.dataclass(frozen=True)
@@ -300,7 +303,7 @@ def write_failure_log(
     details: str = "",
     path: str | pathlib.Path | None = None,
 ) -> pathlib.Path:
-    """/tmp/tdd-<command>-<stamp>-<pid>.log, as the guidelines specify -- or,
+    """<temp>/tdd-<command>-<stamp>-<pid>.log, as the guidelines specify -- or,
     given `path`, the failure block appended to that existing log."""
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     path = (
@@ -323,7 +326,7 @@ def write_failure_log(
     if details:
         lines += ["", "details:", details.rstrip("\n")]
     try:
-        with path.open("a") as f:
+        with path.open("a", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
     except OSError:
         pass  # a log that cannot be written must not mask the error itself

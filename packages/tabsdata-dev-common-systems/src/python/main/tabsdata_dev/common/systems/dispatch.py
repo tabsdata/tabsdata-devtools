@@ -73,7 +73,7 @@ naming what that system does support.
 Descriptors are addressed by *name* (a file in the store dir, under
 ``<tdd_dir>/data/system`` / ``data/domain``) and stored encrypted (``TDX3``,
 see ``crypto``). The long-running verbs accept ``--latch FILE`` to be waitable
-in the background; their chatty detail goes to a ``/tmp/tdd-<tool>-...log``
+in the background; their chatty detail goes to a ``<temp>/tdd-<tool>-...log``
 while the console shows brief progress.
 """
 

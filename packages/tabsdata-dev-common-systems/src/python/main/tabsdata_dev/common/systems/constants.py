@@ -12,6 +12,8 @@ section printed by top-level help.
 
 from __future__ import annotations
 
+import tempfile
+
 from dataclasses import dataclass
 from typing import Literal
 
@@ -154,7 +156,7 @@ DEFAULT_MYSQL_IMAGE_VERSION = "8.4"
 
 # The mutating verbs keep a detailed log per run (docker pulls, readiness waits,
 # DDL) beside the guidelines' failure logs, named tdd-<tool>-<verb>-<name>-<stamp>.log.
-LOG_DIR = "/tmp"
+LOG_DIR = tempfile.gettempdir()  # $TMPDIR or /tmp on Unix, %TEMP% on Windows
 LOG_MAX_AGE_DAYS = 1  # each run deletes its tool's logs in LOG_DIR older than this
 
 

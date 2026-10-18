@@ -70,7 +70,7 @@ tdd domain destroy      --domain pg1
 - **Housekeeping**: `tdd domain list`, `tdd domain status --domain ALL`, `tdd system restart --sys ALL` after a docker
   or laptop restart, `tdd system clean-docker --yes` to sweep stray `tdd_*` containers. `tdd system destroy --sys X`
   refuses while the system has domains; `--force` destroys them first.
-- **On failure**: every command prints one line and writes the full log to `/tmp/tdd-<tool>-<verb>-*.log`.
+- **On failure**: every command prints one line and writes the full log to `<temp>/tdd-<tool>-<verb>-*.log`.
 
 ## Getting connection details
 

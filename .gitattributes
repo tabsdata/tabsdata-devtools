@@ -1,0 +1,12 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+# Text is stored with LF and checked out as the platform likes, except what a
+# shell or git runs as it is: a CRLF shebang or line end breaks it on Windows
+# too (Git Bash, WSL, a container), so those stay LF everywhere.
+
+* text=auto
+*.sh text eol=lf
+*.awk text eol=lf
+packages/tabsdata-dev-tool-gsx/src/resources/main/hooks/* text eol=lf
+packages/tabsdata-dev-tdd/src/resources/test/test_main/* text eol=lf

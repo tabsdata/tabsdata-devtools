@@ -62,6 +62,10 @@ def dispatch(
     env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
     env["TDD_DIR"] = str(dir_)
     env["_TDD_TOOL"] = tool
+    if os.name == "nt":
+        # Python on Windows reads and writes files and pipes in the code page
+        # (cp1252) unless told otherwise; every tool here speaks UTF-8.
+        env.setdefault("PYTHONUTF8", "1")
 
     out.debug(f"exec {exe} {' '.join(argv)}", toolset=entry["toolset"], exe=str(exe))
     if os.name == "nt":

@@ -116,7 +116,7 @@ times the phases, `--dry-run` prints the commands.
 - No `bin-reqs`: xp reaches tdk and tdkserver only through `tdd tdk`/`tdd tdkserver`,
   and those launchers declare the binaries themselves -- the requirement belongs to the
   command that runs the program. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run
-  under `/tmp/tdd-xp/`.
+  under `<temp>/tdd-xp/`.
 - Verbs: `list-suites`/`list-systems`/`export-suites`; `create-instance`; `run-suite` (the
   stages in order); the phase verbs `create-domains`, `create-project`, `run-triggers`,
   `monitor-project`, `run-actions`, each over every stage of its kind, and the matching
@@ -504,7 +504,7 @@ failed transactions saves each one's worker logs to `<scratch>/trx-logs/<trx>/<w
 before it fails, and names them in errors.log: a one-shot or smoke run destroys the instance
 next, and the workers with it. It fetches per worker (`worker list --trx`, `worker logs
 --worker`) because `trx logs` prompts for a pick when several ran. Every run gets one
-scratch directory under `/tmp/tdd-xp/`, announced at startup and **never deleted** -- the
+scratch directory under `<temp>/tdd-xp/`, announced at startup and **never deleted** -- the
 manifests it authored, the logs, the report, and one subdir per lane.
 
 `list-systems --suite S` is the pre-flight: every system the suite's domains name, with its type

@@ -15,12 +15,16 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import traceback
 
 #: Where the clones live -- outside the checkout, since they are throwaway
 #: repositories of their own. The repo they clone is throwaway too.
-ROOT = pathlib.Path(os.environ.get("GSX_SCENARIOS_DIR", "/tmp/gsx-scenarios")).resolve()
+ROOT = pathlib.Path(
+    os.environ.get("GSX_SCENARIOS_DIR")
+    or pathlib.Path(tempfile.gettempdir(), "gsx-scenarios")
+).resolve()
 TDD = os.path.expanduser(os.environ.get("TDD_EXE", "~/.tdd/tdd-venvs/tdd/bin/tdd-exe"))
 REPO = os.environ.get("GSX_SCENARIOS_REPO", "tabsdata/gsx-scenarios")
 CLONES = ["alice", "bob", "carol"]

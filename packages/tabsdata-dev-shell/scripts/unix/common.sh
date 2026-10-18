@@ -13,7 +13,7 @@
 #                           view: ok on stdout, the rest on stderr
 #   the colours             ok green, error red, warn yellow, debug white,
 #                           info plain -- both formats, only on a tty
-#   the failure log         /tmp/tdd-<command>-<stamp>-<pid>.log
+#   the failure log         <temp>/tdd-<command>-<stamp>-<pid>.log
 #
 # JSON is built by jq -- the one place a shell command touches JSON -- so a
 # message with a tab, a quote or a newline still yields a valid line. jq is
@@ -299,7 +299,9 @@ _tdd_mask_argv() {
 # `details: <path>` after the message, json carries it as "log". $1 message,
 # $2 details (e.g. the captured output of a subprocess).
 _tdd_error() {
-    _tdd_logf="/tmp/tdd-${_TDD_CMD:-shell}-$(date +%Y%m%d-%H%M%S)-$$.log"
+    # the system's temp folder, as Python's tempfile finds it: $TMPDIR, else /tmp
+    _tdd_logf="${TMPDIR:-/tmp}"
+    _tdd_logf="${_tdd_logf%/}/tdd-${_TDD_CMD:-shell}-$(date +%Y%m%d-%H%M%S)-$$.log"
     {
         echo "command: tdd $(_tdd_mask_argv "${_TDD_ARGV:-${_TDD_CMD:-}}")"
         echo "cwd:     $(pwd)"

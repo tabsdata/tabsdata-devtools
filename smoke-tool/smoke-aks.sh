@@ -130,7 +130,8 @@ options:
                       suite uses (tdk COMMAND --profile NAME), so this run's
                       login never replaces another shell's on the same account
                       (default: sm_NAME)
-  --log FILE          log file (default: /tmp/smoke-sm_NAME-<start time>.log)
+  --log FILE          log file (default: <temp>/smoke-sm_NAME-<start time>.log;
+                      <temp> is $TMPDIR, else /tmp)
   --tdd-dir DIR       the tdd dir to source (default: $TDD_DIR, else ~/.tdd)
   --verbose           show every command's output as it happens (default: a
                       rolling window of the running command's last lines)
@@ -262,12 +263,12 @@ VENV="$BASE"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 DB_DOMAIN="${BASE}__${DB_SYSTEM}"
 STORAGE_DOMAIN="${BASE}__${STORAGE_SYSTEM}"
-LLM_DOMAIN="${LLM_SYSTEM:+${BASE}__llm_${LLM}}"
+LLM_DOMAIN="${LLM_SYSTEM:+${BASE}__${LLM_SYSTEM}}"
 XP_PROJECTS=""           # the xp instance/project names this run creates, for --keep and failures
 SMOKE_DOMAINS=""         # domains this run creates, appended as each one is (common_tabsdata_setup_info lists them)
 EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
-LOG="${LOG:-/tmp/smoke-$INSTANCE-$STAMP.log}"
-WORK="$(mktemp -d "/tmp/smoke-$INSTANCE-$STAMP.XXXX")"
+LOG="${LOG:-$COMMON_TMP/smoke-$INSTANCE-$STAMP.log}"
+WORK="$(mktemp -d "$COMMON_TMP/smoke-$INSTANCE-$STAMP.XXXX")"
 SERVER="http://127.0.0.1:$FORWARD_PORT"
 TABSDATA_SPEC="tabsdata[$TD_EXTRAS]==$TD_VERSION"
 TDK_OPTS=(-y --accept-terms y)

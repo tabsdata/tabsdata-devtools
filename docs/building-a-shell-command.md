@@ -93,7 +93,7 @@ adding the common options itself.
 | `_tdd_cmd_check` | after parsing: fails on an invalid `--format` |
 | `_tdd_info` / `_tdd_warn` / `_tdd_debug msg [fields]` | progress (always / yellow / only with `--verbose`) |
 | `_tdd_ok msg [fields]` | the one result, last, green; stdout in view |
-| `_tdd_error msg [details]` | writes `/tmp/tdd-<cmd>-<stamp>-<pid>.log`, red `error` event with the path; always `return 1` right after |
+| `_tdd_error msg [details]` | writes `<temp>/tdd-<cmd>-<stamp>-<pid>.log`, red `error` event with the path; always `return 1` right after |
 | `_tdd_help_text <<'HELP'` | renders `--help` from a declaration on stdin |
 
 `fields` is extra JSON members (`"name":"x","count":3`); quote values through `_tdd_json_str`.
