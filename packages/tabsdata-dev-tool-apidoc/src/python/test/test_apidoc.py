@@ -3,7 +3,6 @@
 #
 
 import json
-import textwrap
 
 import pytest
 
@@ -12,101 +11,16 @@ from tabsdata_dev.tool import apidoc
 from tabsdata_dev.tool.apidoc import generate, markdown
 
 
-def write(root, rel, text):
-    path = root / rel
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(textwrap.dedent(text).lstrip())
-    return path
-
-
 @pytest.fixture
-def pkg(tmp_path):
-    """A package exercising every rule the generator applies: a .pyi beside its
-    .py, a re-export on the allow-list and one off it, nested type aliases,
-    categories, and a Google docstring with an Examples block."""
+def pkg(tmp_path, resource_folder):
+    """A package exercising every rule the generator applies (the resources'
+    src/docpkg): a .pyi beside its .py, a re-export on the allow-list and one
+    off it, nested type aliases, categories, and a Google docstring with an
+    Examples block."""
+    import shutil
+
     src = tmp_path / "src"
-    write(
-        src,
-        "docpkg/__init__.py",
-        '''
-        """The docpkg package."""
-        from docpkg._impl import Hidden, Widget
-
-        __all__ = ["Widget", "Hidden", "publish"]
-
-
-        def publish(count: int, name: "str" = "x") -> str:
-            """Publish some rows.
-
-            :categories: source
-
-            Args:
-                count: How many rows.
-                name: What to call them.
-
-            Returns:
-                The name used.
-
-            Examples:
-                Plainly:
-
-                .. code-block:: python
-
-                    publish(3)
-            """
-            return name
-        ''',
-    )
-    write(
-        src,
-        "docpkg/_impl.py",
-        '''
-        class Widget:
-            """A widget.
-
-            :categories: destination
-
-            Args:
-                label: What it shows.
-            """
-
-            def __init__(self, label: str):
-                self.label = label
-
-            def spin(self) -> None:
-                """Spin it."""
-
-            @property
-            def size(self) -> int:
-                """How big it is."""
-                return 1
-
-
-        class Hidden:
-            """Re-exported but not on the allow-list."""
-        ''',
-    )
-    write(
-        src,
-        "docpkg/aliases.py",
-        '''
-        from typing import Annotated, TypeAlias
-
-        Name: TypeAlias = str
-        """One name."""
-
-        Names: TypeAlias = Annotated[list[Name], "strict"]
-        """Several names."""
-        ''',
-    )
-    write(
-        src, "docpkg/stubbed.py", '"""from the py"""\n\ndef f(a):\n    """py doc"""\n'
-    )
-    write(
-        src,
-        "docpkg/stubbed.pyi",
-        '"""from the pyi"""\n\ndef f(a: int) -> int:\n    """pyi doc"""\n',
-    )
+    shutil.copytree(resource_folder / "src", src)
     spec = {
         "root_package": "docpkg",
         "modules": ["docpkg", "docpkg.aliases", "docpkg.stubbed"],
@@ -210,12 +124,14 @@ def test_no_search_paths_is_refused_not_read_as_this_process_sys_path(pkg):
         generate.generate(spec, [])
 
 
-def test_the_cwd_is_never_searched(pkg, tmp_path, monkeypatch):
+def test_the_cwd_is_never_searched(pkg, tmp_path, monkeypatch, resource_folder):
     """A `docpkg/` in the directory the tool runs from is not the package:
     griffe's default would load it as a relative path, a slice of the real
     one, without a word."""
     _src, spec = pkg
-    write(tmp_path / "cwd", "docpkg/__init__.py", '"""a stray copy"""\n')
+    import shutil
+
+    shutil.copytree(resource_folder / "cwd", tmp_path / "cwd")
     monkeypatch.chdir(tmp_path / "cwd")
     with pytest.raises(ToolError, match="not installed in the current venv"):
         generate.generate(spec, [str(tmp_path / "empty")])
@@ -268,13 +184,16 @@ def no_venv(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
-def fake_venv(root, sys_path):
+def fake_venv(resource_folder, root, sys_path):
     """A venv whose interpreter reports `sys_path` -- what apidoc asks of the
     current venv, without building one."""
+    import shutil
+
     python = root / "bin" / "python"
     python.parent.mkdir(parents=True)
-    python.write_text(f"#!/bin/sh\necho '{json.dumps([str(p) for p in sys_path])}'\n")
+    shutil.copy(resource_folder / "fake_python.sh", python)
     python.chmod(0o755)
+    (python.parent / "sys_path.json").write_text(json.dumps([str(p) for p in sys_path]))
     return root
 
 
@@ -302,11 +221,12 @@ def test_the_current_venv_is_managed_then_virtual_env_then_conda(tmp_path, monke
 
 
 def test_generate_reads_the_package_from_the_current_venv(
-    pkg, tmp_path, monkeypatch, capsys
+    pkg, tmp_path, monkeypatch, capsys, resource_folder
 ):
     src, spec = pkg
     no_venv(monkeypatch)
-    monkeypatch.setenv("VIRTUAL_ENV", str(fake_venv(tmp_path / "venv", [src])))
+    venv = fake_venv(resource_folder, tmp_path / "venv", [src])
+    monkeypatch.setenv("VIRTUAL_ENV", str(venv))
     spec_file = tmp_path / "spec.json"
     spec_file.write_text(json.dumps(spec))
     out = tmp_path / "out" / "api.json"

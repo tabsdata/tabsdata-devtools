@@ -2,8 +2,9 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""`tdd ci download` against a fake `gh` on PATH: a Python script that answers
-the three calls the tool makes from a JSON file and logs every call."""
+"""`tdd ci download` against a fake `gh` on PATH (the resources' gh.sh and
+fake_gh.py): it answers the three calls the tool makes from a JSON file and
+logs every call."""
 
 import io
 import json
@@ -14,60 +15,18 @@ import pytest
 
 from tabsdata_dev.tool import ci
 
-FAKE_GH = """#!{python}
-import json, os, pathlib, sys
-state = json.loads(pathlib.Path(os.environ["FAKE_GH_STATE"]).read_text())
-with open(os.environ["FAKE_GH_LOG"], "a") as log:
-    log.write(json.dumps(sys.argv[1:]) + "\\n")
-args = sys.argv[1:]
-if args[0] == "api" and "/actions/runs?" in args[1]:
-    # repos/O/R/actions/runs?per_page=P&page=N, newest first, as the jq wants
-    query = dict(kv.split("=") for kv in args[1].split("?")[1].split("&"))
-    size, page = int(query["per_page"]), int(query["page"])
-    for r in state["runs"][(page - 1) * size : page * size]:
-        print(json.dumps({{"id": r["databaseId"], "run_number": r["number"],
-                          "name": r["workflowName"],
-                          "path": ".github/workflows/" + r["workflowName"] + ".yml"}}))
-elif args[0] == "api" and args[1].endswith("/zip"):
-    # repos/O/R/actions/artifacts/<id>/zip: the artifact, zipped, on stdout
-    import io, tarfile, zipfile
-    art_id = int(args[1].split("/")[-2])
-    name = next(a["name"] for a in state["artifacts"] if a["id"] == art_id)
-    if name in state.get("broken", []):
-        sys.exit("error downloading " + name)
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as zf:
-        if name.startswith("packed"):
-            # every packed artifact ships the same archive name, as each
-            # assembly of a release run ships tabsdata-assembly-devpi.tar.gz;
-            # the tar has no top-level dir
-            tar = io.BytesIO()
-            with tarfile.open(fileobj=tar, mode="w:gz") as tf:
-                for member in (name + ".whl", "logs/" + name + ".log"):
-                    data = name.encode()
-                    info = tarfile.TarInfo(member); info.size = len(data)
-                    tf.addfile(info, io.BytesIO(data))
-            zf.writestr("bundle.tar.gz", tar.getvalue())
-        elif name.startswith("clash"):
-            zf.writestr("shared.txt", name)
-        else:
-            zf.writestr(name + ".txt", name)
-    sys.stdout.buffer.write(buf.getvalue())
-elif args[0] == "api":
-    for a in state["artifacts"]:
-        print(json.dumps(a))
-else:
-    sys.exit("unexpected: " + " ".join(args))
-"""
-
 
 @pytest.fixture
-def gh(tmp_path, monkeypatch):
+def gh(tmp_path, monkeypatch, resource_folder):
+    import shutil
+
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     exe = bin_dir / "gh"
-    exe.write_text(FAKE_GH.format(python=sys.executable))
+    shutil.copy(resource_folder / "gh.sh", exe)
+    shutil.copy(resource_folder / "fake_gh.py", bin_dir / "fake_gh.py")
     exe.chmod(0o755)
+    monkeypatch.setenv("FAKE_GH_PYTHON", sys.executable)
     state = tmp_path / "state.json"
     log = tmp_path / "calls.jsonl"
     monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
