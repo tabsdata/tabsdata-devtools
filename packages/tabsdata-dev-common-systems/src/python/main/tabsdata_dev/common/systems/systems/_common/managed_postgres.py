@@ -57,6 +57,7 @@ from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlencode
 
+from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.systems import console, constants, options
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.systems._common.sql import Admin
@@ -96,6 +97,10 @@ def download_ca(url: str, what: str) -> str:
         raise TdxError(f"{url} did not return a PEM certificate")
     _CA_DOWNLOADS[url] = pem
     return pem
+
+
+#: This package, whose resources hold the scripts it sends to its systems.
+PACKAGE = "tabsdata_dev.common.systems"
 
 
 class ManagedPostgres(Postgres):
@@ -468,9 +473,11 @@ class ManagedPostgres(Postgres):
             f'GRANT "{user}" TO CURRENT_USER',
             f'CREATE DATABASE "{db}" OWNER "{user}"',
             f'GRANT ALL PRIVILEGES ON DATABASE "{db}" TO "{user}"',
-            "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = "
-            f"'{ACROSS_PROJECTS_ROLE}') THEN CREATE ROLE "
-            f'"{ACROSS_PROJECTS_ROLE}" NOBYPASSRLS NOLOGIN; END IF; END $$',
+            resources.render(
+                PACKAGE,
+                "postgres/across_projects_role.sql",
+                role=ACROSS_PROJECTS_ROLE,
+            ),
             f'GRANT "{ACROSS_PROJECTS_ROLE}" TO "{user}" WITH ADMIN OPTION',
         ]
 
@@ -478,22 +485,12 @@ class ManagedPostgres(Postgres):
         # No '%' in any statement: the driver would read it as a placeholder.
         user = self._login(name)
         # The per-schema roles tabsdata created under this domain -- and only
-        # those. They are named after the domain, so the prefix is what says a
-        # role belongs to it; ADMIN alone does not, because the domain also
-        # holds ADMIN on the server-wide ACROSS_PROJECTS_ROLE it shares with
-        # every other domain, and dropping that would take the others'
-        # row-level security with it. `starts_with` rather than LIKE: no '%' in
-        # any statement, the driver would read it as a placeholder.
-        drop_administered_roles = (
-            "DO $$ DECLARE r text; BEGIN "
-            "FOR r IN "
-            "SELECT g.rolname FROM pg_auth_members m "
-            "JOIN pg_roles g ON g.oid = m.roleid "
-            "JOIN pg_roles o ON o.oid = m.member "
-            f"WHERE o.rolname = '{user}' AND m.admin_option "
-            f"AND starts_with(g.rolname, '{user}') "
-            "LOOP EXECUTE 'DROP ROLE ' || quote_ident(r); END LOOP; "
-            "END $$"
+        # those; dropping the shared ACROSS_PROJECTS_ROLE would take every
+        # other domain's row-level security with it. The template says how.
+        drop_administered_roles = resources.render(
+            PACKAGE,
+            "postgres/drop_administered_roles.sql",
+            user=user,
         )
         return [
             f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)',

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 
+from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec, docker_exec_check
 from tabsdata_dev.common.systems.systems._common import container_info
@@ -27,6 +28,10 @@ from tabsdata_dev.common.systems.systems._common.sql import (
 )
 
 _XP_DB = "XP"  # the one shared database (<= 8 chars, Db2's DB-name limit)
+
+
+#: This package, whose resources hold the scripts it sends to its systems.
+PACKAGE = "tabsdata_dev.common.systems"
 
 
 class Db2(SqlContainerBackend):
@@ -79,7 +84,7 @@ class Db2(SqlContainerBackend):
                 container,
                 "bash",
                 "-lc",
-                f"set -e\ndb2 -v create database {_XP_DB}\ndb2 -v terminate\n",
+                resources.render(PACKAGE, "db2/create_database.sh", db=_XP_DB),
                 user=self.root_user,
             )
             if cp.returncode != 0:

@@ -12,12 +12,17 @@ the SYSTEM password is usable). Only the Oracle dialect hooks live here.
 
 from __future__ import annotations
 
+from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec
 from tabsdata_dev.common.systems.systems._common import container_info
 from tabsdata_dev.common.systems.systems._common.sql import Admin, SqlContainerBackend
 
 _SERVICE = "FREEPDB1"
+
+
+#: This package, whose resources hold the scripts it sends to its systems.
+PACKAGE = "tabsdata_dev.common.systems"
 
 
 class Oracle(SqlContainerBackend):
@@ -85,7 +90,7 @@ class Oracle(SqlContainerBackend):
             "-s",
             "-L",
             f"{self.root_user}/{password}@//localhost:1521/{_SERVICE}",
-            input="WHENEVER SQLERROR EXIT FAILURE;\nSELECT 1 FROM DUAL;\nEXIT;\n",
+            input=resources.render(PACKAGE, "oracle/ready.sql"),
         )
         return cp.returncode == 0
 
@@ -110,15 +115,7 @@ class Oracle(SqlContainerBackend):
 
     @staticmethod
     def _kill_sessions_block(name: str) -> str:
-        return (
-            "BEGIN "
-            "FOR s IN (SELECT sid, serial# FROM v$session "
-            f"WHERE username = UPPER('{name}')) LOOP "
-            "BEGIN EXECUTE IMMEDIATE 'ALTER SYSTEM KILL SESSION ''' "
-            "|| s.sid || ',' || s.serial# || ''' IMMEDIATE'; "
-            "EXCEPTION WHEN OTHERS THEN NULL; END; "
-            "END LOOP; END;"
-        )
+        return resources.render(PACKAGE, "oracle/kill_sessions.sql", name=name)
 
     def list_schemas_sql(self) -> str:
         return (
