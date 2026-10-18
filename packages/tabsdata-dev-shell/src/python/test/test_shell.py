@@ -11,6 +11,37 @@ def test_scripts_dir_exists_and_holds_command_files():
     assert "_tdd-env.sh" in found
 
 
+def test_the_shells_env_answers_for_those_that_cannot_import_this_package():
+    """tdd-install and both loaders ask `python -m tabsdata_dev.shell` instead
+    of running code passed with -c: the loader templates as JSON, and where
+    each family's commands are."""
+    import json
+    import subprocess
+    import sys
+
+    def ask(*words: str) -> str:
+        done = subprocess.run(
+            [sys.executable, "-m", "tabsdata_dev.shell", *words],
+            capture_output=True,
+            text=True,
+        )
+        assert done.returncode == 0, done.stderr
+        return done.stdout
+
+    loaders = json.loads(ask("loaders"))
+    for family in shell.FAMILIES:
+        assert loaders[family] == [
+            shell.INSTALLED[family],
+            shell.source_template(family),
+        ]
+        assert ask("scripts-folder", family).strip() == str(shell.scripts_dir(family))
+    # and the loaders no longer carry Python of their own to run
+    for name in shell.TEMPLATES.values():
+        assert (
+            "from tabsdata_dev.shell import" not in (shell._root() / name).read_text()
+        )
+
+
 def _registered(text: str) -> list[str]:
     """Names passed to tdd_fn_register."""
     names = []

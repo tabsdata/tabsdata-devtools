@@ -1,0 +1,17 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# $notice
+
+[project]
+name = "$name"
+version = "$version"
+description = "toolset $toolset: materialized environment"
+requires-python = "$requires"
+dependencies = [
+$dependencies
+]
+
+[tool.uv.sources]
+$sources

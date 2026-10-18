@@ -42,8 +42,7 @@ export TDD_DIR
 _tdd_locate_common() {
     _tdd_py="$TDD_DIR/tdd-venvs/shells/bin/python"
     [ -x "$_tdd_py" ] || return 1
-    _tdd_scripts="$("$_tdd_py" -c \
-        'from tabsdata_dev.shell import scripts_dir; print(scripts_dir())' 2>/dev/null)"
+    _tdd_scripts="$("$_tdd_py" -m tabsdata_dev.shell scripts-folder unix 2>/dev/null)"
     [ -n "$_tdd_scripts" ] && [ -r "$_tdd_scripts/common.sh" ] || return 1
     _TDD_COMMON_SH="$_tdd_scripts/common.sh"
     export _TDD_COMMON_SH
@@ -105,8 +104,7 @@ _tdd_load_commands() {
         unset _tdd_py
         return 1
     fi
-    _tdd_scripts="$("$_tdd_py" -c \
-        'from tabsdata_dev.shell import scripts_dir; print(scripts_dir())')"
+    _tdd_scripts="$("$_tdd_py" -m tabsdata_dev.shell scripts-folder unix)"
     if [ -z "$_tdd_scripts" ] || [ ! -d "$_tdd_scripts" ]; then
         echo "tdd: shell command dir not found" >&2
         unset _tdd_py _tdd_scripts

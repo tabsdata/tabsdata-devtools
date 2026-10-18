@@ -22,6 +22,8 @@ PACKAGES = "${CARGO_MAKE_WORKING_DIRECTORY}/packages"
 # and force-included into the tool's wheel
 XP_TOOL = "${CARGO_MAKE_WORKING_DIRECTORY}/xp-tool"
 TDD_PKG = "${CARGO_MAKE_WORKING_DIRECTORY}/packages/tabsdata-dev-tdd"
+# the tasks' own helper scripts, run on the tdd env's python
+MAKE_SCRIPTS = "${CARGO_MAKE_WORKING_DIRECTORY}/make"
 # The one interpreter every env and every task runs on (the PYTHON file):
 # exact, and uv-managed only -- never pyenv's, homebrew's, the system's or
 # the active venv's. tdd-install reads the same file through the catalog.
@@ -55,8 +57,8 @@ setup
 
 quality (what CI runs)
   check                     lint, then test, then reqs
-  lint                      ruff check over packages/
-  fmt                       ruff format over packages/ (rewrites files)
+  lint                      ruff check over packages/ and make/
+  fmt                       ruff format over packages/ and make/ (rewrites files)
   test                      test-tdd, then test-toolsets
   test-tdd                  the dispatcher's tests, in an ephemeral env
   test-toolsets             every tool in its own toolset env, common-* once
@@ -92,7 +94,7 @@ description = "Format every package with the pinned ruff"
 script_runner = "@shell"
 script = '''
 set -euo pipefail
-uv run --no-project --managed-python --python "${TDD_PYTHON}" --with ruff==0.14.2 ruff format packages
+uv run --no-project --managed-python --python "${TDD_PYTHON}" --with ruff==0.14.2 ruff format packages make
 '''
 
 [tasks.lint]
@@ -100,7 +102,7 @@ description = "Lint every package with the pinned ruff"
 script_runner = "@shell"
 script = '''
 set -euo pipefail
-uv run --no-project --managed-python --python "${TDD_PYTHON}" --with ruff==0.14.2 ruff check packages
+uv run --no-project --managed-python --python "${TDD_PYTHON}" --with ruff==0.14.2 ruff check packages make
 '''
 
 # --------------------------------------------------------------------- tests
@@ -131,9 +133,7 @@ fi
 # it is read here rather than through a tdd word because testing is a build
 # concern, not something a user does from a finished install.
 PY="$DIR/tdd-venvs/tdd/bin/python"
-"$PY" -c 'import json, sys
-for name, e in sorted(json.load(open(sys.argv[1]))["tools"].items()):
-    print(name, e["toolset"], e["package"])' "$DIR/catalog.json" |
+"$PY" "${MAKE_SCRIPTS}/catalog_rows.py" tools "$DIR/catalog.json" |
 while read -r tool toolset package; do
     echo "== $package"
     "$DIR/tdd-venvs/$toolset/bin/python" -m pytest "${PACKAGES}/$package/src/python/test" -q
@@ -143,12 +143,7 @@ done
 # real compatibility matrix (common-core: every toolset; a family library: the
 # toolsets whose tools use it). Membership comes from the catalog, not from
 # globbing tdd-venvs/: that directory also holds the tdd and shells envs.
-"$PY" -c 'import json, sys
-c = json.load(open(sys.argv[1]))
-for ts in c["toolsets"]:
-    for m in c["members"][ts]:
-        if m.startswith("tabsdata-dev-common-"):
-            print(m, ts)' "$DIR/catalog.json" |
+"$PY" "${MAKE_SCRIPTS}/catalog_rows.py" commons "$DIR/catalog.json" |
 while read -r name toolset; do
     echo "== $name  [$toolset]"
     "$DIR/tdd-venvs/$toolset/bin/python" -m pytest "${PACKAGES}/$name/src/python/test" -q

@@ -29,6 +29,7 @@ sources = ["src/python/main"]
 # has no checkout, still knows what it is. Editable installs read the root file.
 [tool.hatch.build.targets.wheel.force-include]
 "../../VERSION" = "tabsdata_dev/tdd/VERSION"
+"src/resources/main" = "tabsdata_dev/tdd/resources"
 
 [tool.pytest.ini_options]
 testpaths = ["src/python/test"]

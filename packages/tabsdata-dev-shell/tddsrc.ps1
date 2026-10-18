@@ -74,7 +74,7 @@ function _tdd_shells_python {
 function _tdd_scripts_dir {
     $python = _tdd_shells_python
     if (-not $python) { return $null }
-    $scripts = & $python -c 'from tabsdata_dev.shell import scripts_dir, POWERSHELL; print(scripts_dir(POWERSHELL))' 2>$null
+    $scripts = & $python -m tabsdata_dev.shell scripts-folder powershell 2>$null
     if (-not $scripts -or -not (Test-Path -LiteralPath $scripts -PathType Container)) { return $null }
     return $scripts
 }

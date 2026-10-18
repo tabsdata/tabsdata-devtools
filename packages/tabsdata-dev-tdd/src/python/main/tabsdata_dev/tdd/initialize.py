@@ -439,14 +439,7 @@ def _write_source(dir_: pathlib.Path, out: render.Renderer) -> dict[str, pathlib
         return {}
 
     found = subprocess.run(
-        [
-            str(python),
-            "-c",
-            "import json;"
-            "from tabsdata_dev import shell;"
-            "print(json.dumps({f: [shell.INSTALLED[f], shell.source_template(f)]"
-            " for f in shell.FAMILIES}))",
-        ],
+        [str(python), "-m", "tabsdata_dev.shell", "loaders"],
         capture_output=True,
         text=True,
     )
