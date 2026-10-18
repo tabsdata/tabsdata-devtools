@@ -2,6 +2,8 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
+import shutil
+
 from tabsdata_dev.tool import tdkserver
 
 
@@ -17,12 +19,17 @@ def test_requires_a_venv_activated_with_tdd_venv(monkeypatch, capsys):
     assert "_TDD_VENV" in err and "tdd venv" in err
 
 
-def test_every_argument_reaches_the_program(tmp_path, monkeypatch, capfd):
+def test_every_argument_reaches_the_program(
+    tmp_path,
+    monkeypatch,
+    capfd,
+    resource_folder,
+):
     root = tmp_path / "managed-venvs"
     exe = root / "pyenv" / "v1" / "bin" / "tdkserver"
     exe.parent.mkdir(parents=True)
     (root / "v1.json").write_text('{"manager": "pyenv"}\n')
-    exe.write_text('#!/bin/sh\necho "tdkserver got: $*"\n[ "$1" != fail ]\n')
+    shutil.copy(resource_folder / "echo_args.sh", exe)
     exe.chmod(0o755)
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
     monkeypatch.setenv("_TDD_VENV", "v1")
@@ -54,13 +61,18 @@ def test_refuses_when_the_program_is_missing_from_the_venv(
     assert "not installed in managed venv v2" in capsys.readouterr().err
 
 
-def test_runs_in_the_shells_venv_and_says_which(tmp_path, monkeypatch, capfd):
+def test_runs_in_the_shells_venv_and_says_which(
+    tmp_path,
+    monkeypatch,
+    capfd,
+    resource_folder,
+):
     """Any venv active in the shell will do, managed by tdd venv or not -- and
     the launcher names the one it picked, and why, before the program runs."""
     mine = tmp_path / "project" / ".venv"
     exe = mine / "bin" / "tdkserver"
     exe.parent.mkdir(parents=True)
-    exe.write_text('#!/bin/sh\necho "tdkserver in $VIRTUAL_ENV"\n')
+    shutil.copy(resource_folder / "reports_venv.sh", exe)
     exe.chmod(0o755)
     monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
     for var in ("_TDD_VENV", "_TDD_VENV_ACTIVATED", "CONDA_PREFIX", "_TDD_TOOL"):

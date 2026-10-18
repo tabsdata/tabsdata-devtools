@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+program="${0##*/}"
+exec "/x/pyenv" exec "$program" "$@"

@@ -3,28 +3,32 @@
 #
 
 import pathlib
+import shutil
 import sys
 
 from tabsdata_dev.tool import pqt
 
 
-def _fake_venv(tmp_path, monkeypatch, script: str) -> pathlib.Path:
+def _fake_venv(tmp_path, monkeypatch, source: pathlib.Path) -> pathlib.Path:
     """A venv whose scripts dir holds a parquet-tools; only the interpreter's
     directory is what the launcher reads."""
     bin_dir = tmp_path / "venv" / "bin"
     bin_dir.mkdir(parents=True)
     exe = bin_dir / "parquet-tools"
-    exe.write_text(script)
+    shutil.copy(source, exe)
     exe.chmod(0o755)
     monkeypatch.setattr(sys, "executable", str(bin_dir / "python"))
     monkeypatch.delenv("_TDD_TOOL", raising=False)
     return bin_dir
 
 
-def test_every_argument_reaches_parquet_tools(tmp_path, monkeypatch, capfd):
-    _fake_venv(
-        tmp_path, monkeypatch, '#!/bin/sh\necho "pqt got: $*"\n[ "$1" != fail ]\n'
-    )
+def test_every_argument_reaches_parquet_tools(
+    tmp_path,
+    monkeypatch,
+    capfd,
+    resource_folder,
+):
+    _fake_venv(tmp_path, monkeypatch, resource_folder / "echo_args.sh")
     monkeypatch.setattr("sys.argv", ["pqt", "show", "--help", "--format", "json"])
     assert pqt.main() == 0
     assert "pqt got: show --help --format json" in capfd.readouterr().out
@@ -34,11 +38,16 @@ def test_every_argument_reaches_parquet_tools(tmp_path, monkeypatch, capfd):
     assert "pqt got: fail" in out and "parquet-tools exited with status 1" in err
 
 
-def test_parquet_tools_is_the_toolsets_not_the_paths(tmp_path, monkeypatch, capsys):
+def test_parquet_tools_is_the_toolsets_not_the_paths(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    resource_folder,
+):
     """Pinned means this venv's: one elsewhere on PATH does not stand in."""
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    (elsewhere / "parquet-tools").write_text("#!/bin/sh\n")
+    shutil.copy(resource_folder / "does_nothing.sh", elsewhere / "parquet-tools")
     (elsewhere / "parquet-tools").chmod(0o755)
     empty = tmp_path / "venv" / "bin"
     empty.mkdir(parents=True)

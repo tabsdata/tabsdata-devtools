@@ -2,6 +2,8 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
+import shutil
+
 from tabsdata_dev.tool import km
 
 
@@ -17,12 +19,17 @@ def test_requires_a_venv_activated_with_tdd_venv(monkeypatch, capsys):
     assert "_TDD_VENV" in err and "tdd venv" in err
 
 
-def test_every_argument_reaches_the_program(tmp_path, monkeypatch, capfd):
+def test_every_argument_reaches_the_program(
+    tmp_path,
+    monkeypatch,
+    capfd,
+    resource_folder,
+):
     root = tmp_path / "managed-venvs"
     exe = root / "pyenv" / "v1" / "bin" / "km"
     exe.parent.mkdir(parents=True)
     (root / "v1.json").write_text('{"manager": "pyenv"}\n')
-    exe.write_text('#!/bin/sh\necho "km got: $*"\n[ "$1" != fail ]\n')
+    shutil.copy(resource_folder / "echo_args.sh", exe)
     exe.chmod(0o755)
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
     monkeypatch.setenv("_TDD_VENV", "v1")

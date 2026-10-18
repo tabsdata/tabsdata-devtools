@@ -4,6 +4,7 @@
 
 import json
 import pathlib
+import shutil
 
 from tabsdata_dev.tdd import __main__ as main_mod
 from tabsdata_dev.tdd import render
@@ -181,7 +182,7 @@ def test_generate_entry_point_reports_as_events(tmp_path, monkeypatch, capsys):
 
 
 def test_dispatch_refuses_when_a_declared_binary_is_missing(
-    tmp_path, monkeypatch, capsys
+    tmp_path, monkeypatch, capsys, resource_folder
 ):
     # The shell side always refused a command whose bin-reqs were missing; the
     # dispatcher must do the same for a Python tool, before exec, naming them.
@@ -191,7 +192,7 @@ def test_dispatch_refuses_when_a_declared_binary_is_missing(
     monkeypatch.setattr(render, "LOG_DIR", tmp_path)
     exe = tmp_path / "tdd-venvs" / "t" / "bin" / "demo"
     exe.parent.mkdir(parents=True)
-    exe.write_text("#!/bin/sh\n")
+    shutil.copy(resource_folder / "does_nothing.sh", exe)
     exe.chmod(0o755)
     entry = {"toolset": "t", "package": "p", "reqs": ["surely-not-a-binary-xyz", "sh"]}
     monkeypatch.setattr(catalog_mod, "installed", lambda d: {"tools": {"demo": entry}})
@@ -248,7 +249,9 @@ def test_a_venv_program_is_where_the_interpreter_lays_it_out(
     assert paths.venv_exe(venv, "demo") == venv / leaf / name
 
 
-def test_on_windows_a_tool_runs_as_a_child_and_its_exit_code_is_passed_on(tmp_path):
+def test_on_windows_a_tool_runs_as_a_child_and_its_exit_code_is_passed_on(
+    resource_folder,
+):
     # Windows has no exec, so dispatch waits on the tool instead; Ctrl-C is the
     # tool's to handle while it runs, and the dispatcher's own handling is back
     # once it ends.
@@ -258,8 +261,7 @@ def test_on_windows_a_tool_runs_as_a_child_and_its_exit_code_is_passed_on(tmp_pa
     from tabsdata_dev.tdd import dispatch as dispatch_mod
 
     before = signal.getsignal(signal.SIGINT)
-    script = tmp_path / "tool.py"
-    script.write_text("import sys; sys.exit(int(sys.argv[1]))\n")
+    script = resource_folder / "exits_with.py"
     rc = dispatch_mod._run_child(
         pathlib.Path(sys.executable), [str(script), "3"], dict(os.environ)
     )
@@ -294,7 +296,11 @@ def test_the_venv_helpers_twins_say_the_same(tmp_path):
     assert set(mine) == {"venv_scripts", "venv_exe"} and mine == theirs
 
 
-def test_a_shim_counts_only_when_its_manager_wires_it(tmp_path, monkeypatch):
+def test_a_shim_counts_only_when_its_manager_wires_it(
+    tmp_path,
+    monkeypatch,
+    resource_folder,
+):
     import subprocess
 
     from tabsdata_dev.tdd import reqs
@@ -302,12 +308,10 @@ def test_a_shim_counts_only_when_its_manager_wires_it(tmp_path, monkeypatch):
     shims = tmp_path / "shims"
     shims.mkdir()
     shim = shims / "foo"
-    shim.write_text(
-        '#!/usr/bin/env bash\nprogram="${0##*/}"\nexec "/x/pyenv" exec "$program" "$@"\n'
-    )
+    shutil.copy(resource_folder / "pyenv-shim", shim)
     shim.chmod(0o755)
     pyenv = shims / "pyenv"  # the manager itself must be findable to be asked
-    pyenv.write_text("#!/bin/sh\n")
+    shutil.copy(resource_folder / "does_nothing.sh", pyenv)
     pyenv.chmod(0o755)
     monkeypatch.setenv("PATH", str(shims))
     assert (
@@ -344,7 +348,7 @@ def test_a_shim_counts_only_when_its_manager_wires_it(tmp_path, monkeypatch):
     assert path is None and "resolves to a shim" in note
     # a launcher script that execs the manager (Homebrew's pyenv) is NOT a shim
     launcher = shims / "brewpyenv"
-    launcher.write_text('#!/bin/bash\nexec "/opt/x/libexec/pyenv" "$@"\n')
+    shutil.copy(resource_folder / "brew-pyenv", launcher)
     assert reqs.shim_manager(str(launcher)) is None
     # a plain binary needs no manager
     assert reqs.resolve("pyenv") == (str(pyenv), "")
