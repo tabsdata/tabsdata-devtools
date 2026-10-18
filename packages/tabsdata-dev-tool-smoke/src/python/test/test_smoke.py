@@ -14,6 +14,25 @@ from tabsdata_dev.common.core import render
 from tabsdata_dev.tool import smoke
 
 
+def _engine(resource_folder, function: str, *args, **kwargs):
+    """Run one function of the smoke engine, _common.sh, with these arguments
+    passed through untouched (engine.sh)."""
+    import subprocess
+
+    return subprocess.run(
+        [
+            "bash",
+            resource_folder / "engine.sh",
+            smoke.scripts_dir() / "_common.sh",
+            function,
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        **kwargs,
+    )
+
+
 def test_the_package_carries_every_script_and_the_engine_they_share():
     names = {p.name for p in smoke.scripts()}
     assert names == {
@@ -113,52 +132,29 @@ def test_every_cluster_smoke_requires_the_options_it_cannot_guess():
         assert 'common_help "$REQUIRED_OPTIONS"' in text, path.name
 
 
-def test_common_fill_pem_writes_a_yaml_block_scalar():
+def test_common_fill_pem_writes_a_yaml_block_scalar(tmp_path, resource_folder):
     """A certificate is many lines, and common_fill_placeholder substitutes text.
     Dropped in raw, a PEM's newlines continue the plain scalar and YAML folds them
     into spaces: the file still parses, and then no certificate ever loads. So the
     whole `key: ${{...}}` line becomes a block scalar indented past its key."""
-    import os
-    import pathlib as _pathlib
-    import subprocess
-    import tempfile
+    import shutil
 
-    common = smoke.scripts_dir() / "_common.sh"
-    pem = "-----BEGIN CERTIFICATE-----\nAAAA\nBBBB\n-----END CERTIFICATE-----"
+    pem = (resource_folder / "certificate.pem").read_text()
     placeholder = "${{secret:ca}}"
 
-    def fill(body: str, ph: str, value: str):
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = _pathlib.Path(tmp) / "db.yaml"
-            cfg.write_text(body)
-            done = subprocess.run(
-                [
-                    "bash",
-                    "-c",
-                    '. "%s"; common_fill_pem "%s" -- \'%s\' "$PEM"' % (common, cfg, ph),
-                ],
-                capture_output=True,
-                text=True,
-                env={**os.environ, "PEM": value},
-            )
-            return done, cfg.read_text()
+    def fill(ph: str, value: str):
+        cfg = tmp_path / "db.yaml"
+        shutil.copy(resource_folder / "pem.yaml", cfg)
+        done = _engine(resource_folder, "common_fill_pem", cfg, "--", ph, value)
+        return done, cfg.read_text()
 
-    body = "postgres:\n    ssl_root_cert_pem: %s\n    port: 5432\n" % placeholder
-    done, written = fill(body, placeholder, pem)
+    done, written = fill(placeholder, pem)
     assert done.returncode == 0, done.stderr
-    assert written == (
-        "postgres:\n"
-        "    ssl_root_cert_pem: |\n"
-        "      -----BEGIN CERTIFICATE-----\n"
-        "      AAAA\n"
-        "      BBBB\n"
-        "      -----END CERTIFICATE-----\n"
-        "    port: 5432\n"
-    )
+    assert written == (resource_folder / "pem.expected.yaml").read_text()
     # a config that only looks filled is the failure worth catching early, so
     # neither an empty value nor an absent placeholder passes quietly
-    assert fill(body, placeholder, "")[0].returncode != 0
-    assert fill(body, "${{secret:nope}}", pem)[0].returncode != 0
+    assert fill(placeholder, "")[0].returncode != 0
+    assert fill("${{secret:nope}}", pem)[0].returncode != 0
 
 
 def test_fill_storage_substitutes_yaml_scalars_in_every_cluster_smoke():
@@ -256,37 +252,29 @@ def test_the_help_reads_long_form_first_and_paints_only_terms():
     assert "{ print painted($0) }" in program, "the awk program is cut short"
 
 
-def test_substitution_is_literal_on_both_sides_and_uses_no_perl(tmp_path):
+def test_substitution_is_literal_on_both_sides_and_uses_no_perl(
+    tmp_path,
+    resource_folder,
+):
     """The placeholder holds `${{`, `?` and `:`; the value can be a password, a
     PEM or JSON. Neither may be read as a pattern or as a backreference, which is
     what ruled sed out. perl did that correctly and is still gone: these scripts
     already run python3 for the other two fills, so it was a second interpreter
     buying nothing -- one more thing to have installed, for a script whose whole
     job is checking an install."""
-    import subprocess
+    import shutil
 
     engine = smoke.scripts_dir() / "_common.sh"
     cfg = tmp_path / "a.yaml"
-    cfg.write_text(
-        "key: ${{secret:pw?}}\nother: ${{literal:host}}\n"
-        "  UV_INDEX: https://old.example/simple/\n"
-    )
+    shutil.copy(resource_folder / "placeholders.yaml", cfg)
     nasty = r"p&ss\1\\word$1/x{}[]*.^"
-    subprocess.run(
-        [
-            "bash",
-            "-c",
-            f'. "{engine}"\n'
-            f"common_fill_placeholder {cfg} -- '${{{{secret:pw?}}}}' \"$1\"\n"
-            f"common_fill_placeholder {cfg} -- '${{{{literal:host}}}}' 10.0.0.1\n"
-            f'common_set_uv_index {cfg} "https://cdn.example/simple/"',
-            "bash",
-            nasty,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    for function, *args in (
+        ("common_fill_placeholder", cfg, "--", "${{secret:pw?}}", nasty),
+        ("common_fill_placeholder", cfg, "--", "${{literal:host}}", "10.0.0.1"),
+        ("common_set_uv_index", cfg, "https://cdn.example/simple/"),
+    ):
+        done = _engine(resource_folder, function, *args)
+        assert done.returncode == 0, (function, done.stderr)
     written = cfg.read_text().splitlines()
     assert written[0] == f"key: {nasty}", written[0]
     assert written[1] == "other: 10.0.0.1"
@@ -302,7 +290,10 @@ def test_substitution_is_literal_on_both_sides_and_uses_no_perl(tmp_path):
         assert not [ln for ln in code if "perl" in ln], path.name
 
 
-def test_the_failure_report_names_only_what_the_run_actually_built(tmp_path):
+def test_the_failure_report_names_only_what_the_run_actually_built(
+    tmp_path,
+    resource_folder,
+):
     """The report under `left for you to look at` is read at the one moment the
     reader is chasing a failure, so everything in it has to be there. A run that
     dies in an early stage has built no instance and no venv: naming them, with
@@ -324,15 +315,15 @@ def test_the_failure_report_names_only_what_the_run_actually_built(tmp_path):
     instance = home / ".tabsdata" / "instances" / "sm_fixture_notarealrun"
 
     def report(domains: str = "") -> list[str]:
-        script = (
-            '. "%s"\n'
-            'TDD_DIR_OPT="%s"; INSTANCE=sm_fixture_notarealrun; VENV=sm_fixture_notarealrun; VENV_TYPE=pyenv\n'
-            'SERVER=127.0.0.1:2457; NAMES_PREFIX=sm_fixture_notarealrun; SMOKE_DOMAINS="%s"\n'
-            'common_init "%s" 0\n'
-            "common_tabsdata_setup_info common_indented\n"
-        ) % (common, tdd, domains, tmp_path / "log")
         done = subprocess.run(
-            ["bash", "-c", script],
+            [
+                "bash",
+                resource_folder / "setup_info.sh",
+                common,
+                tdd,
+                tmp_path / "log",
+                domains,
+            ],
             capture_output=True,
             text=True,
             env={**os.environ, "HOME": str(home), "NO_COLOR": "1"},
@@ -403,6 +394,7 @@ def test_the_failure_report_names_only_what_the_run_actually_built(tmp_path):
 
 def test_the_port_forward_listens_locally_where_it_is_told_and_points_at_the_apiserver(
     tmp_path,
+    resource_folder,
 ):
     """`--kube-port-forward` moves the LOCAL end of the forward only. That end is
     the one another run, a forward a --keep run left, or a local tdkserver can
@@ -413,52 +405,27 @@ def test_the_port_forward_listens_locally_where_it_is_told_and_points_at_the_api
     before kubectl runs -- otherwise the probe would have called it up and the
     run logged in to whatever was there. A fake kubectl stands in for the
     cluster: it records its arguments and listens where the real one would."""
-    import os
     import socket
     import subprocess
-    import textwrap
 
-    fakebin = tmp_path / "bin"
-    fakebin.mkdir()
-    record = tmp_path / "record"
-    kubectl = fakebin / "kubectl"
-    kubectl.write_text(
-        textwrap.dedent(
-            """\
-            #!/usr/bin/env bash
-            printf '%s\\n' "$*" > "$RECORD"
-            # the last argument is LOCAL:REMOTE; listen on LOCAL, as the real forward would
-            exec python3 -c 'import socket, sys, time
-            s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(("127.0.0.1", int(sys.argv[1].split(":")[0]))); s.listen(); time.sleep(120)' "${@: -1}"
-            """
-        )
-    )
-    kubectl.chmod(0o755)
+    env, record, local = _fake_kubectl(tmp_path, resource_folder)
     common = smoke.scripts_dir() / "_common.sh"
-    env = {
-        **os.environ,
-        "PATH": f"{fakebin}:{os.environ['PATH']}",
-        "RECORD": str(record),
-        "NO_COLOR": "1",
-    }
 
-    def start(local: int, log) -> subprocess.CompletedProcess:
-        script = (
-            '. "%s"\n'
-            'common_init "%s" 0\n'
-            'common_stage forward-1 "the forward"\n'
-            "common_kubeportforward_start /tmp/cfg sm-x net-apiserver %d 2457; rc=$?\n"
-            "common_kubeportforward_stop\n"
-            "exit $rc\n"
-        ) % (common, log, local)
+    def start(port: int, log) -> subprocess.CompletedProcess:
         return subprocess.run(
-            ["bash", "-c", script], capture_output=True, text=True, timeout=90, env=env
+            [
+                "bash",
+                resource_folder / "forward_once.sh",
+                common,
+                log,
+                str(port),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=90,
+            env=env,
         )
 
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        local = probe.getsockname()[1]
     log = tmp_path / "log"
     done = start(local, log)
     assert done.returncode == 0, (done.stdout, done.stderr, log.read_text())
@@ -534,7 +501,10 @@ def test_every_cluster_smoke_keeps_the_forward_s_two_ends_apart():
         assert "--kube-port-forward must be a port number" in text, path.name
 
 
-def test_common_set_fn_resources_sizes_the_function_pods_and_only_them(tmp_path):
+def test_common_set_fn_resources_sizes_the_function_pods_and_only_them(
+    tmp_path,
+    resource_folder,
+):
     """`--td-fn-memory`/`--td-fn-disk` rewrite pods.function.resources in a
     tabsdata.yaml that carries a `resources:` block under every service as well.
     The helper walks the indentation to the function block's own, rewrites the two
@@ -542,55 +512,12 @@ def test_common_set_fn_resources_sizes_the_function_pods_and_only_them(tmp_path)
     -- and fails unless exactly one memory and one disk line changed, because a
     sizing that silently missed would pass that shape check and surface as a pod
     that never schedules."""
-    import os
-    import subprocess
-
-    common = smoke.scripts_dir() / "_common.sh"
-    template = (
-        "pods:\n"
-        "  global:\n"
-        "    env:\n"
-        "      UV_INDEX: https://pypi.org/simple/\n"
-        "  service:\n"
-        "    priority: tabsdata-service\n"
-        "    resources:\n"
-        '      cpu: "2"\n'
-        "      memory: 1Gi\n"
-        "      disk: 16Gi\n"
-        "    overrides:\n"
-        "      srv-apiserver:\n"
-        "        resources:\n"
-        '          cpu: "2"\n'
-        "          memory: 8Gi\n"
-        "          disk: 64Gi\n"
-        "\n"
-        "  function:\n"
-        "    priority: tabsdata-function\n"
-        "    resources:\n"
-        '      cpu: "1"\n'
-        "      memory: 16Gi\n"
-        "      disk: 64Gi\n"
-        "    placement:\n"
-        "      selectors: {}\n"
-        "      tolerations:\n"
-        "        - key: workload\n"
-        "          value: batch\n"
-        "          effect: NoSchedule\n"
-    )
+    template = (resource_folder / "tabsdata.yaml").read_text()
 
     def run(body: str, memory: str, disk: str):
         cfg = tmp_path / "tabsdata.yaml"
         cfg.write_text(body)
-        done = subprocess.run(
-            [
-                "bash",
-                "-c",
-                '. "%s"; common_set_fn_resources "%s" "$M" "$D"' % (common, cfg),
-            ],
-            capture_output=True,
-            text=True,
-            env={**os.environ, "M": memory, "D": disk},
-        )
+        done = _engine(resource_folder, "common_set_fn_resources", cfg, memory, disk)
         return done, cfg.read_text()
 
     done, written = run(template, "8Gi", "32Gi")
@@ -643,31 +570,22 @@ def test_every_cluster_smoke_sizes_its_function_pods_before_the_shape_check():
         )
 
 
-def _fake_kubectl(tmp_path):
+def _fake_kubectl(tmp_path, resource_folder):
     """A kubectl whose port-forward listens on the local port and records each
-    launch and its own pid, so a test can kill it the way the tunnel would.
-    Returns (env, record, local port)."""
+    launch and its own pid, so a test can kill it the way the tunnel would; its
+    listener runs on this python. Returns (env, record, a free local port)."""
     import os
+    import shutil
     import socket
-    import textwrap
+    import sys
 
     fakebin = tmp_path / "bin"
     fakebin.mkdir()
     record = tmp_path / "record"
     pidfile = tmp_path / "kubectl.pid"
     kubectl = fakebin / "kubectl"
-    kubectl.write_text(
-        textwrap.dedent(
-            """\
-            #!/usr/bin/env bash
-            printf '%s\\n' "$*" >> "$RECORD"
-            echo $$ > "$PIDFILE"
-            exec python3 -c 'import socket, sys, time
-            s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(("127.0.0.1", int(sys.argv[1].split(":")[0]))); s.listen(); time.sleep(300)' "${@: -1}"
-            """
-        )
-    )
+    shutil.copy(resource_folder / "fake_kubectl.sh", kubectl)
+    shutil.copy(resource_folder / "listen.py", fakebin / "listen.py")
     kubectl.chmod(0o755)
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
@@ -677,6 +595,7 @@ def _fake_kubectl(tmp_path):
         "PATH": f"{fakebin}:{os.environ['PATH']}",
         "RECORD": str(record),
         "PIDFILE": str(pidfile),
+        "FAKE_PYTHON": sys.executable,
         "NO_COLOR": "1",
     }
     return env, record, local
@@ -684,6 +603,7 @@ def _fake_kubectl(tmp_path):
 
 def test_the_forward_is_relaunched_when_kubectl_exits_and_checked_before_a_suite(
     tmp_path,
+    resource_folder,
 ):
     """A port-forward is one stream through the cluster's tunnel, and the tunnel
     drops on its own (AKS replacing the node that carries its konnectivity agents
@@ -692,42 +612,18 @@ def test_the_forward_is_relaunched_when_kubectl_exits_and_checked_before_a_suite
     opens with an ensure: the port answers, or the supervisor gets a moment, or
     the forward is started afresh. A kubectl that dies this young is paused for."""
     import subprocess
-    import textwrap
 
-    env, record, local = _fake_kubectl(tmp_path)
+    env, record, local = _fake_kubectl(tmp_path, resource_folder)
     common = smoke.scripts_dir() / "_common.sh"
     log = tmp_path / "log"
-    script = textwrap.dedent(
-        f"""\
-        . "{common}"
-        common_init "{log}" 0
-        common_stage forward-2 "the forward"
-        common_kubeportforward_start /tmp/cfg sm-x net-apiserver {local} 2457 || exit 10
-        answers() {{ (exec 3<>"/dev/tcp/127.0.0.1/{local}") 2>/dev/null; }}
-
-        # the tunnel drops: kubectl dies; the supervisor must bring it back
-        kill "$(cat "$PIDFILE")"
-        for i in 1 2 3 4 5 6 7 8 9 10; do answers || break; sleep 0.5; done
-        answers && exit 11                       # it must have gone down first
-        common_stage xp-1 "a suite"
-        common_kubeportforward_ensure || exit 12
-        [ "$(cat "$PIDFILE")" != "" ] || exit 13
-
-        # the supervisor itself is gone, and so is its kubectl: ensure starts afresh
-        kill -9 "$PORTFORWARD_PID"; kill "$(cat "$PIDFILE")" 2>/dev/null
-        for i in 1 2 3 4 5 6 7 8 9 10; do answers || break; sleep 0.5; done
-        common_stage xp-2 "another suite"
-        common_kubeportforward_ensure || exit 14
-        answers || exit 15
-
-        common_kubeportforward_stop
-        answers && exit 16                       # nothing left listening
-        kill -0 "$(cat "$PIDFILE")" 2>/dev/null && exit 17   # nor a kubectl
-        exit 0
-        """
-    )
     done = subprocess.run(
-        ["bash", "-c", script],
+        [
+            "bash",
+            resource_folder / "forward_relaunch.sh",
+            common,
+            log,
+            str(local),
+        ],
         capture_output=True,
         text=True,
         timeout=120,
@@ -746,34 +642,27 @@ def test_the_forward_is_relaunched_when_kubectl_exits_and_checked_before_a_suite
     assert text.count("port-forward up:") == 3, text
 
 
-def test_a_forward_that_had_been_up_is_relaunched_without_a_pause(tmp_path):
+def test_a_forward_that_had_been_up_is_relaunched_without_a_pause(
+    tmp_path,
+    resource_folder,
+):
     """The eks smoke of 2026-10-04 lost a suite to the pause alone: three
     collection creates were refused in the 2s before the relaunch. A kubectl
     that had been up PORTFORWARD_STEADY seconds dropped a working tunnel, so it
     is relaunched at once (0 here, so the test need not wait)."""
     import subprocess
-    import textwrap
 
-    env, record, local = _fake_kubectl(tmp_path)
+    env, record, local = _fake_kubectl(tmp_path, resource_folder)
     common = smoke.scripts_dir() / "_common.sh"
     log = tmp_path / "log"
-    script = textwrap.dedent(
-        f"""\
-        . "{common}"
-        common_init "{log}" 0
-        common_stage forward-2 "the forward"
-        common_kubeportforward_start /tmp/cfg sm-x net-apiserver {local} 2457 || exit 10
-        first="$(cat "$PIDFILE")"
-        kill "$first"
-        for i in 1 2 3 4 5 6 7 8 9 10; do
-            [ "$(cat "$PIDFILE")" != "$first" ] && break; sleep 0.2
-        done
-        common_kubeportforward_stop
-        exit 0
-        """
-    )
     done = subprocess.run(
-        ["bash", "-c", script],
+        [
+            "bash",
+            resource_folder / "forward_steady.sh",
+            common,
+            log,
+            str(local),
+        ],
         capture_output=True,
         text=True,
         timeout=60,
@@ -975,15 +864,12 @@ def test_list_names_the_scripts_with_how_to_run_each_and_not_the_engine():
     )
 
 
-def test_uv_index_markers_resolve_and_an_unknown_one_is_refused():
+def test_uv_index_markers_resolve_and_an_unknown_one_is_refused(resource_folder):
     """`--uv-index` takes @dev and @prod as well as a URL, so a run can say
     which index it means instead of carrying a CloudFront hostname nobody can
     check by eye. An unknown marker is refused at parse time: passed on, uv
     would take it for a URL and fail several stages later, in a message about a
     failed install that says nothing about the option that caused it."""
-    import subprocess
-
-    engine = smoke.scripts_dir() / "_common.sh"
     cases = {
         "@dev": "https://d3mm0r95u5i3hf.cloudfront.net/simple/",
         "@prod": "https://pypi.tabsdata.com/simple/",
@@ -991,31 +877,11 @@ def test_uv_index_markers_resolve_and_an_unknown_one_is_refused():
         "": "",
     }
     for given, want in cases.items():
-        done = subprocess.run(
-            [
-                "bash",
-                "-c",
-                f'. "{engine}"\ncommon_resolve_uv_index "$1"',
-                "bash",
-                given,
-            ],
-            capture_output=True,
-            text=True,
-        )
+        done = _engine(resource_folder, "common_resolve_uv_index", given)
         assert done.returncode == 0, (given, done.stderr)
         assert done.stdout == want, (given, done.stdout)
 
-    done = subprocess.run(
-        [
-            "bash",
-            "-c",
-            f'. "{engine}"\ncommon_resolve_uv_index "$1"',
-            "bash",
-            "@staging",
-        ],
-        capture_output=True,
-        text=True,
-    )
+    done = _engine(resource_folder, "common_resolve_uv_index", "@staging")
     assert done.returncode == 1
     assert "unknown --uv-index marker: @staging" in done.stderr
     assert "@dev, @prod, or a URL" in done.stderr

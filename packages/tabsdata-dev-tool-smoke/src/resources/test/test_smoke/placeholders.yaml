@@ -1,0 +1,3 @@
+key: ${{secret:pw?}}
+other: ${{literal:host}}
+  UV_INDEX: https://old.example/simple/

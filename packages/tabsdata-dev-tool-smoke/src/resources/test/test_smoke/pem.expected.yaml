@@ -1,0 +1,7 @@
+postgres:
+    ssl_root_cert_pem: |
+      -----BEGIN CERTIFICATE-----
+      AAAA
+      BBBB
+      -----END CERTIFICATE-----
+    port: 5432

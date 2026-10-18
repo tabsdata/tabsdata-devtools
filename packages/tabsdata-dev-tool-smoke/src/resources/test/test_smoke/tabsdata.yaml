@@ -1,0 +1,29 @@
+pods:
+  global:
+    env:
+      UV_INDEX: https://pypi.org/simple/
+  service:
+    priority: tabsdata-service
+    resources:
+      cpu: "2"
+      memory: 1Gi
+      disk: 16Gi
+    overrides:
+      srv-apiserver:
+        resources:
+          cpu: "2"
+          memory: 8Gi
+          disk: 64Gi
+
+  function:
+    priority: tabsdata-function
+    resources:
+      cpu: "1"
+      memory: 16Gi
+      disk: 64Gi
+    placement:
+      selectors: {}
+      tolerations:
+        - key: workload
+          value: batch
+          effect: NoSchedule

@@ -1,0 +1,3 @@
+postgres:
+    ssl_root_cert_pem: ${{secret:ca}}
+    port: 5432
