@@ -13,7 +13,7 @@ That is the useful half of the idea: a bind is a knob, not only a cursor.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher
+from tabsdatak.api import TableFrameSpec, TransactionCtx, publisher
 from tabsdatak.conn.db2 import Db2Src
 
 
@@ -27,7 +27,7 @@ from tabsdatak.conn.db2 import Db2Src
     ),
     output_tables=["big_city_page"],
 )
-def read_several_binds(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def read_several_binds(city: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if city is None:
         return None
     top = city.max_for("ID")

@@ -30,18 +30,36 @@ transformer over both tables cannot work.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher, subscriber, transformer
+from tabsdatak.api import (
+    TableFrameSpec,
+    TransactionCtx,
+    publisher,
+    subscriber,
+    transformer,
+)
 from tabsdatak.conn.mysql import MySQLDest, MySQLSrc
 
 try:
     from ._srcmeta import (
-        DROP_METADATA, NO_BINDS, QUERY_COLUMNS, SQL_META,
-        SQL_META_INITIAL_VALUES, SQL_META_QUERY, check_drop, check_keep,
+        DROP_METADATA,
+        NO_BINDS,
+        QUERY_COLUMNS,
+        SQL_META,
+        SQL_META_INITIAL_VALUES,
+        SQL_META_QUERY,
+        check_drop,
+        check_keep,
     )
 except ImportError:
     from _srcmeta import (
-        DROP_METADATA, NO_BINDS, QUERY_COLUMNS, SQL_META,
-        SQL_META_INITIAL_VALUES, SQL_META_QUERY, check_drop, check_keep,
+        DROP_METADATA,
+        NO_BINDS,
+        QUERY_COLUMNS,
+        SQL_META,
+        SQL_META_INITIAL_VALUES,
+        SQL_META_QUERY,
+        check_drop,
+        check_keep,
     )
 
 
@@ -71,7 +89,7 @@ def mysql_in(
     ),
     output_tables=["my_city_inc"],
 )
-def mysql_in_inc(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def mysql_in_inc(city: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if city is not None:
         # max_for("id") returns the top row's columns as {col: value}, None if empty.
         row = city.max_for("id")

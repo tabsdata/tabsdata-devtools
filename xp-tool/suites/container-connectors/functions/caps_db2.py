@@ -27,18 +27,36 @@ transformer over both tables cannot work.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher, subscriber, transformer
+from tabsdatak.api import (
+    TableFrameSpec,
+    TransactionCtx,
+    publisher,
+    subscriber,
+    transformer,
+)
 from tabsdatak.conn.db2 import Db2Dest, Db2Src
 
 try:
     from ._srcmeta import (
-        DROP_METADATA, NO_BINDS, QUERY_COLUMNS, SQL_META,
-        SQL_META_INITIAL_VALUES, SQL_META_QUERY, check_drop, check_keep,
+        DROP_METADATA,
+        NO_BINDS,
+        QUERY_COLUMNS,
+        SQL_META,
+        SQL_META_INITIAL_VALUES,
+        SQL_META_QUERY,
+        check_drop,
+        check_keep,
     )
 except ImportError:
     from _srcmeta import (
-        DROP_METADATA, NO_BINDS, QUERY_COLUMNS, SQL_META,
-        SQL_META_INITIAL_VALUES, SQL_META_QUERY, check_drop, check_keep,
+        DROP_METADATA,
+        NO_BINDS,
+        QUERY_COLUMNS,
+        SQL_META,
+        SQL_META_INITIAL_VALUES,
+        SQL_META_QUERY,
+        check_drop,
+        check_keep,
     )
 
 
@@ -67,7 +85,7 @@ def db2_in(
     ),
     output_tables=["d2_city_inc"],
 )
-def db2_in_inc(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def db2_in_inc(city: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if city is not None:
         # Db2 folds unquoted identifiers to UPPERCASE -> the column is `ID`.
         # max_for("ID") returns the top row's columns as {col: value}, None if empty.

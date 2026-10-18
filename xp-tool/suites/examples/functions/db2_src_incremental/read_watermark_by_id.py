@@ -41,7 +41,7 @@ RUN THE PROJECT SEVERAL TIMES and watch the table grow by one page each time.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher
+from tabsdatak.api import TableFrameSpec, TransactionCtx, publisher
 from tabsdatak.conn.db2 import Db2Src
 
 
@@ -55,7 +55,7 @@ from tabsdatak.conn.db2 import Db2Src
     ),
     output_tables=["city_page"],
 )
-def read_watermark_by_id(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def read_watermark_by_id(city: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if city is None:
         return None
     top = city.max_for("ID")

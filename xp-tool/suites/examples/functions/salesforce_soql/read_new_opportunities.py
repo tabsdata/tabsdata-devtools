@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher
+from tabsdatak.api import TableFrameSpec, TransactionCtx, publisher
 from tabsdatak.conn.salesforce import SalesforceSrc
 from tabsdatak.tableframe.functions import col, lit
 
@@ -49,7 +49,7 @@ from tabsdatak.tableframe.functions import col, lit
     ),
     output_tables=["opportunities_new"],
 )
-def read_new_opportunities(opps: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def read_new_opportunities(opps: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if opps is None:
         return None
     seen = ctx.get_attr("last_modified_seen")

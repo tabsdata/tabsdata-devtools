@@ -23,7 +23,7 @@ are two different empties — the guard below checks both.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher
+from tabsdatak.api import TableFrameSpec, TransactionCtx, publisher
 from tabsdatak.conn.oracle import OracleSrc
 
 
@@ -34,7 +34,7 @@ from tabsdatak.conn.oracle import OracleSrc
     ),
     output_tables=["city_never"],
 )
-def read_always_empty(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def read_always_empty(city: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if city is None:
         return None
     top = city.max_for("ID")

@@ -25,7 +25,7 @@ and reports population alongside it.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher
+from tabsdatak.api import TableFrameSpec, TransactionCtx, publisher
 from tabsdatak.conn.oracle import OracleSrc
 
 
@@ -39,7 +39,7 @@ from tabsdatak.conn.oracle import OracleSrc
     ),
     output_tables=["city_since"],
 )
-def read_composite_watermark(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def read_composite_watermark(city: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if city is None:
         return None
     top = city.max_for("ID", "POPULATION")

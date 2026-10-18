@@ -34,18 +34,36 @@ transformer over both tables cannot work.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher, subscriber, transformer
+from tabsdatak.api import (
+    TableFrameSpec,
+    TransactionCtx,
+    publisher,
+    subscriber,
+    transformer,
+)
 from tabsdatak.conn.postgres import PostgresDest, PostgresSrc
 
 try:
     from ._srcmeta import (
-        DROP_METADATA, NO_BINDS, QUERY_COLUMNS, SQL_META,
-        SQL_META_INITIAL_VALUES, SQL_META_QUERY, check_drop, check_keep,
+        DROP_METADATA,
+        NO_BINDS,
+        QUERY_COLUMNS,
+        SQL_META,
+        SQL_META_INITIAL_VALUES,
+        SQL_META_QUERY,
+        check_drop,
+        check_keep,
     )
 except ImportError:
     from _srcmeta import (
-        DROP_METADATA, NO_BINDS, QUERY_COLUMNS, SQL_META,
-        SQL_META_INITIAL_VALUES, SQL_META_QUERY, check_drop, check_keep,
+        DROP_METADATA,
+        NO_BINDS,
+        QUERY_COLUMNS,
+        SQL_META,
+        SQL_META_INITIAL_VALUES,
+        SQL_META_QUERY,
+        check_drop,
+        check_keep,
     )
 
 
@@ -75,7 +93,7 @@ def postgres_in(
     ),
     output_tables=["pg_city_inc"],
 )
-def postgres_in_inc(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def postgres_in_inc(city: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     # Watermark paging: advance :wm to the batch's max id so each trigger reads the
     # next 10 rows. Empty batch -> leave the watermark put (stalls, never rewinds).
     if city is not None:

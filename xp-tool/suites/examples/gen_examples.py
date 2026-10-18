@@ -1823,7 +1823,7 @@ RUN THE PROJECT SEVERAL TIMES and watch the table grow by one page each time.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher
+from tabsdatak.api import TableFrameSpec, TransactionCtx, publisher
 from {mod} import {src}
 
 
@@ -1837,7 +1837,7 @@ from {mod} import {src}
     ),
     output_tables=["city_page"],
 )
-def read_watermark_by_id(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def read_watermark_by_id(city: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if city is None:
         return None
     top = city.max_for("{col_id}")
@@ -1870,7 +1870,7 @@ and reports population alongside it.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher
+from tabsdatak.api import TableFrameSpec, TransactionCtx, publisher
 from {mod} import {src}
 
 
@@ -1884,7 +1884,7 @@ from {mod} import {src}
     ),
     output_tables=["city_since"],
 )
-def read_composite_watermark(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def read_composite_watermark(city: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if city is None:
         return None
     top = city.max_for("{col_id}", "{col_pop}")
@@ -1905,7 +1905,7 @@ That is the useful half of the idea: a bind is a knob, not only a cursor.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher
+from tabsdatak.api import TableFrameSpec, TransactionCtx, publisher
 from {mod} import {src}
 
 
@@ -1919,7 +1919,7 @@ from {mod} import {src}
     ),
     output_tables=["big_city_page"],
 )
-def read_several_binds(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def read_several_binds(city: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if city is None:
         return None
     top = city.max_for("{col_id}")
@@ -1951,7 +1951,7 @@ are two different empties — the guard below checks both.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher
+from tabsdatak.api import TableFrameSpec, TransactionCtx, publisher
 from {mod} import {src}
 
 
@@ -1962,7 +1962,7 @@ from {mod} import {src}
     ),
     output_tables=["city_never"],
 )
-def read_always_empty(city: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def read_always_empty(city: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if city is None:
         return None
     top = city.max_for("{col_id}")

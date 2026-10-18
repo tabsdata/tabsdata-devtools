@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import timezone
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher
+from tabsdatak.api import TableFrameSpec, TransactionCtx, publisher
 from tabsdatak.conn.oracle import OracleSrc
 
 
@@ -27,7 +27,7 @@ def pub_upd_full(df: TableFrameSpec) -> TableFrameSpec:
     source=OracleSrc(queries=["SELECT sim_counter AS \"sim_counter\", tenant_id AS \"tenant_id\", entity_id AS \"entity_id\", data_ts AS \"data_ts\", name AS \"name\", status AS \"status\", category AS \"category\", amount AS \"amount\", quantity AS \"quantity\", score AS \"score\", deleted AS \"deleted\" FROM brz_insup_soft_delete WHERE (CAST(SYS_EXTRACT_UTC(data_ts) AS DATE) - DATE '1970-01-01') * 86400 > :wm ORDER BY (CAST(SYS_EXTRACT_UTC(data_ts) AS DATE) - DATE '1970-01-01') * 86400"], initial_values={"wm": 0}),
     output_tables=["update_raw"],
 )
-def pub_upd_stream(df: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def pub_upd_stream(df: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if df is not None:
         # Advance the watermark to the batch's max data_ts as epoch seconds. max_for
         # returns the highest-ranked row's columns as a {col: value} dict, or None on

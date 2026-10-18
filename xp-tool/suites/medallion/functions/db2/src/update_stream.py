@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import timezone
 
-from tabsdatak.api import TableFrameSpec, TrxCtx, publisher
+from tabsdatak.api import TableFrameSpec, TransactionCtx, publisher
 from tabsdatak.conn.db2 import Db2Src
 
 
@@ -36,7 +36,7 @@ def pub_upd_full(df: TableFrameSpec) -> TableFrameSpec:
     ),
     output_tables=["update_raw"],
 )
-def pub_upd_stream(df: TableFrameSpec, ctx: TrxCtx) -> TableFrameSpec:
+def pub_upd_stream(df: TableFrameSpec, ctx: TransactionCtx) -> TableFrameSpec:
     if df is not None:
         # Advance the watermark to the batch's max data_ts as epoch seconds. max_for
         # returns the highest-ranked row's columns as a {col: value} dict, or None on
