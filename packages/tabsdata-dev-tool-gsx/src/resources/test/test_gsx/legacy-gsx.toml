@@ -1,0 +1,5 @@
+[options]
+
+[gsx]
+version = "0.0.9"
+approve_vault = "old_vault"

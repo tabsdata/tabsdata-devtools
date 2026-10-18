@@ -136,9 +136,9 @@ def test_the_branch_prefix_is_the_last_segment_of_the_repository_name(name, post
     assert gh.repo_postfix(name) == postfix
 
 
-def test_a_commit_message_carries_the_tag_the_body_and_the_trailer():
+def test_a_commit_message_carries_the_tag_the_body_and_the_trailer(resource_folder):
     message = commands.build_message("FOO-15", "Fix it", "Why.", 15)
-    assert message == "[FOO-15] Fix it\n\nWhy.\n\nCloses #15\n"
+    assert message == (resource_folder / "commit-message.txt").read_text()
     assert commands.split_message(message) == ("[FOO-15] Fix it", "Why.", "Closes #15")
 
 
@@ -222,7 +222,9 @@ def test_the_commented_tables_are_valid_toml_once_uncommented(tmp_path, monkeypa
 
 
 def test_the_shipped_aliases_work_without_a_file_and_yield_to_one(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
+    resource_folder,
 ):
     """The team's aliases ship in code, so `--reviewer:new tucu` resolves before
     anyone has written a config; a file entry of the same name wins, the way the
@@ -231,9 +233,7 @@ def test_the_shipped_aliases_work_without_a_file_and_yield_to_one(
     assert config.read()["aliases"] == config.ALIAS_DEFAULTS  # no file at all
     assert approve_mod.resolve(["tucu"], config.read()["aliases"])[0].login == "tucu0"
 
-    config.path().write_text(
-        '[options]\n\n[reviewer-aliases]\ntucu = "elsewhere"\nnew = "newlogin"\n'
-    )
+    shutil.copy(resource_folder / "aliases.toml", config.path())
     aliases = config.read()["aliases"]
     assert aliases["tucu"] == "elsewhere"  # the file wins
     assert aliases["david"] == config.ALIAS_DEFAULTS["david"]  # the rest survive
@@ -241,15 +241,15 @@ def test_the_shipped_aliases_work_without_a_file_and_yield_to_one(
 
 
 def test_a_file_written_before_the_rename_still_reads_and_migrates(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
+    resource_folder,
 ):
     """`[gsx]` held the approve settings and the version. It is now
     `[approver-credentials]`, and the version sits on `[repo]` -- what it dates
     -- so an existing file has to be read either way and written the new way."""
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
-    config.path().write_text(
-        '[options]\n\n[gsx]\nversion = "0.0.9"\napprove_vault = "old_vault"\n'
-    )
+    shutil.copy(resource_folder / "legacy-gsx.toml", config.path())
     old = config.read()
     assert old["version"] == "0.0.9"
     assert old["approve"]["approve_vault"] == "old_vault"  # a custom one survives
@@ -559,13 +559,12 @@ def test_the_config_action_is_the_shared_one_and_knows_what_gsx_keeps(
 
 
 def test_the_old_repos_table_is_read_so_a_file_migrates_on_the_next_write(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
+    resource_folder,
 ):
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
-    config.path().write_text(
-        '[repos."o/n"]\nlabels = ["bug"]\nreviewers = []\n'
-        "default_labels = []\ndefault_reviewers = []\n"
-    )
+    shutil.copy(resource_folder / "legacy-repos.toml", config.path())
     assert config.read()["repos"]["o/n"]["labels"] == ["bug"]
     config.write(config.read())  # written under the current name, only once
     text = config.path().read_text()
@@ -3765,7 +3764,7 @@ def test_state_reports_the_change_id_hook_beside_the_guard(tmp_path):
     assert "so is the Change-Id hook" in commands._init_line(found, True)
 
 
-def test_split_and_build_carry_the_change_id_through_an_amend():
+def test_split_and_build_carry_the_change_id_through_an_amend(resource_folder):
     """`update` rebuilds the message; the trailer the commit-msg hook added
     must come out the other side, or the amended commit gets a new identity."""
     message = commands.build_message(
@@ -3774,7 +3773,7 @@ def test_split_and_build_carry_the_change_id_through_an_amend():
     # the Change-Id in a paragraph of its own: `Closes #15` is no trailer to
     # git, and a paragraph mixing the two is no trailer block -- the hook then
     # finds no Change-Id and adds a second (measured)
-    assert message == "[FOO-15] Fix it\n\nWhy.\n\nCloses #15\n\nChange-Id: I0123abcd\n"
+    assert message == (resource_folder / "commit-message-change-id.txt").read_text()
     assert commands.split_message(message) == (
         "[FOO-15] Fix it",
         "Why.",
@@ -3784,10 +3783,10 @@ def test_split_and_build_carry_the_change_id_through_an_amend():
     rebuilt = commands.build_message(
         "FOO-16", "Fix it", None, 16, "Closes #15\nChange-Id: I0123abcd"
     )
-    assert rebuilt == "[FOO-16] Fix it\n\nCloses #16\n\nChange-Id: I0123abcd\n"
+    assert rebuilt == (resource_folder / "commit-message-rebuilt.txt").read_text()
     # a `Token: value` line inside a body paragraph is body, not a trailer
     _, body, trailers = commands.split_message(
-        "[FOO-15] Fix it\n\nSee the log.\nNote: flaky on CI.\n\nCloses #15\n"
+        (resource_folder / "commit-message-token-in-body.txt").read_text()
     )
     assert body == "See the log.\nNote: flaky on CI." and trailers == "Closes #15"
 
@@ -4373,7 +4372,9 @@ def test_where_you_are_is_said_when_no_cell_can_say_it(tmp_path, monkeypatch, ca
     assert "is in none of the stacks below" not in capsys.readouterr().err
 
 
-def test_a_commit_is_known_by_its_identity_and_its_patch_is_only_reported():
+def test_a_commit_is_known_by_its_identity_and_its_patch_is_only_reported(
+    resource_folder,
+):
     """A remote copy resolved against newer work AND reworded is still the
     same commit while its Change-Id is here -- and its different patch is
     said, not acted on. A commit made without a Change-Id is known by its
@@ -4388,11 +4389,10 @@ def test_a_commit_is_known_by_its_identity_and_its_patch_is_only_reported():
         "r3": "r3\ta@x|102|[B] three\t",  # no Change-Id; here by author|date|subject
         "r4": "r4\ta@x|103|[B] four\t",  # no Change-Id, not here: taken
     }
-    mine = (
-        "l1\ta@x|100|[B] one, reworded\tIaaa\n"
-        "l3\ta@x|102|[B] three\t\n"
-        "l5\tb@x|500|[B] same subject\tIbbb\n"  # shares r2's subject, not r2
-    )
+    # git log of ours: l1 is r1 reworded (same Change-Id), l3 is r3 (same
+    # author|date|subject), and l5 shares r2's subject but is not r2
+    mine = (resource_folder / "own-commits-mine.log").read_text()
+    rev_list = (resource_folder / "own-commits-rev-list.txt").read_text()
     patches = {"r1": "P1", "l1": "P1-resolved", "r3": "P3", "l3": "P3"}
 
     class FakeRunner:
@@ -4401,7 +4401,7 @@ def test_a_commit_is_known_by_its_identity_and_its_patch_is_only_reported():
 
         def run(self, argv, stdin_text=None, **kwargs):
             if argv[:3] == ["git", "rev-list", "--reverse"]:
-                return "r1\nr2\nr3\nr4\n"
+                return rev_list
             if argv[:2] == ["git", "log"] and fmt in argv and "-n" in argv:
                 return theirs[argv[-1]]
             if argv[:2] == ["git", "log"] and fmt in argv:

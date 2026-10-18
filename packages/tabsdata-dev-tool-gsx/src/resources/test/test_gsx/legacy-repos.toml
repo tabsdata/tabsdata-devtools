@@ -1,0 +1,5 @@
+[repos."o/n"]
+labels = ["bug"]
+reviewers = []
+default_labels = []
+default_reviewers = []

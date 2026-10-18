@@ -1,0 +1,5 @@
+[FOO-16] Fix it
+
+Closes #16
+
+Change-Id: I0123abcd
