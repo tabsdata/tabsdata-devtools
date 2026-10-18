@@ -19,7 +19,8 @@ What tdd fetches from and pushes to 1Password:
 
 - Toolset `launchers`: it needs common-core only; depends on `deps-launchers`, `common-core`.
   Entry point `_1p = tabsdata_dev.tool.onepassword:main` (a module cannot start with a digit).
-- `bin-reqs`: `op`, whose sign-in is the credential. The leading `_` makes it plumbing: out of
+- `bin-reqs`: `op`, optional like everywhere -- each read checks it and says what to do without
+  it -- whose sign-in is the credential. The leading `_` makes it plumbing: out of
   `tdd help`, listed by `tdd -x`.
 
 ## Decisions

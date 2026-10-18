@@ -35,7 +35,7 @@ usage: smoke-aks.sh --name NAME --kube-config FILE --kube-context NAME --td-vers
                    [--kube-namespace NAME] [--kube-port-forward PORT] [--uv-index URI]
                    [--db-domain SYSTEM] [--storage-domain SYSTEM] [--llm-domain SYSTEM]
                    [--provider NAME] [--td-extras EXTRAS] [--td-fn-memory SIZE]
-                   [--td-fn-disk SIZE] [--venv-type pyenv|uv|conda] [--py-version VERSION]
+                   [--td-fn-disk SIZE] [--venv-type uv|pyenv|conda] [--py-version VERSION]
                    [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep]
                    [--profile NAME] [--log FILE] [--tdd-dir DIR] [--verbose]
 
@@ -80,7 +80,7 @@ options:
                       asks for 16Gi)
   --td-fn-disk SIZE   disk of each function pod, the same way (default: 32Gi;
                       the template asks for 64Gi)
-  --venv-type TYPE    pyenv, uv or conda (default: pyenv)
+  --venv-type TYPE    uv, pyenv or conda (default: uv)
   --py-version VERSION
                       interpreter for the venv (default: 3.12.13 -- the exact
                       version the instance builds its own environments with)
@@ -146,7 +146,7 @@ NAME=""                  # required; everything is sm_$NAME
 STORAGE_SYSTEM="azureblob"   # --storage-domain: the system the instance's storage comes from
 LLM_SYSTEM=""            # --llm-domain: none unless asked for
 EXPECT_PODS="srv-apiserver"
-VENV_TYPE="pyenv"
+VENV_TYPE="uv"
 PYTHON="3.12.13"
 TD_VERSION=""            # required
 TD_EXTRAS="all"
@@ -212,7 +212,7 @@ while [ $# -gt 0 ]; do
         *) echo "smoke-aks: unknown option: $1 (see --help)" >&2; exit 1 ;;
     esac
 done
-case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "smoke-aks: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
+case "$VENV_TYPE" in uv | pyenv | conda) ;; *) echo "smoke-aks: --venv-type must be uv, pyenv or conda" >&2; exit 1 ;; esac
 UV_INDEX_URI="$(common_resolve_uv_index "$UV_INDEX_URI")" || exit 1
 missing=""
 for _need in $REQUIRED_OPTIONS; do

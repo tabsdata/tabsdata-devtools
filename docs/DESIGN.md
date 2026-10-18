@@ -105,7 +105,13 @@ never blocked. `tdd-fn` does the same for shell commands with `command -v`.
 ## External binaries
 
 `bin-reqs.txt` -- one bare name per line -- at a Python tool's package root, beside a shell script
-as `<file>.bin-reqs.txt` (`common.bin-reqs.txt` is folded into every shell command). `tdd --reqs`
+as `<file>.bin-reqs.txt` (`common.bin-reqs.txt` is folded into every shell command); a tool adds
+`bin-reqs.<family>.txt` for what one shell family needs on top (smoke: `bash` under the POSIX
+shell, `pwsh` under PowerShell, the default family on Windows). Every name sits under a
+`[required]` or `[optional]` header; optional ones are allowed and reported, never required up
+front -- the one a run uses is checked where it is used: the venv managers (only the venv's own type is ever
+called; pyenv and conda are refused on Windows, uv is the default type) and `op` (1Password,
+which a machine need not have). `tdd --reqs`
 reports `[ok]`/`[missing]` from the catalog against the ambient `PATH`, per command; `tdd --reqs
 --summary` lists each binary once however many commands declare it -- what the machine must
 provide -- with the commands that need it in the JSON `needed_by` (a pyenv/asdf/mise shim counts

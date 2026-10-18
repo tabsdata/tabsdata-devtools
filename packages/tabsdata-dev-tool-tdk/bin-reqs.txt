@@ -3,9 +3,12 @@
 #
 
 # bin-reqs.txt -- external binaries the tdk launcher needs on PATH: tdk itself,
-# which lives in the managed venv (on PATH while it is active), and the three
-# venv managers a managed venv can be made with.
+# which lives in the managed venv (on PATH while it is active), and uv, which
+# runs a uv venv. conda runs a conda venv and is checked only for one; a pyenv
+# venv runs its program by path, through no manager at all.
+[required]
 tdk
 uv
+
+[optional]
 conda
-pyenv

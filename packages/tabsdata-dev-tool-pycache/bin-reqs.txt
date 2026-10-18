@@ -6,4 +6,5 @@
 # here: a declared binary is refused before the tool starts when it is missing,
 # and a machine without pip still has a uv cache worth purging, so pip is found
 # at run time and its absence is a warning and a uv-only clean. See DESIGN.md.
+[required]
 uv

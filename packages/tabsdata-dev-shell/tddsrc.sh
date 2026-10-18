@@ -136,9 +136,14 @@ _tdd_load_commands() {
     unset _tdd_py _tdd_scripts _tdd_f _tdd_r _tdd_common_reqs _TDD_FN_REQS
 }
 
-# The bare names in a bin-reqs.txt, space-separated.
+# The bare names a bin-reqs.txt requires, space-separated: its [required]
+# section, from that header to the next one. An [optional] binary is checked
+# where it is used, never up front.
 _tdd_read_reqs() {
-    sed -e 's/#.*//' "$1" | tr -s '[:space:]' ' ' | sed -e 's/^ //' -e 's/ $//'
+    sed -n -e 's/#.*//' \
+        -e '/^[[:space:]]*\[required\][[:space:]]*$/,/^[[:space:]]*\[/{' \
+        -e '/^[[:space:]]*\[/d' -e 'p' -e '}' "$1" |
+        tr -s '[:space:]' ' ' | sed -e 's/^ //' -e 's/ $//'
 }
 
 _tdd_fn_has() {

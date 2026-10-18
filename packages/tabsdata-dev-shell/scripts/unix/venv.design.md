@@ -80,11 +80,12 @@ entering of the new one, and the prompt. The notes below on markers and builds d
   It is the only subcommand that changes neither the shell nor a venv (the migration rewrites
   markers, once).
 - `config` (`--show`/`--default`/`--create [--force]`) comes from the shared layer, over the
-  per-action defaults `tdd_defaults_venv` declares -- which is where `--type pyenv`,
+  per-action defaults `tdd_defaults_venv` declares -- which is where `--type uv`,
   `--python 3.12.13` and `--relocatable false` actually live, so changing them for yourself is a
   line in `venv.toml` (`relocatable = true` under `[options.create]`) rather than a flag on
   every create.
-- `bin-reqs`: `pyenv`, `uv`, `conda`.
+- `bin-reqs`: `uv` required, `pyenv` and `conda` optional -- checked when a venv of their type is
+  created or entered. uv is the default type; pyenv and conda are refused on Windows.
 
 ## The PowerShell twin
 

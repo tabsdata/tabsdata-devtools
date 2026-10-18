@@ -2,9 +2,13 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-# venv.bin-reqs.txt -- external binaries `tdd venv` needs on PATH: one per
-# venv type it can create and activate. All three are required up front, not
-# per --type, so `tdd --reqs` says whether every kind of managed venv works.
-pyenv
+# venv.bin-reqs.txt -- the venv managers `tdd venv` drives. uv is tdd's own
+# hard requirement; pyenv and conda are needed only for a venv of their
+# --type, checked when one is created or entered -- and not supported on
+# Windows.
+[required]
 uv
+
+[optional]
 conda
+pyenv

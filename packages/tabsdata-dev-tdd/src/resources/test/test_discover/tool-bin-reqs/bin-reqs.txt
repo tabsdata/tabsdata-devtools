@@ -1,0 +1,9 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+[required]
+uv
+
+[optional]  # needed only for its venv type
+conda

@@ -10,8 +10,9 @@ entering one. The leading `_` makes it plumbing -- left out of `tdd help`, liste
 ## Shape
 
 - Toolset `launchers`; depends on `deps-launchers`, `common-core` (`managedvenv` reads the
-  markers for the launchers, and this writes them). `bin-reqs`: `pyenv`, `uv`, `conda`, the
-  same three `tdd venv` declares.
+  markers for the launchers, and this writes them). `bin-reqs`: `uv` required, `pyenv`
+  and `conda` optional -- checked when a venv of their type is created; refused on Windows, where
+  uv, the default type, is the only one.
 - State: `<tdd_dir>/managed-venvs/<type>/<name>/` and its `<name>.json` marker -- the user's,
   which `tdd-install` never touches.
 

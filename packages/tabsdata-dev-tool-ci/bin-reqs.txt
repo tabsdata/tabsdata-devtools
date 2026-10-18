@@ -4,4 +4,5 @@
 
 # bin-reqs.txt -- `gh` does all the talking to GitHub, and its login is the
 # credential: nothing here reads or stores a token.
+[required]
 gh

@@ -1,0 +1,9 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# bin-reqs.powershell.txt -- what the smoke tool needs on PATH under PowerShell:
+# pwsh, PowerShell 7, which runs the carried .ps1 scripts. What a script needs
+# of its own is the script's to check, as under the POSIX shell.
+[required]
+pwsh

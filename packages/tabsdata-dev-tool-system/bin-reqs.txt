@@ -3,8 +3,13 @@
 #
 
 # bin-reqs.txt -- external binaries the system command needs on PATH. Container
-# systems are driven through the docker CLI; secrets and the descriptor key
-# come from 1Password through op. ssh (connect) is checked at the point of
-# use, since it needs a remote host to matter.
+# systems are driven through the docker CLI. op reads secrets and the
+# descriptor key from 1Password where it is used, so it is optional: on
+# Windows they come from a file exported on macOS, and op is never called.
+# ssh (connect) is checked at the point of use, since it needs a remote host
+# to matter.
+[required]
 docker
+
+[optional]
 op

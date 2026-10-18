@@ -13,7 +13,7 @@ manifests so a test suite gets the same data on every backend.
   calls `common.systems.main.run("domain")` and says nothing else: the family lives in
   `common-systems`, shared with `system` and `domain-sf`, and this package exists so the command
   has a name, a toolset and a `bin-reqs`.
-- `bin-reqs`: `docker`, `op`. State: `<tdd_dir>/data/domain`, one encrypted descriptor per
+- `bin-reqs`: `docker`; `op` optional, checked where 1Password is read -- Windows has none. State: `<tdd_dir>/data/domain`, one encrypted descriptor per
   domain, addressed by name.
 
 ## How it works

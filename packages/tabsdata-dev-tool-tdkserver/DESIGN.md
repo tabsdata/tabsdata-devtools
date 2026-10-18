@@ -12,7 +12,8 @@ and say first which venv that is, and why.
 
 - Toolset `launchers` (pins nothing); depends on `deps-launchers`, `common-core`. Entry point
   is `common.core.launcher.run("tdkserver")`.
-- `bin-reqs`: `tdkserver`, `uv`, `conda`, `pyenv` -- the program and every manager it may run under.
+- `bin-reqs`: `tdkserver` and `uv` required; `conda` optional, checked only for a conda venv. A pyenv
+  venv runs its program by path, so pyenv is never called; on Windows only uv venvs are supported.
 
 ## How it works
 

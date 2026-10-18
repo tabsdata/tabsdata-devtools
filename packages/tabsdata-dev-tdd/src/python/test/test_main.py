@@ -99,6 +99,27 @@ def test_reqs_reports_every_declaration(capsys):
     assert binaries == sorted(set(binaries))  # each once
 
 
+def test_reqs_reports_an_optional_binary_without_counting_it_missing(
+    monkeypatch,
+    capsys,
+):
+    from tabsdata_dev.tdd import catalog as catalog_mod
+    from tabsdata_dev.tdd import reqs
+
+    catalog = {
+        "tools": {"a": {"required": ["sh"], "optional": ["surely-not-a-binary-xyz"]}},
+        "shell": {},
+    }
+    monkeypatch.setattr(catalog_mod, "shipped", lambda: catalog)
+    monkeypatch.setenv(reqs.FAMILY_ENV, "unix")
+    for summary in ([], ["--summary"]):
+        assert main_mod.main(["--format", "json", "--reqs", *summary]) == 0
+        lines = [e for e in _events(capsys) if e.get("optional")]
+        assert [e["binary"] for e in lines] == ["surely-not-a-binary-xyz"]
+        assert "not installed" in lines[0]["message"]
+        assert lines[0]["event"] == "info"
+
+
 def test_reqs_summary_lists_each_binary_once_with_who_needs_it(monkeypatch, capsys):
     """`--reqs` reports per command; `--reqs --summary` one line per binary,
     not per command declaring it: `[ok]` or `[missing]`, no command named in
@@ -109,11 +130,11 @@ def test_reqs_summary_lists_each_binary_once_with_who_needs_it(monkeypatch, caps
 
     catalog = {
         "tools": {
-            "a": {"reqs": ["sh", "surely-not-a-binary-xyz"]},
-            "b": {"reqs": ["sh"]},
-            "c": {"reqs": []},
+            "a": {"required": ["sh", "surely-not-a-binary-xyz"]},
+            "b": {"required": ["sh"]},
+            "c": {"required": []},
         },
-        "shell": {"s": {"reqs": {"unix": ["sh"], "powershell": ["pwsh-only-xyz"]}}},
+        "shell": {"s": {"required": {"unix": ["sh"], "powershell": ["pwsh-only-xyz"]}}},
     }
     monkeypatch.setattr(catalog_mod, "shipped", lambda: catalog)
     monkeypatch.setenv(reqs.FAMILY_ENV, "unix")
@@ -194,7 +215,11 @@ def test_dispatch_refuses_when_a_declared_binary_is_missing(
     exe.parent.mkdir(parents=True)
     shutil.copy(resource_folder / "does_nothing.sh", exe)
     exe.chmod(0o755)
-    entry = {"toolset": "t", "package": "p", "reqs": ["surely-not-a-binary-xyz", "sh"]}
+    entry = {
+        "toolset": "t",
+        "package": "p",
+        "required": ["surely-not-a-binary-xyz", "sh"],
+    }
     monkeypatch.setattr(catalog_mod, "installed", lambda d: {"tools": {"demo": entry}})
     monkeypatch.setattr(catalog_mod, "is_stale", lambda d: False)
     monkeypatch.setattr(

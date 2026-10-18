@@ -107,7 +107,7 @@ def test_run_allows_anything_outside_a_tdd_dispatch(monkeypatch):
 
 def test_run_refuses_an_undeclared_binary(monkeypatch, tmp_path):
     (tmp_path / "catalog.json").write_text(
-        '{"tools": {"demo-exe1": {"toolset": "demo-env1", "reqs": ["git"]}}}'
+        '{"tools": {"demo-exe1": {"toolset": "demo-env1", "required": ["git"]}}}'
     )
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
     monkeypatch.setenv("_TDD_TOOL", "demo-exe1")
@@ -121,7 +121,7 @@ def test_run_refuses_an_undeclared_binary(monkeypatch, tmp_path):
 @pytest.fixture
 def dispatched(monkeypatch, tmp_path):
     """A tool `demo` run by tdd, declaring `git`, its toolset's bin/ empty."""
-    catalog = {"tools": {"demo": {"toolset": "demo-env", "reqs": ["git"]}}}
+    catalog = {"tools": {"demo": {"toolset": "demo-env", "required": ["git"]}}}
     (tmp_path / "catalog.json").write_text(json.dumps(catalog))
     monkeypatch.setenv("TDD_DIR", str(tmp_path))
     monkeypatch.setenv("_TDD_TOOL", "demo")
@@ -156,6 +156,32 @@ def test_on_windows_a_program_is_known_by_its_name_without_suffix_in_any_case(
     for argv0 in ("git.sh", "jq", "jq.exe"):
         with pytest.raises(proc.UndeclaredRequirement):
             proc._check([argv0])
+
+
+def test_a_tool_may_run_its_family_s_binaries_and_its_optional_ones(
+    dispatched,
+    monkeypatch,
+    tmp_path,
+):
+    """Under PowerShell smoke may run pwsh, not bash; an optional binary is
+    declared, so allowed -- whether it is installed is checked where used."""
+    catalog = {
+        "tools": {
+            "demo": {
+                "toolset": "demo-env",
+                "required": {"unix": ["bash"], "powershell": ["pwsh"]},
+                "optional": ["conda"],
+            }
+        }
+    }
+    (tmp_path / "catalog.json").write_text(json.dumps(catalog))
+    monkeypatch.setattr(proc, "WINDOWS", False)
+    monkeypatch.setenv("_TDD_SHELL_FAMILY", "powershell")
+    proc._declared.cache_clear()
+    proc._check(["pwsh"])
+    proc._check(["conda"])
+    with pytest.raises(proc.UndeclaredRequirement):
+        proc._check(["bash"])
 
 
 def test_elsewhere_a_program_name_is_exact(dispatched, monkeypatch):
@@ -241,6 +267,33 @@ def _no_venv(monkeypatch):
         "CONDA_DEFAULT_ENV",
     ):
         monkeypatch.delenv(var, raising=False)
+
+
+def test_on_windows_only_uv_venvs_are_supported(monkeypatch, tmp_path):
+    from tabsdata_dev.common.core import managedvenv
+
+    monkeypatch.setattr(managedvenv, "WINDOWS", True)
+    monkeypatch.setattr(managedvenv.shutil, "which", lambda name: f"/x/{name}")
+    managedvenv.require_manager("uv")
+    for manager in ("pyenv", "conda"):
+        with pytest.raises(ToolError, match="not supported on Windows"):
+            managedvenv.require_manager(manager)
+        # and a launcher refuses one already made, as creating one is refused
+        with pytest.raises(ToolError, match="not supported on Windows"):
+            managedvenv.launch(manager, tmp_path / "v", "tdk", [])
+
+
+def test_a_venv_manager_is_checked_only_where_it_is_used(monkeypatch, tmp_path):
+    """pyenv and conda are optional: a conda venv fails plainly without conda,
+    and a pyenv venv never needs pyenv -- its program runs by path."""
+    from tabsdata_dev.common.core import managedvenv
+
+    monkeypatch.setattr(managedvenv, "WINDOWS", False)
+    monkeypatch.setattr(managedvenv.shutil, "which", lambda name: None)
+    with pytest.raises(ToolError, match="this is a conda venv, and conda is not"):
+        managedvenv.launch("conda", tmp_path / "v", "tdk", [])
+    argv, _env = managedvenv.launch("pyenv", tmp_path / "v", "tdk", ["status"])
+    assert argv[-1] == "status" and "pyenv" not in argv
 
 
 def test_managedvenv_needs_a_venv_and_says_how_to_get_one(tmp_path, monkeypatch):

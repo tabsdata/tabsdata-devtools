@@ -23,7 +23,7 @@ usage() {
     cat <<'HELP' | common_help "$REQUIRED_OPTIONS"
 usage: smoke-km.sh --name NAME --td-version VERSION
                    [--uv-index URI] [--llm-domain SYSTEM] [--td-extras EXTRAS]
-                   [--venv-type pyenv|uv|conda] [--py-version VERSION] [--port PORT]
+                   [--venv-type uv|pyenv|conda] [--py-version VERSION] [--port PORT]
                    [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep]
                    [--profile NAME] [--log FILE] [--tdd-dir DIR] [--verbose]
 
@@ -39,7 +39,7 @@ options:
                       the extras to install (default: all). tabsdata is a
                       meta-package: without the right extras (server, cli,
                       conn-*, ...) the venv has no working tdkserver
-  --venv-type TYPE    pyenv, uv or conda (default: pyenv)
+  --venv-type TYPE    uv, pyenv or conda (default: uv)
   --py-version VERSION
                       interpreter for the venv (default: 3.12.13)
   --port PORT         base port for the instance (default: 10000; one per
@@ -97,7 +97,7 @@ HELP
 NAME=""                  # required; everything is sm_$NAME
 LLM_SYSTEM=""            # --llm-domain: none unless asked for
 EXPECT_PODS="srv-apiserver,srv-database"
-VENV_TYPE="pyenv"
+VENV_TYPE="uv"
 PYTHON="3.12.13"
 TD_VERSION=""     # required
 TD_EXTRAS="all"
@@ -138,7 +138,7 @@ while [ $# -gt 0 ]; do
         *) echo "smoke-km: unknown option: $1 (see --help)" >&2; exit 1 ;;
     esac
 done
-case "$VENV_TYPE" in pyenv | uv | conda) ;; *) echo "smoke-km: --venv-type must be pyenv, uv or conda" >&2; exit 1 ;; esac
+case "$VENV_TYPE" in uv | pyenv | conda) ;; *) echo "smoke-km: --venv-type must be uv, pyenv or conda" >&2; exit 1 ;; esac
 UV_INDEX_URI="$(common_resolve_uv_index "$UV_INDEX_URI")" || exit 1
 missing=""
 for _need in $REQUIRED_OPTIONS; do

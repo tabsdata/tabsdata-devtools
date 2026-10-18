@@ -1,5 +1,5 @@
 {
-  "fingerprint": "7d78c4e459c6dae9",
+  "fingerprint": "b10de82fdbd17166",
   "interpreter": "3.12.13",
   "members": {
     "launchers": [
@@ -61,7 +61,11 @@
         "powershell": "_tdd-env.ps1",
         "unix": "_tdd-env.sh"
       },
-      "reqs": {
+      "optional": {
+        "powershell": [],
+        "unix": []
+      },
+      "required": {
         "powershell": [],
         "unix": [
           "jq",
@@ -75,7 +79,11 @@
         "powershell": "env.ps1",
         "unix": "env.sh"
       },
-      "reqs": {
+      "optional": {
+        "powershell": [],
+        "unix": []
+      },
+      "required": {
         "powershell": [],
         "unix": [
           "jq",
@@ -89,18 +97,24 @@
         "powershell": "venv.ps1",
         "unix": "venv.sh"
       },
-      "reqs": {
+      "optional": {
         "powershell": [
-          "pyenv",
-          "uv",
-          "conda"
+          "conda",
+          "pyenv"
+        ],
+        "unix": [
+          "conda",
+          "pyenv"
+        ]
+      },
+      "required": {
+        "powershell": [
+          "uv"
         ],
         "unix": [
           "jq",
           "awk",
-          "pyenv",
-          "uv",
-          "conda"
+          "uv"
         ]
       },
       "summary": "create, activate, deactivate, delete or list managed venvs (pyenv, uv or conda)"
@@ -113,10 +127,11 @@
       ],
       "hidden": false,
       "launcher": false,
-      "package": "tabsdata-dev-tool-1p",
-      "reqs": [
+      "optional": [
         "op"
       ],
+      "package": "tabsdata-dev-tool-1p",
+      "required": [],
       "summary": "fetches the crypto key and secrets from 1Password (for tdd env) and pushes items to it",
       "toolset": "launchers"
     },
@@ -126,11 +141,13 @@
       ],
       "hidden": false,
       "launcher": false,
+      "optional": [
+        "conda",
+        "pyenv"
+      ],
       "package": "tabsdata-dev-tool-venv",
-      "reqs": [
-        "pyenv",
-        "uv",
-        "conda"
+      "required": [
+        "uv"
       ],
       "summary": "plumbing of tdd venv: create, delete, list and describe managed venvs (no activation)",
       "toolset": "launchers"
@@ -141,8 +158,9 @@
       ],
       "hidden": false,
       "launcher": false,
+      "optional": [],
       "package": "tabsdata-dev-tool-apidoc",
-      "reqs": [],
+      "required": [],
       "summary": "generates a Python package's API as JSON, for documentation generation",
       "toolset": "launchers"
     },
@@ -152,8 +170,9 @@
       ],
       "hidden": false,
       "launcher": false,
+      "optional": [],
       "package": "tabsdata-dev-tool-ci",
-      "reqs": [
+      "required": [
         "gh"
       ],
       "summary": "GitHub Actions runs: download a run's artifacts, in parallel",
@@ -166,10 +185,12 @@
       ],
       "hidden": false,
       "launcher": false,
-      "package": "tabsdata-dev-tool-domain",
-      "reqs": [
-        "docker",
+      "optional": [
         "op"
+      ],
+      "package": "tabsdata-dev-tool-domain",
+      "required": [
+        "docker"
       ],
       "summary": "manage domains inside systems: schemas, generated data, change sets",
       "toolset": "systems"
@@ -181,8 +202,9 @@
       ],
       "hidden": true,
       "launcher": false,
+      "optional": [],
       "package": "tabsdata-dev-tool-domain-sf",
-      "reqs": [],
+      "required": [],
       "summary": "domain, running in the salesforce toolset (the org's data plane)",
       "toolset": "salesforce"
     },
@@ -192,8 +214,9 @@
       ],
       "hidden": false,
       "launcher": true,
+      "optional": [],
       "package": "tabsdata-dev-tool-jq",
-      "reqs": [
+      "required": [
         "jq"
       ],
       "summary": "run jq, the JSON processor installed on the machine",
@@ -205,12 +228,13 @@
       ],
       "hidden": false,
       "launcher": true,
+      "optional": [
+        "conda"
+      ],
       "package": "tabsdata-dev-tool-km",
-      "reqs": [
+      "required": [
         "km",
-        "uv",
-        "conda",
-        "pyenv"
+        "uv"
       ],
       "summary": "run tabsdata's km CLI inside the venv last activated (managed by tdd venv or not)",
       "toolset": "launchers"
@@ -221,8 +245,9 @@
       ],
       "hidden": false,
       "launcher": false,
+      "optional": [],
       "package": "tabsdata-dev-tool-mexe",
-      "reqs": [],
+      "required": [],
       "summary": "run shell commands in several directories, in parallel or serial (one after the other)",
       "toolset": "launchers"
     },
@@ -232,8 +257,9 @@
       ],
       "hidden": false,
       "launcher": true,
+      "optional": [],
       "package": "tabsdata-dev-tool-pqt",
-      "reqs": [],
+      "required": [],
       "summary": "run parquet-tools (show, csv, inspect a parquet file) from the xp toolset",
       "toolset": "xp"
     },
@@ -243,8 +269,9 @@
       ],
       "hidden": false,
       "launcher": false,
+      "optional": [],
       "package": "tabsdata-dev-tool-pycache",
-      "reqs": [
+      "required": [
         "uv"
       ],
       "summary": "clean the uv and pip caches, by package prefix (default tabsdata) or all of it",
@@ -256,8 +283,9 @@
       ],
       "hidden": false,
       "launcher": false,
+      "optional": [],
       "package": "tabsdata-dev-tool-pypi",
-      "reqs": [
+      "required": [
         "aws",
         "tofu",
         "uv",
@@ -276,10 +304,19 @@
       ],
       "hidden": false,
       "launcher": false,
+      "optional": {
+        "powershell": [],
+        "unix": []
+      },
       "package": "tabsdata-dev-tool-smoke",
-      "reqs": [
-        "bash"
-      ],
+      "required": {
+        "powershell": [
+          "pwsh"
+        ],
+        "unix": [
+          "bash"
+        ]
+      },
       "summary": "the end-to-end smoke test scripts: run one, or export them to read and edit",
       "toolset": "launchers"
     },
@@ -290,10 +327,12 @@
       ],
       "hidden": false,
       "launcher": false,
-      "package": "tabsdata-dev-tool-system",
-      "reqs": [
-        "docker",
+      "optional": [
         "op"
+      ],
+      "package": "tabsdata-dev-tool-system",
+      "required": [
+        "docker"
       ],
       "summary": "manage external systems for testing: databases, object stores, services (docker, cloud, remote)",
       "toolset": "systems"
@@ -304,12 +343,13 @@
       ],
       "hidden": false,
       "launcher": true,
+      "optional": [
+        "conda"
+      ],
       "package": "tabsdata-dev-tool-tdk",
-      "reqs": [
+      "required": [
         "tdk",
-        "uv",
-        "conda",
-        "pyenv"
+        "uv"
       ],
       "summary": "run tabsdata's tdk CLI inside the venv last activated (managed by tdd venv or not)",
       "toolset": "launchers"
@@ -320,12 +360,13 @@
       ],
       "hidden": false,
       "launcher": true,
+      "optional": [
+        "conda"
+      ],
       "package": "tabsdata-dev-tool-tdkserver",
-      "reqs": [
+      "required": [
         "tdkserver",
-        "uv",
-        "conda",
-        "pyenv"
+        "uv"
       ],
       "summary": "run tabsdata's tdkserver inside the venv last activated (managed by tdd venv or not)",
       "toolset": "launchers"
@@ -334,8 +375,9 @@
       "commons": [],
       "hidden": false,
       "launcher": true,
+      "optional": [],
       "package": "tabsdata-dev-tool-twine",
-      "reqs": [],
+      "required": [],
       "summary": "run twine (upload, check distributions) from its own toolset",
       "toolset": "twine"
     },
@@ -345,8 +387,9 @@
       ],
       "hidden": false,
       "launcher": false,
+      "optional": [],
       "package": "tabsdata-dev-tool-xp",
-      "reqs": [],
+      "required": [],
       "summary": "run tabsdata example suites: instances, domains, projects, triggers, one-shot and bench",
       "toolset": "xp"
     }

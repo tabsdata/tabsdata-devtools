@@ -13,7 +13,7 @@ connection details kept as encrypted descriptors.
 - Toolset `systems` (Python 3.12: several drivers ship no wheels for the newest CPython);
   depends on `deps-systems`, `common-core`, `common-systems`. Entry point calls
   `common.systems.main.run("system")`.
-- `bin-reqs`: `docker`, `op`. State: `<tdd_dir>/data/system`.
+- `bin-reqs`: `docker`; `op` optional, checked where 1Password is read -- Windows has none. State: `<tdd_dir>/data/system`.
 
 ## How it works
 

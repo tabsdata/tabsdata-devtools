@@ -24,6 +24,12 @@ TOOLSET_PREFIX = "tabsdata-dev-toolset-"
 COMMON_PREFIX = "tabsdata-dev-common-"
 SHELL_DIST = "tabsdata-dev-shell"
 BIN_REQS = "bin-reqs.txt"
+#: The two sections of a bin-reqs file, each a header line over its names. A
+#: required binary is refused up front when missing; an optional one is allowed
+#: -- proc.run takes it -- and reported, but checked only where it is used: the
+#: venv managers, of which only the venv's own type is ever called, and op.
+REQUIRED_SECTION = "[required]"
+OPTIONAL_SECTION = "[optional]"
 #: An interpreter version as every env is built on: major.minor.patch.
 EXACT_PYTHON = re.compile(r"3\.\d+\.\d+")
 
@@ -48,21 +54,81 @@ class LayoutError(Exception):
     pass
 
 
-def parse_bin_reqs(path: pathlib.Path) -> list[str]:
-    """One bare binary name per line. Blank lines and # comments ignored."""
+def _bin_sections(path: pathlib.Path) -> tuple[list[str], list[str]]:
+    """A bin-reqs file's (required, optional) binaries: one bare name per line
+    under a `[required]` or `[optional]` header. Blank lines and # comments
+    ignored; a name under no header, an unknown header or a repeated one is a
+    layout error, so what a name is never depends on where it happens to sit."""
     if not path.is_file():
-        return []
-    out = []
-    for lineno, raw in enumerate(path.read_text().splitlines(), 1):
+        return [], []
+    sections: dict[str, list[str]] = {REQUIRED_SECTION: [], OPTIONAL_SECTION: []}
+    seen: set[str] = set()
+    into: list[str] | None = None
+    for lineno, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = raw.split("#", 1)[0].strip()
         if not line:
             continue
+        if line.startswith("["):
+            if line not in sections:
+                raise LayoutError(
+                    f"{path}:{lineno}: unknown section {line!r} "
+                    f"({REQUIRED_SECTION} or {OPTIONAL_SECTION})"
+                )
+            if line in seen:
+                raise LayoutError(f"{path}:{lineno}: a second {line}")
+            seen.add(line)
+            into = sections[line]
+            continue
+        if into is None:
+            raise LayoutError(
+                f"{path}:{lineno}: {line!r} is under no section; put it under "
+                f"{REQUIRED_SECTION} or {OPTIONAL_SECTION}"
+            )
         if len(line.split()) != 1 or "/" in line:
             raise LayoutError(
                 f"{path}:{lineno}: expected a bare binary name, got {line!r}"
             )
-        out.append(line)
-    return out
+        into.append(line)
+    return sections[REQUIRED_SECTION], sections[OPTIONAL_SECTION]
+
+
+def parse_bin_reqs(path: pathlib.Path) -> list[str]:
+    """The binaries a bin-reqs file requires: its `[required]` section."""
+    return _bin_sections(path)[0]
+
+
+def parse_bin_opts(path: pathlib.Path) -> list[str]:
+    """The binaries a bin-reqs file allows without requiring them: its
+    `[optional]` section."""
+    return _bin_sections(path)[1]
+
+
+def _merged(base: list[str], more: list[str]) -> list[str]:
+    return base + [binary for binary in more if binary not in base]
+
+
+def tool_bin_reqs(folder: pathlib.Path) -> tuple[list | dict, list | dict]:
+    """A tool's (required, optional) binaries, from the bin-reqs.txt at its
+    package root and, added to it per shell family, bin-reqs.<family>.txt:
+    smoke runs bash scripts under the POSIX family and pwsh ones under
+    PowerShell. Plain lists for a tool with no family file; otherwise one list
+    per family, as a shell command's are."""
+    base_req, base_opt = _bin_sections(folder / BIN_REQS)
+    families = {}
+    for path in sorted(folder.glob("bin-reqs.*.txt")):
+        family = path.name[len("bin-reqs.") : -len(".txt")]
+        if family not in SHELL_FAMILIES:
+            raise LayoutError(
+                f"{path}: {family!r} is not a shell family "
+                f"({', '.join(SHELL_FAMILIES)})"
+            )
+        families[family] = _bin_sections(path)
+    if not families:
+        return base_req, base_opt
+    empty: tuple[list[str], list[str]] = ([], [])
+    required = {f: _merged(base_req, families.get(f, empty)[0]) for f in SHELL_FAMILIES}
+    optional = {f: _merged(base_opt, families.get(f, empty)[1]) for f in SHELL_FAMILIES}
+    return required, optional
 
 
 def shell_family(root: pathlib.Path, family: str) -> dict[str, dict]:
@@ -80,13 +146,18 @@ def shell_family(root: pathlib.Path, family: str) -> dict[str, dict]:
     scripts = root / "packages" / SHELL_DIST / "scripts" / family
     if not scripts.is_dir():
         raise LayoutError(f"no {family} shell scripts at {scripts}")
-    common_reqs = parse_bin_reqs(scripts / f"{common[: -len(suffix)]}.{BIN_REQS}")
+    common_reqs, common_opts = _bin_sections(
+        scripts / f"{common[: -len(suffix)]}.{BIN_REQS}"
+    )
     found: dict[str, dict] = {}
     for script in sorted(scripts.glob(f"*{suffix}")):
         if script.name == common:
             continue
-        own = parse_bin_reqs(script.with_name(f"{script.stem}.{BIN_REQS}"))
-        reqs = common_reqs + [r for r in own if r not in common_reqs]
+        own_reqs, own_opts = _bin_sections(
+            script.with_name(f"{script.stem}.{BIN_REQS}")
+        )
+        reqs = _merged(common_reqs, own_reqs)
+        opts = _merged(common_opts, own_opts)
         registered = 0
         for raw in script.read_text().splitlines():
             match = _REGISTER.match(raw)
@@ -101,7 +172,8 @@ def shell_family(root: pathlib.Path, family: str) -> dict[str, dict]:
             found[name] = {
                 "file": script.name,
                 "summary": match["summary"],
-                "reqs": reqs,
+                "required": reqs,
+                "optional": opts,
             }
             registered += 1
         if not registered:
@@ -153,7 +225,8 @@ def shell_commands(root: pathlib.Path) -> dict[str, dict]:
         name: {
             "summary": entry["summary"],
             "files": {f: families[f][name]["file"] for f in families},
-            "reqs": {f: families[f][name]["reqs"] for f in families},
+            "required": {f: families[f][name]["required"] for f in families},
+            "optional": {f: families[f][name]["optional"] for f in families},
         }
         for name, entry in canonical.items()
     }
@@ -209,7 +282,7 @@ def discover(root: pathlib.Path) -> dict:
         if not scripts:
             raise LayoutError(f"{dist}: declares no [project.scripts] entry point")
 
-        reqs = parse_bin_reqs(pyproject.parent / BIN_REQS)
+        reqs, optional = tool_bin_reqs(pyproject.parent)
 
         for command in scripts:
             if command in paths.RESERVED:
@@ -233,7 +306,8 @@ def discover(root: pathlib.Path) -> dict:
                 "toolset": toolset,
                 "package": dist,
                 "summary": data.get("description", ""),
-                "reqs": reqs,
+                "required": reqs,
+                "optional": optional,
                 "launcher": launcher,
                 "hidden": hidden,
                 "commons": commons,

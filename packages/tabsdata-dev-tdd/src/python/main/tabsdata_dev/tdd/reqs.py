@@ -20,25 +20,36 @@ import subprocess
 from . import catalog as catalog_mod
 from . import render
 
-#: Which shell family's requirements a shell command is checked against. Each
-#: loader exports it, so `tdd --reqs` under PowerShell does not ask for the
-#: POSIX half's `jq` and `awk`. Unset -- nothing sourced, a bare `tdd-exe` --
-#: means the POSIX half, which is what a machine without pwsh has.
+#: Which shell family's requirements a command is checked against. Each loader
+#: exports it, so `tdd --reqs` under PowerShell does not ask for the POSIX
+#: half's `jq` and `awk`. Unset -- nothing sourced, a bare `tdd-exe` -- means
+#: the platform's own: PowerShell on Windows, where no POSIX shell is assumed;
+#: the POSIX half elsewhere, which is what a machine without pwsh has.
 FAMILY_ENV = "_TDD_SHELL_FAMILY"
-DEFAULT_FAMILY = "unix"
+DEFAULT_FAMILY = "powershell" if os.name == "nt" else "unix"
 
 
 def shell_family() -> str:
     return os.environ.get(FAMILY_ENV, "").strip() or DEFAULT_FAMILY
 
 
-def entry_reqs(entry: dict, family: str) -> list[str]:
-    """A catalog entry's binaries. A tool's are one list; a shell command's are
-    per family, since the two halves' shared helpers differ."""
-    reqs = entry.get("reqs", [])
-    if isinstance(reqs, dict):
-        return reqs.get(family, reqs.get(DEFAULT_FAMILY, []))
-    return reqs
+def _for_family(value: list | dict, family: str) -> list[str]:
+    if isinstance(value, dict):
+        return value.get(family, value.get(DEFAULT_FAMILY, []))
+    return value
+
+
+def entry_required(entry: dict, family: str) -> list[str]:
+    """A catalog entry's required binaries. One list for a tool with no family
+    file; per family for a shell command, whose halves' helpers differ, and for
+    a tool that declares bin-reqs.<family>.txt."""
+    return _for_family(entry.get("required", []), family)
+
+
+def entry_optional(entry: dict, family: str) -> list[str]:
+    """A catalog entry's optional binaries: allowed and reported, never
+    required up front -- the one a run uses is checked where it is used."""
+    return _for_family(entry.get("optional", []), family)
 
 
 # Version managers whose shims stand in for every program any of their
@@ -147,7 +158,8 @@ def check(tool: str | None, out: render.Renderer, *, summary: bool = False) -> i
     missing: list[str] = []
     checked = 0
     for name, (entry, label) in sorted(selected.items()):
-        reqs = entry_reqs(entry, family)
+        reqs = entry_required(entry, family)
+        _report_optional(name, label, entry_optional(entry, family), out)
         if not reqs:
             out.info(f"{name}{label}: no external requirements", command_name=name)
             continue
@@ -180,6 +192,26 @@ def check(tool: str | None, out: render.Renderer, *, summary: bool = False) -> i
     return out.ok(f"all {checked} required binaries present", checked=checked)
 
 
+def _report_optional(
+    name: str,
+    label: str,
+    optional: list[str],
+    out: render.Renderer,
+) -> None:
+    """Optional binaries, said as information: present or not, never missing."""
+    for binary in optional:
+        found, note = resolve(binary)
+        state = f"-> {found}" if found else "not installed"
+        out.info(
+            f"{name}{label}: [optional] {binary} {state}"
+            + (f" ({note})" if note else ""),
+            command_name=name,
+            binary=binary,
+            optional=True,
+            **({"path": found} if found else {}),
+        )
+
+
 def _summary(
     selected: dict[str, tuple[dict, str]],
     tool: str | None,
@@ -190,17 +222,32 @@ def _summary(
     # what the machine has to provide, and jq needed by four commands is one
     # jq to install. Who needs it travels in the JSON fields (`needed_by`).
     needed_by: dict[str, list[str]] = {}
+    used_by: dict[str, list[str]] = {}
     for name, (entry, label) in sorted(selected.items()):
-        for binary in entry_reqs(entry, family):
+        for binary in entry_required(entry, family):
             needed_by.setdefault(binary, []).append(f"{name}{label}")
-    if not needed_by:
+        for binary in entry_optional(entry, family):
+            used_by.setdefault(binary, []).append(f"{name}{label}")
+    optional_only = set(used_by) - set(needed_by)
+    if not needed_by and not optional_only:
         what = tool if tool is not None else "anything"
         return out.ok(f"{what}: no external requirements", checked=0)
     missing: list[str] = []
-    for binary in sorted(needed_by):
+    # One sorted list, each binary once: required ones [ok]/[missing], an
+    # optional one -- needed by none of the selected -- said as [optional].
+    for binary in sorted(set(needed_by) | optional_only):
         found, note = resolve(binary)
         via = f" ({note})" if note else ""
-        if found:
+        if binary in optional_only:
+            out.info(
+                f"[optional] {binary} "
+                + (f"-> {found}{via}" if found else "not installed"),
+                binary=binary,
+                optional=True,
+                used_by=used_by[binary],
+                **({"path": found} if found else {}),
+            )
+        elif found:
             out.info(
                 f"[ok] {binary} -> {found}{via}",
                 binary=binary,

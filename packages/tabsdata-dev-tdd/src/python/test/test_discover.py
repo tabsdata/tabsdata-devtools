@@ -13,18 +13,33 @@ def test_repo_root_is_found_when_editable():
 
 def test_bin_reqs_ignores_comments_and_blanks(tmp_path):
     f = tmp_path / "bin-reqs.txt"
-    f.write_text("# a comment\n\ngit\nrg  # trailing\n")
+    f.write_text("# a comment\n[required]  # what runs need\n\ngit\nrg  # trailing\n")
     assert discover.parse_bin_reqs(f) == ["git", "rg"]
 
 
-def test_bin_reqs_rejects_a_path(tmp_path):
+def test_bin_reqs_reads_each_section_wherever_it_sits(tmp_path):
     f = tmp_path / "bin-reqs.txt"
-    f.write_text("/usr/bin/git\n")
-    try:
-        discover.parse_bin_reqs(f)
-    except discover.LayoutError:
-        return
-    raise AssertionError("expected LayoutError")
+    f.write_text("[optional]\nconda\n\n[required]\nuv\n")
+    assert discover.parse_bin_reqs(f) == ["uv"]
+    assert discover.parse_bin_opts(f) == ["conda"]
+
+
+def test_bin_reqs_refuses_a_name_whose_kind_it_cannot_tell(tmp_path):
+    """Every name sits under a section: one under none, an unknown header or a
+    repeated one would leave what the name is to where it happens to sit."""
+    import pytest
+
+    f = tmp_path / "bin-reqs.txt"
+    for text, why in (
+        ("/usr/bin/git\n", "under no section"),
+        ("[required]\n/usr/bin/git\n", "bare binary name"),
+        ("git\n", "under no section"),
+        ("[needed]\ngit\n", "unknown section"),
+        ("[required]\ngit\n[required]\nrg\n", "a second"),
+    ):
+        f.write_text(text)
+        with pytest.raises(discover.LayoutError, match=why):
+            discover.parse_bin_reqs(f)
 
 
 def test_discover_real_repo():
@@ -61,10 +76,15 @@ def test_shell_commands_and_their_reqs_reach_the_catalog():
     neither. What a command itself shells out to is the same in both."""
     found = discover.discover(paths.repo_root())
     shell = found["shell"]
-    assert shell["_tdd-env"]["reqs"]["unix"] == ["jq", "awk"]
-    assert shell["_tdd-env"]["reqs"]["powershell"] == []
-    assert shell["venv"]["reqs"]["unix"] == ["jq", "awk", "pyenv", "uv", "conda"]
-    assert shell["venv"]["reqs"]["powershell"] == ["pyenv", "uv", "conda"]
+    assert shell["_tdd-env"]["required"]["unix"] == ["jq", "awk"]
+    assert shell["_tdd-env"]["required"]["powershell"] == []
+    assert shell["venv"]["required"]["unix"] == ["jq", "awk", "uv"]
+    assert shell["venv"]["required"]["powershell"] == ["uv"]
+    # the venv managers but uv: allowed and reported, needed only for their type
+    assert shell["venv"]["optional"] == {
+        "unix": ["conda", "pyenv"],
+        "powershell": ["conda", "pyenv"],
+    }
     assert shell["venv"]["files"] == {"unix": "venv.sh", "powershell": "venv.ps1"}
 
 
@@ -166,6 +186,29 @@ def test_every_tool_and_shell_command_has_a_design_doc():
         text = d.read_text()
         assert text.startswith("<!--\nCopyright 2026 Tabsdata Inc.\n-->"), d
         assert len(text.splitlines()) >= 6, f"{d} says nothing"
+
+
+def test_a_tool_declares_per_family_and_optional_binaries(tmp_path, resource_folder):
+    """bin-reqs.txt is every family's; bin-reqs.<family>.txt adds to it, as
+    smoke needs bash under a POSIX shell and pwsh under PowerShell; what
+    follows `[optional]` is allowed but never required up front."""
+    import shutil
+
+    import pytest
+
+    folder = tmp_path / "tool"
+    shutil.copytree(resource_folder / "tool-bin-reqs", folder)
+    required, optional = discover.tool_bin_reqs(folder)
+    assert required == {"unix": ["uv", "bash"], "powershell": ["uv", "pwsh"]}
+    assert optional == {"unix": ["conda"], "powershell": ["conda", "pyenv"]}
+    # no family file: plain lists, as every other tool has
+    for family in ("unix", "powershell"):
+        (folder / f"bin-reqs.{family}.txt").unlink()
+    assert discover.tool_bin_reqs(folder) == (["uv"], ["conda"])
+    # a family nobody has is a typo, not a file to ignore
+    (folder / "bin-reqs.fish.txt").write_text("fish\n")
+    with pytest.raises(discover.LayoutError, match="not a shell family"):
+        discover.tool_bin_reqs(folder)
 
 
 def test_a_toolset_overrides_the_interpreter_only_with_an_exact_version(

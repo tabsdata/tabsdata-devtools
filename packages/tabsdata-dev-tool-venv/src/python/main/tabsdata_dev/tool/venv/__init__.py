@@ -50,7 +50,9 @@ DESCRIPTION = (
 #: One interpreter across every venv tdd makes, whichever tool makes it: what a
 #: tdkserver instance builds its own environments with.
 DEFAULT_PYTHON = "3.12.13"
-DEFAULT_TYPE = "pyenv"
+#: uv on every platform: the one manager tdd always has, building on its own
+#: exact interpreters; pyenv and conda are not supported on Windows.
+DEFAULT_TYPE = "uv"
 SCHEMA = 1
 _NAME_OK = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -286,6 +288,7 @@ def create(args: argparse.Namespace, out: render.Renderer) -> int:
         raise ToolError(f"invalid name: {name} (letters, digits, . _ - only; no leading dot)")
     if manager not in managedvenv.MANAGERS:
         raise ToolError(f"unknown --type: {manager} (pyenv, uv or conda)")
+    managedvenv.require_manager(manager)
     # Only uv builds a venv that survives a move; `python -m venv` and conda
     # bake the path in, so asking is a mistake worth stopping on.
     if args.relocatable and manager != "uv":

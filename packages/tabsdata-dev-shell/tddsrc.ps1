@@ -182,12 +182,19 @@ function _tdd_file_reqs {
     return @($common) + @($own | Where-Object { $_ -notin $common })
 }
 
-# The bare names in a bin-reqs.txt.
+# The bare names a bin-reqs.txt requires: its [required] section, from that
+# header to the next one. An [optional] binary is checked where it is used,
+# never up front.
 function _tdd_read_reqs {
     param([string]$Path)
-    return @(Get-Content -LiteralPath $Path |
-        ForEach-Object { ($_ -split '#', 2)[0].Trim() } |
-        Where-Object { $_ -ne '' })
+    $names = @()
+    $required = $false
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        $name = ($line -split '#', 2)[0].Trim()
+        if ($name.StartsWith('[')) { $required = ($name -eq '[required]'); continue }
+        if ($required -and $name -ne '') { $names += $name }
+    }
+    return $names
 }
 
 function _tdd_fn_get {

@@ -3,5 +3,9 @@
 #
 
 # bin-reqs.txt -- the 1Password CLI, which does every read; its sign-in is the
-# credential, and nothing here stores one.
+# credential, and nothing here stores one. Optional all the same: no machine
+# has to have it -- Windows does not -- so each read checks it where it
+# happens, and says what to do without it.
+
+[optional]
 op

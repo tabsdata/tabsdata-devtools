@@ -41,6 +41,7 @@ import dataclasses
 import json
 import os
 import pathlib
+import shutil
 from typing import Any
 
 from . import datadir
@@ -51,6 +52,26 @@ ENV_ACTIVATED = "_TDD_VENV_ACTIVATED"
 MARKER_SUFFIX = ".json"
 LEGACY_MARKER_SUFFIX = ".env"
 MANAGERS = ("pyenv", "uv", "conda")
+#: What Windows supports: uv alone, tdd's own hard requirement. pyenv's port
+#: there is a different program and conda is not part of the Windows workflow,
+#: so a venv of either is refused plainly rather than half working. A flag of
+#: its own so the rule can be tested anywhere.
+WINDOWS = os.name == "nt"
+WINDOWS_MANAGERS = ("uv",)
+
+
+def require_manager(manager: str, *, runs: bool = True) -> None:
+    """Refuse a venv type this platform does not support, and -- when `runs`,
+    the manager is about to be called -- one that is not installed. pyenv and
+    conda are optional binaries: checked here, where they are used, never up
+    front."""
+    if WINDOWS and manager not in WINDOWS_MANAGERS:
+        raise ToolError(
+            f"{manager} venvs are not supported on Windows; "
+            "make a uv one: tdd venv create --name NAME --type uv"
+        )
+    if runs and shutil.which(manager) is None:
+        raise ToolError(f"this is a {manager} venv, and {manager} is not installed")
 
 
 def root() -> pathlib.Path:
@@ -271,6 +292,9 @@ def launch(
     cannot see it -- its own bin/, put first on PATH like activation does, is
     the exact equivalent.
     """
+    # A pyenv venv runs its program by path: no pyenv is called, so none is
+    # needed -- but Windows refuses the type all the same.
+    require_manager(manager, runs=manager != "pyenv")
     if manager == "uv":
         return ["uv", "run", "--active", "--no-project", cmd, *args], {
             "VIRTUAL_ENV": str(path)

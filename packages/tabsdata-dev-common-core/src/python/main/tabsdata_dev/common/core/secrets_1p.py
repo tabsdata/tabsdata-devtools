@@ -42,8 +42,14 @@ def _norm(s: str) -> str:
 
 
 def _require(cmd: str) -> None:
+    """op is optional everywhere -- a machine need not have 1Password, and
+    Windows does not -- so every read checks it here, where it happens."""
     if shutil.which(cmd) is None:
-        raise ToolError(f"'{cmd}' not found in PATH")
+        raise ToolError(
+            f"'{cmd}' (the 1Password CLI) is not installed, and this needs "
+            "1Password; where 1Password is not used, set the variables from a "
+            "file exported on a machine that has it instead"
+        )
 
 
 def fetch(vault: str) -> dict[str, str]:

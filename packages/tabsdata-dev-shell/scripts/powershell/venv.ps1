@@ -58,7 +58,7 @@ tdd_fn_register venv "create, activate, deactivate, delete or list managed venvs
 # Built-in option defaults: what `tdd venv config` writes as its template,
 # and what `--show` compares against.
 function tdd_defaults_venv {
-    @('create|--type|pyenv', 'create|--python|3.12.13', 'create|--name|',
+    @('create|--type|uv', 'create|--python|3.12.13', 'create|--name|',
         'create|--force|false', 'create|--relocatable|false', 'deactivate|--force|false',
         'activate|--name|', 'delete|--name|', 'delete|--all|false')
 }
@@ -270,7 +270,7 @@ managed one. With --force an existing NAME is deleted first, even the active one
 
 options:
   --name NAME  the venv
-  --type {pyenv,uv,conda}  the tool that creates it (default: pyenv). A pyenv venv is a plain `python -m venv` on a pyenv interpreter; a uv venv is built on a uv-managed interpreter only, never one found on PATH; conda gets its shell hook installed on the fly when the rc did not
+  --type {pyenv,uv,conda}  the tool that creates it (default: uv; pyenv and conda are not supported on Windows). A pyenv venv is a plain `python -m venv` on a pyenv interpreter; a uv venv is built on a uv-managed interpreter only, never one found on PATH; conda gets its shell hook installed on the fly when the rc did not
   --python VERSION  the interpreter (default: 3.12.13, what a tdkserver instance builds its own environments with). pyenv needs it installed already (pyenv install VERSION); uv and conda fetch it
   --relocatable  make the venv relocatable: it keeps working after being moved or copied (uv venvs only; the prompt ends in /reloc). Without it the venv is bound to its path, whatever UV_VENV_RELOCATABLE says
   --force, -f  delete NAME first if it exists, leaving it if it is the active one
@@ -588,7 +588,7 @@ function _tdd_venv_create {
     param([string[]]$Argv)
     if ($null -eq $Argv) { $Argv = @() }
     $name = ''
-    $type = 'pyenv'
+    $type = 'uv'
     # One interpreter across every venv tdd makes, whichever tool makes it --
     # otherwise `--type uv` and `--type pyenv` hand you different Pythons from
     # the same command. 3.12.13 is what a tdkserver instance builds its own

@@ -39,7 +39,7 @@ def dispatch(
     # Help is the exception: reading what a tool does must never depend on
     # what the machine has installed.
     wants_help = any(a in HELP_FLAGS for a in argv)
-    gone = reqs.missing_details(entry.get("reqs", []))
+    gone = reqs.missing_details(reqs.entry_required(entry, reqs.shell_family()))
     if gone and not wants_help:
         return out.error(
             _missing_message(tool, gone),

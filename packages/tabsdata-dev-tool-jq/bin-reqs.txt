@@ -3,4 +3,5 @@
 #
 
 # bin-reqs.txt -- the jq this tool runs: the machine's, since PyPI has no jq program.
+[required]
 jq

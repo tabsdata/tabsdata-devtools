@@ -104,7 +104,9 @@ which is also what `tdd <name> config --create` writes as the template.
 ## 2. Declare external binaries
 
 Anything beyond shell builtins and the tdd envs goes in `<file>.bin-reqs.txt` beside the script,
-one bare name per line (`common.bin-reqs.txt` -- `jq`, `awk` -- is added to every command).
+one bare name per line under a `[required]` or `[optional]` header (`common.bin-reqs.txt` --
+`jq`, `awk` -- is added to every command). Optional names are reported but never checked up
+front: the command checks the one it is about to use.
 `tdd-fn` checks them with `command -v` before running the command and refuses with the full list
 (`--help` excepted); `tdd --reqs` reports; `cargo make check` fails on a missing one. Sourcing
 itself never checks anything.

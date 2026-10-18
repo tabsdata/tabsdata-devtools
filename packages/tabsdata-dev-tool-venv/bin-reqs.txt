@@ -2,9 +2,12 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-# bin-reqs.txt -- the venv managers `_venv` drives: the same three `tdd venv`
-# declares, all required up front rather than per --type, so `tdd --reqs` says
-# whether every kind of managed venv works.
-pyenv
+# bin-reqs.txt -- the venv managers `_venv` drives. uv is tdd's own hard
+# requirement; pyenv and conda are needed only for a venv of their --type,
+# checked when one is created or used -- and not supported on Windows.
+[required]
 uv
+
+[optional]
 conda
+pyenv

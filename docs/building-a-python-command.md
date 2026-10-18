@@ -133,7 +133,11 @@ to do on your side.
 ## 3. Declare external binaries
 
 Anything the tool shells out to that the toolset does not provide goes in `bin-reqs.txt`, one
-bare name per line, `#` comments allowed; omit the file when there is nothing. A binary is
+bare name per line under a `[required]` or `[optional]` header, `#` comments allowed; omit the
+file when there is nothing. What one shell family needs on top goes in `bin-reqs.unix.txt` or
+`bin-reqs.powershell.txt`. A binary only some runs use goes under `[optional]`: declared, so
+`proc.run()` takes it, but checked where you use it, with a plain error when it is missing --
+never a refusal up front. A binary is
 legitimate either **pinned** by your `deps-*` (it sits in the toolset's `bin/`, first on `PATH`)
 or **declared** here; `proc.run()` refuses anything else. `tdd <tool>` refuses to dispatch when a
 declaration is missing (`--help` excepted); `tdd --reqs` reports; `cargo make check` fails.
