@@ -9,7 +9,10 @@ description = "shared building blocks for every tool: cli, render, proc, paralle
 requires-python = ">=3.11"
 # Ranges, not pins: every toolset resolves these independently against its own
 # deps-* bundle, and `cargo make gen` warns when the toolsets drift apart.
-dependencies = ["rich>=13"]
+dependencies = [
+    "jinja2>=3.1",
+    "rich>=13",
+]
 
 [tool.hatch.version]
 path = "../../VERSION"

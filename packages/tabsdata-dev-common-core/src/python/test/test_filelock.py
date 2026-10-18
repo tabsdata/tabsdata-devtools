@@ -5,33 +5,31 @@
 import os
 import subprocess
 import sys
-import textwrap
 import threading
 import time
+
+import pytest
 
 from tabsdata_dev.common.core import filelock
 
 
-def holder(path, seconds):
-    script = textwrap.dedent(
-        """
-        import pathlib, sys, time
-        from tabsdata_dev.common.core import filelock
-        with filelock.held(pathlib.Path(sys.argv[1])):
-            print("held", flush=True)
-            time.sleep(float(sys.argv[2]))
-        """
-    )
-    p = subprocess.Popen(
-        [sys.executable, "-c", script, str(path), str(seconds)],
-        stdout=subprocess.PIPE,
-        text=True,
-    )
-    assert p.stdout.readline().strip() == "held"
-    return p
+@pytest.fixture
+def holder(resource_folder):
+    """Start another process that holds a lock; return once it has it."""
+
+    def start(path, seconds):
+        p = subprocess.Popen(
+            [sys.executable, resource_folder / "holder.py", path, str(seconds)],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        assert p.stdout.readline().strip() == "held"
+        return p
+
+    return start
 
 
-def test_a_lock_waits_for_another_process_and_says_so_once(tmp_path):
+def test_a_lock_waits_for_another_process_and_says_so_once(tmp_path, holder):
     path = tmp_path / "locks" / "salesforce.lock"
     other = holder(path, 0.6)
     told = []
@@ -81,7 +79,7 @@ def test_two_holders_never_overlap(tmp_path):
     assert peak[0] == 1
 
 
-def test_all_held_takes_every_lock_in_one_order(tmp_path):
+def test_all_held_takes_every_lock_in_one_order(tmp_path, holder):
     paths = [tmp_path / "b.lock", tmp_path / "a.lock", tmp_path / "b.lock"]
     other = holder(tmp_path / "a.lock", 0.4)
     told = []

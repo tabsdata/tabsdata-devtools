@@ -117,6 +117,13 @@ that is *edited* rather than only read -- `tabsdata-dev-shell`'s scripts, `<repo
 `<repo>/xp-tool/` -- stays where it is edited and is `force-include`d into the wheel, which has
 no effect on an editable install; those three locate both layouts, probing for a file they know.
 
+No code holds a script, template or data file as a string literal. A package's own are in
+`src/resources/main/`, force-included as `resources/` beside its module, and read through
+`common.core.resources`, which locates both layouts the same way; a template is Jinja2 under
+`StrictUndefined`, and only text whose shape varies is one -- a script takes its values as
+arguments or environment variables, so no value is ever spliced into shell text. A test's files
+are in `src/resources/test/<test module>/` and never ship.
+
 ## Environments
 
 Every env is `uv venv --relocatable` with `UV_LINK_MODE=copy`, and `tdd-source.sh` locates

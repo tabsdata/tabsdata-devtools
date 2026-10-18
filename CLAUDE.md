@@ -68,11 +68,16 @@ holds the user's system and domain descriptors.
    A tree that is *edited* stays where it is edited and is `force-include`d into the wheel —
    the shell scripts, `<repo>/smoke-tool/`, `<repo>/xp-tool/` (xp's suites and connections);
    `force-include` does nothing for an editable install, so each locates both layouts.
+   No script, template or data file is a string literal in code: a package's own live in
+   `src/resources/main/` (force-included as `resources/`, read via `common.core.resources`;
+   Jinja2 only where the text changes shape, values otherwise by argument or environment), a
+   test's in `src/resources/test/<test module>/` (the `resource_folder` fixture).
 6. **All envs are relocatable** (`_make_venv()`: `--relocatable`, `UV_LINK_MODE=copy`);
    `tdd-source.sh` locates itself; never bake an absolute `TDD_DIR`.
 7. **A tool depends on exactly one `-deps-*`.** That is what assigns its toolset.
 8. **`-toolset-*` packages and `catalog.json` are generated.** Never hand-edit; `cargo make gen`.
-9. **Layout is `src/python/main/` + `src/python/test/`** with hatchling `only-include` + `sources`.
+9. **Layout is `src/python/main/` + `src/python/test/`** with hatchling `only-include` + `sources`,
+   plus `src/resources/main/` + `src/resources/test/` when the code reads files.
 10. **`VERSION` at the repo root is the only version.** Every `pyproject.toml` is `dynamic`;
     `-tdd` force-includes it; `tdd-install` stamps `<tdd_dir>/VERSION`.
 11. **`[tool.tdd] hidden|launcher|disabled = true` are explicit markers**: hidden is a listing

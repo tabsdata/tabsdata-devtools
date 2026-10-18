@@ -168,6 +168,31 @@ def test_every_tool_and_shell_command_has_a_design_doc():
         assert len(text.splitlines()) >= 6, f"{d} says nothing"
 
 
+def test_every_resources_folder_ships_beside_its_module():
+    """A package's src/resources/main reaches its wheel only through
+    force-include, and common.core.resources looks for it as `resources/`
+    beside the module -- a package that forgets the line works editable and
+    breaks installed."""
+    import tomllib
+
+    root = paths.repo_root()
+    assert root is not None
+    wrong = []
+    for pkg in sorted((root / "packages").iterdir()):
+        if not (pkg / "src" / "resources" / "main").is_dir():
+            continue
+        hatch = tomllib.loads((pkg / "pyproject.toml").read_text())["tool"]["hatch"]
+        force = hatch["build"]["targets"]["wheel"].get("force-include", {})
+        to = force.get("src/resources/main", "")
+        module = pkg / "src" / "python" / "main" / to.removesuffix("/resources")
+        if not to.endswith("/resources") or not (module / "__init__.py").is_file():
+            wrong.append(f"{pkg.name}: {to or 'missing'}")
+    assert not wrong, (
+        'each needs `"src/resources/main" = "<module folder>/resources"` under '
+        f"[tool.hatch.build.targets.wheel.force-include]: {wrong}"
+    )
+
+
 def test_every_toolset_lock_resolves_against_pypi_alone():
     """A lock records its registry's URLs; one resolved through a developer's
     local mirror (a devpi on localhost:3141, once all four of them) installs

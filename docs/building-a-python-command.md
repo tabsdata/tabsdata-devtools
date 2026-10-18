@@ -52,9 +52,13 @@ packages/tabsdata-dev-tool-audit/
 ├── pyproject.toml
 ├── DESIGN.md                                     # section 4
 ├── bin-reqs.txt                                  # only if you shell out to something external
-└── src/python/
-    ├── main/tabsdata_dev/tool/audit/__init__.py  # def main() -> int
-    └── test/test_audit.py
+└── src/
+    ├── python/
+    │   ├── main/tabsdata_dev/tool/audit/__init__.py  # def main() -> int
+    │   └── test/test_audit.py
+    └── resources/                                    # only if the code reads files
+        ├── main/                                     # shipped: scripts, templates, data
+        └── test/test_audit/                          # never shipped: one folder per test module
 ```
 
 ```toml
@@ -129,6 +133,15 @@ declaration is missing (`--help` excepted); `tdd --reqs` reports; `cargo make ch
 Everything else ships inside the package and is read with
 `importlib.resources.files("tabsdata_dev.tool.audit")` -- never an OS path, the cwd or
 `__file__` arithmetic.
+
+A script, template or data file is a file, never a string literal in the code. Put it in
+`src/resources/main/`, add `"src/resources/main" = "tabsdata_dev/tool/audit/resources"` under
+`[tool.hatch.build.targets.wheel.force-include]` (a test checks it), and read it with
+`tabsdata_dev.common.core.resources`: `path()`, `text()`, or `render()` for a Jinja2 template.
+A script that needs a value takes it as an argument or an environment variable; make it a
+template only when its text changes shape (a loop, a conditional). A test's files go in
+`src/resources/test/<test module>/`, reached through the `resource_folder` fixture of the
+package's `conftest.py`.
 
 ## 4. Write DESIGN.md
 
