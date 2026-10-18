@@ -7,5 +7,7 @@
 
 common_sh=$1
 set --
+# what the loaders export: common.sh finds help.awk beside it through it
+_TDD_COMMON_SH=$common_sh
 . "$common_sh"
 _tdd_help_text
