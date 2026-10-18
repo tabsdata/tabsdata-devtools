@@ -127,7 +127,8 @@ in wheels mode, a reinstall to see source changes.
 
 - Every file starts with the house header — `#`, `# Copyright 2026 Tabsdata Inc.`, `#` (an HTML
   comment in Markdown). Exceptions are parsed data or machine-owned: `VERSION`, `PYTHON`,
-  `catalog.json`, `uv.lock`, the model data files (`.csv`, `.ddl`), the bundled xp suites.
+  `catalog.json`, `uv.lock`, the model data files (`.csv`, `.ddl`), the bundled xp suites, and
+  a test fixture whose bytes are the input itself (a help declaration, a certificate).
 - A new tool or shell command comes with its design doc (a test enforces it); keep every doc
   short and complete; `docs/design.md` stays the mechanics, not a tour.
 - Comments explain **why**, not what; docstrings on modules and non-obvious functions.

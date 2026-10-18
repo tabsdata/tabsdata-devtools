@@ -165,13 +165,18 @@ def test_no_two_command_files_define_the_same_function():
             owners[fn] = name
 
 
-def _render_help(declaration: str) -> list[str]:
+def _render_help(resource_folder, declaration: str) -> list[str]:
+    """The help common.sh lays out from the declaration file named."""
     import os
     import subprocess
 
     done = subprocess.run(
-        ["bash", "-c", f'. "{shell.scripts_dir() / COMMON}"; _tdd_help_text'],
-        input=declaration,
+        [
+            "bash",
+            resource_folder / "render_help.sh",
+            shell.scripts_dir() / COMMON,
+        ],
+        input=(resource_folder / declaration).read_text(),
         capture_output=True,
         text=True,
         env={**os.environ, "COLUMNS": "80"},
@@ -180,24 +185,10 @@ def _render_help(declaration: str) -> list[str]:
     return done.stdout.splitlines()
 
 
-def test_help_renders_in_the_argparse_layout():
+def test_help_renders_in_the_argparse_layout(resource_folder):
     # The shell helps must read like the Python ones: usage, description,
     # tables with the help at column 24 and wrapped, common options first.
-    long_help = " ".join(["word"] * 30)
-    lines = _render_help(
-        "usage: tdd x sub [--name NAME]\n"
-        "\n"
-        "Does a thing.\n"
-        "\n"
-        "commands:\n"
-        "  sub   the one subcommand\n"
-        "\n"
-        "options:\n"
-        f"  --name NAME   who; {long_help}\n"
-        "  --a-very-long-option-name VALUE   goes on its own line\n"
-        "\n"
-        "example: tdd x sub\n"
-    )
+    lines = _render_help(resource_folder, "help-full.txt")
     assert lines[0] == "usage: tdd x sub [--name NAME]"
     assert lines[1:3] == ["", "Does a thing."]
     o = lines.index("options:")
@@ -215,8 +206,10 @@ def test_help_renders_in_the_argparse_layout():
     assert max(len(line) for line in lines) <= 78
 
 
-def test_help_adds_the_options_section_when_the_declaration_has_none():
-    lines = _render_help("usage: tdd y [-h]\n\nDoes.\n")
+def test_help_adds_the_options_section_when_the_declaration_has_none(
+    resource_folder,
+):
+    lines = _render_help(resource_folder, "help-bare.txt")
     assert lines == [
         "usage: tdd y [-h]",
         "",
@@ -514,39 +507,39 @@ def test_the_config_template_is_tables_only_and_cannot_fail_on_its_last_test():
     assert body.rstrip().endswith("return 0")
 
 
-def _config_show(shell_bin: str, tty: bool, no_color: bool = False) -> str:
-    """Run the shared `config --show` for a made-up command and return what it
-    wrote, with a stub `tdd-exe` standing in for the TOML parser: it says the
-    file sets `type = "uv"`. TDD_DIR names a directory that does not exist --
-    `--show` reads and writes nothing but the file it reports on.
+def _config_show(
+    resource_folder,
+    shell_bin: str,
+    tty: bool,
+    no_color: bool = False,
+) -> str:
+    """Run config_show.sh -- the shared `config --show` for a made-up command,
+    a stub `tdd-exe` saying its file sets `type = "uv"` -- and return what it
+    wrote. TDD_DIR names a directory that does not exist: `--show` reads and
+    writes nothing but the file it reports on.
     """
     import os
     import pty
     import select
     import subprocess
 
-    script = (
-        f'. "{shell.scripts_dir() / COMMON}"\n'
-        "_tdd_cmd_reset\n"
-        'tdd-exe() { printf \'%s\' \'{"options":{"":{"type":"uv"}}}\'; }\n'
-        "tdd_defaults_demo() { printf '%s\\n' '-|--type|pyenv'"
-        " 'create|--python|3.12'; }\n"
-        "_tdd_config_show demo\n"
-    )
+    argv = [
+        shell_bin,
+        resource_folder / "config_show.sh",
+        shell.scripts_dir() / COMMON,
+    ]
     env = {**os.environ, "TDD_DIR": "/no/such/dir"}
     env.pop("NO_COLOR", None)
     if no_color:
         env["NO_COLOR"] = "1"
     if not tty:
-        done = subprocess.run(
-            [shell_bin, "-c", script], capture_output=True, text=True, env=env
-        )
+        done = subprocess.run(argv, capture_output=True, text=True, env=env)
         assert done.returncode == 0, done.stderr
         return done.stdout
     # a real terminal, because every paint is a terminal's alone
     master, slave = pty.openpty()
     child = subprocess.Popen(
-        [shell_bin, "-c", script],
+        argv,
         stdout=slave,
         stderr=subprocess.PIPE,
         stdin=subprocess.DEVNULL,
@@ -567,7 +560,9 @@ def _config_show(shell_bin: str, tty: bool, no_color: bool = False) -> str:
     return out.decode().replace("\r\n", "\n")
 
 
-def test_config_show_paints_a_built_in_green_and_what_the_file_sets_blue():
+def test_config_show_paints_a_built_in_green_and_what_the_file_sets_blue(
+    resource_folder,
+):
     """The twin of common.core.config.show, to the escape: a value at its
     built-in default in green, a value the file sets in blue with that built-in
     named in white beside it, and every line -- headers included -- carrying
@@ -581,7 +576,7 @@ def test_config_show_paints_a_built_in_green_and_what_the_file_sets_blue():
     import shutil
 
     green, blue, white, off = "\033[32m", "\033[38;5;33m", "\033[37m", "\033[0m"
-    painted = _config_show("bash", tty=True)
+    painted = _config_show(resource_folder, "bash", tty=True)
     # the message paints itself, so the renderer must not wrap it a second time
     assert painted.startswith(f"{green}/no/such/dir/demo.toml  (no file yet){off}\n")
     assert f"{green}[options]{off}" in painted
@@ -592,14 +587,14 @@ def test_config_show_paints_a_built_in_green_and_what_the_file_sets_blue():
     ) in painted
 
     # a pipe and NO_COLOR get the same lines with no escape at all
-    plain = _config_show("bash", tty=False)
+    plain = _config_show(resource_folder, "bash", tty=False)
     assert "\033" not in plain
     assert 'type = "uv"   (built in default: "pyenv")\n' in plain
     assert 'python = "3.12"\n' in plain
-    assert _config_show("bash", tty=True, no_color=True) == plain
+    assert _config_show(resource_folder, "bash", tty=True, no_color=True) == plain
 
     if shutil.which("zsh"):  # the other shell tdd is sourced into
-        assert _config_show("zsh", tty=True) == painted
+        assert _config_show(resource_folder, "zsh", tty=True) == painted
 
 
 def test_tdd_help_is_laid_out_by_the_same_engine_as_every_command_help():
@@ -923,7 +918,7 @@ def test_the_powershell_loader_loads_at_its_own_top_level():
     assert ". $_tdd_file.FullName" in text
 
 
-def test_the_powershell_files_parse():
+def test_the_powershell_files_parse(resource_folder):
     """A syntax error in a dot-sourced file breaks the session that loads it,
     and nothing else here would catch one. Skipped where pwsh is not installed;
     the family still ships, it is just not parsed on this machine."""
@@ -940,53 +935,46 @@ def test_the_powershell_files_parse():
         *_ps_command_files(),
         shell._root() / shell.TEMPLATES[shell.POWERSHELL],
     ]
-    # The paths go inside the script rather than after it: `--` following
-    # `-Command` is read as PowerShell's unary operator, not as an end-of-flags
-    # marker, so an argument list there never arrives -- this test passed on an
-    # empty file list until that was noticed.
-    listing = ",".join("'" + str(f).replace("'", "''") + "'" for f in files)
-    script = (
-        f"foreach ($f in @({listing})) {{"
-        "  $errors = $null;"
-        "  [System.Management.Automation.Language.Parser]::ParseFile("
-        "    $f, [ref]$null, [ref]$errors) | Out-Null;"
-        '  if ($errors) { Write-Output "$f : $($errors[0])"; exit 1 }'
-        "}"
-    )
+    # -File, not -Command: after `-Command`, `--` is PowerShell's unary
+    # operator, not an end-of-flags marker, so an argument list there never
+    # arrived -- this test once passed on an empty file list.
     done = subprocess.run(
-        [pwsh, "-NoProfile", "-Command", script], capture_output=True, text=True
+        [pwsh, "-NoProfile", "-File", resource_folder / "parse.ps1", *files],
+        capture_output=True,
+        text=True,
     )
     assert done.returncode == 0, done.stdout or done.stderr
     assert len(files) == 5 and all(f.is_file() for f in files)
 
 
-def _masked(shell_bin: str, name: str, value: str) -> str:
+def _half(resource_folder, shell_bin: str, script: str, *args) -> list:
+    """The argv that runs `<script>.sh` or `<script>.ps1` from the resources in
+    one half, after the paths of that half's shared layer and env command."""
+    if shell_bin == "pwsh":
+        return [
+            shell_bin,
+            "-NoProfile",
+            "-File",
+            resource_folder / f"{script}.ps1",
+            _ps_dir() / PS_COMMON,
+            _ps_dir() / "env.ps1",
+            *args,
+        ]
+    return [
+        shell_bin,
+        resource_folder / f"{script}.sh",
+        shell.scripts_dir() / COMMON,
+        shell.scripts_dir() / "env.sh",
+        *args,
+    ]
+
+
+def _masked(resource_folder, shell_bin: str, name: str, value: str) -> str:
     """The `show` row one half produces for a set, secret-named variable."""
     import os
     import subprocess
 
-    if shell_bin == "pwsh":
-        script = (
-            f". '{_ps_dir() / PS_COMMON}'\n"
-            "function tdd_fn_register { param($Name, $Summary) }\n"
-            f". '{_ps_dir() / 'env.ps1'}'\n"
-            "_tdd_cmd_reset\n"
-            "$rows = [System.Collections.Generic.List[string]]::new()\n"
-            "$vars = [System.Collections.Generic.List[object]]::new()\n"
-            f"_tdd_vars_show_row '{name}' 'td' $false $rows $vars\n"
-            "[Console]::Out.WriteLine($rows[0])\n"
-        )
-        argv = [shell_bin, "-NoProfile", "-Command", script]
-    else:
-        script = (
-            f'. "{shell.scripts_dir() / COMMON}"\n'
-            f'. "{shell.scripts_dir() / "env.sh"}" 2>/dev/null\n'
-            "_tdd_cmd_reset\n"
-            "_tdd_reveal=0; _tdd_rows=''; _tdd_json=''\n"
-            f"_tdd_vars_show_row {name} td\n"
-            'printf "%s" "$_tdd_rows"\n'
-        )
-        argv = [shell_bin, "-c", script]
+    argv = _half(resource_folder, shell_bin, "show_row", name)
     # Each half refuses to load without the path to its own shared layer: that
     # is how a command file says what it depends on.
     done = subprocess.run(
@@ -1005,7 +993,7 @@ def _masked(shell_bin: str, name: str, value: str) -> str:
     return done.stdout.strip()
 
 
-def test_a_multi_line_secret_is_masked_once_not_once_per_line():
+def test_a_multi_line_secret_is_masked_once_not_once_per_line(resource_folder):
     """`show` masked with `cut -c1-2`, which is line-oriented: a certificate
     came back as the first two characters of EVERY line, so four readable lines
     of it printed in a listing whose only job is to mask -- and the same string
@@ -1018,10 +1006,7 @@ def test_a_multi_line_secret_is_masked_once_not_once_per_line():
 
     import pytest
 
-    pem = (
-        "-----BEGIN CERTIFICATE-----\nMIIBsecretmaterial\n"
-        "AAAAmoreofit\n-----END CERTIFICATE-----"
-    )
+    pem = (resource_folder / "certificate.pem").read_text()
     cases = {
         "TD_MASKTEST_PEM": (pem, "--****"),
         "TD_MASKTEST_PASSWORD": ("hunter2", "hu****"),
@@ -1035,7 +1020,7 @@ def test_a_multi_line_secret_is_masked_once_not_once_per_line():
         if shutil.which(shell_bin) is None:
             continue
         for name, (value, want) in cases.items():
-            row = _masked(shell_bin, name, value)
+            row = _masked(resource_folder, shell_bin, name, value)
             assert row == f"{name}={want}", (shell_bin, name, row)
             assert "\n" not in row, (shell_bin, name, row)
     if "pwsh" not in halves:
@@ -1072,34 +1057,19 @@ def test_every_definition_of_the_index_markers_agrees():
         assert INDEX_PROD in found, f"{name} does not define the prod index"
 
 
-def _resolved(shell_bin: str, option: str, value: str) -> tuple[int, str]:
+def _resolved(
+    resource_folder,
+    shell_bin: str,
+    option: str,
+    value: str,
+) -> tuple[int, str]:
     """What one half exports for `env set <option> <value>`: the exit status and
     the variable it set."""
     import os
     import subprocess
 
-    var = "UV_INDEX" if option == "--py-idx" else "UV_DEFAULT_INDEX"
-    if shell_bin == "pwsh":
-        script = (
-            f". '{_ps_dir() / PS_COMMON}'\n"
-            "function tdd_fn_register { param($Name, $Summary) }\n"
-            f". '{_ps_dir() / 'env.ps1'}'\n"
-            "_tdd_cmd_reset\n"
-            f"tddfn_env @('set', '{option}', '{value}') | Out-Null\n"
-            f'[Console]::Out.WriteLine("$($global:_TDD_RC) $($env:{var})")\n'
-        )
-        argv = [shell_bin, "-NoProfile", "-Command", script]
-    else:
-        script = (
-            f'. "{shell.scripts_dir() / COMMON}"\n'
-            f'. "{shell.scripts_dir() / "env.sh"}" 2>/dev/null\n'
-            "_tdd_cmd_reset\n"
-            f'tddfn_env set {option} "{value}" >/dev/null 2>&1\n'
-            f'printf "%s %s" "$?" "${var}"\n'
-        )
-        argv = [shell_bin, "-c", script]
     done = subprocess.run(
-        argv,
+        _half(resource_folder, shell_bin, "set_index", option, value),
         capture_output=True,
         text=True,
         env={
@@ -1111,11 +1081,11 @@ def _resolved(shell_bin: str, option: str, value: str) -> tuple[int, str]:
             "UV_DEFAULT_INDEX": "",
         },
     )
-    rc, _, rest = done.stdout.strip().partition(" ")
-    return int(rc), rest
+    rc, uv_index, uv_default_index = done.stdout.splitlines()[:3]
+    return int(rc), uv_index if option == "--py-idx" else uv_default_index
 
 
-def test_the_index_options_take_the_markers_in_both_halves():
+def test_the_index_options_take_the_markers_in_both_halves(resource_folder):
     """`--py-idx @dev` used to export the literal `@dev`, which uv then read as
     a URL. Both index options resolve, in both halves, and an unknown marker is
     refused rather than exported."""
@@ -1124,20 +1094,26 @@ def test_the_index_options_take_the_markers_in_both_halves():
     halves = [s for s in ("bash", "zsh", "pwsh") if shutil.which(s)]
     for shell_bin in halves:
         for option in ("--py-idx", "--py-default-idx"):
-            assert _resolved(shell_bin, option, "@dev") == (0, INDEX_DEV), (
+            assert _resolved(resource_folder, shell_bin, option, "@dev") == (
+                0,
+                INDEX_DEV,
+            ), (
                 shell_bin,
                 option,
             )
-            assert _resolved(shell_bin, option, "@prod") == (0, INDEX_PROD), (
+            assert _resolved(resource_folder, shell_bin, option, "@prod") == (
+                0,
+                INDEX_PROD,
+            ), (
                 shell_bin,
                 option,
             )
             plain = "https://mine.example/simple/"
-            assert _resolved(shell_bin, option, plain) == (0, plain), (
+            assert _resolved(resource_folder, shell_bin, option, plain) == (0, plain), (
                 shell_bin,
                 option,
             )
-            rc, value = _resolved(shell_bin, option, "@staging")
+            rc, value = _resolved(resource_folder, shell_bin, option, "@staging")
             assert rc == 1 and value == "", (shell_bin, option, rc, value)
 
 
@@ -1154,12 +1130,13 @@ def test_powershell_says_why_a_bare_marker_arrives_empty():
     )
 
 
-def test_the_powershell_loader_passes_an_unquoted_comma_list_as_typed():
+def test_the_powershell_loader_passes_an_unquoted_comma_list_as_typed(
+    resource_folder,
+):
     """`tdd mexe --dirs a,b` under pwsh reached the command as `--dirs "a b"`:
     PowerShell parses an unquoted `a,b` as an array and [string] joins an
     array with spaces. The loader joins it back with the commas that were
     typed, for every comma-separated option of every command."""
-    import re
     import shutil
     import subprocess
 
@@ -1169,17 +1146,12 @@ def test_the_powershell_loader_passes_an_unquoted_comma_list_as_typed():
     if pwsh is None:
         pytest.skip("pwsh not installed")
     source = shell.source_template(shell.POWERSHELL)
-    helper = re.search(r"(?ms)^function _tdd_argv_text \{.*?^\}", source)
-    assert helper, "_tdd_argv_text is gone from the loader"
     assert source.count("@(_tdd_argv_text $args)") == 2  # tdd and tdd-fn
-    script = (
-        helper.group(0)
-        + "\nfunction probe { $a = @(_tdd_argv_text $args); "
-        + "[Console]::Out.WriteLine(\"$($a.Count)|\" + ($a -join '|')) }\n"
-        + "probe\nprobe x\nprobe --dirs a,b git 'two words' 1,2,3\n"
-    )
+    loader = shell._root() / shell.TEMPLATES[shell.POWERSHELL]
     done = subprocess.run(
-        [pwsh, "-NoProfile", "-Command", script], capture_output=True, text=True
+        [pwsh, "-NoProfile", "-File", resource_folder / "argv_text.ps1", loader],
+        capture_output=True,
+        text=True,
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.splitlines() == [
@@ -1205,7 +1177,7 @@ def test_a_shell_command_named_with_an_underscore_is_hidden_like_a_tool():
         assert "tdd_fn_register _tdd-env " in text
 
 
-def _pypi_twine(shell_bin: str, tmp_path) -> tuple[str, str]:
+def _pypi_twine(resource_folder, shell_bin: str, tmp_path) -> tuple[str, str]:
     """`env set --pypi-twine` then `env unset --pypi-twine` in one half, against
     a stand-in `tdd-exe` that records its argv and prints what `_1p fetch`
     would: (the argv it got, `rc USER PASS` after set + `rc USER PASS` after
@@ -1213,56 +1185,24 @@ def _pypi_twine(shell_bin: str, tmp_path) -> tuple[str, str]:
     import os
     import subprocess
 
+    import shutil
+
     calls = tmp_path / "argv"
     fake = tmp_path / "tdd-exe"
-    fake.write_text(
-        "#!/bin/sh\n"
-        f'printf "%s\\n" "$*" >> "{calls}"\n'
-        'printf "export TWINE_USERNAME=__token__\\n"\n'
-        "printf \"export TWINE_PASSWORD='p w'\\n\"\n"
-    )
+    shutil.copy(resource_folder / "fake_tdd_exe.sh", fake)
     fake.chmod(0o755)
-    show = '"$?" "${TWINE_USERNAME-unset}" "${TWINE_PASSWORD-unset}"'
-    if shell_bin == "pwsh":
-        line = (
-            '[Console]::Out.WriteLine("$($global:_TDD_RC) '
-            "$(if ($null -ne $env:TWINE_USERNAME) { $env:TWINE_USERNAME } else { 'unset' }) "
-            "$(if ($null -ne $env:TWINE_PASSWORD) { $env:TWINE_PASSWORD } else { 'unset' })\")\n"
-        )
-        script = (
-            f". '{_ps_dir() / PS_COMMON}'\n"
-            "function tdd_fn_register { param($Name, $Summary) }\n"
-            f". '{_ps_dir() / 'env.ps1'}'\n"
-            "_tdd_cmd_reset\n"
-            "tddfn_env @('set', '--pypi-twine') | Out-Null\n"
-            + line
-            + "_tdd_cmd_reset\n"
-            "tddfn_env @('unset', '--pypi-twine') | Out-Null\n" + line
-        )
-        argv = [shell_bin, "-NoProfile", "-Command", script]
-    else:
-        script = (
-            f'. "{shell.scripts_dir() / COMMON}"\n'
-            f'. "{shell.scripts_dir() / "env.sh"}" 2>/dev/null\n'
-            "_tdd_cmd_reset\n"
-            "tddfn_env set --pypi-twine >/dev/null 2>&1\n"
-            f"printf '%s %s %s\\n' {show}\n"
-            "_tdd_cmd_reset\n"
-            "tddfn_env unset --pypi-twine >/dev/null 2>&1\n"
-            f"printf '%s %s %s\\n' {show}\n"
-        )
-        argv = [shell_bin, "-c", script]
     env = {
         k: v
         for k, v in os.environ.items()
         if k not in ("TWINE_USERNAME", "TWINE_PASSWORD")
     }
     done = subprocess.run(
-        argv,
+        _half(resource_folder, shell_bin, "pypi_twine"),
         capture_output=True,
         text=True,
         env={
             **env,
+            "FAKE_TDD_EXE_CALLS": str(calls),
             "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
             "NO_COLOR": "1",
             "_TDD_COMMON_SH": str(shell.scripts_dir() / COMMON),
@@ -1272,7 +1212,10 @@ def _pypi_twine(shell_bin: str, tmp_path) -> tuple[str, str]:
     return calls.read_text().strip(), done.stdout.strip()
 
 
-def test_pypi_twine_exports_twines_names_from_the_crypto_vault(tmp_path):
+def test_pypi_twine_exports_twines_names_from_the_crypto_vault(
+    tmp_path,
+    resource_folder,
+):
     """`env set --pypi-twine` asks `_1p fetch` for the upload credentials in the
     crypto key's vault and exports what it prints -- TWINE_USERNAME and
     TWINE_PASSWORD, the names twine reads -- and `unset --pypi-twine` removes
@@ -1282,7 +1225,7 @@ def test_pypi_twine_exports_twines_names_from_the_crypto_vault(tmp_path):
     for shell_bin in [s for s in ("bash", "zsh", "pwsh") if shutil.which(s)]:
         run = tmp_path / shell_bin
         run.mkdir()
-        argv, out = _pypi_twine(shell_bin, run)
+        argv, out = _pypi_twine(resource_folder, shell_bin, run)
         assert argv == "_1p fetch --pypi-twine=1p:Employee", (shell_bin, argv)
         assert out.splitlines() == ["0 __token__ p w", "0 unset unset"], (
             shell_bin,

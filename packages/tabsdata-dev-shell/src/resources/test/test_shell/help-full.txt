@@ -1,0 +1,12 @@
+usage: tdd x sub [--name NAME]
+
+Does a thing.
+
+commands:
+  sub   the one subcommand
+
+options:
+  --name NAME   who; word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word
+  --a-very-long-option-name VALUE   goes on its own line
+
+example: tdd x sub
