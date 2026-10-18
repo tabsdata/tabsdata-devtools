@@ -7,7 +7,11 @@ name = "tabsdata-dev-tool-domain"
 dynamic = ["version"]
 description = "manage domains inside systems: schemas, generated data, change sets"
 requires-python = ">=3.11"
-dependencies = ["tabsdata-dev-deps-systems", "tabsdata-dev-common-core", "tabsdata-dev-common-systems"]
+dependencies = [
+    "tabsdata-dev-common-core",
+    "tabsdata-dev-common-systems",
+    "tabsdata-dev-deps-systems",
+]
 
 [project.scripts]
 domain = "tabsdata_dev.tool.domain:main"

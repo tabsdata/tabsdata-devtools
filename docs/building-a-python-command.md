@@ -24,7 +24,11 @@ name = "tabsdata-dev-deps-legacy"
 dynamic = ["version"]
 description = "pins for the legacy toolset"
 requires-python = ">=3.11"
-dependencies = ["pytest==8.4.2", "packaging==23.2", "pydantic<2"]
+dependencies = [
+    "packaging==23.2",
+    "pydantic<2",
+    "pytest==8.4.2",
+]
 
 [tool.tdd]
 python = "3.12.13"         # optional, exact: overrides the repo's PYTHON for this toolset
@@ -67,7 +71,10 @@ name = "tabsdata-dev-tool-audit"
 dynamic = ["version"]
 description = "audit dependency pins"           # the `tdd help` summary
 requires-python = ">=3.11"
-dependencies = ["tabsdata-dev-deps-legacy", "tabsdata-dev-common-core"]
+dependencies = [
+    "tabsdata-dev-common-core",
+    "tabsdata-dev-deps-legacy",
+]
 
 [project.scripts]
 audit = "tabsdata_dev.tool.audit:main"          # the key is the word after `tdd`

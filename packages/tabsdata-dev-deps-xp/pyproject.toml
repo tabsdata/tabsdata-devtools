@@ -13,14 +13,14 @@ dynamic = ["version"]
 description = "pins for the xp toolset: suite models, YAML manifests, parquet reading for check scripts"
 requires-python = ">=3.11"
 dependencies = [
-    "pytest==9.1.1",
-    # The suite definition.
-    "pydantic==2.14.1",
-    # The domain manifests xp writes for `tdd domain create --manifest`.
-    "pyyaml==6.0.3",
     # A suite's execute scripts run on xp's python and read the table versions
     # they download with its `csv` subcommand.
     "parquet-tools==0.2.16",
+    # The suite definition.
+    "pydantic==2.14.1",
+    "pytest==9.1.1",
+    # The domain manifests xp writes for `tdd domain create --manifest`.
+    "pyyaml==6.0.3",
 ]
 
 [tool.hatch.version]

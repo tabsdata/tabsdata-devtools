@@ -7,7 +7,10 @@ name = "tabsdata-dev-tool-apidoc"
 dynamic = ["version"]
 description = "generates a Python package's API as JSON, for documentation generation"
 requires-python = ">=3.11"
-dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
+dependencies = [
+    "tabsdata-dev-common-core",
+    "tabsdata-dev-deps-launchers",
+]
 
 [project.scripts]
 apidoc = "tabsdata_dev.tool.apidoc:main"

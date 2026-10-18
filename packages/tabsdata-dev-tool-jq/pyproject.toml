@@ -7,7 +7,10 @@ name = "tabsdata-dev-tool-jq"
 dynamic = ["version"]
 description = "run jq, the JSON processor installed on the machine"
 requires-python = ">=3.11"
-dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
+dependencies = [
+    "tabsdata-dev-common-core",
+    "tabsdata-dev-deps-launchers",
+]
 
 [project.scripts]
 jq = "tabsdata_dev.tool.jq:main"

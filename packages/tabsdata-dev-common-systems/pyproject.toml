@@ -9,7 +9,11 @@ description = "the system / domain command family: descriptors, backends, models
 requires-python = ">=3.11"
 # Ranges, not pins: this library is shared by the systems and salesforce
 # toolsets, each of which pins these to what its own drivers allow.
-dependencies = ["pydantic>=2", "pyyaml>=6", "cryptography>=42"]
+dependencies = [
+    "cryptography>=42",
+    "pydantic>=2",
+    "pyyaml>=6",
+]
 
 [tool.hatch.version]
 path = "../../VERSION"

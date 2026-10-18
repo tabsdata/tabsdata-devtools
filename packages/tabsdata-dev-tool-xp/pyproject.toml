@@ -8,7 +8,10 @@ description = "run tabsdata example suites: instances, domains, projects, trigge
 requires-python = ">=3.11"
 # Its own toolset: `domain` and tdk are reached through `tdd`, never imported, so
 # xp shares no resolution with them (deps-xp says why that matters).
-dependencies = ["tabsdata-dev-deps-xp", "tabsdata-dev-common-core"]
+dependencies = [
+    "tabsdata-dev-common-core",
+    "tabsdata-dev-deps-xp",
+]
 
 [project.scripts]
 xp = "tabsdata_dev.tool.xp:main"

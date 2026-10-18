@@ -7,7 +7,10 @@ name = "tabsdata-dev-tool-mexe"
 dynamic = ["version"]
 description = "run shell commands in several directories, in parallel or serial (one after the other)"
 requires-python = ">=3.11"
-dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
+dependencies = [
+    "tabsdata-dev-common-core",
+    "tabsdata-dev-deps-launchers",
+]
 
 [project.scripts]
 mexe = "tabsdata_dev.tool.mexe:main"

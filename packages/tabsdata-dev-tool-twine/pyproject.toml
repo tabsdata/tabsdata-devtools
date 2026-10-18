@@ -7,7 +7,9 @@ name = "tabsdata-dev-tool-twine"
 dynamic = ["version"]
 description = "run twine (upload, check distributions) from its own toolset"
 requires-python = ">=3.11"
-dependencies = ["tabsdata-dev-deps-twine"]
+dependencies = [
+    "tabsdata-dev-deps-twine",
+]
 
 [project.scripts]
 # twine's own entry point, not a module of ours: twine installs a `twine`

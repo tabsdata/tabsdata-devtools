@@ -7,7 +7,11 @@ name = "tabsdata-dev-tool-system"
 dynamic = ["version"]
 description = "manage external systems for testing: databases, object stores, services (docker, cloud, remote)"
 requires-python = ">=3.11"
-dependencies = ["tabsdata-dev-deps-systems", "tabsdata-dev-common-core", "tabsdata-dev-common-systems"]
+dependencies = [
+    "tabsdata-dev-common-core",
+    "tabsdata-dev-common-systems",
+    "tabsdata-dev-deps-systems",
+]
 
 [project.scripts]
 system = "tabsdata_dev.tool.system:main"

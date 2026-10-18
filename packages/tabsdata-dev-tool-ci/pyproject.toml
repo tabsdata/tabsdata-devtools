@@ -7,7 +7,10 @@ name = "tabsdata-dev-tool-ci"
 dynamic = ["version"]
 description = "GitHub Actions runs: download a run's artifacts, in parallel"
 requires-python = ">=3.11"
-dependencies = ["tabsdata-dev-deps-launchers", "tabsdata-dev-common-core"]
+dependencies = [
+    "tabsdata-dev-common-core",
+    "tabsdata-dev-deps-launchers",
+]
 
 [project.scripts]
 ci = "tabsdata_dev.tool.ci:main"

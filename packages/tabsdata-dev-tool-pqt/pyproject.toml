@@ -7,7 +7,10 @@ name = "tabsdata-dev-tool-pqt"
 dynamic = ["version"]
 description = "run parquet-tools (show, csv, inspect a parquet file) from the xp toolset"
 requires-python = ">=3.11"
-dependencies = ["tabsdata-dev-deps-xp", "tabsdata-dev-common-core"]
+dependencies = [
+    "tabsdata-dev-common-core",
+    "tabsdata-dev-deps-xp",
+]
 
 [project.scripts]
 pqt = "tabsdata_dev.tool.pqt:main"
