@@ -2015,14 +2015,14 @@ def test_db2cdc_tunes_asncap_only_when_it_needs_it(db2cdc, monkeypatch):
 
 
 def test_db2cdc_a_failing_registration_step_ends_its_call(db2cdc):
-    from tabsdata_dev.common.systems.systems.db2cdc import backend
-
+    # what db2cdc/lib.sh's or_exit appends to every step
+    or_exit = ' || { r=$?; db2 terminate >/dev/null 2>&1; exit "$r"; }'
     db2cdc.scalars = ["0 1"]
     db2cdc._register_tables("C", "S", ["A"])
     [call] = [call for call in db2cdc.calls if "asnclp" in call]
     steps = [line for line in call.splitlines() if line.startswith("db2w ")]
     assert steps
-    assert all(line.endswith(backend._OR_EXIT) for line in steps)
+    assert all(line.endswith(or_exit) for line in steps)
 
 
 def test_db2cdc_removes_every_table_in_one_container_call(db2cdc):

@@ -39,6 +39,7 @@ import random
 import time
 from dataclasses import dataclass
 
+from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.systems import descriptor, store
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec
@@ -76,12 +77,21 @@ _SECTION = "@@TDD@@"
 _CAPTURE_INTERVAL_S = 1
 _CAPTURE_MEMORY_LIMIT_MB = 1024
 
-# The Db2 CLP returns non-zero for warnings too (e.g. SQL1363W); `db2w` treats
-# only rc >= 4 (real errors) as failure so a `set -e`/`&&` chain isn't aborted
-# by a perfectly successful step.
-_PRELUDE = 'db2w() { db2 "$@"; local r=$?; [ "$r" -ge 4 ] && return "$r"; return 0; }\n'
-# Appended to a step of a multi-statement call: a failure ends the call there.
-_OR_EXIT = ' || { r=$?; db2 terminate >/dev/null 2>&1; exit "$r"; }'
+#: This package, whose resources hold the scripts run in the container
+#: (db2cdc/*.sh, Jinja templates).
+PACKAGE = "tabsdata_dev.common.systems"
+
+
+def _script(name: str, **values) -> str:
+    """The container script db2cdc/<name>.sh, filled with `values` and the
+    database and capture schema every one of them names."""
+    return resources.render(
+        PACKAGE,
+        f"db2cdc/{name}.sh",
+        db=_XP_DB,
+        asn=_ASN,
+        **values,
+    )
 
 
 @dataclass
@@ -136,28 +146,20 @@ class Db2Cdc(Db2):
 
     def _run(self, container: str, body: str, *, ignore_failure: bool = False) -> str:
         return self._exec_inst(
-            container, _PRELUDE + body, ignore_failure=ignore_failure
+            container,
+            _script("prelude") + body,
+            ignore_failure=ignore_failure,
         )
 
     def _clp(self, container: str, sql: str, *, ignore_failure: bool = False) -> str:
         return self._run(
             container,
-            f"db2w connect to {_XP_DB} >/dev/null\n"
-            f'db2w -v "{sql}"\n'
-            f"rc=$?\n"
-            f"db2 terminate >/dev/null 2>&1\n"
-            f"exit $rc\n",
+            _script("clp", sql=sql),
             ignore_failure=ignore_failure,
         )
 
     def _clp_lines(self, container: str, sql: str) -> list[str]:
-        out = self._run(
-            container,
-            f"db2 connect to {_XP_DB} >/dev/null 2>&1\n"
-            f'db2 -x "{sql}"\n'
-            f"db2 terminate >/dev/null 2>&1\n",
-            ignore_failure=True,
-        )
+        out = self._run(container, _script("query", sql=sql), ignore_failure=True)
         return [
             line.strip()
             for line in out.splitlines()
@@ -169,12 +171,9 @@ class Db2Cdc(Db2):
     ) -> str:
         """Run `statements` in one container call over one connection. Without
         `ignore_failure` the first one to fail stops the batch and fails it."""
-        on_failure = "" if ignore_failure else _OR_EXIT
         return self._run(
             container,
-            f"db2w connect to {_XP_DB} >/dev/null{on_failure}\n"
-            + "".join(f'db2w -v "{sql}"{on_failure}\n' for sql in statements)
-            + "db2 terminate >/dev/null 2>&1\n",
+            _script("batch", statements=statements, keep_going=ignore_failure),
             ignore_failure=ignore_failure,
         )
 
@@ -185,15 +184,7 @@ class Db2Cdc(Db2):
         each a query (run with ``db2 -x``) or, prefixed ``!``, a shell command
         -- and each one's output lines, by name. A call of its own per query
         paid a docker exec and a CLP connect, ~3s, before the query ran."""
-        body = f"db2 connect to {_XP_DB} >/dev/null 2>&1\n"
-        for name, step in steps.items():
-            body += f"echo '{_SECTION}{name}'\n"
-            body += (
-                f'{step[1:]} 2>&1; echo "rc=$?"\n'
-                if step.startswith("!")
-                else f'db2 -x "{step}"\n'
-            )
-        body += "db2 terminate >/dev/null 2>&1\n"
+        body = _script("sections", marker=_SECTION, steps=steps)
         out = self._run(container, body, ignore_failure=True)
         sections: dict[str, list[str]] = {name: [] for name in steps}
         current: str | None = None
@@ -218,25 +209,12 @@ class Db2Cdc(Db2):
         inside the container over ONE connection -- each look a query, not a
         docker exec and a connect, which cost ~3s a look and made a 1s poll a
         3s one. Times out after _WAIT_TIMEOUT_S with the last row it read."""
-        # bash's SECONDS counts from the shell's start: a deadline, where a
-        # count of looks would add every query's own time to the timeout. The
-        # query runs in THIS shell, its rows to a file: the CLP ties the
-        # connection to the process that made it, and `$(db2 ...)` runs db2
-        # in a subshell, which has none (SQL1024N).
-        body = (
-            f"db2 connect to {_XP_DB} >/dev/null 2>&1\n"
-            f"rows=$(mktemp); got=''\n"
-            f"while [ $SECONDS -lt {_WAIT_TIMEOUT_S} ]; do\n"
-            f'  db2 -x "{sql}" > "$rows" 2>&1\n'
-            f'  got=$(tr -s " \\t\\n" " " < "$rows" | sed "s/^ //; s/ $//")\n'
-            f'  if [ "$got" = "{expected}" ]; then rm -f "$rows"; '
-            f"db2 terminate >/dev/null 2>&1; exit 0; fi\n"
-            f"  sleep {_WAIT_POLL_S}\n"
-            f"done\n"
-            f'rm -f "$rows"\n'
-            f'echo "last read: $got"\n'
-            f"db2 terminate >/dev/null 2>&1\n"
-            f"exit 3\n"
+        body = _script(
+            "wait_until",
+            sql=sql,
+            expected=expected,
+            timeout=_WAIT_TIMEOUT_S,
+            poll=_WAIT_POLL_S,
         )
         try:
             self._run(container, body)
@@ -244,13 +222,7 @@ class Db2Cdc(Db2):
             raise TdxError(f"CDC: timed out waiting for {what} ({exc})") from exc
 
     def _clp_scalar(self, container: str, sql: str) -> str:
-        out = self._run(
-            container,
-            f"db2 connect to {_XP_DB} >/dev/null 2>&1\n"
-            f'db2 -x "{sql}"\n'
-            f"db2 terminate >/dev/null 2>&1\n",
-            ignore_failure=True,
-        )
+        out = self._run(container, _script("query", sql=sql), ignore_failure=True)
         for line in out.splitlines():
             line = line.strip()
             if line and not line.startswith("DB2"):
@@ -293,12 +265,7 @@ class Db2Cdc(Db2):
             print(f">>> CDC: log file size already {size} pages")
             return
         print(f">>> CDC: log file size {size or '?'} -> {_LOGFILSIZ} pages …")
-        self._run(
-            container,
-            f"db2w connect to {_XP_DB} >/dev/null\n"
-            f"db2w update db cfg for {_XP_DB} using logfilsiz {_LOGFILSIZ}\n"
-            f"db2 connect reset >/dev/null 2>&1\n",
-        )
+        self._run(container, _script("log_size", pages=_LOGFILSIZ))
 
     def _archive_configured(self, container: str) -> bool:
         val = self._clp_scalar(
@@ -314,16 +281,7 @@ class Db2Cdc(Db2):
         print(">>> CDC: enabling archive logging + baseline backup (slow) …")
         self._run(
             container,
-            f"mkdir -p $HOME/{_ARCHIVE_DIR} $HOME/{_BACKUP_DIR}\n"
-            f"db2w connect to {_XP_DB} >/dev/null\n"
-            f"db2w update db cfg for {_XP_DB} using logarchmeth1 "
-            f"disk:$HOME/{_ARCHIVE_DIR}/\n"
-            f"db2 connect reset >/dev/null 2>&1\n"
-            f"db2 terminate >/dev/null 2>&1\n"
-            f"db2 force applications all >/dev/null 2>&1\n"
-            f"sleep 5\n"
-            f"db2 deactivate database {_XP_DB} >/dev/null 2>&1\n"
-            f"db2w backup db {_XP_DB} to $HOME/{_BACKUP_DIR}/\n",
+            _script("archive", archive=_ARCHIVE_DIR, backup=_BACKUP_DIR),
         )
 
     def _asn_control_present(self, container: str) -> bool:
@@ -340,22 +298,7 @@ class Db2Cdc(Db2):
             print(">>> CDC: ASN control tables already present")
             return
         print(">>> CDC: creating ASN control tables …")
-        script = "TD_ASN_CONTROL"
-        self._run(
-            container,
-            f'cd "$HOME"\n'
-            f"rm -f {script}\n"
-            f"printf 'set output capture script {script}\\n"
-            f"set server capture to db {_XP_DB}\\n"
-            f"set capture schema source {_ASN}\\n"
-            f"create control tables for capture server\\n"
-            f"quit\\n' | asnclp\n"
-            f"db2w connect to {_XP_DB} >/dev/null\n"
-            f"db2w -tvf {script}\n"
-            f"rc=$?\n"
-            f"db2 terminate >/dev/null 2>&1\n"
-            f"exit $rc\n",
-        )
+        self._run(container, _script("asn_control_tables", script="TD_ASN_CONTROL"))
 
     def _setup_asncap(self, container: str) -> None:
         home = self._exec_inst(container, "printf '%s' \"$HOME\"").strip()
@@ -583,27 +526,15 @@ class Db2Cdc(Db2):
             + [f"drop table {_ASN}.{staging}" for staging in stagings]
             + (after or [])
         )
-        body = (
-            f"db2 connect to {_XP_DB} >/dev/null 2>&1\n"
-            + "".join(
-                f'db2w -v "insert into {_ASN}.ibmsnap_signal (signal_type, '
-                f"signal_subtype, signal_input_in, signal_state) values "
-                f"('CMD', 'CAPSTOP', '{source}', 'P')\"\n"
-                for source in sources
-            )
-            + f"rows=$(mktemp); got=''\n"
-            f"while [ $SECONDS -lt {_WAIT_TIMEOUT_S} ]; do\n"
-            f'  db2 -x "{pending}" > "$rows" 2>&1\n'
-            f'  got=$(tr -s " \\t\\n" " " < "$rows" | sed "s/^ //; s/ $//")\n'
-            f'  if [ "$got" = "0" ]; then break; fi\n'
-            f"  sleep {_WAIT_POLL_S}\n"
-            f"done\n"
-            f'rm -f "$rows"\n'
-            + "".join(f'db2w -v "{sql}"\n' for sql in removal)
-            + f"echo '{_SECTION}left'\n"
-            f'db2 -x "select tabname from syscat.tables where tabschema = '
-            f"'{_ASN}' and tabname in ({_sql_list(stagings)})\"\n"
-            f"db2 terminate >/dev/null 2>&1\n"
+        body = _script(
+            "remove_registrations",
+            sources=sources,
+            pending=pending,
+            removal=removal,
+            stagings=_sql_list(stagings),
+            marker=_SECTION,
+            timeout=_WAIT_TIMEOUT_S,
+            poll=_WAIT_POLL_S,
         )
         out = self._run(container, body, ignore_failure=True)
         _, _, tail = out.partition(_SECTION + "left")
@@ -1012,12 +943,6 @@ class Db2Cdc(Db2):
         # the same moment, and share the container's home dir.
         script = f"TD_ASN_REGISTER_{schema}".upper()
         map_ids = [str(random.randint(1, 2**31 - 1)) for _ in tables]  # noqa: S311 - internal signal ids
-        registrations = "".join(
-            f"create registration ({schema}.{table}) differential refresh "
-            f"stage {_ASN}.{staging} cols all image both "
-            f"prefix {_OLD_VALUES_PREFIX} options capture all\\n"
-            for table, staging in zip(tables, stagings)
-        )
         after: list[str] = []
         for table, staging, map_id in zip(tables, stagings, map_ids):
             after += [
@@ -1033,21 +958,15 @@ class Db2Cdc(Db2):
             ]
         self._run(
             container,
-            f'cd "$HOME"\n'
-            f"db2w connect to {_XP_DB} >/dev/null{_OR_EXIT}\n"
-            + "".join(
-                f'db2w -v "alter table {schema}.{table} data capture changes"{_OR_EXIT}\n'
-                for table in tables
-            )
-            + f"rm -f {script}\n"
-            f"printf 'set output capture script {script}\\n"
-            f"set server capture to db {_XP_DB}\\n"
-            f"set capture schema source {_ASN}\\n"
-            f"{registrations}"
-            f"quit\\n' | asnclp\n"
-            f"db2w -tvf {script}{_OR_EXIT}\n"
-            + "".join(f'db2w -v "{sql}"{_OR_EXIT}\n' for sql in after)
-            + "db2 terminate >/dev/null 2>&1\n",
+            _script(
+                "start_registrations",
+                schema=schema,
+                tables=tables,
+                script=script,
+                registrations=list(zip(tables, stagings)),
+                old_prefix=_OLD_VALUES_PREFIX,
+                after=after,
+            ),
         )
         return map_ids
 
