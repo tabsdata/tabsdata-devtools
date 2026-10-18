@@ -80,6 +80,16 @@ def write_manifest(version_dir: Path, names: list[str] | None = None) -> Path:
     return path
 
 
+#: This package's test resources: src/resources/test/<test module>/.
+RESOURCES = Path(__file__).parents[2] / "resources" / "test"
+
+
+@pytest.fixture
+def resource_folder(request) -> Path:
+    """src/resources/test/<test module>/: the files of the requesting module."""
+    return RESOURCES / request.path.stem
+
+
 @pytest.fixture
 def workspace(tmp_path: Path) -> Path:
     (tmp_path / "raw-wheels").mkdir()

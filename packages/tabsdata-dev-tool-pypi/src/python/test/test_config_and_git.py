@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import subprocess
-import textwrap
 
 import pytest
 from tabsdata_dev.common.core.errors import ToolError
@@ -15,49 +14,32 @@ from tabsdata_dev.common.core.errors import ToolError
 from tabsdata_dev.tool.pypi import config as config_mod
 from tabsdata_dev.tool.pypi.git import assert_committed_and_pushed
 
-GOOD = """
-account: "123456789012"
-region: us-east-1
-git:
-  release_ref: origin/main
-archive:
-  bucket: td-raw-wheels
-  base_path: wheels
-lanes:
-  staging:
-    bucket: td-pypi-staging
-    base_path: pypi
-    distribution: EXXXX
-    vanilla_domain: dxxxx.cloudfront.net
-    domain: "-"
-  prod:
-    bucket: td-pypi-prod
-    base_path: pypi
-    distribution: EYYYY
-    vanilla_domain: dyyyy.cloudfront.net
-    domain: pypi.tabsdata.com
-"""
+
+@pytest.fixture
+def good(resource_folder) -> str:
+    """A lanes.yaml with both lanes the policy knows, staging and prod."""
+    return (resource_folder / "lanes.yaml").read_text()
 
 
 def write(tmp_path, text):
     p = tmp_path / "lanes.yaml"
-    p.write_text(textwrap.dedent(text))
+    p.write_text(text)
     return p
 
 
 # --------------------------------------------------------------------- config
 
 
-def test_loads_lanes_and_keys(tmp_path):
-    cfg = config_mod.load(write(tmp_path, GOOD))
+def test_loads_lanes_and_keys(tmp_path, good):
+    cfg = config_mod.load(write(tmp_path, good))
     assert cfg.region == "us-east-1"
     assert cfg.release_ref == "origin/main"
     assert cfg.lane("prod").key("simple/index.html") == "pypi/simple/index.html"
     assert cfg.archive.key("0.9.6", "x.whl") == "wheels/0.9.6/x.whl"
 
 
-def test_policy_is_attached_from_code_not_yaml(tmp_path):
-    cfg = config_mod.load(write(tmp_path, GOOD))
+def test_policy_is_attached_from_code_not_yaml(tmp_path, good):
+    cfg = config_mod.load(write(tmp_path, good))
     assert cfg.lane("prod").policy.require_archived is True
     assert cfg.lane("prod").policy.require_pushed is True
     assert cfg.lane("prod").policy.require_yes is True
@@ -65,30 +47,20 @@ def test_policy_is_attached_from_code_not_yaml(tmp_path):
     assert cfg.lane("staging").policy.require_pushed is False
 
 
-def test_a_lane_without_a_policy_is_rejected(tmp_path):
-    text = (
-        GOOD
-        + """
-  wild:
-    bucket: td-pypi-wild
-    base_path: pypi
-    distribution: EZZZZ
-    vanilla_domain: dzzzz.cloudfront.net
-    domain: wild.tabsdata.com
-"""
-    )
+def test_a_lane_without_a_policy_is_rejected(tmp_path, good, resource_folder):
+    text = good + (resource_folder / "wild-lane.yaml").read_text()
     with pytest.raises(ToolError, match="no policy in POLICY"):
         config_mod.load(write(tmp_path, text))
 
 
-def test_a_missing_lane_is_rejected(tmp_path):
-    text = GOOD.split("  prod:")[0]
+def test_a_missing_lane_is_rejected(tmp_path, good):
+    text = good.split("  prod:")[0]
     with pytest.raises(ToolError, match="missing lane"):
         config_mod.load(write(tmp_path, text))
 
 
-def test_unknown_lane_lookup_lists_what_exists(tmp_path):
-    cfg = config_mod.load(write(tmp_path, GOOD))
+def test_unknown_lane_lookup_lists_what_exists(tmp_path, good):
+    cfg = config_mod.load(write(tmp_path, good))
     with pytest.raises(ToolError, match="unknown lane"):
         cfg.lane("nope")
 

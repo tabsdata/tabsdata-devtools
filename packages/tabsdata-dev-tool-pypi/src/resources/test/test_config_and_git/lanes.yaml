@@ -1,0 +1,20 @@
+account: "123456789012"
+region: us-east-1
+git:
+  release_ref: origin/main
+archive:
+  bucket: td-raw-wheels
+  base_path: wheels
+lanes:
+  staging:
+    bucket: td-pypi-staging
+    base_path: pypi
+    distribution: EXXXX
+    vanilla_domain: dxxxx.cloudfront.net
+    domain: "-"
+  prod:
+    bucket: td-pypi-prod
+    base_path: pypi
+    distribution: EYYYY
+    vanilla_domain: dyyyy.cloudfront.net
+    domain: pypi.tabsdata.com

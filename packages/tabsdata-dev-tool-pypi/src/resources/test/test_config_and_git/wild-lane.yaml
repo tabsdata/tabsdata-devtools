@@ -1,0 +1,6 @@
+  wild:
+    bucket: td-pypi-wild
+    base_path: pypi
+    distribution: EZZZZ
+    vanilla_domain: dzzzz.cloudfront.net
+    domain: wild.tabsdata.com
