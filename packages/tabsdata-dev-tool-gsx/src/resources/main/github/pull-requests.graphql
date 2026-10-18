@@ -1,0 +1,22 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+# The state of several PRs in one round trip: one aliased field per number,
+# p<number>, which pull_requests() reads back by that alias.
+
+query($o: String!, $r: String!) {
+  repository(owner: $o, name: $r) {
+{%- for number in numbers %}
+    p{{ number }}: pullRequest(number: {{ number }}) {
+      number
+      state
+      baseRefName
+      headRefName
+      isInMergeQueue
+      autoMergeRequest {
+        enabledAt
+      }
+    }
+{%- endfor %}
+  }
+}

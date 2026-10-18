@@ -21,8 +21,11 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
-from tabsdata_dev.common.core import proc
+from tabsdata_dev.common.core import proc, resources
 from tabsdata_dev.common.core.errors import ToolError
+
+#: This package, whose resources hold the GraphQL queries sent through `gh`.
+PACKAGE = "tabsdata_dev.tool.gsx"
 
 # Commands with no side effect: run even under --dry-run, so the run still
 # validates against the real repository.
@@ -343,9 +346,7 @@ def fetch_reviewers(runner: Runner, slug: str) -> list[str]:
             "graphql",
             "--paginate",
             "-f",
-            "query=query($owner:String!,$name:String!,$endCursor:String){"
-            "repository(owner:$owner,name:$name){assignableUsers(first:100,after:$endCursor)"
-            "{nodes{login} pageInfo{hasNextPage endCursor}}}}",
+            "query=" + resources.text(PACKAGE, "github/assignable-users.graphql"),
             "-F",
             f"owner={owner}",
             "-F",
@@ -572,15 +573,10 @@ def pull_requests(runner: Runner, numbers: list[int]) -> dict:
     """
     if not numbers:
         return {}
-    fields = (
-        "number state baseRefName headRefName isInMergeQueue "
-        "autoMergeRequest{enabledAt}"
-    )
-    parts = " ".join(
-        f"p{n}: pullRequest(number:{n}){{ {fields} }}" for n in sorted(set(numbers))
-    )
-    query = (
-        "query($o:String!,$r:String!){ repository(owner:$o,name:$r){ " + parts + " } }"
+    query = resources.render(
+        PACKAGE,
+        "github/pull-requests.graphql",
+        numbers=sorted(set(numbers)),
     )
     owner, _, name = repo_slug(runner).partition("/")
     payload = runner.json(

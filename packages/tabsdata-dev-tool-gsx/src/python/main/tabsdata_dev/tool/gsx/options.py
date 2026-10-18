@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import argparse
 
-from tabsdata_dev.common.core import cli, config as config_mod
+from tabsdata_dev.common.core import cli, config as config_mod, resources
 
 from .args import NATIVES
 
@@ -22,50 +22,16 @@ DESCRIPTION = (
     "GitHub issues + `gh stack`: an issue, a stack branch and a PR in one command"
 )
 
+#: This package, whose resources hold what gsx writes into its config file.
+PACKAGE = "tabsdata_dev.tool.gsx"
+
 # What gsx keeps of its own in the file, above the options.
-CONFIG_PREAMBLE = """\
-# Besides [options], gsx keeps three tables of its own; they are at the end of
-# this file, commented out at their defaults.
-"""
+CONFIG_PREAMBLE = resources.text(PACKAGE, "config-preamble.toml")
 
 #: gsx's own tables, commented at their defaults, written after the options --
 #: where uncommenting one is valid TOML and gsx reads it back. Once gsx has
 #: written the real tables this is not used again: what the file has wins.
-CONFIG_TABLES = """\
-# gsx's own tables, at their defaults. Uncomment a header and the lines under
-# it to set one -- every line below is valid TOML with the `# ` taken off.
-#
-# Where `approve` reads an approver's review token: op://VAULT/ITEM/FIELD, the
-# field being <login> + the suffix.
-# [approver-credentials]
-# approve_vault = "dev_ci"
-# approve_item = "GitHub"
-# approve_pat_suffix = ".review.pat"
-#
-# A name of your own for someone, usable wherever a --reviewer: or --approvers
-# value is; file-wide, because a login is a person rather than one repository's
-# property. The alias is resolved before the value is validated. These are the
-# shipped ones and work without being uncommented -- write one here to change
-# where it points, or to add somebody.
-# [reviewer-aliases]
-# dimas = "aoinokimi"
-# joaquin = "joaquin041"
-# tucu = "tucu0"
-# daniel = "adaydan-tabsdata"
-# arvind = "aptabs"
-# shreyas = "shreyasvan001"
-# david = "tabsdavid"
-#
-# One table per repository, WRITTEN AND MAINTAINED BY gsx: `fetched`, `labels`
-# and `reviewers` are refreshed on their own whenever what they hold cannot
-# answer a --label:/--reviewer:, and an edit to them is overwritten. So is
-# `version` on [repo] itself, which is the gsx that last refreshed them. The two
-# default_* lists are yours and are never touched -- the labels and reviewers
-# submit/apply put on that repository's PRs that have none yet.
-# [repo."OWNER/NAME"]
-# default_labels = []
-# default_reviewers = []
-"""
+CONFIG_TABLES = resources.text(PACKAGE, "config-tables.toml")
 
 
 LR_EPILOG = """\

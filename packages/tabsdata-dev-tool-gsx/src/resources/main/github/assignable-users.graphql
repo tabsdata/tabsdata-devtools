@@ -1,0 +1,19 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+# Everyone who can be assigned (and so asked to review) in one repository,
+# a page at a time: `gh api graphql --paginate` follows endCursor.
+
+query($owner: String!, $name: String!, $endCursor: String) {
+  repository(owner: $owner, name: $name) {
+    assignableUsers(first: 100, after: $endCursor) {
+      nodes {
+        login
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+}
