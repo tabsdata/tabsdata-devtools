@@ -24,7 +24,7 @@ import sys
 
 from tabsdata_dev.common.core import cli, errors, render
 
-from . import configs, display, instances, screen, status
+from . import configs, display, forward, instances, screen, status
 
 DESCRIPTION = (
     "plumbing of the smoke scripts: the config edits, masking and status "
@@ -158,6 +158,17 @@ def configure(p: argparse.ArgumentParser) -> None:
         "--from", dest="offset", type=int, required=True, help="byte offset"
     )
 
+    for name, what in (
+        (
+            "forward-start",
+            "start kubectl port-forward under a supervisor; up once LOCAL answers",
+        ),
+        ("forward-ensure", "LOCAL answers, or the forward is started afresh"),
+        ("forward-stop", "end the forward and its kubectl, if one is up"),
+        (forward.SUPERVISE, "the supervisor itself, which forward-start runs"),
+    ):
+        _forward_options(sub.add_parser(name, help=what))
+
     page = sub.add_parser(
         "paint-help",
         help="a help page read from stdin, painted; the REQUIRED options red",
@@ -167,7 +178,50 @@ def configure(p: argparse.ArgumentParser) -> None:
     )
 
 
+def _forward_options(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--kubeconfig", required=True)
+    p.add_argument("--namespace", required=True)
+    p.add_argument("--service", required=True)
+    p.add_argument("--local", type=int, required=True, help="the port tdk logs in to")
+    p.add_argument("--remote", type=int, required=True, help="the service's port")
+    p.add_argument("--state", required=True, help="where the supervisor's pid is kept")
+    p.add_argument("--stop", required=True, help="the file whose creation ends it")
+    p.add_argument("--log", required=True, help="the run's log, kubectl's output too")
+    p.add_argument("--parent", type=int, required=True, help="the forward ends with it")
+    p.add_argument(
+        "--steady",
+        type=float,
+        default=10,
+        help="seconds up after which a kubectl exit is a dropped tunnel, relaunched at once",
+    )
+
+
+def _forward(args: argparse.Namespace, out: render.Renderer) -> int:
+    target = forward.Forward(
+        args.kubeconfig, args.namespace, args.service, args.local, args.remote
+    )
+    run = forward.Run(
+        pathlib.Path(args.state),
+        pathlib.Path(args.stop),
+        pathlib.Path(args.log),
+        args.parent,
+        args.steady,
+    )
+    if args.action == forward.SUPERVISE:
+        forward.supervise(target, run)
+        return out.ok("supervisor ended")
+    if args.action == "forward-stop":
+        forward.stop(target, run, out.info)
+        return out.ok("no forward")
+    act = forward.start if args.action == "forward-start" else forward.ensure
+    if not act(target, run, out.info):
+        return out.error(f"no port-forward on 127.0.0.1:{args.local}")
+    return out.ok(f"127.0.0.1:{args.local} answering")
+
+
 def body(args: argparse.Namespace, out: render.Renderer) -> int:
+    if args.action and args.action.startswith("forward-"):
+        return _forward(args, out)
     if args.action == "set-uv-index":
         configs.set_uv_index(pathlib.Path(args.file), args.uri)
         return out.ok(f"UV_INDEX: {args.uri}", file=args.file)

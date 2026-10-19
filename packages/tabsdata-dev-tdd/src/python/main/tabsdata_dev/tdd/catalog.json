@@ -1,5 +1,5 @@
 {
-  "fingerprint": "e0863d4f53078941",
+  "fingerprint": "cfc2cf23dadf6380",
   "interpreter": "3.12.13",
   "members": {
     "launchers": [
@@ -143,9 +143,11 @@
       "launcher": false,
       "optional": {
         "powershell": [
+          "kubectl",
           "tdkserver"
         ],
         "unix": [
+          "kubectl",
           "tdkserver"
         ]
       },
@@ -332,9 +334,11 @@
       "launcher": false,
       "optional": {
         "powershell": [
+          "kubectl",
           "tdkserver"
         ],
         "unix": [
+          "kubectl",
           "tdkserver"
         ]
       },

@@ -5,6 +5,8 @@
 # bin-reqs.txt -- what the smoke tool may run under either shell family.
 # tdkserver: the one a previous run left in a managed venv, to stop the
 # instance that run left running (`tdd _smoke instance-stop`); there may be
-# none, so it is optional.
+# none, so it is optional. kubectl: the cluster scripts' port-forward, which
+# the supervisor runs (`tdd _smoke forward-start`); km needs none.
 [optional]
+kubectl
 tdkserver

@@ -168,7 +168,10 @@ the cluster's tunnel, and the tunnel drops on its own: on AKS the node autoprovi
 the node that carries the konnectivity agents ended a run's forward mid-suite (`error: lost
 connection to pod`) on two consecutive days, and every stage after it failed in a second as "not
 logged in" -- which is what a dead forward looks like from `tdk`. kubectl does not reconnect, so
-`common_kubeportforward_launch` runs it under a subshell that relaunches it whenever it exits, and
+`common_kubeportforward_start` runs it under a supervisor that relaunches it whenever it exits
+(`tdd _smoke forward-start`: a process of its own, its pid in a state file beside the log, its
+output and kubectl's written straight into the log, ended by a stop file or by the script that
+started it going away -- a run killed outright leaves no forward on the port), and
 each xp stage opens with `common_kubeportforward_ensure`: the port answers, or the supervisor is
 given up to 20s to bring it back, or the forward is started afresh from the arguments the last
 start was given -- and if that fails, the stage fails in its own words and the suite is skipped.

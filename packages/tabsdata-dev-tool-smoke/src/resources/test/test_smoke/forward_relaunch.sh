@@ -9,6 +9,14 @@
 #
 # The fake kubectl writes its pid to $PIDFILE.
 
+# `tdd _smoke` is the toolset's own `_smoke` program, $SMOKE_ENGINE: the
+# engine runs the forward through it.
+tdd() {
+    [ "$1" = _smoke ] || return 127
+    shift
+    "$SMOKE_ENGINE" "$@"
+}
+
 engine=$1
 log=$2
 port=$3

@@ -506,6 +506,7 @@ def _fake_kubectl(tmp_path, resource_folder):
         "PIDFILE": str(pidfile),
         "FAKE_PYTHON": sys.executable,
         "NO_COLOR": "1",
+        "SMOKE_ENGINE": _smoke_engine(),
     }
     return env, record, local
 
@@ -582,6 +583,46 @@ def test_a_forward_that_had_been_up_is_relaunched_without_a_pause(
     assert len(record.read_text().splitlines()) == 2
     assert "(the tunnel dropped?); relaunching now" in text
     assert "relaunching in 2s" not in text
+
+
+def test_the_forward_ends_with_the_script_that_started_it(
+    tmp_path,
+    resource_folder,
+    monkeypatch,
+):
+    """A run killed outright never reaches its EXIT trap: the supervisor sees
+    the script gone and ends, kubectl with it, so no forward holds the port."""
+    import subprocess
+    import sys
+    import time
+
+    from tabsdata_dev.tool.smoke import forward
+
+    env, _, local = _fake_kubectl(tmp_path, resource_folder)
+    for name in ("PATH", "RECORD", "PIDFILE", "FAKE_PYTHON"):
+        monkeypatch.setenv(name, env[name])
+    script = subprocess.Popen(
+        [sys.executable, str(resource_folder / "listen.py"), "0:0"]
+    )
+    target = forward.Forward("/tmp/cfg", "sm-x", "net-apiserver", local, 2457)
+    run = forward.Run(
+        tmp_path / "state",
+        tmp_path / "stop",
+        tmp_path / "log",
+        script.pid,
+        10,
+    )
+    try:
+        assert forward.start(target, run, [].append)
+        script.kill()
+        script.wait()
+        for _ in range(50):
+            if not forward.answers(local):
+                break
+            time.sleep(0.2)
+        assert not forward.answers(local), (tmp_path / "log").read_text()
+    finally:
+        forward.stop(target, run, [].append)
 
 
 def test_every_cluster_smoke_checks_the_forward_before_each_suite_and_skips_it_otherwise():
@@ -730,7 +771,7 @@ def test_run_executes_the_carried_copy_through_bash_without_tdds_private_variabl
     # required; a previous run's tdkserver, which instance-stop may find
     package = smoke.scripts_dir().parent / "packages" / "tabsdata-dev-tool-smoke"
     expected = {
-        "bin-reqs.txt": ["[optional]", "tdkserver"],
+        "bin-reqs.txt": ["[optional]", "kubectl", "tdkserver"],
         "bin-reqs.unix.txt": ["[required]", "bash"],
         "bin-reqs.powershell.txt": ["[required]", "pwsh"],
     }
