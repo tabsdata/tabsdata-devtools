@@ -194,3 +194,76 @@ def run_tool(name: str, *args: str, **kwargs) -> subprocess.CompletedProcess:
     """Invoke a sibling tool in its own environment, through the dispatcher
     (see `tool_argv`)."""
     return subprocess.run(tool_argv(name, *args), **kwargs)
+
+
+# ------------------------------------------------------------ process trees
+class Job:
+    """Windows: a job object holding a child and every process it starts, so
+    the tree is terminated whole -- `kill()` there stops one process, and a
+    tool behind `tdd-exe` (which waits for it there: Windows has no exec) or a
+    shell's pipeline would live on. A process the child starts in the instant
+    before it joins the job escapes it; nothing short of creating it suspended
+    closes that window, and Popen cannot.
+
+    Elsewhere it holds nothing and `terminate` answers False: a process group
+    does this job there."""
+
+    def __init__(self, pid: int) -> None:
+        self._handle = _windows_job(pid) if os.name == "nt" else None
+
+    def terminate(self) -> bool:
+        """End the whole tree; False when there is no job to do it with."""
+        if self._handle is None:
+            return False
+        _windows_terminate(self._handle)
+        return True
+
+    def close(self) -> None:
+        if self._handle is not None:
+            _windows_close(self._handle)
+            self._handle = None
+
+
+def _windows_job(pid: int):
+    """A job object holding `pid`, or None when one cannot be made (the tree
+    then falls back to killing the child alone)."""
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    process_terminate, process_set_quota = 0x0001, 0x0100
+    job = k32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    handle = k32.OpenProcess(process_terminate | process_set_quota, False, pid)
+    assigned = bool(handle) and bool(k32.AssignProcessToJobObject(job, handle))
+    if handle:
+        k32.CloseHandle(handle)
+    if not assigned:
+        k32.CloseHandle(job)
+        return None
+    return job
+
+
+def _windows_terminate(job) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    k32.TerminateJobObject(job, 1)
+
+
+def _windows_close(job) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    k32.CloseHandle(job)

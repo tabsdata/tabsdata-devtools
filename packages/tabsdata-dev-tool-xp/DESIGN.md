@@ -407,8 +407,10 @@ digits, `_`, `-`; unique across the suite) and may have `tags`:
   and that failure is the run's. `continue_on_fail` reports it and goes on; the run fails at its
   end -- a check that fails is never a green run. **What still runs when the run ends** -- a
   timed-out block left running -- **is killed**: each step runs in a process group of its own
-  (`start_new_session`; a new process group on Windows), SIGTERM then, after 5s, SIGKILL; a step
-  so ended is said as ended, not failed.
+  (`start_new_session`), SIGTERM then, after 5s, SIGKILL; on Windows, in a job object
+  (`proc.Job`, batch's too) that is terminated whole -- `terminate()` there ends one process,
+  and a tool behind `tdd-exe`, which waits for it there, would live on. `--fail-fast` ends the
+  other lanes the same way. A step so ended is said as ended, not failed.
 - **Tags pick what runs**: an entry's tags are its own and every enclosing block's. `--tags A,B`
   runs the steps with A or B, `--skip-tags C,D` those with neither, both together those passing
   both; a block runs when a step inside it does, and only those; a wait on what does not run is

@@ -1026,3 +1026,15 @@ def test_a_command_can_render_formats_of_its_own(capsys):
     assert out.startswith("lines\n") and '"message":"summary"' in out
     assert cli.run("demo", "d", body, argv=["--format", "xml"], **run) == 1
     assert cli.run("demo", "d", body, argv=["--format", "export"]) == 1  # not offered
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a job object is real there")
+def test_a_job_holds_nothing_off_windows_so_callers_signal_the_group():
+    """Off Windows a process group ends a tree, so a Job answers False and the
+    caller takes its POSIX path; closing it twice is harmless."""
+    from tabsdata_dev.common.core import proc
+
+    job = proc.Job(os.getpid())
+    assert job.terminate() is False
+    job.close()
+    job.close()

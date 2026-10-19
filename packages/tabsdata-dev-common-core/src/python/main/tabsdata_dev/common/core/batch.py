@@ -39,7 +39,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from . import render
+from . import proc, render
 
 ENV_PARALLELISM = "TDD_PARALLELISM"
 DEFAULT_PARALLELISM = 10
@@ -144,15 +144,15 @@ class Tree:
             errors="replace",
             **group,
         )
-        self.job = _windows_job(self.proc.pid) if os.name == "nt" else None
+        self.job = proc.Job(self.proc.pid)
         self.killed = False
 
     def kill(self) -> None:
         self.killed = True
         try:
-            if self.job is not None:
-                _windows_terminate(self.job)
-            elif os.name == "nt":
+            if self.job.terminate():
+                return
+            if os.name == "nt":
                 self.proc.kill()
             else:
                 os.killpg(self.proc.pid, signal.SIGTERM)
@@ -169,54 +169,7 @@ class Tree:
             pass
 
     def close(self) -> None:
-        if self.job is not None:
-            _windows_close(self.job)
-            self.job = None
-
-
-def _windows_job(pid: int):
-    """A job object holding `pid`, or None when one cannot be made (the tree
-    then falls back to killing the child alone)."""
-    import ctypes
-    from ctypes import wintypes
-
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.CreateJobObjectW.restype = wintypes.HANDLE
-    k32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
-    k32.OpenProcess.restype = wintypes.HANDLE
-    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-    k32.CloseHandle.argtypes = [wintypes.HANDLE]
-    process_terminate, process_set_quota = 0x0001, 0x0100
-    job = k32.CreateJobObjectW(None, None)
-    if not job:
-        return None
-    handle = k32.OpenProcess(process_terminate | process_set_quota, False, pid)
-    assigned = bool(handle) and bool(k32.AssignProcessToJobObject(job, handle))
-    if handle:
-        k32.CloseHandle(handle)
-    if not assigned:
-        k32.CloseHandle(job)
-        return None
-    return job
-
-
-def _windows_terminate(job) -> None:
-    import ctypes
-    from ctypes import wintypes
-
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
-    k32.TerminateJobObject(job, 1)
-
-
-def _windows_close(job) -> None:
-    import ctypes
-    from ctypes import wintypes
-
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.CloseHandle.argtypes = [wintypes.HANDLE]
-    k32.CloseHandle(job)
+        self.job.close()
 
 
 # ------------------------------------------------------------------- the run

@@ -198,12 +198,15 @@ def _new_group() -> dict:
     return {"start_new_session": True}
 
 
-def _terminate(p: subprocess.Popen) -> None:
-    """SIGTERM a step's process group, then, after a grace, SIGKILL."""
+def _terminate(p: subprocess.Popen, job: proc.Job) -> None:
+    """SIGTERM a step's process group, then, after a grace, SIGKILL; on
+    Windows, its job: the step and everything it started."""
     if p.poll() is not None:
         return
     try:
-        if os.name == "nt":
+        if job.terminate():
+            p.wait(KILL_GRACE)
+        elif os.name == "nt":
             p.terminate()
         else:
             os.killpg(p.pid, signal.SIGTERM)
@@ -232,7 +235,7 @@ class _Run:
         self.abandoned: set[Future] = set()
         # Set once the run is ending: a step it kills then was ended, not failed.
         self.ending = False
-        self._procs: set[subprocess.Popen] = set()
+        self._procs: dict[subprocess.Popen, proc.Job] = {}
         self._lock = threading.Lock()
 
     def fail(self, exc: BaseException) -> None:
@@ -247,17 +250,19 @@ class _Run:
 
     def track(self, p: subprocess.Popen) -> None:
         with self._lock:
-            self._procs.add(p)
+            self._procs[p] = proc.Job(p.pid)
 
     def untrack(self, p: subprocess.Popen) -> None:
         with self._lock:
-            self._procs.discard(p)
+            job = self._procs.pop(p, None)
+        if job is not None:
+            job.close()
 
     def kill_all(self) -> None:
         with self._lock:
-            running = list(self._procs)
-        for p in running:
-            _terminate(p)
+            running = list(self._procs.items())
+        for p, job in running:
+            _terminate(p, job)
 
     def pause(self, seconds: float) -> None:
         if not seconds:

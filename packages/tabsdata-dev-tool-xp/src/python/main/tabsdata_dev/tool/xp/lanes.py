@@ -195,6 +195,9 @@ def dispatch(
     )
     outer = 0  # the [N/M] width: it only ever grows
     procs: dict[str, subprocess.Popen] = {}
+    # a lane is `tdd-exe` and the tool it runs -- a tree on Windows, where
+    # tdd-exe waits for the tool instead of becoming it
+    jobs: dict[str, proc.Job] = {}
     summaries: dict[str, dict] = {}
     tails: dict[str, list[str]] = {}
     # A lane's own error event: why it failed, which is what the console must
@@ -252,6 +255,7 @@ def dispatch(
         )
         with lock:
             procs[lane] = p
+            jobs[lane] = proc.Job(p.pid)
             tails[lane] = []
         with log.open("w", encoding="utf-8") as fh:
             for raw in p.stdout:  # type: ignore[union-attr]
@@ -269,6 +273,8 @@ def dispatch(
                     with lock:
                         tails[lane] = (tails[lane] + [line.strip()])[-8:]
         code = p.wait()
+        with lock:
+            jobs.pop(lane).close()
         summary = summaries.get(lane)
         if summary:
             rep().absorb_lane(label, lane, summary)
@@ -303,9 +309,12 @@ def dispatch(
         )
         if state.run.fail_fast:
             with lock:
-                others = [q for name, q in procs.items() if name != lane]
-            for q in others:
-                q.terminate()
+                others = [
+                    (q, jobs.get(name)) for name, q in procs.items() if name != lane
+                ]
+            for q, job in others:
+                if job is None or not job.terminate():
+                    q.terminate()
 
     # Lanes are processes, not steps of this run: every lane is joined, and the
     # policy below decides what a failure means.
