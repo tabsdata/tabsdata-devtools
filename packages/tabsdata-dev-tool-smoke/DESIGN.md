@@ -52,9 +52,20 @@ _smoke`, a second entry point of this package, plumbing (the `_` keeps it out of
 the config edits (`set-uv-index`, `set-fn-resources`, `fill-placeholder`, `fill-pem`,
 `fill-storage`, `placeholders-left`), reading a field of a command's JSON Lines
 (`event-field`), masking a command line (`display`, ~30 calls a run), reading `tdkserver
-status` (`instance-state`, `pods-ready`) and a local instance's processes (`instance-pids`,
-`instance-stop`, `instance-gone`). A call costs ~100 ms, nothing beside a stage. So a script
-loads tdd first, before its own checks and its banner.
+status` (`instance-state`, `pods-ready`), a local instance's processes (`instance-pids`,
+`instance-stop`, `instance-gone`) and the screen beyond the stage lines (`window`, `pointers`,
+`paint-help`). A call costs ~100 ms, nothing beside a stage. So a script loads tdd first,
+before its own checks and its banner; `--help`, read with the options, has `common_help` load
+it from the tdd dir known so far, and is printed plain without one.
+
+- The rolling window is `render.Renderer.live` -- the block every tool redraws in place on a
+  terminal -- fed what the log gained since the command started, padded with blank rows to its
+  full height (`WINDOW`, 10) so the screen holds still from the first redraw instead of
+  growing under the command row by row, as it always has. The engine starts it in the
+  background through the `tdd` function, so the job is a subshell a signal would not get
+  through; it is ended by a stop file the engine writes, or by the engine's pid going away.
+- `pointers` reads a path in either OS's form (`/...`, `C:\...`), so a failure on Windows
+  names its logs too.
 
 - A kminus instance's processes are found by `instances/NAME/` on their command line, through
   `psutil` (the standard library cannot read another process's command line on Windows), a

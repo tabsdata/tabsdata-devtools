@@ -52,8 +52,9 @@
 # fill-placeholder, fill-pem, fill-storage, placeholders-left), called by the
 # scripts as stage commands, `common_run tdd _smoke ...`; and, under the
 # functions here, the masking (display), the reading of `tdkserver status`
-# (instance-state, pods-ready) and a local instance's processes
-# (instance-pids, instance-stop, instance-gone). So a script loads tdd first.
+# (instance-state, pods-ready), a local instance's processes (instance-pids,
+# instance-stop, instance-gone) and the screen beyond the stage lines (window,
+# pointers, paint-help). So a script loads tdd first.
 #
 # The script declares STAGE_NAMES (in order) before the first `common_stage`.
 # `common_on_stage_failed` is called after a failed stage's recap, before the report,
@@ -154,7 +155,8 @@ common_screen() {
 # so a resize mid-run is honoured.
 common_width() {
     local w
-    w="$(stty size 2>/dev/null </dev/tty | awk '{print $2}')"
+    w="$(stty size 2>/dev/null </dev/tty)"
+    w="${w##* }"
     [ "${w:-0}" -gt 0 ] 2>/dev/null || w="${COLUMNS:-120}"
     printf '%s' "$w"
 }
@@ -182,36 +184,25 @@ common_remark() {
 
 # ---------------------------------------------------------------- window
 # The rolling window shows the last WINDOW lines the RUNNING COMMAND wrote --
-# everything the log gained since the window opened -- not the log's tail: the
-# log also carries a plain copy of every screen line, and replaying the stage
-# header and the previous `ok` inside the window read as if the run had looped.
+# everything the log gained since the window opened, not the log's tail
+# (`tdd _smoke window`, on the screen). It is ended by a stop file rather than a
+# signal: started in the background through the `tdd` function, the job is a
+# subshell, and a signal to it would not reach the program drawing.
 common_window_start() {
     [ "$COLLAPSE" = 1 ] || return 0
     WINDOW_FROM="$(wc -c <"$LOG" 2>/dev/null | tr -d ' ')"
-    (
-        trap 'exit 0' TERM
-        while :; do
-            width="$(common_width)"
-            lines="$(tail -c +"$((${WINDOW_FROM:-0} + 1))" "$LOG" 2>/dev/null | tail -n "$WINDOW" | tr -d '\r' | sed -E "s/${ESC}\[[0-9;?]*[A-Za-z]//g" | cut -c1-"$((width - 8))")"
-            n=0
-            while IFS= read -r line; do
-                printf '\033[2K      %s%s%s\n' "$DIM" "$line" "$RESET"
-                n=$((n + 1))
-            done <<LINES
-$lines
-LINES
-            while [ "$n" -lt "$WINDOW" ]; do printf '\033[2K\n'; n=$((n + 1)); done
-            printf '\033[%dA' "$WINDOW"
-            sleep 0.5
-        done
-    ) >&3 &
+    WINDOW_STOP="$LOG.window-stop"
+    rm -f "$WINDOW_STOP"
+    tdd _smoke window --log "$LOG" --from "${WINDOW_FROM:-0}" --lines "$WINDOW" \
+        --stop "$WINDOW_STOP" --parent "$$" ${DIM:+--dim} 2>&3 >/dev/null &
     WINDOW_PID=$!
 }
 
 common_window_stop() {
     [ -n "$WINDOW_PID" ] || return 0
-    kill "$WINDOW_PID" 2>/dev/null
+    : >"$WINDOW_STOP"
     wait "$WINDOW_PID" 2>/dev/null
+    rm -f "$WINDOW_STOP"
     WINDOW_PID=""
     printf '\033[J' >&3
 }
@@ -312,14 +303,11 @@ common_stage_failed() {
 # Where to look, printed under a failed command while the run goes on: the log
 # files the command itself named (`details: PATH`, `errors: PATH`, `lane log:`,
 # `full output in PATH` -- every tdd command writes a failure log and says so),
-# taken from what it wrote to the log since it started (CMD_LOG_FROM), the last
-# few distinct ones (a summary comes last), plus any EXTRA "label path" given.
+# taken from what it wrote to the log since it started (CMD_LOG_FROM) by `tdd
+# _smoke pointers`, plus any EXTRA "label path" given.
 common_pointers() {
     local found
-    found="$(tail -c +"$((${CMD_LOG_FROM:-0} + 1))" "$LOG" 2>/dev/null |
-        sed -E "s/${ESC}\[[0-9;?]*[A-Za-z]//g" |
-        sed -n -E 's#^[[:space:]]*(details|errors|lane log|lane errors|log):[[:space:]]+(/[^[:space:]]+).*#\1 \2#p; s#^.*full output in (/[^[:space:]]+).*#output \1#p' |
-        awk '!seen[$0]++' | tail -n 6)"
+    found="$(tdd _smoke pointers --log "$LOG" --from "${CMD_LOG_FROM:-0}" 2>/dev/null)"
     [ $# -gt 0 ] && found="${found:+$found
 }$*"
     [ -n "$found" ] || return 0
@@ -580,52 +568,21 @@ common_kubeportforward_stop() {
 }
 
 # common_help REQUIRED -- paint a help page read from stdin the way every tdd
-# command paints one: a heading bold, an entry's term cyan. An option whose name
-# is in REQUIRED (space separated) is painted RED instead: on a page where half
-# a dozen options are mandatory, that belongs where the eye already is and not
-# only in the prose. Colours on a terminal only, and never under NO_COLOR.
-#
-# A painter, not a layout engine: these pages are hand-aligned in the script
-# that owns them, so nothing here moves a column.
+# command paints one (`tdd _smoke paint-help`): a heading bold, an entry's term
+# cyan, an option named in REQUIRED (space separated) red. Colours on a
+# terminal only, and never under NO_COLOR. --help is read while the options
+# are, before the script loads tdd, so it is loaded here from the tdd dir known
+# so far; without one the page is printed as it is.
 common_help() {
-    # decided HERE, where fd 1 is still the command's stdout: inside $(...) it
-    # is the capture pipe and `[ -t 1 ]` would always answer "no terminal"
-    local _tdd_tty=0
-    [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && _tdd_tty=1
-    awk -v required=" $1 " -v tty="$_tdd_tty" '
-    BEGIN {
-        if (tty) { bold = "\033[1m"; cyan = "\033[36m"; red = "\033[31m"; off = "\033[0m" }
-    }
-    function painted(l,   start, stop, term, name, colour, m) {
-        if (!tty) return l
-        if (l ~ /^[a-z][a-z0-9 \/_-]*:$/) { section = 1; return bold l off }
-        if (l ~ /^(usage|examples?|options?):( |$)/) {
-            m = index(l, ":")
-            section = 0
-            return bold substr(l, 1, m) off substr(l, m + 1)
-        }
-        # A line starting at column 1 ends the section it followed: what is
-        # indented under a prose paragraph belongs to the paragraph, not to a
-        # term list. The closing "drivers added ..." block is exactly that, and
-        # its first package name was being painted as if it were an option.
-        # (No apostrophes in here: the awk program is inside single quotes.)
-        if (l !~ /^ / && l != "") section = 0
-        if (section && match(l, /^ {1,6}[^ ]/)) {
-            start = RSTART + RLENGTH - 1
-            stop = start
-            while (stop < length(l) && substr(l, stop + 1, 2) != "  ") stop++
-            # a long term sits on a line of its own, its description on the
-            # next: there is no two-space run, and the term is the whole line
-            if (stop >= length(l)) { stop = length(l); sub(/ +$/, "", l) }
-            term = substr(l, start, stop - start + 1)
-            name = term
-            sub(/[ ,].*/, "", name)
-            colour = (index(required, " " name " ") > 0) ? red : cyan
-            return substr(l, 1, start - 1) colour term off substr(l, stop + 1)
-        }
-        return l
-    }
-    { print painted($0) }'
+    if ! type tdd >/dev/null 2>&1 && [ -r "${TDD_DIR_OPT:-}/tdd-source.sh" ]; then
+        # shellcheck disable=SC1090
+        . "$TDD_DIR_OPT/tdd-source.sh" >/dev/null 2>&1
+    fi
+    if type tdd >/dev/null 2>&1; then
+        tdd _smoke paint-help --required "$1"
+    else
+        cat
+    fi
 }
 
 # common_k8s_report KUBECONFIG CONTEXT NAMESPACE [TAIL] -- what the cluster knows

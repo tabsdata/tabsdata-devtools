@@ -24,7 +24,7 @@ import sys
 
 from tabsdata_dev.common.core import cli, errors, render
 
-from . import configs, display, instances, status
+from . import configs, display, instances, screen, status
 
 DESCRIPTION = (
     "plumbing of the smoke scripts: the config edits, masking and status "
@@ -135,6 +135,37 @@ def configure(p: argparse.ArgumentParser) -> None:
     )
     gone.add_argument("--instance", required=True)
 
+    win = sub.add_parser(
+        "window",
+        help="redraw the last lines a running command wrote to the log, on stderr, "
+        "until the stop file exists",
+    )
+    win.add_argument("--log", required=True)
+    win.add_argument(
+        "--from", dest="offset", type=int, required=True, help="byte offset"
+    )
+    win.add_argument("--lines", type=int, required=True)
+    win.add_argument("--stop", required=True, help="the file whose creation ends it")
+    win.add_argument("--parent", type=int, required=True, help="ends with this pid too")
+    win.add_argument("--dim", action="store_true", help="draw the lines dimmed")
+
+    look = sub.add_parser(
+        "pointers",
+        help="LABEL PATH for each log file a command named in the log since an offset",
+    )
+    look.add_argument("--log", required=True)
+    look.add_argument(
+        "--from", dest="offset", type=int, required=True, help="byte offset"
+    )
+
+    page = sub.add_parser(
+        "paint-help",
+        help="a help page read from stdin, painted; the REQUIRED options red",
+    )
+    page.add_argument(
+        "--required", default="", help="the required options, space separated"
+    )
+
 
 def body(args: argparse.Namespace, out: render.Renderer) -> int:
     if args.action == "set-uv-index":
@@ -189,6 +220,27 @@ def body(args: argparse.Namespace, out: render.Renderer) -> int:
         if not instances.gone(args.instance, out.info):
             return out.error(f"instance {args.instance} is not gone")
         return out.ok(f"instance {args.instance} is gone")
+    if args.action == "window":
+        dim = (screen.DIM, render.RESET) if args.dim else ("", "")
+        screen.window(
+            pathlib.Path(args.log),
+            args.offset,
+            args.lines,
+            pathlib.Path(args.stop),
+            args.parent,
+            out.live,
+            dim,
+        )
+        return out.ok("window closed")
+    if args.action == "pointers":
+        found = screen.pointers(
+            screen.written_since(pathlib.Path(args.log), args.offset)
+        )
+        return out.ok("\n".join(found), pointers=found)
+    if args.action == "paint-help":
+        text = sys.stdin.read().removesuffix("\n")
+        required = set(args.required.split())
+        return out.ok(screen.paint_help(text, required, sys.stdout.isatty()))
     return out.error("no action given (see --help)")
 
 

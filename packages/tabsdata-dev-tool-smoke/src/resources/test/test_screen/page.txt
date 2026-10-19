@@ -1,0 +1,13 @@
+usage: smoke-x.sh --name NAME [--force]
+
+A smoke test.
+
+options:
+  --name NAME         REQUIRED: the run's name
+  --td-version VERSION
+                      REQUIRED: the release
+  --force, -f         replace what exists
+  --help, -h          this help
+
+The drivers added to the instance's fn and ag venvs:
+  mysql-connector-python==9.6.0  psycopg2-binary==2.9.12
