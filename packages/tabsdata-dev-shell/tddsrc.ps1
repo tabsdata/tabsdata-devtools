@@ -21,6 +21,21 @@
 # is called, which character separates PATH entries -- goes through the helpers
 # at the top of this file and nowhere else.
 
+# PowerShell 7 is what tdd is written and tested for, and its code is free to
+# use what only 7 has. Windows PowerShell 5.1 (powershell.exe) is not refused,
+# but nothing is promised for it, so say so once, where tdd is loaded -- for as
+# long as this file still parses there; past that, 5.1's own parse error says it.
+function _tdd_warn_old_powershell {
+    param([version]$Version = $PSVersionTable.PSVersion)
+    if ($Version.Major -lt 7) {
+        [Console]::Error.WriteLine(
+            "tdd: written for PowerShell 7 (pwsh); this is PowerShell $Version, " +
+            "where it is not tested and may not work"
+        )
+    }
+}
+_tdd_warn_old_powershell
+
 # Locate ourselves rather than trusting a baked path: the whole point of the
 # relocatable envs is that this tree can be moved, copied or unzipped anywhere,
 # and a hardcoded TDD_DIR would defeat that on the first move. The baked value

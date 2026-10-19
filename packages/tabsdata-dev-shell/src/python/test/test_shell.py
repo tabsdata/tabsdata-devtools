@@ -1219,6 +1219,32 @@ def test_the_powershell_entry_points_set_lastexitcode_from_tdd_rc(resource_folde
     assert done.stdout.splitlines() == expected * 3
 
 
+def test_the_powershell_loader_warns_once_below_powershell_7(resource_folder):
+    """tdd is written for PowerShell 7; Windows PowerShell 5.1 is not refused,
+    but told, once, that nothing is promised for it -- and 7 is told nothing."""
+    import shutil
+    import subprocess
+
+    import pytest
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("pwsh not installed")
+    loader = shell._root() / shell.TEMPLATES[shell.POWERSHELL]
+    done = subprocess.run(
+        [pwsh, "-NoProfile", "-File", resource_folder / "old_powershell.ps1", loader],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stderr.splitlines() == [
+        "== 7.4.6",
+        "== 5.1.19041",
+        "tdd: written for PowerShell 7 (pwsh); this is PowerShell 5.1.19041, "
+        "where it is not tested and may not work",
+    ]
+
+
 def test_a_shell_command_named_with_an_underscore_is_hidden_like_a_tool():
     """`_tdd-env` is plumbing, as `_venv` and `_1p` are: both loaders leave a
     `_` shell command out of `tdd help`, and `-x` lists it, as `tdd-exe
