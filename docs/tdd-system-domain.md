@@ -27,7 +27,7 @@ starts from these two.
 
 Setup takes a running docker, a signed-in 1Password CLI (`op`) and four commands.
 
-1. Install tdd: `cargo make setup` from the tabsdata-dt checkout (or `cargo make install`), then source the loader so the
+1. Install tdd: `cargo make install` from the tabsdata-dt checkout, then source the loader so the
    `tdd` function exists.
 2. Load the store key, and the cloud secrets if you are about to create cloud systems: `tdd env set --crypto --secrets`.
    `--crypto` fetches `_TDD_CRYPTO_KEY` from 1Password item `DevSecrets` and is needed in every shell. `--secrets` is

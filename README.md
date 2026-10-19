@@ -18,7 +18,7 @@ no Python, no venv.
 
 ```bash
 git clone git@github.com:tabsdata/tabsdata-dt.git && cd tabsdata-dt
-cargo make setup
+cargo make install
 source ~/.tdd/tdd-source.sh
 echo '' >> ~/.zshrc
 echo '#Tabsdata DevTools' >> ~/.zshrc

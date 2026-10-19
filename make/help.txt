@@ -7,14 +7,13 @@ touches a tdd dir resolves it the same way: `-- --dir PATH`, else $TDD_DIR, else
 setup
   install [-- --dir PATH]   evict devtools packages from the uv cache, build
                             wheels + locks, stage them in <dir>/wheels, build
-                            every env from them (no checkout needed after)
+                            every env from them (no checkout needed after),
+                            then create the config file of every command that
+                            owns options: existing ones are kept unless
+                            `-f`/`--force`, `--no-config` skips them
   install -- --editable|-e  build every env editable from this checkout instead;
                             source edits are live, no wheels involved
   dev                       shortcut for `install -- --editable`
-  setup [-- --dir PATH]     install (`-e` for editable), then create the config
-                            file of every command that owns options; existing
-                            ones are kept unless `-f`/`--force`, `--no-config`
-                            skips them
   uninstall [-- --dir PATH] delete the tdd dir; tells you what to unsource
 
 quality (what CI runs)

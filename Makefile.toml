@@ -4,9 +4,9 @@
 
 # cargo-make tasks for tabsdata-devtools. `cargo make help` lists them all.
 #
+#   cargo make install                   wheels -> <dir>/wheels, tdd-install, every config file
 #   cargo make install -- --editable     every env editable from this checkout (= dev)
-#   cargo make install -- --dir /tmp/t2  wheels -> <dir>/wheels, then tdd-install
-#   cargo make setup                     install, then every command's config file
+#   cargo make install -- --dir /tmp/t2  the same into another tdd dir
 #   cargo make check                     lint + test + reqs
 #   cargo make uninstall                 remove the tdd dir
 #
@@ -346,8 +346,9 @@ script = [
     end
     ''']
 
-# Arguments: --dir PATH (or --dir=PATH), --editable / -e; the `--` cargo-make
-# forwards is skipped. `dev` sets MAKE_EDITABLE instead.
+# Arguments: --dir PATH (or --dir=PATH), --editable / -e, --force / -f,
+# --no-config; the `--` cargo-make forwards is skipped. `dev` sets
+# MAKE_EDITABLE instead.
 #
 # Every first-party wheel keeps its filename across rebuilds -- same VERSION,
 # new contents -- and uv caches wheels by filename, so a stale build could be
@@ -366,85 +367,13 @@ script = [
 # deliberately non-editable, so its catalog is a frozen snapshot. Nothing lands
 # on PATH; the envs go inside the tdd dir. --refresh because uv caches by wheel
 # filename and a rebuild keeps the same VERSION.
-[tasks.install]
-description = "Build a tdd dir: from wheels by default, or editable with --editable"
-dependencies = ["make-env"]
-script_runner = "@duckscript"
-script = [
-    '''
-    tdd_dir = get_env MAKE_TDD_DIR
-    editable = get_env MAKE_EDITABLE
-    editable = eq ${editable} 1
-    count = array_length ${@}
-    i = set 0
-    while less_than ${i} ${count}
-        arg = array_get ${@} ${i}
-        i = calc ${i} + 1
-        if eq ${arg} "--dir"
-            tdd_dir = array_get ${@} ${i}
-            i = calc ${i} + 1
-        elseif starts_with ${arg} "--dir="
-            tdd_dir = replace ${arg} "--dir=" ""
-        elseif eq ${arg} "--editable"
-            editable = set true
-        elseif eq ${arg} "-e"
-            editable = set true
-        elseif not eq ${arg} "--"
-            assert_fail "cargo make install: unexpected argument ${arg}"
-        end
-    end
-
-    packages = glob_array "${PACKAGES}/tabsdata-dev-*"
-    for pkg in ${packages}
-        name = basename ${pkg}
-        exec --fail-on-error uv cache clean --quiet ${name}
-    end
-    echo "evicted devtools packages from the uv cache"
-
-    py = get_env MAKE_PY
-    if ${editable}
-        set_env PYTHONPATH "${TDD_PKG}/src/python/main"
-        exec --fail-on-error ${py} -m tabsdata_dev.tdd.install --dir ${tdd_dir}
-        exit 0
-    end
-
-    exec --fail-on-error cargo make wheels
-
-    staged = set "${tdd_dir}/wheels"
-    mkdir ${staged}
-    old = glob_array "${staged}/*"
-    for file in ${old}
-        rm ${file}
-    end
-    wheels = glob_array "${WHEELS_OUT}/*.whl"
-    locks = glob_array "${WHEELS_OUT}/*.lock"
-    for file in ${wheels}
-        name = basename ${file}
-        cp ${file} "${staged}/${name}"
-    end
-    for file in ${locks}
-        name = basename ${file}
-        cp ${file} "${staged}/${name}"
-    end
-    cp "${WHEELS_OUT}/VERSION" "${staged}/VERSION"
-    n_wheels = array_length ${wheels}
-    n_locks = array_length ${locks}
-    echo "staged ${n_wheels} wheels and ${n_locks} locks in ${staged}"
-
-    tdd_wheels = glob_array "${WHEELS_OUT}/tabsdata_dev_tdd-*.whl"
-    tdd_wheel = array_get ${tdd_wheels} 0
-    exec --fail-on-error uvx --quiet --refresh --python ${py} --from ${tdd_wheel} tdd-install --dir ${tdd_dir} --from-wheels
-    ''']
-
-# Arguments: --dir PATH (or --dir=PATH), --editable / -e, --force / -f,
-# --no-config; the `--` cargo-make forwards is skipped.
 #
-# A fresh tdd dir in one step: `install` (editable or from wheels), then the
-# config file of every command that owns options, so they are there to read and
-# edit instead of asked for one at a time. Safe to re-run, which is how a new
-# command gets its file: an existing one is kept unless --force, which
-# recreates it keeping what it set. The task decides what to keep, so a create
-# always passes --force -- a plain create where there is no file yet.
+# Then the config file of every command that owns options, so they are there
+# to read and edit instead of asked for one at a time (--no-config skips it).
+# Safe to re-run, which is how a new command gets its file: an existing one is
+# kept unless --force, which recreates it keeping what it set. The task decides
+# what to keep, so a create always passes --force -- a plain create where there
+# is no file yet. tdd-install itself never writes one: that is user state.
 #
 # The config action belongs to each command: a tool's is reached through
 # tdd-exe, a shell command's only through a loader, so it runs in a shell of
@@ -453,14 +382,15 @@ script = [
 # /bin/sh is one). TDD_DIR is set for both: tdd-exe finds its tdd dir there, not
 # where it is installed. A launcher is skipped: every argument is the
 # program's, `config` included.
-[tasks.setup]
-description = "Build a tdd dir with install, then give every command its config file"
+[tasks.install]
+description = "Build a tdd dir (from wheels, or editable with --editable), then give every command its config file"
 dependencies = ["make-env"]
 script_runner = "@duckscript"
 script = [
     '''
     tdd_dir = get_env MAKE_TDD_DIR
-    editable = set false
+    editable = get_env MAKE_EDITABLE
+    editable = eq ${editable} 1
     force = set false
     configs = set true
     count = array_length ${@}
@@ -484,14 +414,48 @@ script = [
         elseif eq ${arg} "--no-config"
             configs = set false
         elseif not eq ${arg} "--"
-            assert_fail "cargo make setup: unexpected argument ${arg}"
+            assert_fail "cargo make install: unexpected argument ${arg}"
         end
     end
 
+    packages = glob_array "${PACKAGES}/tabsdata-dev-*"
+    for pkg in ${packages}
+        name = basename ${pkg}
+        exec --fail-on-error uv cache clean --quiet ${name}
+    end
+    echo "evicted devtools packages from the uv cache"
+
+    py = get_env MAKE_PY
     if ${editable}
-        exec --fail-on-error cargo make install -- --dir ${tdd_dir} --editable
+        set_env PYTHONPATH "${TDD_PKG}/src/python/main"
+        exec --fail-on-error ${py} -m tabsdata_dev.tdd.install --dir ${tdd_dir}
     else
-        exec --fail-on-error cargo make install -- --dir ${tdd_dir}
+        exec --fail-on-error cargo make wheels
+
+        staged = set "${tdd_dir}/wheels"
+        mkdir ${staged}
+        old = glob_array "${staged}/*"
+        for file in ${old}
+            rm ${file}
+        end
+        wheels = glob_array "${WHEELS_OUT}/*.whl"
+        locks = glob_array "${WHEELS_OUT}/*.lock"
+        for file in ${wheels}
+            name = basename ${file}
+            cp ${file} "${staged}/${name}"
+        end
+        for file in ${locks}
+            name = basename ${file}
+            cp ${file} "${staged}/${name}"
+        end
+        cp "${WHEELS_OUT}/VERSION" "${staged}/VERSION"
+        n_wheels = array_length ${wheels}
+        n_locks = array_length ${locks}
+        echo "staged ${n_wheels} wheels and ${n_locks} locks in ${staged}"
+
+        tdd_wheels = glob_array "${WHEELS_OUT}/tabsdata_dev_tdd-*.whl"
+        tdd_wheel = array_get ${tdd_wheels} 0
+        exec --fail-on-error uvx --quiet --refresh --python ${py} --from ${tdd_wheel} tdd-install --dir ${tdd_dir} --from-wheels
     end
     if not ${configs}
         echo "installed ${tdd_dir} (no config files: --no-config)"
@@ -556,7 +520,7 @@ script = [
     echo "  load it  bash, zsh     source ${tdd_dir}/tdd-source.sh"
     echo "           PowerShell    . ${tdd_dir}/tdd-source.ps1"
     if not eq ${failed} 0
-        assert_fail "cargo make setup: ${failed} config files could not be created"
+        assert_fail "cargo make install: ${failed} config files could not be created"
     end
     ''']
 
