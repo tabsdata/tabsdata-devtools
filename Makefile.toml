@@ -6,6 +6,7 @@
 #
 #   cargo make install -- --editable     every env editable from this checkout (= dev)
 #   cargo make install -- --dir /tmp/t2  wheels -> <dir>/wheels, then tdd-install
+#   cargo make setup                     install, then every command's config file
 #   cargo make check                     lint + test + reqs
 #   cargo make uninstall                 remove the tdd dir
 #
@@ -433,6 +434,130 @@ script = [
     tdd_wheels = glob_array "${WHEELS_OUT}/tabsdata_dev_tdd-*.whl"
     tdd_wheel = array_get ${tdd_wheels} 0
     exec --fail-on-error uvx --quiet --refresh --python ${py} --from ${tdd_wheel} tdd-install --dir ${tdd_dir} --from-wheels
+    ''']
+
+# Arguments: --dir PATH (or --dir=PATH), --editable / -e, --force / -f,
+# --no-config; the `--` cargo-make forwards is skipped.
+#
+# A fresh tdd dir in one step: `install` (editable or from wheels), then the
+# config file of every command that owns options, so they are there to read and
+# edit instead of asked for one at a time. Safe to re-run, which is how a new
+# command gets its file: an existing one is kept unless --force, which
+# recreates it keeping what it set. The task decides what to keep, so a create
+# always passes --force -- a plain create where there is no file yet.
+#
+# The config action belongs to each command: a tool's is reached through
+# tdd-exe, a shell command's only through a loader, so it runs in a shell of
+# the family the OS always has -- bash, or pwsh on Windows. bash, not sh: the
+# loader defines tdd-exe and tdd-fn, names a POSIX-mode shell refuses (macOS's
+# /bin/sh is one). TDD_DIR is set for both: tdd-exe finds its tdd dir there, not
+# where it is installed. A launcher is skipped: every argument is the
+# program's, `config` included.
+[tasks.setup]
+description = "Build a tdd dir with install, then give every command its config file"
+dependencies = ["make-env"]
+script_runner = "@duckscript"
+script = [
+    '''
+    tdd_dir = get_env MAKE_TDD_DIR
+    editable = set false
+    force = set false
+    configs = set true
+    count = array_length ${@}
+    i = set 0
+    while less_than ${i} ${count}
+        arg = array_get ${@} ${i}
+        i = calc ${i} + 1
+        if eq ${arg} "--dir"
+            tdd_dir = array_get ${@} ${i}
+            i = calc ${i} + 1
+        elseif starts_with ${arg} "--dir="
+            tdd_dir = replace ${arg} "--dir=" ""
+        elseif eq ${arg} "--editable"
+            editable = set true
+        elseif eq ${arg} "-e"
+            editable = set true
+        elseif eq ${arg} "--force"
+            force = set true
+        elseif eq ${arg} "-f"
+            force = set true
+        elseif eq ${arg} "--no-config"
+            configs = set false
+        elseif not eq ${arg} "--"
+            assert_fail "cargo make setup: unexpected argument ${arg}"
+        end
+    end
+
+    if ${editable}
+        exec --fail-on-error cargo make install -- --dir ${tdd_dir} --editable
+    else
+        exec --fail-on-error cargo make install -- --dir ${tdd_dir}
+    end
+    if not ${configs}
+        echo "installed ${tdd_dir} (no config files: --no-config)"
+        exit 0
+    end
+
+    set_env TDD_DIR ${tdd_dir}
+    venv_bin = get_env MAKE_VENV_BIN
+    exe = get_env MAKE_EXE
+    family = os_family
+    tdd_bin = set "${tdd_dir}/tdd-venvs/tdd/${venv_bin}"
+    rows = exec --fail-on-error "${tdd_bin}/python${exe}" "${MAKE_SCRIPTS}/catalog_rows.py" configs "${tdd_dir}/catalog.json"
+    lines = split ${rows.stdout} "\n"
+    created = set 0
+    kept = set 0
+    skipped = set 0
+    failed = set 0
+    echo "config files in ${tdd_dir}"
+    for line in ${lines}
+        line = trim ${line}
+        if not is_empty ${line}
+            words = split ${line} " "
+            kind = array_get ${words} 0
+            name = array_get ${words} 1
+            file = set "${tdd_dir}/${name}.toml"
+            exists = is_path_exists ${file}
+            keep = set false
+            if ${exists}
+                keep = not ${force}
+            end
+            if eq ${kind} launcher
+                echo "  ${name}  skipped (a launcher: every argument is the program's)"
+                skipped = calc ${skipped} + 1
+            elseif ${keep}
+                echo "  ${name}  kept     ${file}"
+                kept = calc ${kept} + 1
+            else
+                if eq ${kind} tool
+                    out = exec "${tdd_bin}/tdd-exe${exe}" ${name} config --create --force
+                elseif eq ${family} windows
+                    set_env MAKE_LOADER "${tdd_dir}/tdd-source.ps1"
+                    set_env MAKE_COMMAND ${name}
+                    out = exec pwsh -NoProfile -Command ". $env:MAKE_LOADER; tdd $env:MAKE_COMMAND config --create --force; exit $LASTEXITCODE"
+                else
+                    out = exec bash -c ". \"$1/tdd-source.sh\" && tdd \"$2\" config --create --force" _ ${tdd_dir} ${name}
+                end
+                if eq ${out.code} 0
+                    echo "  ${name}  created  ${file}"
+                    created = calc ${created} + 1
+                else
+                    echo "  ${name}  failed"
+                    echo ${out.stderr}
+                    failed = calc ${failed} + 1
+                end
+            end
+        end
+    end
+
+    echo ""
+    echo "installed ${tdd_dir}"
+    echo "  configs  ${created} created, ${kept} kept, ${skipped} skipped, ${failed} failed"
+    echo "  load it  bash, zsh     source ${tdd_dir}/tdd-source.sh"
+    echo "           PowerShell    . ${tdd_dir}/tdd-source.ps1"
+    if not eq ${failed} 0
+        assert_fail "cargo make setup: ${failed} config files could not be created"
+    end
     ''']
 
 # --------------------------------------------------------------------- uninstall

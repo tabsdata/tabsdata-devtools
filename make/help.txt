@@ -11,6 +11,10 @@ setup
   install -- --editable|-e  build every env editable from this checkout instead;
                             source edits are live, no wheels involved
   dev                       shortcut for `install -- --editable`
+  setup [-- --dir PATH]     install (`-e` for editable), then create the config
+                            file of every command that owns options; existing
+                            ones are kept unless `-f`/`--force`, `--no-config`
+                            skips them
   uninstall [-- --dir PATH] delete the tdd dir; tells you what to unsource
 
 quality (what CI runs)

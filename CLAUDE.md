@@ -117,12 +117,12 @@ cargo make install               # wheels + locks -> <dir>/wheels, build the env
 cargo make dev                   # = install -- --editable: every env linked to this checkout
 cargo make lock                  # re-resolve every toolset's uv.lock in one pass (upgrade)
 cargo make check                 # lint + test + reqs — the gate; must pass before a commit
-./install.sh               # install + a config file for every command (--dir, --editable, --force)
+cargo make setup                 # install + a config file for every command (--dir, --editable, --force)
 cargo make test                  # every package's tests, each in the env it ships with
 cargo make fmt                   # ruff format; run after editing (stale string patches fail otherwise)
 ```
 
-Requires only `uv` and `cargo-make`. `install`/`dev`/`uninstall` take `-- --dir PATH`; `test`,
+Requires only `uv` and `cargo-make`. `install`/`dev`/`setup`/`uninstall` take `-- --dir PATH`; `test`,
 `check` and `reqs` read `TDD_DIR` only (default `~/.tdd`) and need an initialized tdd dir there --
 in wheels mode, a reinstall to see source changes.
 
