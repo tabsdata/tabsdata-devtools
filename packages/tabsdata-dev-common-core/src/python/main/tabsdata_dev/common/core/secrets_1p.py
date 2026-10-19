@@ -47,8 +47,10 @@ def _require(cmd: str) -> None:
     if shutil.which(cmd) is None:
         raise ToolError(
             f"'{cmd}' (the 1Password CLI) is not installed, and this needs "
-            "1Password; where 1Password is not used, set the variables from a "
-            "file exported on a machine that has it instead"
+            "1Password. Without it (on Windows), export the variables on a "
+            "machine that has it -- tdd _1p fetch --crypto --secrets 1p:VAULT "
+            "--platform windows > secrets.ps1 -- and load them here: "
+            ". .\\secrets.ps1"
         )
 
 

@@ -22,6 +22,7 @@ import importlib
 import json
 import shlex
 
+from . import resources
 from .errors import ToolError
 
 # scheme -> module (relative to this package) implementing `fetch(ref)`.
@@ -30,6 +31,40 @@ _PROVIDERS: dict[str, str] = {
 }
 
 OUT_FORMATS = ("json", "export", "unset")
+
+#: The platforms an export is written for. macOS and Linux share one form,
+#: `unix`: sh export lines. Windows gets a PowerShell file to dot-source.
+PLATFORMS = ("macos", "linux", "windows")
+UNIX_PLATFORMS = ("macos", "linux")
+DEFAULT_PLATFORM = "macos"
+
+#: This package, whose resources hold the Windows export's template.
+PACKAGE = "tabsdata_dev.common.core"
+#: The quote characters PowerShell reads in a single-quoted string -- ASCII
+#: and the four typographic ones -- each written twice to stand for itself.
+_PS_QUOTES = "'\u2018\u2019\u201a\u201b"
+
+
+def _export_unix(secrets: dict[str, str]) -> str:
+    """sh export lines, each value quoted for sh: what `tdd env` evaluates."""
+    return "\n".join(
+        f"export {name}={shlex.quote(str(v))}" for name, v in secrets.items()
+    )
+
+
+def _export_windows(secrets: dict[str, str]) -> str:
+    """A PowerShell file of $env: lines, for a machine without 1Password to
+    dot-source; the template says what the file is, since it travels."""
+    variables = [(name, _ps_quote(str(v))) for name, v in secrets.items()]
+    text = resources.render(PACKAGE, "secrets.ps1", variables=variables)
+    return text.rstrip("\n")
+
+
+def _ps_quote(value: str) -> str:
+    """`value` as a PowerShell single-quoted string: nothing in it expands ($,
+    backtick), it may span lines, and only quote characters need escaping."""
+    return "'" + "".join(c * 2 if c in _PS_QUOTES else c for c in value) + "'"
+
 
 # The personal key that encrypts the system and domain descriptors: its
 # variable, and the shortest value accepted. Here rather than in common-systems
@@ -108,16 +143,24 @@ def fetch(ref_arg: str) -> dict[str, str]:
     return _load_provider(scheme).fetch(ref)
 
 
-def render(secrets: dict[str, str], out: str) -> str:
-    """Render fetched secrets as a JSON dict / ``export`` lines / ``unset`` lines.
+def render(
+    secrets: dict[str, str],
+    out: str,
+    platform: str = DEFAULT_PLATFORM,
+) -> str:
+    """Render fetched secrets as a JSON dict / an export / ``unset`` lines. An
+    export is written for `platform`: sh ``export`` lines on macOS and Linux,
+    a PowerShell file of ``$env:`` lines on Windows.
 
     Names are already valid env-var names (the providers normalise them)."""
     if out == "json":
         return json.dumps(secrets, indent=2)
     if out == "export":
-        return "\n".join(
-            f"export {name}={shlex.quote(str(v))}" for name, v in secrets.items()
-        )
+        if platform in UNIX_PLATFORMS:
+            return _export_unix(secrets)
+        if platform == "windows":
+            return _export_windows(secrets)
+        raise ToolError(f"unknown platform {platform!r} ({', '.join(PLATFORMS)})")
     if out == "unset":
         return "\n".join(f"unset {name}" for name in secrets)
     raise ToolError(f"unknown format {out!r} (expected {'|'.join(OUT_FORMATS)})")

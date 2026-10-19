@@ -354,6 +354,30 @@ def test_bare_selections_read_the_default_vaults(op, monkeypatch, capsys):
     assert f'_TDD_VAULT_SECRETS="{onepassword.DEFAULT_SECRETS_VAULT}"' in env_sh
 
 
+def test_an_export_for_windows_is_a_powershell_file_of_the_same_values(
+    op,
+    monkeypatch,
+    capsys,
+):
+    """macOS is the default and Linux writes the same lines; for Windows, which
+    has no 1Password, the same variables come as $env: lines in a file that
+    says what it is -- secrets.render's own test loads one in real pwsh."""
+    argv = ["fetch", "--crypto", "1p:Employee", "--secrets", "1p:dev_xp"]
+    _, macos, _ = _stdout(argv, monkeypatch, capsys)
+    _, linux, _ = _stdout([*argv, "--platform", "linux"], monkeypatch, capsys)
+    assert linux == macos
+    code, windows, _ = _stdout([*argv, "--platform", "windows"], monkeypatch, capsys)
+    assert code == 0
+    assert windows.startswith(
+        "# Secrets exported by `tdd _1p fetch --platform windows`"
+    )
+    lines = [line for line in windows.splitlines() if line.startswith("$env:")]
+    assert [line.split(" = ", 1)[0] for line in lines] == [
+        f"$env:{name}" for name in _exports(macos)
+    ]
+    assert "$env:PG__PASSWORD = 'p w''d'" in lines  # quoted for PowerShell
+
+
 def test_view_names_what_was_fetched_and_json_carries_the_values(
     op, monkeypatch, capsys
 ):

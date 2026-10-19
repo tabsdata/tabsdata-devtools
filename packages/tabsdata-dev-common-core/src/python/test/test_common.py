@@ -296,6 +296,51 @@ def test_a_venv_manager_is_checked_only_where_it_is_used(monkeypatch, tmp_path):
     assert argv[-1] == "status" and "pyenv" not in argv
 
 
+def test_a_windows_export_gives_powershell_every_value_exactly(
+    tmp_path,
+    resource_folder,
+):
+    """The file an operator carries to Windows and dot-sources: each value
+    comes back as it was -- quotes, typographic quotes, $ and backticks that
+    must not expand, a PEM over several lines, non-ASCII text."""
+    import shutil
+    import subprocess
+
+    from tabsdata_dev.common.core import secrets
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("pwsh not installed")
+    # macOS and Linux share the sh form; anything else is refused
+    assert secrets.render({"A": "x y"}, "export", "linux") == "export A='x y'"
+    assert secrets.render({"A": "x y"}, "export") == "export A='x y'"
+    with pytest.raises(ToolError, match="unknown platform"):
+        secrets.render({"A": "x"}, "export", "solaris")
+    values = {
+        "TD_PLAIN": "s3cret",
+        "TD_QUOTES": 'it\'s "q" \u2018curly\u2019 \u201alow\u201b',
+        "TD_EXPAND": "$HOME `n $(whoami) ${x}",
+        "TD_PEM": "-----BEGIN KEY-----\nAAAA\nBBBB\n-----END KEY-----",
+        "TD_UNICODE": "ña \u00e7a \u65e5\u672c",
+        "TD_EMPTY": "",
+    }
+    text = secrets.render(values, "export", "windows")
+    assert text.startswith("# Secrets exported by `tdd _1p fetch --platform windows`")
+    file = tmp_path / "secrets.ps1"
+    file.write_text(text, encoding="utf-8")
+    done = subprocess.run(
+        [pwsh, "-NoProfile", "-File", resource_folder / "load_ps1.ps1", file, *values],
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert done.returncode == 0, done.stderr
+    seen = json.loads(done.stdout)
+    # an empty value: PowerShell on Windows removes the variable, elsewhere it
+    # keeps it empty -- the platform's rule, not the file's
+    assert seen.pop("TD_EMPTY") in ("", None)
+    assert seen == {k: v for k, v in values.items() if k != "TD_EMPTY"}
+
+
 def test_managedvenv_needs_a_venv_and_says_how_to_get_one(tmp_path, monkeypatch):
     from tabsdata_dev.common.core import managedvenv
     from tabsdata_dev.common.core.errors import ToolError

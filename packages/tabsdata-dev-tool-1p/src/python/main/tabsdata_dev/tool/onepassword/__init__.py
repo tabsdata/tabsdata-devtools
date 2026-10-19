@@ -181,8 +181,10 @@ def _fetch(args: argparse.Namespace, out: render.Renderer) -> int:
         found.update(secrets.with_systems_var(secrets.fetch(args.secrets)))
     names = list(found)
     if args.format == FMT_EXPORT:
-        # The outcome IS the lines to apply: `tdd env` evaluates what comes out.
-        return out.ok(secrets.render(found, "export"), names=names)
+        # The outcome IS the lines to apply: `tdd env` evaluates them on macOS
+        # and Linux; for Windows they are a file to carry and dot-source there.
+        export = secrets.render(found, FMT_EXPORT, args.platform)
+        return out.ok(export, names=names)
     summary = f"fetched {len(names)} variable(s): {' '.join(names)}"
     if args.format == "json":
         # JSON is asked for by name, by a program: the values travel, as they do
@@ -284,10 +286,19 @@ def configure(p: argparse.ArgumentParser) -> None:
         f"{TWINE_ITEM} of this vault (alone: {DEFAULT_CRYPTO_VAULT}) as "
         f"{' and '.join(n for _, n in TWINE_FIELDS)}, the names twine reads",
     )
+    fetch.add_argument(
+        "--platform",
+        choices=secrets.PLATFORMS,
+        default=secrets.DEFAULT_PLATFORM,
+        help="the machine the export is for: macos and linux get export lines "
+        "for a shell to eval; windows, which has no 1Password, a PowerShell "
+        "file to save and dot-source there (`> secrets.ps1`, then "
+        "`. .\\secrets.ps1`) (default: %(default)s)",
+    )
     _common(
         fetch,
         {
-            FMT_EXPORT: "export lines for a shell to eval",
+            FMT_EXPORT: "the variables to apply, written for --platform",
             "view": "the names fetched, never the values",
             "json": "JSON Lines, the values included",
         },
@@ -327,7 +338,7 @@ def main() -> int:
         DESCRIPTION,
         body,
         configure=configure,
-        formats={FMT_EXPORT: "fetch's export lines, for a shell to eval"},
+        formats={FMT_EXPORT: "fetch's export, for a shell to apply"},
         default_format=FMT_EXPORT,
     )
 

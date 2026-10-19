@@ -7,10 +7,17 @@ Copyright 2026 Tabsdata Inc.
 What tdd fetches from and pushes to 1Password:
 
 - `tdd _1p fetch [--crypto [1p:VAULT] [--item ITEM] [--field FIELD]] [--secrets [1p:VAULT]]
-  [--pypi-twine [1p:VAULT]] [--format export|view|json]`: the descriptor crypto key, a shared
-  vault's secrets and/or the PyPI upload credentials, by default printed as `export` lines -- the
-  outcome of the command -- for `tdd env set --crypto/--secrets/--pypi-twine` to apply. `view` names what was fetched without the values; `json`
-  carries them (`values`).
+  [--pypi-twine [1p:VAULT]] [--platform macos|linux|windows] [--format export|view|json]`: the
+  descriptor crypto key, a shared vault's secrets and/or the PyPI upload credentials, by default
+  printed as an export -- the outcome of the command -- written for `--platform`: `export` lines
+  on macos (the default) and linux, for `tdd env set --crypto/--secrets/--pypi-twine` to apply;
+  on windows a PowerShell file of `$env:` lines. `view` names what was fetched without the
+  values; `json` carries them (`values`).
+- **Windows has no 1Password.** An operator exports there from a Mac --
+  `tdd _1p fetch --crypto --secrets 1p:VAULT --platform windows > secrets.ps1` -- carries the
+  file over, loads it into the PowerShell 7 session (`. .\secrets.ps1`) and deletes it: it holds
+  the values in clear. The values are PowerShell single-quoted strings, so nothing in them expands
+  and a PEM keeps its lines; `op` is optional everywhere, and a read without it says this.
 - `tdd _1p push --vault 1p:VAULT --entry PATH|-`: file one item in a vault, replacing what is
   filed under its title -- the item `tdd system 1p-template` or `tdd system info --format 1p`
   writes, or a whole `op item get --format=json`.
