@@ -14,7 +14,7 @@ dependencies = [
     # apidoc: static API extraction. The pin tabsdata-os's tdx-apidocgen runs
     # on; apidoc patches griffe._internal (the .pyi-wins stub policy), so a
     # bump is a re-test, not a formality.
-    "griffe==2.3.2",
+    "griffe==2.4.0",
     # smoke: a local instance's processes, found by their command line, which
     # the standard library cannot read on Windows. salesforce's pin.
     "psutil==7.2.2",
