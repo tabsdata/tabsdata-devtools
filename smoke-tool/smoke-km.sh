@@ -186,6 +186,15 @@ STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
 # shellcheck disable=SC1091
 . "$HERE/_common.sh"
 
+# tdd is loaded first: the checks below, the banner and every stage go
+# through it (tdd _smoke).
+if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
+    echo "smoke-km: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir" >&2
+    exit 1
+fi
+# shellcheck disable=SC1090
+. "$TDD_DIR_OPT/tdd-source.sh"
+
 # What this run would create must not already exist -- someone's setup could be
 # behind those names. --force says they are ours to replace.
 if [ -z "$FORCE" ]; then
@@ -194,7 +203,7 @@ if [ -z "$FORCE" ]; then
         [ -e "$d" ] && EXISTING="$EXISTING venv:$d"
     done
     [ -e "$HOME/.tabsdata/instances/$INSTANCE" ] && EXISTING="$EXISTING instance:$HOME/.tabsdata/instances/$INSTANCE"
-    pgrep -f "instances/$INSTANCE/" >/dev/null 2>&1 && EXISTING="$EXISTING running-instance:$INSTANCE"
+    common_instance_running "$INSTANCE" && EXISTING="$EXISTING running-instance:$INSTANCE"
     if [ -n "$EXISTING" ]; then
         echo "smoke-km: already exists:$EXISTING" >&2
         echo "smoke-km: pass --force to stop/delete and recreate them, or pick another --name" >&2
@@ -203,13 +212,6 @@ if [ -z "$FORCE" ]; then
 fi
 
 common_init "$LOG" "$VERBOSE"
-# loaded before the banner: it masks values through tdd _smoke
-if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
-    common_screen "${RED}smoke-km: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
-    exit 1
-fi
-# shellcheck disable=SC1090
-. "$TDD_DIR_OPT/tdd-source.sh"
 
 common_screen "smoke-km: effective options"
 common_screen "  --name              $NAME   -> instance and venv $BASE, domains and xp names ${BASE}__<what>"

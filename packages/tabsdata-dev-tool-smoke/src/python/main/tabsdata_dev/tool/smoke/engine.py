@@ -24,7 +24,7 @@ import sys
 
 from tabsdata_dev.common.core import cli, errors, render
 
-from . import configs, display, status
+from . import configs, display, instances, status
 
 DESCRIPTION = (
     "plumbing of the smoke scripts: the config edits, masking and status "
@@ -111,6 +111,30 @@ def configure(p: argparse.ArgumentParser) -> None:
     ready.add_argument("--instance", required=True, help="the instance, for the log")
     ready.add_argument("services", nargs="+", metavar="SERVICE")
 
+    found = sub.add_parser(
+        "instance-pids",
+        help="the pids of a local instance's processes, by the folder on their command line",
+    )
+    found.add_argument("--instance", required=True)
+
+    stop = sub.add_parser(
+        "instance-stop",
+        help="stop an instance a previous run left running, and wait every process out",
+    )
+    stop.add_argument("--instance", required=True)
+    stop.add_argument(
+        "--tdd-dir", required=True, help="where the previous run's tdkserver may be"
+    )
+    stop.add_argument(
+        "options", nargs="*", metavar="OPTION", help="tdkserver stop's own, after --"
+    )
+
+    gone = sub.add_parser(
+        "instance-gone",
+        help="fail while a process of the instance or its folder is left",
+    )
+    gone.add_argument("--instance", required=True)
+
 
 def body(args: argparse.Namespace, out: render.Renderer) -> int:
     if args.action == "set-uv-index":
@@ -153,6 +177,18 @@ def body(args: argparse.Namespace, out: render.Renderer) -> int:
         return out.ok(found, instance=args.instance)
     if args.action == "pods-ready":
         return _pods_ready(args.instance, args.services, sys.stdin.read(), out)
+    if args.action == "instance-pids":
+        pids = instances.pids(args.instance)
+        return out.ok(" ".join(map(str, pids)), pids=pids)
+    if args.action == "instance-stop":
+        tdd_dir = pathlib.Path(args.tdd_dir)
+        if not instances.stop(args.instance, tdd_dir, args.options, out.info):
+            return out.error(f"instance {args.instance} still has processes")
+        return out.ok(f"no process of instance {args.instance} left")
+    if args.action == "instance-gone":
+        if not instances.gone(args.instance, out.info):
+            return out.error(f"instance {args.instance} is not gone")
+        return out.ok(f"instance {args.instance} is gone")
     return out.error("no action given (see --help)")
 
 

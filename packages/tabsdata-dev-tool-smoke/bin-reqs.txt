@@ -1,0 +1,10 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+# bin-reqs.txt -- what the smoke tool may run under either shell family.
+# tdkserver: the one a previous run left in a managed venv, to stop the
+# instance that run left running (`tdd _smoke instance-stop`); there may be
+# none, so it is optional.
+[optional]
+tdkserver

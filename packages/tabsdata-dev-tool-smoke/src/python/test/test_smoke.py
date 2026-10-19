@@ -10,6 +10,8 @@ required option quietly gaining a default, a value substituted into YAML in a
 shape tdkserver refuses, a run writing to the developer's kubeconfig.
 """
 
+import pathlib
+
 from tabsdata_dev.common.core import render
 from tabsdata_dev.tool import smoke
 
@@ -31,6 +33,16 @@ def _engine(resource_folder, function: str, *args, **kwargs):
         text=True,
         **kwargs,
     )
+
+
+def _smoke_engine() -> str:
+    """The toolset's `_smoke` program, beside the python running the tests."""
+    import shutil
+    import sys
+
+    found = shutil.which("_smoke", path=str(pathlib.Path(sys.executable).parent))
+    assert found, "no _smoke beside this python: reinstall the tdd dir"
+    return found
 
 
 def test_the_package_carries_every_script_and_the_engine_they_share():
@@ -252,8 +264,8 @@ def test_the_failure_report_names_only_what_the_run_actually_built(
 
     common = smoke.scripts_dir() / "_common.sh"
     # A name no real run would take: the report asks the machine's own
-    # process table whether the instance is running (pgrep -f
-    # "instances/<name>/"), so a fixture sharing a name with a live smoke
+    # process table whether the instance is running (`tdd _smoke
+    # instance-pids`, by "instances/<name>/"), so a fixture sharing a name with a live smoke
     # run is told its instance is up, and the test fails on whatever the
     # developer happens to have open.
     home = tmp_path / "home"
@@ -273,9 +285,15 @@ def test_the_failure_report_names_only_what_the_run_actually_built(
             ],
             capture_output=True,
             text=True,
-            env={**os.environ, "HOME": str(home), "NO_COLOR": "1"},
+            env={
+                **os.environ,
+                "HOME": str(home),
+                "NO_COLOR": "1",
+                "SMOKE_ENGINE": _smoke_engine(),
+            },
         )
         assert done.returncode == 0, done.stderr
+        assert not done.stderr, done.stderr
         return [ln.strip() for ln in done.stdout.splitlines() if ln.strip()]
 
     # nothing built yet: no instance, no venv, and no teardown for either
@@ -724,20 +742,22 @@ def test_run_executes_the_carried_copy_through_bash_without_tdds_private_variabl
             script_args=[],
         )
     assert len(calls) == 2
-    # and the one binary run needs is the one the tool declares
-    declared = (
-        smoke.scripts_dir().parent
-        / "packages"
-        / "tabsdata-dev-tool-smoke"
-        / "bin-reqs.txt"
-    )
-    if declared.is_file():  # the checkout layout; a wheel carries the catalog instead
-        names = [
-            ln.split("#", 1)[0].strip()
-            for ln in declared.read_text().splitlines()
-            if ln.split("#", 1)[0].strip()
-        ]
-        assert names == ["bash"], names
+    # and what run needs is what the tool declares: its family's shell,
+    # required; a previous run's tdkserver, which instance-stop may find
+    package = smoke.scripts_dir().parent / "packages" / "tabsdata-dev-tool-smoke"
+    expected = {
+        "bin-reqs.txt": ["[optional]", "tdkserver"],
+        "bin-reqs.unix.txt": ["[required]", "bash"],
+        "bin-reqs.powershell.txt": ["[required]", "pwsh"],
+    }
+    if package.is_dir():  # the checkout layout; a wheel carries the catalog instead
+        for name, lines in expected.items():
+            declared = [
+                ln.split("#", 1)[0].strip()
+                for ln in (package / name).read_text().splitlines()
+                if ln.split("#", 1)[0].strip()
+            ]
+            assert declared == lines, (name, declared)
 
 
 def test_list_names_the_scripts_with_how_to_run_each_and_not_the_engine():

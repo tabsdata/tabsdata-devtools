@@ -51,8 +51,9 @@
 # once for both families: the config edits (set-uv-index, set-fn-resources,
 # fill-placeholder, fill-pem, fill-storage, placeholders-left), called by the
 # scripts as stage commands, `common_run tdd _smoke ...`; and, under the
-# functions here, the masking (display) and the reading of `tdkserver status`
-# (instance-state, pods-ready). So a script loads tdd before its first line.
+# functions here, the masking (display), the reading of `tdkserver status`
+# (instance-state, pods-ready) and a local instance's processes
+# (instance-pids, instance-stop, instance-gone). So a script loads tdd first.
 #
 # The script declares STAGE_NAMES (in order) before the first `common_stage`.
 # `common_on_stage_failed` is called after a failed stage's recap, before the report,
@@ -394,72 +395,25 @@ common_run_retry() {
 }
 
 # ---------------------------------------------------------------- tabsdata instances
-# The processes of a tdkserver instance are found BY NAME: every one of them
-# (the km supervisor, the servers, the workers it forks) carries the instance
-# folder on its command line, `instances/NAME/`. That is how a previous run's
-# leftovers are recognised without a pid file to trust.
+# The processes of a local instance are found BY NAME (`tdd _smoke`): every one
+# of them carries the instance folder on its command line, `instances/NAME/`.
+# That is how a previous run's leftovers are recognised without a pid file.
 common_instance_pids() {
-    pgrep -f "instances/$1/" 2>/dev/null
+    tdd _smoke instance-pids --instance "$1"
 }
 
 common_instance_running() {
-    common_instance_pids "$1" >/dev/null
-}
-
-# A tdkserver able to stop an instance a previous run left behind: one in a
-# managed venv under TDD_DIR, else one on PATH that actually runs (a pyenv shim
-# may not be wired here). Prints the path, or nothing.
-common_previous_tdkserver() {
-    local candidate
-    for candidate in "$1"/managed-venvs/*/*/bin/tdkserver "$(command -v tdkserver 2>/dev/null)"; do
-        if [ -n "$candidate" ] && [ -x "$candidate" ] && "$candidate" --accept-terms y --version >/dev/null 2>&1; then
-            printf '%s\n' "$candidate"
-            return 0
-        fi
-    done
-    return 1
+    [ -n "$(common_instance_pids "$1")" ]
 }
 
 # common_instance_stop NAME TDD_DIR [TDKSERVER_OPTS...] -- end the km processes of an
-# instance a previous run left running, and WAIT until every one is gone.
-# Stop it properly first (tdkserver stop), then end the processes still holding
-# the folder, then escalate. The wait matters: a km still winding down after a
-# TERM escalates to SIGKILL on the pids it tracked ~50s later -- and by then a
-# new instance in the same folder has REUSED those pid files, so the new
-# cluster is what gets killed (seen: control-plane "process exited (signal 9)"
-# 44s into quickstart). Meant for `common_run`: sub-steps go to the log.
+# instance a previous run left running, and WAIT until every one is gone: a km
+# still winding down would kill the new cluster through reused pid files. Meant
+# for `common_run`: sub-steps go to the log.
 common_instance_stop() {
-    local instance="$1" tdd_dir="$2" prev waited=0
+    local instance="$1" tdd_dir="$2"
     shift 2
-    if ! common_instance_running "$instance"; then
-        echo "no km processes of instance $instance running"
-        return 0
-    fi
-    echo "instance $instance still running ($(common_instance_pids "$instance" | wc -l | tr -d ' ') processes): $(common_instance_pids "$instance" | tr '\n' ' ')"
-    prev="$(common_previous_tdkserver "$tdd_dir")"
-    if [ -n "$prev" ]; then
-        echo "\$ $prev stop --instance $instance $*   (best effort)"
-        "$prev" stop --instance "$instance" "$@" || true
-    fi
-    if common_instance_running "$instance"; then
-        echo "\$ pkill -f instances/$instance/   (processes still holding the instance folder)"
-        pkill -f "instances/$instance/" || true
-    fi
-    while common_instance_running "$instance" && [ "$waited" -lt 90 ]; do
-        sleep 3
-        waited=$((waited + 3))
-    done
-    if common_instance_running "$instance"; then
-        echo "\$ pkill -9 -f instances/$instance/   (still there after ${waited}s)"
-        pkill -9 -f "instances/$instance/" || true
-        sleep 3
-    fi
-    if common_instance_running "$instance"; then
-        echo "instance $instance still has processes after ${waited}s: $(common_instance_pids "$instance" | tr '\n' ' ')"
-        return 1
-    fi
-    echo "instance $instance gone after ${waited}s"
-    return 0
+    tdd _smoke instance-stop --instance "$instance" --tdd-dir "$tdd_dir" -- "$@"
 }
 
 # common_tdkserver_pods_running NAME SERVICE... -- every SERVICE has a pod
@@ -827,21 +781,10 @@ common_xp_expand_all() {
     common_screen "  --xp-suites $all -> ${SUITE_LIST[*]}"
 }
 
-# common_instance_gone NAME -- after `tdkserver delete --trash true`: no km
-# process of the instance left (by name) and no instance folder. Meant for
-# `common_run`.
+# common_instance_gone NAME -- after a trash or delete: no km process of the
+# instance left (by name) and no instance folder. Meant for `common_run`.
 common_instance_gone() {
-    local instance="$1" folder="$HOME/.tabsdata/instances/$1" rc=0
-    if common_instance_running "$instance"; then
-        echo "instance $instance still has processes: $(common_instance_pids "$instance" | tr '\n' ' ')"
-        rc=1
-    fi
-    if [ -e "$folder" ]; then
-        echo "instance folder still exists: $folder"
-        rc=1
-    fi
-    [ "$rc" = 0 ] && echo "instance $instance is gone: no processes, no folder"
-    return "$rc"
+    tdd _smoke instance-gone --instance "$1"
 }
 
 # common_tdkserver_expect NAME running|stopped -- `tdd tdkserver status` on the
@@ -883,7 +826,7 @@ common_tdkserver_expect() {
 # and xp projects are not ours to probe cheaply, so each script appends its own
 # as it creates them and the lists are taken at their word.
 common_tabsdata_setup_info() {
-    local out="${1:-common_screen}" running="not running" any=0 venv_dir instance_dir venv_rm=""
+    local out="${1:-common_screen}" running="not running" any=0 venv_dir instance_dir venv_rm="" pids
     instance_dir="$HOME/.tabsdata/instances/$INSTANCE"
     venv_dir="$TDD_DIR_OPT/managed-venvs/$VENV_TYPE/$VENV"
     if [ -e "$venv_dir" ]; then
@@ -892,8 +835,9 @@ common_tabsdata_setup_info() {
     fi
     if [ -e "$instance_dir" ]; then
         any=1
-        if common_instance_running "$INSTANCE"; then
-            running="running ($(common_instance_pids "$INSTANCE" | wc -l | tr -d ' ') processes), server http://$SERVER"
+        pids=($(common_instance_pids "$INSTANCE"))
+        if [ "${#pids[@]}" -gt 0 ]; then
+            running="running (${#pids[@]} processes), server http://$SERVER"
         fi
         "$out" "instance   $INSTANCE -- $running; folder $instance_dir"
     fi

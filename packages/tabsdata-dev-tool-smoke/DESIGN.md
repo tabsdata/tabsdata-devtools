@@ -51,9 +51,18 @@ algorithm, and an algorithm written in two shells is two copies to drift -- so i
 _smoke`, a second entry point of this package, plumbing (the `_` keeps it out of `tdd help`):
 the config edits (`set-uv-index`, `set-fn-resources`, `fill-placeholder`, `fill-pem`,
 `fill-storage`, `placeholders-left`), reading a field of a command's JSON Lines
-(`event-field`), masking a command line (`display`, ~30 calls a run) and reading `tdkserver
-status` (`instance-state`, `pods-ready`). A call costs ~100 ms, nothing beside a stage. So a
-script loads tdd right after `common_init`, before its banner masks the first value.
+(`event-field`), masking a command line (`display`, ~30 calls a run), reading `tdkserver
+status` (`instance-state`, `pods-ready`) and a local instance's processes (`instance-pids`,
+`instance-stop`, `instance-gone`). A call costs ~100 ms, nothing beside a stage. So a script
+loads tdd first, before its own checks and its banner.
+
+- A kminus instance's processes are found by `instances/NAME/` on their command line, through
+  `psutil` (the standard library cannot read another process's command line on Windows), a
+  backslash read as a slash. The caller and its ancestors are never among them: a shell may
+  carry the folder in its own command line, and its helper must not end it. `instance-stop`
+  asks a previous run's tdkserver to stop first (a managed venv's, else PATH's: optional in
+  `bin-reqs.txt`), then terminates, waits up to 90s and kills -- the wait is what keeps a km
+  winding down from killing the new cluster through reused pid files.
 
 - The engine still runs `tdd tdkserver status` itself -- in the venv the run activated -- and
   pipes the listing in; the helper answers (`running`, `ready`, `not ready`) and the engine

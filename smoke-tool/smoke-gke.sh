@@ -284,6 +284,15 @@ STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
 # shellcheck disable=SC1091
 . "$HERE/_common.sh"
 
+# tdd is loaded first: the checks below, the banner and every stage go
+# through it (tdd _smoke).
+if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
+    echo "smoke-gke: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir" >&2
+    exit 1
+fi
+# shellcheck disable=SC1090
+. "$TDD_DIR_OPT/tdd-source.sh"
+
 # What this run would create must not already exist -- someone's setup could be
 # behind those names. --force says they are ours to replace.
 if [ -z "$FORCE" ]; then
@@ -301,13 +310,6 @@ if [ -z "$FORCE" ]; then
 fi
 
 common_init "$LOG" "$VERBOSE"
-# loaded before the banner: it masks values through tdd _smoke
-if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
-    common_screen "${RED}smoke-gke: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
-    exit 1
-fi
-# shellcheck disable=SC1090
-. "$TDD_DIR_OPT/tdd-source.sh"
 trap common_kubeportforward_stop EXIT      # the forward never outlives the script
 
 # the generic failure block plus the GKE pieces

@@ -10,3 +10,4 @@
 *.awk text eol=lf
 packages/tabsdata-dev-tool-gsx/src/resources/main/hooks/* text eol=lf
 packages/tabsdata-dev-tdd/src/resources/test/test_main/* text eol=lf
+packages/tabsdata-dev-tool-smoke/src/resources/test/test_instances/tdkserver text eol=lf

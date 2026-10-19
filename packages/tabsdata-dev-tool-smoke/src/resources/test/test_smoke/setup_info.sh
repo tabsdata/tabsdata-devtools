@@ -5,6 +5,15 @@
 # sm_fixture_notarealrun, with the domains it says it created.
 #
 #   setup_info.sh ENGINE TDD_DIR LOG [DOMAINS]
+#
+# `tdd _smoke` is the toolset's own `_smoke` program, $SMOKE_ENGINE: the
+# engine asks it for the instance's processes.
+
+tdd() {
+    [ "$1" = _smoke ] || return 127
+    shift
+    "$SMOKE_ENGINE" "$@"
+}
 
 engine=$1
 tdd_dir=$2

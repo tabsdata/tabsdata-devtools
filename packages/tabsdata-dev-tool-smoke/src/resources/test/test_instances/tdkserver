@@ -1,0 +1,11 @@
+#!/bin/sh
+#
+# Copyright 2026 Tabsdata Inc.
+#
+# A tdkserver a previous run left in a managed venv: it answers --version and
+# records every other call in $RECORD.
+
+case " $* " in
+    *" --version "*) echo "tdkserver 0.0.0"; exit 0 ;;
+esac
+printf '%s\n' "$*" >>"$RECORD"

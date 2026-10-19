@@ -1,5 +1,5 @@
 {
-  "fingerprint": "2a61c08127683dcf",
+  "fingerprint": "e0863d4f53078941",
   "interpreter": "3.12.13",
   "members": {
     "launchers": [
@@ -142,8 +142,12 @@
       "hidden": false,
       "launcher": false,
       "optional": {
-        "powershell": [],
-        "unix": []
+        "powershell": [
+          "tdkserver"
+        ],
+        "unix": [
+          "tdkserver"
+        ]
       },
       "package": "tabsdata-dev-tool-smoke",
       "required": {
@@ -327,8 +331,12 @@
       "hidden": false,
       "launcher": false,
       "optional": {
-        "powershell": [],
-        "unix": []
+        "powershell": [
+          "tdkserver"
+        ],
+        "unix": [
+          "tdkserver"
+        ]
       },
       "package": "tabsdata-dev-tool-smoke",
       "required": {
