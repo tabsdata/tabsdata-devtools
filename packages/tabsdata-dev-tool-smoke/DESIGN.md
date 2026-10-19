@@ -50,8 +50,17 @@ own shell: `tdd venv` and `tdd env` change it. What the engine does beyond keepi
 algorithm, and an algorithm written in two shells is two copies to drift -- so it is `tdd
 _smoke`, a second entry point of this package, plumbing (the `_` keeps it out of `tdd help`):
 the config edits (`set-uv-index`, `set-fn-resources`, `fill-placeholder`, `fill-pem`,
-`fill-storage`, `placeholders-left`) and reading a field of a command's JSON Lines
-(`event-field`). A call costs ~130 ms, nothing beside a stage.
+`fill-storage`, `placeholders-left`), reading a field of a command's JSON Lines
+(`event-field`), masking a command line (`display`, ~30 calls a run) and reading `tdkserver
+status` (`instance-state`, `pods-ready`). A call costs ~100 ms, nothing beside a stage. So a
+script loads tdd right after `common_init`, before its banner masks the first value.
+
+- The engine still runs `tdd tdkserver status` itself -- in the venv the run activated -- and
+  pipes the listing in; the helper answers (`running`, `ready`, `not ready`) and the engine
+  judges. A pods check is retried until the pods come up, so a no is an answer, never an error
+  event leaving a failure log behind on every attempt.
+- `display` takes the command after `--`, which the shared CLI layer reads as operands: a
+  `--format json` of the command's own is a word to show, not the helper's format.
 
 - The scripts call it as stage commands, `common_run tdd _smoke ...`, so the stage line shows
   what ran. `common_fill_placeholder`/`common_fill_pem` stay as wrappers: they put the value in

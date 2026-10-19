@@ -49,8 +49,10 @@
 #
 # Whatever is an algorithm rather than stage keeping is `tdd _smoke`, written
 # once for both families: the config edits (set-uv-index, set-fn-resources,
-# fill-placeholder, fill-pem, fill-storage, placeholders-left) are called by the
-# scripts as stage commands, `common_run tdd _smoke ...`.
+# fill-placeholder, fill-pem, fill-storage, placeholders-left), called by the
+# scripts as stage commands, `common_run tdd _smoke ...`; and, under the
+# functions here, the masking (display) and the reading of `tdkserver status`
+# (instance-state, pods-ready). So a script loads tdd before its first line.
 #
 # The script declares STAGE_NAMES (in order) before the first `common_stage`.
 # `common_on_stage_failed` is called after a failed stage's recap, before the report,
@@ -214,43 +216,11 @@ common_window_stop() {
 }
 
 # ---------------------------------------------------------------- masking
-# A command line as text with every credential masked: the value after
-# --password/-p/--token/--secret/--pat/--*-key/--*-token/--*-secret/--*-password
-# (space or = form), the user:password of a URL, and a NAME=value whose NAME says
-# PASSWORD/SECRET/TOKEN/KEY/_PAT.
+# A command line as text with every credential masked (`tdd _smoke display`):
+# the value after --password/--token/--*-key and the like, a URL's
+# user:password, a NAME=value whose NAME says PASSWORD/SECRET/TOKEN/KEY/_PAT.
 common_display() {
-    local out="" arg key mask_next=0
-    for arg in "$@"; do
-        if [ "$mask_next" = 1 ]; then
-            out="$out ***"
-            mask_next=0
-            continue
-        fi
-        case "$arg" in
-            --password | -p | --token | --secret | --pat | --*-key | --*-token | --*-secret | --*-password)
-                out="$out $arg"
-                mask_next=1
-                ;;
-            --password=* | --token=* | --secret=* | --pat=* | --*-key=* | --*-token=* | --*-secret=* | --*-password=*)
-                out="$out ${arg%%=*}=***"
-                ;;
-            *://*:*@*)
-                out="$out $(printf '%s' "$arg" | sed -E 's#(://)[^/@]*@#\1***@#')"
-                ;;
-            *)
-                case "$arg" in
-                    [A-Za-z_]*=*)
-                        key="${arg%%=*}"
-                        case "$key" in
-                            *PASSWORD* | *SECRET* | *TOKEN* | *KEY* | *_PAT | *_PAT_*) arg="$key=***" ;;
-                        esac
-                        ;;
-                esac
-                out="$out $arg"
-                ;;
-        esac
-    done
-    printf '%s' "${out# }"
+    tdd _smoke display -- "$@"
 }
 
 # ---------------------------------------------------------------- stages
@@ -394,12 +364,13 @@ common_run_shown() {
 # common_run_retry N PAUSE CMD... -- for a probe of something that comes up on its own
 # time (a server after start): the command is the readiness check.
 common_run_retry() {
-    local attempts="$1" pause="$2" attempt=1 rc
+    local attempts="$1" pause="$2" attempt=1 rc shown
     shift 2
-    STAGE_CMDS[${#STAGE_CMDS[@]}]="$(common_display "$@")"
+    shown="$(common_display "$@")"
+    STAGE_CMDS[${#STAGE_CMDS[@]}]="$shown"
     STAGE_CMD_STATUS[${#STAGE_CMD_STATUS[@]}]="running"
-    common_note "${DIM}\$${RESET} $(common_display "$@")   ${DIM}(up to $attempts attempts, ${pause}s apart)${RESET}"
-    echo "\$ $(common_display "$@")   (up to $attempts attempts, ${pause}s apart)"
+    common_note "${DIM}\$${RESET} $shown   ${DIM}(up to $attempts attempts, ${pause}s apart)${RESET}"
+    echo "\$ $shown   (up to $attempts attempts, ${pause}s apart)"
     CMD_LOG_FROM="$(wc -c <"$LOG" 2>/dev/null | tr -d ' ')"
     common_window_start
     while :; do
@@ -413,7 +384,7 @@ common_run_retry() {
         fi
         if [ "$attempt" -ge "$attempts" ]; then
             STAGE_CMD_STATUS[$((${#STAGE_CMD_STATUS[@]} - 1))]="failed"
-            common_stage_failed "$(common_display "$@") failed $attempts times (last exit $rc)" "$rc"
+            common_stage_failed "$shown failed $attempts times (last exit $rc)" "$rc"
             return 1
         fi
         echo "attempt $attempt/$attempts failed (exit $rc); retrying in ${pause}s"
@@ -491,45 +462,20 @@ common_instance_stop() {
     return 0
 }
 
-# common_tdkserver_pods_running NAME SERVICE... -- the Pods table of
-# `tdd tdkserver status`: every SERVICE must have at least one pod named
-# `<SERVICE>-...` that is Running and Ready (n/n), and no pod of the instance
-# may be in another state. Rows look like `│ srv-apiserver-58cc-pfkch │ Running
-# │ 1/1 │ 2s │`; the Pods section runs until the next table title. Meant for
-# `common_run_retry`: the pods come up after quickstart/start return.
+# common_tdkserver_pods_running NAME SERVICE... -- every SERVICE has a pod
+# that is Running and Ready in `tdd tdkserver status`, and no pod of the
+# instance is in another state (`tdd _smoke pods-ready` reads the Pods table).
+# Meant for `common_run_retry`: the pods come up after quickstart/start return.
 common_tdkserver_pods_running() {
-    local instance="$1" out pods bad missing svc name status ready
+    local instance="$1" out verdict
     shift
     out="$(tdd tdkserver status --instance "$instance" --accept-terms y 2>&1)" || {
         printf '%s\n' "$out"
         echo "tdkserver status failed"
         return 1
     }
-    pods="$(printf '%s\n' "$out" | sed -E "s/$(printf '\033')\[[0-9;]*m//g" | awk '
-        /^Pods/ {p=1; next}
-        /^(Deployments|CronJobs|Jobs|Services|StatefulSets)/ {p=0}
-        p && /^│/ && $2 != "Name" {gsub(/│/, ""); print $1, $2, $3}')"
-    if [ -z "$pods" ]; then
-        printf '%s\n' "$out"
-        echo "no pods listed for instance $instance"
-        return 1
-    fi
-    echo "pods:"
-    printf '%s\n' "$pods" | sed 's/^/  /'
-    # Ready is `n/m`: ready when both halves agree (awk has no backreferences).
-    bad="$(printf '%s\n' "$pods" | awk '{split($3, r, "/")} $2 != "Running" || r[1] != r[2] {print $1 " (" $2 " " $3 ")"}')"
-    missing=""
-    for svc in "$@"; do
-        printf '%s\n' "$pods" | awk -v s="$svc-" '{split($3, r, "/")} index($1, s) == 1 && $2 == "Running" && r[1] == r[2] {found=1} END {exit !found}' \
-            || missing="$missing $svc"
-    done
-    if [ -n "$missing" ] || [ -n "$bad" ]; then
-        [ -z "$missing" ] || echo "no Running, Ready pod for:$missing"
-        [ -z "$bad" ] || echo "pods not Running/Ready: $(printf '%s' "$bad" | tr '\n' ' ')"
-        return 1
-    fi
-    echo "every expected service pod is Running and Ready: $*"
-    return 0
+    verdict="$(printf '%s\n' "$out" | tdd _smoke pods-ready --instance "$instance" "$@")" || return 1
+    [ "$verdict" = ready ]
 }
 
 # ---------------------------------------------------------------- kubectl / configs
@@ -899,16 +845,13 @@ common_instance_gone() {
 }
 
 # common_tdkserver_expect NAME running|stopped -- `tdd tdkserver status` on the
-# instance, asserting the state a stage just produced. tdkserver exits 0 either
-# way. kminus says `Instance 'NAME' is not running.` when stopped and lists the
-# workloads otherwise; eks always draws the Deployments/Pods/CronJobs/Jobs tables
-# and says nothing -- stopped is the tables being empty. So a sentence decides
-# when there is one, else the Deployments and Pods rows do: none means stopped.
-# Meant for `common_run`, right after a quickstart/start/stop -- those return
-# before the state is fully settled, and a start that "worked" but left nothing
+# instance, asserting the state a stage just produced; tdkserver exits 0 either
+# way, so the state is read from its text (`tdd _smoke instance-state`). Meant
+# for `common_run`, right after a quickstart/start/stop -- those return before
+# the state is fully settled, and a start that "worked" but left nothing
 # running is exactly what this catches.
 common_tdkserver_expect() {
-    local instance="$1" expect="$2" out rc
+    local instance="$1" expect="$2" out rc found
     out="$(tdd tdkserver status --instance "$instance" --accept-terms y 2>&1)"
     rc=$?
     printf '%s\n' "$out"
@@ -916,33 +859,13 @@ common_tdkserver_expect() {
         echo "tdkserver status exited $rc"
         return 1
     fi
-    case "$out" in
-        *"does not exist"*) rc=missing ;;
-        *"is not running"* | *"is stopped"* | *"was already stopped"*) rc=stopped ;;
-        *"Deployments"*"┌"*)
-            if [ "$(common_tdkserver_workload_rows "$out")" -gt 0 ]; then rc=running; else rc=stopped; fi ;;
-        *) rc=running ;;
-    esac
-    if [ "$rc" != "$expect" ]; then
-        echo "instance $instance is $rc, expected $expect"
+    found="$(printf '%s\n' "$out" | tdd _smoke instance-state --instance "$instance")" || return 1
+    if [ "$found" != "$expect" ]; then
+        echo "instance $instance is $found, expected $expect"
         return 1
     fi
     echo "instance $instance is $expect, as expected"
     return 0
-}
-
-# common_tdkserver_workload_rows OUTPUT -- how many data rows the Deployments and
-# Pods tables of a `tdkserver status` listing hold (the rows between a table's
-# `├` rule and its `└` bottom). Jobs and CronJobs are left out: a completed init
-# job can outlive a stop, a deployment or pod cannot.
-common_tdkserver_workload_rows() {
-    printf '%s\n' "$1" | awk '
-        /^(Deployments|Pods)[[:space:]]*$/ { keep = 1; next }
-        /^(CronJobs|Jobs)[[:space:]]*$/    { keep = 0; next }
-        /^├/ { body = 1; next }
-        /^└/ { body = 0; next }
-        keep && body && /^│/ { n++ }
-        END { print n + 0 }'
 }
 
 # common_tabsdata_setup_info common_screen|common_note -- what a smoke script's setup looks like

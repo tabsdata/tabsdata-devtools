@@ -193,6 +193,9 @@ def run(
 def _peek_common(argv: list[str]) -> tuple[str, bool]:
     fmt, verbose = "view", False
     for i, arg in enumerate(argv):
+        # what follows `--` is operands, as argparse reads it
+        if arg == "--":
+            break
         if arg in ("-v", "--verbose"):
             verbose = True
         elif (

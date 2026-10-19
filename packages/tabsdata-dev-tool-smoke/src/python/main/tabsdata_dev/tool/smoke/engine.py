@@ -24,9 +24,18 @@ import sys
 
 from tabsdata_dev.common.core import cli, errors, render
 
-from . import configs
+from . import configs, display, status
 
-DESCRIPTION = "plumbing of the smoke scripts: the config edits and the parsing their engine shares"
+DESCRIPTION = (
+    "plumbing of the smoke scripts: the config edits, masking and status "
+    "parsing both shell families of their engine share"
+)
+
+#: What `pods-ready` answers; the script judges. A check retried until pods
+#: come up is not a failure each time it says no, so it never ends in an
+#: error event and its failure log.
+READY = "ready"
+NOT_READY = "not ready"
 
 #: Where `fill-placeholder` and `fill-pem` read their value: a credential, a
 #: PEM, never a command-line argument.
@@ -83,6 +92,25 @@ def configure(p: argparse.ArgumentParser) -> None:
     )
     ev.add_argument("--field", required=True, help="the field, e.g. dirs")
 
+    show = sub.add_parser(
+        "display", help="a command line as text, every credential in it masked"
+    )
+    show.add_argument("words", nargs="*", metavar="WORD", help="the command, after --")
+
+    state = sub.add_parser(
+        "instance-state",
+        help="running, stopped or missing: what `tdkserver status` read from stdin says",
+    )
+    state.add_argument("--instance", required=True, help="the instance, for the log")
+
+    ready = sub.add_parser(
+        "pods-ready",
+        help="ready when every SERVICE has a Running, Ready pod in `tdkserver status` "
+        "read from stdin and no pod is in another state; not ready otherwise",
+    )
+    ready.add_argument("--instance", required=True, help="the instance, for the log")
+    ready.add_argument("services", nargs="+", metavar="SERVICE")
+
 
 def body(args: argparse.Namespace, out: render.Renderer) -> int:
     if args.action == "set-uv-index":
@@ -118,7 +146,36 @@ def body(args: argparse.Namespace, out: render.Renderer) -> int:
     if args.action == "event-field":
         values = configs.event_field(sys.stdin.readlines(), args.field)
         return out.ok("\n".join(values), values=values)
+    if args.action == "display":
+        return out.ok(display.display(args.words))
+    if args.action == "instance-state":
+        found = status.state(sys.stdin.read())
+        return out.ok(found, instance=args.instance)
+    if args.action == "pods-ready":
+        return _pods_ready(args.instance, args.services, sys.stdin.read(), out)
     return out.error("no action given (see --help)")
+
+
+def _pods_ready(
+    instance: str, services: list[str], text: str, out: render.Renderer
+) -> int:
+    listed = status.pods(text)
+    if not listed:
+        out.info(text.rstrip("\n"))
+        out.info(f"no pods listed for instance {instance}")
+        return out.ok(NOT_READY, instance=instance)
+    out.info("pods:")
+    for pod in listed:
+        out.info(f"  {pod.name} {pod.status} {pod.ready}")
+    missing, bad = status.unready(listed, services)
+    if missing:
+        out.info(f"no Running, Ready pod for: {' '.join(missing)}")
+    if bad:
+        out.info(f"pods not Running/Ready: {' '.join(str(p) for p in bad)}")
+    if missing or bad:
+        return out.ok(NOT_READY, instance=instance, missing=missing)
+    out.info(f"every expected service pod is Running and Ready: {' '.join(services)}")
+    return out.ok(READY, instance=instance)
 
 
 def main() -> int:

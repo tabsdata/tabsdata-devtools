@@ -20,7 +20,7 @@ _smoke = "tabsdata_dev.tool.smoke.engine:main"
 smoke = "tabsdata_dev.tool.smoke:main"
 
 [tool.tdd.summaries]
-_smoke = "plumbing of the smoke scripts: the config edits and the parsing both shell families of their engine share"
+_smoke = "plumbing of the smoke scripts: the config edits, masking and status parsing both shell families of their engine share"
 
 [tool.hatch.version]
 path = "../../VERSION"

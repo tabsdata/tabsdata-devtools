@@ -203,6 +203,13 @@ if [ -z "$FORCE" ]; then
 fi
 
 common_init "$LOG" "$VERBOSE"
+# loaded before the banner: it masks values through tdd _smoke
+if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
+    common_screen "${RED}smoke-km: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
+    exit 1
+fi
+# shellcheck disable=SC1090
+. "$TDD_DIR_OPT/tdd-source.sh"
 
 common_screen "smoke-km: effective options"
 common_screen "  --name              $NAME   -> instance and venv $BASE, domains and xp names ${BASE}__<what>"
@@ -222,12 +229,6 @@ common_screen "  --log               $LOG"
 common_screen "  --tdd-dir           $TDD_DIR_OPT"
 common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "no (rolling window of $WINDOW log lines)")"
 common_screen "  drivers for fn/ag   $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
-if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
-    common_screen "${RED}smoke-km: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
-    exit 1
-fi
-# shellcheck disable=SC1090
-. "$TDD_DIR_OPT/tdd-source.sh"
 common_xp_expand_all
 
 

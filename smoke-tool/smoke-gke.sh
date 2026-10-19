@@ -301,6 +301,13 @@ if [ -z "$FORCE" ]; then
 fi
 
 common_init "$LOG" "$VERBOSE"
+# loaded before the banner: it masks values through tdd _smoke
+if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
+    common_screen "${RED}smoke-gke: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
+    exit 1
+fi
+# shellcheck disable=SC1090
+. "$TDD_DIR_OPT/tdd-source.sh"
 trap common_kubeportforward_stop EXIT      # the forward never outlives the script
 
 # the generic failure block plus the GKE pieces
@@ -350,12 +357,6 @@ common_screen "  --tdd-dir           $TDD_DIR_OPT"
 common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "no (rolling window of $WINDOW log lines)")"
 common_screen "  server              $SERVER through kubectl port-forward service/net-apiserver $FORWARD_PORT:$PORT"
 common_screen "  drivers for fn/ag   $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
-if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
-    common_screen "${RED}smoke-gke: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir${RESET}"
-    exit 1
-fi
-# shellcheck disable=SC1090
-. "$TDD_DIR_OPT/tdd-source.sh"
 common_xp_expand_all
 
 common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"
