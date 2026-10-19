@@ -768,6 +768,51 @@ def test_info_renders_a_descriptor_as_a_1password_item_holding_its_values():
     assert json.loads(descriptor.info_render(info, constants.FMT_1P, "S3Dev"))["title"]
 
 
+def test_info_exports_for_the_shell_of_each_platform(tmp_path, resource_folder):
+    """`--format export` sets the descriptor's values in the session that
+    evaluates it: sh lines for macOS and Linux, exactly as they always were,
+    and PowerShell lines for Windows -- each value back as it was, quotes, $,
+    backticks and a PEM over several lines included."""
+    import shlex
+    import shutil
+    import subprocess
+
+    from tabsdata_dev.common.systems import descriptor
+
+    meta = {
+        "API_KEY": 'sk-it\'s "q" $HOME `n $(whoami)',
+        "PEM": "-----BEGIN KEY-----\nAAAA\n-----END KEY-----",
+        "PLAIN": "x",
+    }
+    info = descriptor.DomainInfo(
+        system="anthropic",
+        name="llm",
+        started="now",
+        sys_name="anthropic",
+        external_name="llm",
+        meta=meta,
+    )
+    sh = descriptor.info_render(info, "export", "LLM")
+    assert sh == "\n".join(f"export LLM__{k}={shlex.quote(v)}" for k, v in meta.items())
+    assert descriptor.info_render(info, "export", "LLM", "linux") == sh
+
+    lines = descriptor.info_render(info, "export", "LLM", "windows")
+    assert lines.splitlines()[0].startswith("$env:LLM__API_KEY = '")
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("pwsh not installed")
+    file = tmp_path / "lines.ps1"
+    file.write_text(lines, encoding="utf-8")
+    names = [f"LLM__{k}" for k in meta]
+    done = subprocess.run(
+        [pwsh, "-NoProfile", "-File", resource_folder / "eval_lines.ps1", file, *names],
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == {f"LLM__{k}": v for k, v in meta.items()}
+
+
 def test_1p_template_covers_every_type_and_says_so_when_none_is_named(capsys):
     from tabsdata_dev.common.systems import main
 

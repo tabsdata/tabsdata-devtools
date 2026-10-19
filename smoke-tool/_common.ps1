@@ -368,6 +368,15 @@ function common_remove_folder {
     common_status (-not (Test-Path -LiteralPath $Folder))
 }
 
+# common_variable_set NAME -- NAME holds a value in this session's environment;
+# the value itself is never shown.
+function common_variable_set {
+    param([string]$Name)
+    $set = [bool][Environment]::GetEnvironmentVariable($Name)
+    Write-Output "${Name}: $(if ($set) { 'set' } else { 'not set' })"
+    common_status $set
+}
+
 # common_venv_program NAME -- NAME is a program of the active venv, beside its
 # python: uv only WARNS about a nonexistent extra.
 function common_venv_program {

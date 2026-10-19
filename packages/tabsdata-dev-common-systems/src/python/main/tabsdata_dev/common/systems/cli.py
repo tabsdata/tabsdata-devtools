@@ -14,6 +14,7 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
+from tabsdata_dev.common.core import secrets
 from tabsdata_dev.common.systems import constants, descriptor, protocols
 from tabsdata_dev.common.systems.errors import TdxError
 
@@ -374,6 +375,19 @@ def add_size(parser: argparse.ArgumentParser) -> None:
         metavar="N",
         help="size multiplier: 1 = base (~100 rows of each sizeable entity), "
         "N = N x base (default 1)",
+    )
+
+
+def add_platform(parser: argparse.ArgumentParser) -> None:
+    """``--platform``: the shell an ``export`` is written for, as ``tdd _1p
+    fetch`` takes it."""
+    parser.add_argument(
+        "--platform",
+        choices=secrets.PLATFORMS,
+        default=secrets.DEFAULT_PLATFORM,
+        help="the machine --format export is for: macos and linux get sh export "
+        "lines to eval; windows, PowerShell $env: lines to pipe to "
+        "Invoke-Expression (default: %(default)s)",
     )
 
 

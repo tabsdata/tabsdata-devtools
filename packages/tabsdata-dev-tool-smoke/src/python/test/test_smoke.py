@@ -285,9 +285,7 @@ def test_every_powershell_script_is_its_bash_twin():
             continue
         ps1_text, sh_text = ps1.read_text(), sh.read_text()
         assert _help_options(ps1_text) == _help_options(sh_text), ps1.name
-        assert _stages(ps1_text) == [
-            s for s in _stages(sh_text) if s != "llm-domain"
-        ], ps1.name
+        assert _stages(ps1_text) == _stages(sh_text), ps1.name
 
 
 def test_the_scripts_carry_no_inline_interpreter():

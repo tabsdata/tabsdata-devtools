@@ -710,6 +710,7 @@ def _render_infos(
     fmt: str,
     prefix: str | None,
     is_batch: bool,
+    platform: str,
 ) -> int:
     if is_batch and prefix:
         raise TdxError(
@@ -720,7 +721,9 @@ def _render_infos(
     path_fn = store.domain_path if _is_domain_tool(tool) else store.system_path
     infos = [_load_desc(path_fn(name, dir_opt), role, name) for name in names]
     chunks = [
-        descriptor.info_render(info, fmt, name.upper() if is_batch else prefix)
+        descriptor.info_render(
+            info, fmt, name.upper() if is_batch else prefix, platform
+        )
         for name, info in zip(names, infos)
     ]
     text = "\n".join(chunks)
@@ -745,6 +748,7 @@ def _parser_sys_info(tool: str) -> ArgumentParser:
     cli.add_sys_dir(p)
     _add_info_manifest(p)
     cli.add_prefix(p)
+    cli.add_platform(p)
     cli.add_format_verbose(p, constants.RENDER_FORMATS)
     return p
 
@@ -753,7 +757,9 @@ def _cmn_sys_info(tool: str, rest: list[str]) -> int:
     p = _parser_sys_info(tool)
     a = p.parse_args(rest)
     names, is_batch = _info_targets(tool, a.sys, a.manifest, a.sys_dir)
-    return _render_infos(tool, names, a.sys_dir, _shape(a.format), a.prefix, is_batch)
+    return _render_infos(
+        tool, names, a.sys_dir, _shape(a.format), a.prefix, is_batch, a.platform
+    )
 
 
 def _parser_dom_list(tool: str) -> ArgumentParser:
@@ -837,6 +843,7 @@ def _parser_dom_info(tool: str) -> ArgumentParser:
     cli.add_domain_dir(p)
     _add_info_manifest(p)
     cli.add_prefix(p)
+    cli.add_platform(p)
     cli.add_format_verbose(p, constants.RENDER_FORMATS)
     return p
 
@@ -846,7 +853,7 @@ def _cmn_dom_info(tool: str, rest: list[str]) -> int:
     a = p.parse_args(rest)
     names, is_batch = _info_targets(tool, a.domain, a.manifest, a.domain_dir)
     return _render_infos(
-        tool, names, a.domain_dir, _shape(a.format), a.prefix, is_batch
+        tool, names, a.domain_dir, _shape(a.format), a.prefix, is_batch, a.platform
     )
 
 

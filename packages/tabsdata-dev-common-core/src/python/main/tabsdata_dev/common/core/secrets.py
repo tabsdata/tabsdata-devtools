@@ -52,6 +52,20 @@ def _export_unix(secrets: dict[str, str]) -> str:
     )
 
 
+def export_lines(variables: dict[str, str], platform: str = DEFAULT_PLATFORM) -> str:
+    """Lines that set `variables` in the session that evaluates them: sh
+    `export` lines on macOS and Linux, PowerShell `$env:` lines on Windows
+    (`... | Invoke-Expression`). Lines, not a file: what a command prints for
+    its caller to apply in place."""
+    if platform in UNIX_PLATFORMS:
+        return _export_unix(variables)
+    if platform == "windows":
+        return "\n".join(
+            f"$env:{name} = {_ps_quote(str(v))}" for name, v in variables.items()
+        )
+    raise ToolError(f"unknown platform {platform!r} ({', '.join(PLATFORMS)})")
+
+
 def _export_windows(secrets: dict[str, str]) -> str:
     """A PowerShell file of $env: lines, for a machine without 1Password to
     dot-source; the template says what the file is, since it travels."""

@@ -44,8 +44,8 @@ tdd smoke list                                  the four scripts, what each is, 
 - A `.ps1` script is its `.sh` twin: the same options and the same stages, in order (a test holds
   them to it). Where PowerShell differs is the engine's to absorb (see `_common.ps1`'s header):
   no `exec >>LOG`, a status that travels in `$LASTEXITCODE`, no stdin through the `tdd` function,
-  and a bare `--` eaten by parameter binding. `smoke-km.ps1` refuses `--llm-domain` for now:
-  `tdd domain info --format export` writes sh lines only.
+  and a bare `--` eaten by parameter binding. `smoke-km.ps1` takes the LLM key with `tdd domain
+  info --format export --platform windows | Invoke-Expression`, the twin of the sh `eval`.
 - The wheel does not carry a file mode, so the export sets 755: a smoke script that cannot be
   executed is the first thing a person would otherwise fix by hand.
 - Overwriting is refused without `--force`. The reason to export is to edit, so silently replacing

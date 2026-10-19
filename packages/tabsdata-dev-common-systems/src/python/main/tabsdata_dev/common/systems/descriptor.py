@@ -18,7 +18,6 @@ under a name that says which (``gcppostgres``).
 from __future__ import annotations
 
 import os
-import shlex
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Literal, Union
@@ -26,6 +25,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from tabsdata_dev.common.core import secrets
 from tabsdata_dev.common.systems import constants, crypto
 from tabsdata_dev.common.systems.errors import TdxError
 
@@ -264,7 +264,10 @@ def record_changes(
 
 
 def info_render(
-    info: SystemInfo | DomainInfo, fmt: str, prefix: str | None = None
+    info: SystemInfo | DomainInfo,
+    fmt: str,
+    prefix: str | None = None,
+    platform: str = secrets.DEFAULT_PLATFORM,
 ) -> str:
     """Render a descriptor for ``info``. ``json`` dumps the whole model;
     ``export`` / ``unset`` emit shell lines for each ``meta`` key, optionally
@@ -279,13 +282,10 @@ def info_render(
         return f"{prefix}__{k}" if prefix else k
 
     if fmt == "export":
-        # POSIX quoting, not repr(): repr switches to double quotes around a
-        # value containing a single quote, and the shell then expands the $ and
-        # backticks inside it. shlex.quote also carries a multiline value
-        # through eval intact, which is what a PEM in meta needs.
-        return "\n".join(
-            f"export {key(k)}={shlex.quote(v)}" for k, v in info.meta.items()
-        )
+        # Quoted for the shell that evaluates them -- POSIX quoting for sh,
+        # single quotes for PowerShell: neither expands a $ or a backtick, and
+        # both carry a multiline value (a PEM in meta) through intact.
+        return secrets.export_lines({key(k): v for k, v in info.meta.items()}, platform)
     if fmt == "unset":
         return "\n".join(f"unset {key(k)}" for k in info.meta)
     if fmt == constants.FMT_1P:

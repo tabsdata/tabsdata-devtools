@@ -60,9 +60,11 @@ options:
                       (default: test,tableframe_api,dataquality,grok,
                       container-connectors,cdc,kafka,cloud-connectors)
   --llm-domain SYSTEM
-                      create a domain on that system (sm_NAME__<system>) and hand
-                      its API key to quickstart, so the aiagent works. Not yet
-                      under PowerShell: run smoke-km.sh for an LLM domain
+                      create a domain on that system (sm_NAME__<system>; the system
+                      must be in the tdd store), read its API key and hand it to
+                      quickstart as --config <llm>-key=env:LLM__API_KEY (2.2.0 and
+                      older: --<llm>-key), so the aiagent works; the domain
+                      is destroyed at the end unless --keep (default: no LLM)
   --expect-pods LIST  comma-separated service names whose pods must be Running
                       and Ready after quickstart and after start, per
                       `tdkserver status` (default: srv-apiserver,srv-database)
@@ -70,9 +72,9 @@ options:
                       error unless this is given: then the venv is recreated and
                       the previous instance stopped and removed first (default: fail)
   --keep              on success, leave the whole setup as it is at the end:
-                      the instance running and logged in, the venv in place, and
-                      -- passed on as `xp one-shot --keep` -- every xp
-                      instance/project and its domains
+                      the instance running and logged in, the venv in place, the
+                      LLM domain, and -- passed on as `xp one-shot --keep` -- every
+                      xp instance/project and its domains
                       (default: no -- the running instance is stopped and
                       trashed, and the venv deleted; a failed run always leaves
                       everything standing)
@@ -162,7 +164,6 @@ foreach ($need in $REQUIRED_OPTIONS -split ' ') {
 }
 if ($missing) { fail_usage "missing required option(s): $($missing -join ' ') (see --help)" }
 if ($NAME -notmatch '^[A-Za-z0-9]+$') { fail_usage '--name must be alphanumeric (it becomes part of domain names)' }
-if ($LLM_SYSTEM) { fail_usage '--llm-domain is not yet supported under PowerShell; run smoke-km.sh for an LLM domain' }
 
 $BASE = "sm_$NAME"
 if (-not $PROFILE_NAME) { $PROFILE_NAME = $BASE }   # the tdk connection is this run's own
@@ -170,6 +171,7 @@ $NAMES_PREFIX = $BASE
 $INSTANCE = $BASE
 $VENV = $BASE
 $STAMP = Get-Date -Format 'yyyyMMdd-HHmmss'
+$LLM_DOMAIN = if ($LLM_SYSTEM) { "${BASE}__${LLM_SYSTEM}" } else { '' }
 $XP_PROJECTS = [Collections.Generic.List[string]]::new()
 $SMOKE_DOMAINS = [Collections.Generic.List[string]]::new()
 $EXPECT_POD_LIST = @($EXPECT_PODS -split ',' | Where-Object { $_ })
@@ -187,6 +189,7 @@ $STAGE_NAMES = [Collections.Generic.List[string]]::new([string[]]@('unset-td', '
 if ($UV_INDEX_URI) { $STAGE_NAMES.Add('set-pypi') }
 foreach ($s in 'systems', 'pycache', 'clean-previous', 'create-venv', 'install') { $STAGE_NAMES.Add($s) }
 if ($TD_VERSION -eq '2.0.2') { $STAGE_NAMES.Add('cdc-driver') }
+if ($LLM_SYSTEM) { $STAGE_NAMES.Add('llm-domain') }
 foreach ($s in 'quickstart', 'pods-1', 'login-1', 'stop-1', 'venv-update', 'start', 'pods-2', 'login-2') { $STAGE_NAMES.Add($s) }
 foreach ($suite in $SUITE_LIST) { $STAGE_NAMES.Add("xp-$($suite -replace '/', '_')") }
 $STAGE_NAMES.Add('cleanup')
@@ -220,7 +223,7 @@ common_screen "  --td-extras   $TD_EXTRAS   -> installs $TABSDATA_SPEC"
 common_screen "  --port              $PORT   -> server $SERVER"
 common_screen "  --uv-index          $(common_display $(if ($UV_INDEX_URI) { $UV_INDEX_URI } else { '(none)' }))"
 common_screen "  --xp-suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
-common_screen '  --llm-domain        (none)'
+common_screen "  --llm-domain        $(if ($LLM_SYSTEM) { "$LLM_SYSTEM   -> domain $LLM_DOMAIN" } else { '(none)' })"
 common_screen "  --expect-pods       $EXPECT_PODS"
 common_screen "  --force             $(if ($FORCE) { 'yes (replace an existing venv/instance)' } else { 'no (an existing venv/instance is an error)' })"
 common_screen "  --keep              $(if ($KEEP) { 'yes (also: xp one-shot --keep)' } else { 'no (domains, instance and venv deleted at the end)' })"
@@ -261,6 +264,8 @@ common_run tdd system create --type fs --sys fs --sys-path (Join-Path (Join-Path
 foreach ($suite in $SUITE_LIST) {
     common_run tdd xp list-systems --suite $suite
 }
+# status checks the LLM credential is there without printing it
+if ($LLM_SYSTEM) { common_run tdd system status --sys $LLM_SYSTEM }
 
 common_stage pycache 'purge tabsdata from the uv and pip caches'
 # a republished wheel of the same version must not be served stale from the cache
@@ -296,9 +301,29 @@ if ($TD_VERSION -eq '2.0.2') {
     common_remark "workaround: tabsdata 2.0.2 ships no psycopg2 with its Postgres connector; psycopg2-binary was installed into $VENV so the CDC plugin loads"
 }
 
+$LLM_KEY_OPTS = @()
+if ($LLM_SYSTEM) {
+    common_stage llm-domain "domain $LLM_DOMAIN on $LLM_SYSTEM, its API key for quickstart"
+    # The key is set in THIS session's environment, never echoed; quickstart
+    # reads it from that variable (`--config <llm>-key=env:LLM__API_KEY`), so it
+    # is never on a command line. Releases up to 2.2.0 have no --config and take
+    # the deprecated --<llm>-key, which the displayed command line masks.
+    common_run tdd domain create --sys $LLM_SYSTEM --domain $LLM_DOMAIN --force
+    $SMOKE_DOMAINS.Add($LLM_DOMAIN)
+    common_note "tdd domain info --domain $LLM_DOMAIN --format export --platform windows --prefix LLM | Invoke-Expression   (the key is not shown)"
+    (tdd domain info --domain $LLM_DOMAIN --format export --platform windows --prefix LLM 2>$null) -join "`n" | Invoke-Expression
+    common_run common_variable_set LLM__API_KEY
+    $LLM_KEY_OPTS = if ($TD_VERSION -match '^(1\.|2\.0\.|2\.1\.|2\.2\.0$)') {
+        @("--$LLM_SYSTEM-key", $env:LLM__API_KEY)
+    } else {
+        @('--config', "$LLM_SYSTEM-key=env:LLM__API_KEY")
+    }
+}
+
 $quickIndex = if ($UV_INDEX_URI) { @('--uv-index', $UV_INDEX_URI) } else { @() }
-common_stage quickstart "tdkserver quickstart --instance $INSTANCE (kminus, no LLM key)"
-common_run tdd tdkserver quickstart --instance $INSTANCE --provider kminus --port $PORT @quickIndex @TDK_OPTS
+$llmSays = if ($LLM_SYSTEM) { ", $LLM_SYSTEM key from $LLM_DOMAIN" } else { ', no LLM key' }
+common_stage quickstart "tdkserver quickstart --instance $INSTANCE (kminus$llmSays)"
+common_run tdd tdkserver quickstart --instance $INSTANCE --provider kminus --port $PORT @quickIndex @LLM_KEY_OPTS @TDK_OPTS
 common_run common_tdkserver_expect $INSTANCE running
 
 # retried: the pods come up after quickstart/start return
@@ -347,7 +372,9 @@ if ($KEEP) {
     common_note "logged in as admin on $SERVER; tdd xp one-shot --suite test/test --profile $PROFILE_NAME works as is"
     common_tabsdata_setup_info common_note
 } else {
-    common_stage cleanup "stop and trash the instance $INSTANCE, delete the venv $VENV"
+    common_stage cleanup "destroy the domains, stop and trash the instance $INSTANCE, delete the venv $VENV"
+    # xp (no --keep) destroyed its own domains; what is left is ours
+    if ($LLM_DOMAIN) { common_run tdd domain destroy --domain $LLM_DOMAIN --force }
     # `tdkserver delete` cannot remove a kminus instance (see smoke-km.sh):
     # stop it ourselves, then trash the folder.
     common_run tdd tdkserver stop --instance $INSTANCE @TDK_OPTS
