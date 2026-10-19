@@ -10,21 +10,94 @@
 #   cargo make uninstall                 remove the tdd dir
 #
 # Note the `--`: cargo-make forwards arguments after it to the task.
+#
+# Every task is duckscript, cargo-make's own language, so one script runs on
+# macOS, Linux and Windows alike: they orchestrate -- read a variable, prepare
+# arguments, call uv or Python -- and anything with an algorithm of its own is
+# a file in make/. cargo-make expands `${NAME}` from the environment before a
+# script runs, so a script's own variables are lowercase: no environment
+# variable can stand in for one. What a task does and why is said above it, so
+# its script is code alone.
 
 [config]
 default_to_workspace = false
 skip_core_tasks = true
 
+# XP_TOOL is the XP tree xp carries: at the root, where it is read and edited,
+# and force-included into the tool's wheel. MAKE_SCRIPTS holds the tasks' own
+# files: help.txt, requirements.txt, catalog_rows.py.
 [env]
 WHEELS_OUT = "${CARGO_MAKE_WORKING_DIRECTORY}/target/wheels"
 PACKAGES = "${CARGO_MAKE_WORKING_DIRECTORY}/packages"
-# the XP tree xp carries: at the root, where it is read and edited,
-# and force-included into the tool's wheel
 XP_TOOL = "${CARGO_MAKE_WORKING_DIRECTORY}/xp-tool"
 TDD_PKG = "${CARGO_MAKE_WORKING_DIRECTORY}/packages/tabsdata-dev-tdd"
-# the tasks' own helper scripts; venv.sh prints the python of the tasks' own
-# env, <tdd dir>/tdd-venvs/make, building it first when it has to
 MAKE_SCRIPTS = "${CARGO_MAKE_WORKING_DIRECTORY}/make"
+
+# --------------------------------------------------------------------- the tasks' env
+
+# Every task that runs Python runs it from its own env, <tdd dir>/tdd-venvs/make,
+# built on exactly the repo's PYTHON, uv-managed only -- `uv venv` never takes
+# an active venv, conda env or ./.venv for its interpreter, which `uv run`
+# does -- with make/requirements.txt (ruff, pytest). It is rebuilt when either
+# file changes: the env keeps a copy of both, read as any checkout has them (a
+# Windows one may hold CRLF line ends), so the check is three small files read
+# and compared, nothing asked of uv. Built relocatable and copied from the
+# cache, as every env in a tdd dir is. tdd itself is not installed there: it is
+# the standard library only, so a task puts this checkout's tdd on PYTHONPATH
+# -- an env shared by several checkouts must not hold any one of them.
+#
+# Sets, for the tasks after it: MAKE_TDD_DIR ($TDD_DIR, else ~/.tdd), MAKE_PY
+# (that env's python), and MAKE_VENV_BIN / MAKE_EXE, how any venv lays out its
+# programs here (bin and nothing; Scripts and .exe on Windows).
+[tasks.make-env]
+private = true
+script_runner = "@duckscript"
+script = [
+    '''
+    tdd_dir = get_env TDD_DIR
+    if is_empty ${tdd_dir}
+        home = get_home_dir
+        tdd_dir = set "${home}/.tdd"
+    end
+    family = os_family
+    if eq ${family} windows
+        venv_bin = set Scripts
+        exe = set .exe
+    else
+        venv_bin = set bin
+        exe = set ""
+    end
+    venv = set "${tdd_dir}/tdd-venvs/make"
+    py = set "${venv}/${venv_bin}/python${exe}"
+    built_from = set "${venv}/built-from"
+
+    version = readfile "${CARGO_MAKE_WORKING_DIRECTORY}/PYTHON"
+    version = trim ${version}
+    reqs = readfile "${MAKE_SCRIPTS}/requirements.txt"
+    wanted = concat ${version} "\n" ${reqs}
+    wanted = replace ${wanted} "\r" ""
+    wanted = trim_end ${wanted}
+
+    current = set ""
+    if is_path_exists ${built_from}
+        current = readfile ${built_from}
+    end
+    fresh = is_path_exists ${py}
+    if ${fresh}
+        fresh = eq ${current} ${wanted}
+    end
+    if not ${fresh}
+        echo "building the cargo-make tasks' env ${venv} (python ${version})"
+        set_env UV_LINK_MODE copy
+        exec --fail-on-error uv venv --quiet --clear --relocatable --managed-python --python ${version} ${venv}
+        exec --fail-on-error uv pip install --quiet --python ${venv} -r "${MAKE_SCRIPTS}/requirements.txt"
+        writefile ${built_from} ${wanted}
+    end
+    set_env MAKE_TDD_DIR ${tdd_dir}
+    set_env MAKE_PY ${py}
+    set_env MAKE_VENV_BIN ${venv_bin}
+    set_env MAKE_EXE ${exe}
+    ''']
 
 # --------------------------------------------------------------------- default
 
@@ -34,128 +107,115 @@ run_task = "help"
 
 [tasks.help]
 description = "List every task with its options"
-script_runner = "@shell"
-script = '''
-cat <<'HELP'
-usage: cargo make <task> [-- <options>]
-
-Task options go after `--`; cargo-make forwards them untouched. Every task that
-touches a tdd dir resolves it the same way: `-- --dir PATH`, else $TDD_DIR, else
-~/.tdd. Needs only uv and cargo-make; no venv, no active Python.
-
-setup
-  install [-- --dir PATH]   evict devtools packages from the uv cache, build
-                            wheels + locks, stage them in <dir>/wheels, build
-                            every env from them (no checkout needed after)
-  install -- --editable|-e  build every env editable from this checkout instead;
-                            source edits are live, no wheels involved
-  dev                       shortcut for `install -- --editable`
-  uninstall [-- --dir PATH] delete the tdd dir; tells you what to unsource
-
-quality (what CI runs)
-  check                     lint, then test, then reqs
-  lint                      ruff check over packages/ and make/
-  fmt                       ruff format over packages/ and make/ (rewrites files)
-  test                      test-tdd, then test-toolsets
-  test-tdd                  the dispatcher's tests, in an ephemeral env
-  test-toolsets             every tool in its own toolset env, common-* once
-                            per toolset, the shell package in its env
-  reqs                      report external binaries per tool; fails if any
-                            is missing from PATH
-
-build
-  gen                       regenerate the toolset packages and catalog.json
-  lock                      gen, then re-resolve every toolset's uv.lock in one
-                            pass, upgrading within the declared ranges
-  wheels                    gen, then wheels + exported locks -> target/wheels
-  clean                     remove target/wheels and every cache
-
-  help                      this listing
-HELP
-'''
+script_runner = "@duckscript"
+script = [
+    '''
+    text = readfile "${MAKE_SCRIPTS}/help.txt"
+    echo ${text}
+    ''']
 
 # --------------------------------------------------------------------- dev loop
 
 [tasks.dev]
 description = "Shortcut for `install -- --editable`"
-script_runner = "@shell"
-script = '''
-set -euo pipefail
-exec cargo make install -- --editable "$@"
-'''
+env = { "MAKE_EDITABLE" = "1" }
+run_task = "install"
 
 # --------------------------------------------------------------------- quality
 
 [tasks.fmt]
 description = "Format every package with the pinned ruff"
-script_runner = "@shell"
-script = '''
-set -euo pipefail
-PY="$("${MAKE_SCRIPTS}/venv.sh")"
-"$PY" -m ruff format packages make
-'''
+dependencies = ["make-env"]
+script_runner = "@duckscript"
+script = [
+    '''
+    py = get_env MAKE_PY
+    exec --fail-on-error ${py} -m ruff format ${PACKAGES} ${MAKE_SCRIPTS}
+    ''']
 
 [tasks.lint]
 description = "Lint every package with the pinned ruff"
-script_runner = "@shell"
-script = '''
-set -euo pipefail
-PY="$("${MAKE_SCRIPTS}/venv.sh")"
-"$PY" -m ruff check packages make
-'''
+dependencies = ["make-env"]
+script_runner = "@duckscript"
+script = [
+    '''
+    py = get_env MAKE_PY
+    exec --fail-on-error ${py} -m ruff check ${PACKAGES} ${MAKE_SCRIPTS}
+    ''']
 
 # --------------------------------------------------------------------- tests
 
+# tdd is the standard library only: this checkout's, on PYTHONPATH, is all it needs.
 [tasks.test-tdd]
 description = "Test the dispatcher (no toolset: it declares no dependencies)"
-script_runner = "@shell"
-script = '''
-set -euo pipefail
-echo "== tabsdata-dev-tdd"
-PY="$("${MAKE_SCRIPTS}/venv.sh")"
-# tdd is the standard library only: this checkout's, on the path, is all it needs
-PYTHONPATH="${TDD_PKG}/src/python/main" "$PY" -m pytest "${TDD_PKG}/src/python/test" -q
-'''
-
-[tasks.test-toolsets]
-description = "Test every tool and common package inside its own toolset venv"
-script_runner = "@shell"
-script = '''
-set -euo pipefail
-DIR="${TDD_DIR:-$HOME/.tdd}"
-if [ ! -f "$DIR/catalog.json" ]; then
-    echo "no initialized tdd dir at $DIR -- run 'cargo make dev' first" >&2
-    exit 2
-fi
+dependencies = ["make-env"]
+script_runner = "@duckscript"
+script = [
+    '''
+    echo "== tabsdata-dev-tdd"
+    py = get_env MAKE_PY
+    set_env PYTHONPATH "${TDD_PKG}/src/python/main"
+    exec --fail-on-error ${py} -m pytest "${TDD_PKG}/src/python/test" -q
+    ''']
 
 # Each tool is exercised against the exact pins it ships with: its tests run
 # under its own toolset's interpreter. The catalog says which toolset that is;
 # it is read here rather than through a tdd word because testing is a build
 # concern, not something a user does from a finished install.
-PY="$DIR/tdd-venvs/tdd/bin/python"
-"$PY" "${MAKE_SCRIPTS}/catalog_rows.py" tools "$DIR/catalog.json" |
-while read -r tool toolset package; do
-    echo "== $package"
-    "$DIR/tdd-venvs/$toolset/bin/python" -m pytest "${PACKAGES}/$package/src/python/test" -q
-done
-
+#
 # A common-* is tested once per toolset env it is a member of -- that is its
 # real compatibility matrix (common-core: every toolset; a family library: the
 # toolsets whose tools use it). Membership comes from the catalog, not from
-# globbing tdd-venvs/: that directory also holds the tdd and shells envs.
-"$PY" "${MAKE_SCRIPTS}/catalog_rows.py" commons "$DIR/catalog.json" |
-while read -r name toolset; do
-    echo "== $name  [$toolset]"
-    "$DIR/tdd-venvs/$toolset/bin/python" -m pytest "${PACKAGES}/$name/src/python/test" -q
-done
+# globbing tdd-venvs/: that directory also holds the tdd, shells and make envs.
+#
+# The shell package is tested in its own env, where its script data is
+# installed; pytest is added to it first, the one thing a test run needs there.
+[tasks.test-toolsets]
+description = "Test every tool and common package inside its own toolset venv"
+dependencies = ["make-env"]
+script_runner = "@duckscript"
+script = [
+    '''
+    tdd_dir = get_env MAKE_TDD_DIR
+    venv_bin = get_env MAKE_VENV_BIN
+    exe = get_env MAKE_EXE
+    catalog = set "${tdd_dir}/catalog.json"
+    if not is_path_exists ${catalog}
+        assert_fail "no initialized tdd dir at ${tdd_dir} -- run 'cargo make dev' first"
+    end
+    venvs = set "${tdd_dir}/tdd-venvs"
+    tdd_py = set "${venvs}/tdd/${venv_bin}/python${exe}"
 
-# The shell package is tested in its own env, where its script data is installed.
-echo "== tabsdata-dev-shell"
-"$DIR/tdd-venvs/shells/bin/python" -m pip install --quiet pytest 2>/dev/null \
-    || uv pip install --quiet --python "$DIR/tdd-venvs/shells" pytest
-"$DIR/tdd-venvs/shells/bin/python" -m pytest \
-    "${PACKAGES}/tabsdata-dev-shell/src/python/test" -q
-'''
+    rows = exec --fail-on-error ${tdd_py} "${MAKE_SCRIPTS}/catalog_rows.py" tools ${catalog}
+    lines = split ${rows.stdout} "\n"
+    for line in ${lines}
+        line = trim ${line}
+        if not is_empty ${line}
+            words = split ${line} " "
+            toolset = array_get ${words} 1
+            package = array_get ${words} 2
+            echo "== ${package}"
+            exec --fail-on-error "${venvs}/${toolset}/${venv_bin}/python${exe}" -m pytest "${PACKAGES}/${package}/src/python/test" -q
+        end
+    end
+
+    rows = exec --fail-on-error ${tdd_py} "${MAKE_SCRIPTS}/catalog_rows.py" commons ${catalog}
+    lines = split ${rows.stdout} "\n"
+    for line in ${lines}
+        line = trim ${line}
+        if not is_empty ${line}
+            words = split ${line} " "
+            name = array_get ${words} 0
+            toolset = array_get ${words} 1
+            echo "== ${name}  [${toolset}]"
+            exec --fail-on-error "${venvs}/${toolset}/${venv_bin}/python${exe}" -m pytest "${PACKAGES}/${name}/src/python/test" -q
+        end
+    end
+
+    echo "== tabsdata-dev-shell"
+    exec --fail-on-error uv pip install --quiet --python "${venvs}/shells" pytest
+    exec --fail-on-error "${venvs}/shells/${venv_bin}/python${exe}" -m pytest "${PACKAGES}/tabsdata-dev-shell/src/python/test" -q
+    ''']
 
 [tasks.test]
 description = "Run every test"
@@ -163,12 +223,15 @@ dependencies = ["test-tdd", "test-toolsets"]
 
 [tasks.reqs]
 description = "Report external binary requirements for every tool"
-script_runner = "@shell"
-script = '''
-set -euo pipefail
-DIR="${TDD_DIR:-$HOME/.tdd}"
-"$DIR/tdd-venvs/tdd/bin/tdd-exe" --reqs
-'''
+dependencies = ["make-env"]
+script_runner = "@duckscript"
+script = [
+    '''
+    tdd_dir = get_env MAKE_TDD_DIR
+    venv_bin = get_env MAKE_VENV_BIN
+    exe = get_env MAKE_EXE
+    exec --fail-on-error "${tdd_dir}/tdd-venvs/tdd/${venv_bin}/tdd-exe${exe}" --reqs
+    ''']
 
 [tasks.check]
 description = "Lint then test -- what CI runs"
@@ -176,24 +239,21 @@ dependencies = ["lint", "test", "reqs"]
 
 # --------------------------------------------------------------------- wheels
 
+# Runs the generator from this checkout, on the tasks' env, so this works before
+# `cargo make dev` -- and so the catalog baked into the wheels is never stale.
+# It is a module, not a tdd word: nobody regenerates a catalog from a finished
+# install.
 [tasks.gen]
 description = "Regenerate the toolset packages and the shipped catalog"
-script_runner = "@shell"
-script = '''
-set -euo pipefail
-# Run the generator from this checkout, on the tasks' env, so this works before
-# `cargo make dev` -- and so the catalog baked into the wheels is never stale. It
-# is a module, not a tdd word: nobody regenerates a catalog from a finished install.
-PY="$("${MAKE_SCRIPTS}/venv.sh")"
-PYTHONPATH="${TDD_PKG}/src/python/main" "$PY" -m tabsdata_dev.tdd.generate
-'''
+dependencies = ["make-env"]
+script_runner = "@duckscript"
+script = [
+    '''
+    py = get_env MAKE_PY
+    set_env PYTHONPATH "${TDD_PKG}/src/python/main"
+    exec --fail-on-error ${py} -m tabsdata_dev.tdd.generate
+    ''']
 
-[tasks.lock]
-description = "Re-resolve every toolset's uv.lock in one pass"
-dependencies = ["gen"]
-script_runner = "@shell"
-script = '''
-set -euo pipefail
 # One pass over every toolset, so a range shared through a common-* resolves to
 # the same version everywhere. Drift between locks is a timing artifact -- one
 # toolset locked months after another -- and locking them together is the fix
@@ -204,203 +264,255 @@ set -euo pipefail
 # lock works only where it runs. So the shell's index settings are dropped and
 # the index named -- the same list and URL as INDEX_ENV / LOCK_INDEX in
 # tabsdata_dev/tdd/initialize.py, which syncs against it; test_discover checks both.
-unset UV_INDEX UV_DEFAULT_INDEX UV_INDEX_URL UV_EXTRA_INDEX_URL
-PY="$("${MAKE_SCRIPTS}/venv.sh")"
-for pkg in "${PACKAGES}"/tabsdata-dev-toolset-*; do
-    toolset="$(basename "$pkg")"
-    toolset="${toolset#tabsdata-dev-toolset-}"
-    echo "== locking $toolset"
-    uv lock --quiet --upgrade --project "$pkg" --python "$PY" \
-        --default-index https://pypi.org/simple
-done
-
-echo
-echo "re-resolved; \`cargo make dev\` rebuilds the envs from the new locks"
-'''
-
-[tasks.wheels]
-description = "Build a wheel for every first-party package"
+[tasks.lock]
+description = "Re-resolve every toolset's uv.lock in one pass"
 dependencies = ["gen"]
-script_runner = "@shell"
-script = '''
-set -euo pipefail
-rm -rf "${WHEELS_OUT}"
-mkdir -p "${WHEELS_OUT}"
-PY="$("${MAKE_SCRIPTS}/venv.sh")"
+script_runner = "@duckscript"
+script = [
+    '''
+    unset_env UV_INDEX
+    unset_env UV_DEFAULT_INDEX
+    unset_env UV_INDEX_URL
+    unset_env UV_EXTRA_INDEX_URL
+    py = get_env MAKE_PY
+    toolsets = glob_array "${PACKAGES}/tabsdata-dev-toolset-*"
+    for pkg in ${toolsets}
+        name = basename ${pkg}
+        toolset = replace ${name} "tabsdata-dev-toolset-" ""
+        echo "== locking ${toolset}"
+        exec --fail-on-error uv lock --quiet --upgrade --project ${pkg} --python ${py} --default-index https://pypi.org/simple
+    end
+    echo ""
+    echo "re-resolved; `cargo make dev` rebuilds the envs from the new locks"
+    ''']
 
-# toolset-* packages are generated meta-packages with no build backend and no
-# code; the tool wheels carry the same information through their dependencies.
-for pkg in "${PACKAGES}"/tabsdata-dev-*; do
-    name="$(basename "$pkg")"
-    case "$name" in
-        tabsdata-dev-toolset-*) continue ;;
-    esac
-    echo "== building $name"
-    uv build --quiet --wheel "$pkg" --python "$PY" --out-dir "${WHEELS_OUT}"
-done
-
-# Every first-party package is excluded from the exports: the locks carry the
-# transitive THIRD-PARTY closure, pinned and hashed, while the wheels beside
-# them carry the first-party code. Together they pin an env completely.
-NO_EMIT=""
-for pkg in "${PACKAGES}"/tabsdata-dev-*; do
-    name="$(basename "$pkg")"
-    case "$name" in
-        tabsdata-dev-toolset-*) continue ;;
-    esac
-    NO_EMIT="$NO_EMIT --no-emit-package $name"
-done
-
-for pkg in "${PACKAGES}"/tabsdata-dev-toolset-*; do
-    toolset="$(basename "$pkg")"
-    toolset="${toolset#tabsdata-dev-toolset-}"
-    echo "== exporting lock for toolset $toolset"
-    # --frozen: export the committed lock as it is. Without it uv re-locks
-    # first whenever it finds the lock stale -- a shell whose UV_DEFAULT_INDEX
-    # spells PyPI differently is enough -- and rewrites every uv.lock.
-    # shellcheck disable=SC2086
-    uv export --quiet --frozen --project "$pkg" --format requirements-txt \
-        --no-emit-project --no-annotate $NO_EMIT \
-        -o "${WHEELS_OUT}/${toolset}.lock"
-    # uv's header embeds an absolute path from the build machine; these locks
-    # travel to other machines, so drop it.
-    sed -i.bak '/^# This file was autogenerated/,/^#    uv export/d' \
-        "${WHEELS_OUT}/${toolset}.lock"
-    rm -f "${WHEELS_OUT}/${toolset}.lock.bak"
-done
-
+# A wheel for every first-party package but the toolset-* ones: generated
+# meta-packages with no build backend and no code, whose tool wheels carry the
+# same information through their dependencies.
+#
+# Then one exported lock per toolset. The locks carry the transitive
+# THIRD-PARTY closure, pinned and hashed, while the wheels beside them carry
+# the first-party code: together they pin an env completely. Every first-party
+# package is a local (path) source, so --no-emit-local leaves them all out.
+# --frozen exports the committed lock as it is: without it uv re-locks first
+# whenever it finds the lock stale -- a shell whose UV_DEFAULT_INDEX spells
+# PyPI differently is enough -- and rewrites every uv.lock. --no-header: uv's
+# header embeds an absolute path from the build machine, and these locks travel
+# to other machines.
+#
 # tabsdata-dev-shell and tabsdata-dev-tdd declare no dependencies, so their
 # locks are deliberately empty rather than absent -- tdd init expects one lock
 # per env it builds, and an absent lock is an error worth keeping.
-cat > "${WHEELS_OUT}/shells.lock" <<'LOCK'
-# tabsdata-dev-shell has no third-party dependencies.
-LOCK
-cat > "${WHEELS_OUT}/tdd.lock" <<'LOCK'
-# tabsdata-dev-tdd is standard library only.
-LOCK
+[tasks.wheels]
+description = "Build a wheel for every first-party package"
+dependencies = ["gen"]
+script_runner = "@duckscript"
+script = [
+    '''
+    rm -r ${WHEELS_OUT}
+    mkdir ${WHEELS_OUT}
+    py = get_env MAKE_PY
 
-cp "${CARGO_MAKE_WORKING_DIRECTORY}/VERSION" "${WHEELS_OUT}/VERSION"
+    packages = glob_array "${PACKAGES}/tabsdata-dev-*"
+    for pkg in ${packages}
+        name = basename ${pkg}
+        if not starts_with ${name} "tabsdata-dev-toolset-"
+            echo "== building ${name}"
+            exec --fail-on-error uv build --quiet --wheel ${pkg} --python ${py} --out-dir ${WHEELS_OUT}
+        end
+    end
 
-echo
-echo "version $(cat "${WHEELS_OUT}/VERSION")"
-ls -1 "${WHEELS_OUT}"
-'''
+    toolsets = glob_array "${PACKAGES}/tabsdata-dev-toolset-*"
+    for pkg in ${toolsets}
+        name = basename ${pkg}
+        toolset = replace ${name} "tabsdata-dev-toolset-" ""
+        echo "== exporting lock for toolset ${toolset}"
+        exec --fail-on-error uv export --quiet --frozen --project ${pkg} --format requirements-txt --no-emit-project --no-emit-local --no-annotate --no-header -o "${WHEELS_OUT}/${toolset}.lock"
+    end
 
-[tasks.install]
-description = "Build a tdd dir: from wheels by default, or editable with --editable"
-script_runner = "@shell"
-script = '''
-set -euo pipefail
+    writefile "${WHEELS_OUT}/shells.lock" "# tabsdata-dev-shell has no third-party dependencies.\n"
+    writefile "${WHEELS_OUT}/tdd.lock" "# tabsdata-dev-tdd is standard library only.\n"
 
-DIR="${TDD_DIR:-$HOME/.tdd}"
-EDITABLE=0
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --) shift ;;                        # cargo-make forwards the separator
-        --dir) DIR="$2"; shift 2 ;;
-        --dir=*) DIR="${1#--dir=}"; shift ;;
-        --editable | -e) EDITABLE=1; shift ;;
-        *) echo "cargo make install: unexpected argument $1" >&2; exit 2 ;;
-    esac
-done
+    cp "${CARGO_MAKE_WORKING_DIRECTORY}/VERSION" "${WHEELS_OUT}/VERSION"
+    version = readfile "${WHEELS_OUT}/VERSION"
+    version = trim ${version}
+    echo ""
+    echo "version ${version}"
+    built = glob_array "${WHEELS_OUT}/*"
+    for file in ${built}
+        name = basename ${file}
+        echo ${name}
+    end
+    ''']
 
+# Arguments: --dir PATH (or --dir=PATH), --editable / -e; the `--` cargo-make
+# forwards is skipped. `dev` sets MAKE_EDITABLE instead.
+#
 # Every first-party wheel keeps its filename across rebuilds -- same VERSION,
 # new contents -- and uv caches wheels by filename, so a stale build could be
-# served from the cache. Evict every devtools package first, so this install
-# can only see what it builds. Third-party packages stay cached: their wheels
-# are immutable per version.
-DEVTOOL_PKGS=""
-for pkg in "${PACKAGES}"/tabsdata-dev-*; do
-    DEVTOOL_PKGS="$DEVTOOL_PKGS $(basename "$pkg")"
-done
-# shellcheck disable=SC2086
-uv cache clean --quiet $DEVTOOL_PKGS
-echo "evicted devtools packages from the uv cache"
+# served from the cache. Every devtools package is evicted first, so this
+# install can only see what it builds. Third-party packages stay cached: their
+# wheels are immutable per version.
+#
+# Editable: nothing is installed globally. tdd-install runs from this checkout
+# on the tasks' env and creates the real envs inside the tdd dir, tdd-exe's
+# included, every first-party package linked to this checkout. No wheels are
+# involved, which is why `wheels` is run from the script rather than declared
+# as a dependency.
+#
+# From wheels: they are built, staged in <dir>/wheels, and tdd-install runs out
+# of the tdd wheel just built, not the source tree: a wheels-mode install is
+# deliberately non-editable, so its catalog is a frozen snapshot. Nothing lands
+# on PATH; the envs go inside the tdd dir. --refresh because uv caches by wheel
+# filename and a rebuild keeps the same VERSION.
+[tasks.install]
+description = "Build a tdd dir: from wheels by default, or editable with --editable"
+dependencies = ["make-env"]
+script_runner = "@duckscript"
+script = [
+    '''
+    tdd_dir = get_env MAKE_TDD_DIR
+    editable = get_env MAKE_EDITABLE
+    editable = eq ${editable} 1
+    count = array_length ${@}
+    i = set 0
+    while less_than ${i} ${count}
+        arg = array_get ${@} ${i}
+        i = calc ${i} + 1
+        if eq ${arg} "--dir"
+            tdd_dir = array_get ${@} ${i}
+            i = calc ${i} + 1
+        elseif starts_with ${arg} "--dir="
+            tdd_dir = replace ${arg} "--dir=" ""
+        elseif eq ${arg} "--editable"
+            editable = set true
+        elseif eq ${arg} "-e"
+            editable = set true
+        elseif not eq ${arg} "--"
+            assert_fail "cargo make install: unexpected argument ${arg}"
+        end
+    end
 
-PY="$("${MAKE_SCRIPTS}/venv.sh")"
+    packages = glob_array "${PACKAGES}/tabsdata-dev-*"
+    for pkg in ${packages}
+        name = basename ${pkg}
+        exec --fail-on-error uv cache clean --quiet ${name}
+    end
+    echo "evicted devtools packages from the uv cache"
 
-if [ "$EDITABLE" = 1 ]; then
-    # Nothing is installed globally: tdd-install runs from this checkout on the
-    # tasks' env and creates the real envs inside the tdd dir, tdd-exe's
-    # included, every first-party package linked to this checkout. No wheels are
-    # involved, so `wheels` is invoked below rather than declared as a task
-    # dependency.
-    PYTHONPATH="${TDD_PKG}/src/python/main" "$PY" -m tabsdata_dev.tdd.install --dir "$DIR"
-    exit 0
-fi
+    py = get_env MAKE_PY
+    if ${editable}
+        set_env PYTHONPATH "${TDD_PKG}/src/python/main"
+        exec --fail-on-error ${py} -m tabsdata_dev.tdd.install --dir ${tdd_dir}
+        exit 0
+    end
 
-cargo make wheels
+    exec --fail-on-error cargo make wheels
 
-mkdir -p "$DIR/wheels"
-rm -f "$DIR"/wheels/*.whl "$DIR"/wheels/*.lock "$DIR"/wheels/VERSION
-cp "${WHEELS_OUT}"/*.whl "${WHEELS_OUT}"/*.lock "${WHEELS_OUT}/VERSION" "$DIR/wheels/"
-echo "staged $(ls -1 "$DIR"/wheels/*.whl | wc -l | tr -d ' ') wheels and \
-$(ls -1 "$DIR"/wheels/*.lock | wc -l | tr -d ' ') locks in $DIR/wheels"
+    staged = set "${tdd_dir}/wheels"
+    mkdir ${staged}
+    old = glob_array "${staged}/*"
+    for file in ${old}
+        rm ${file}
+    end
+    wheels = glob_array "${WHEELS_OUT}/*.whl"
+    locks = glob_array "${WHEELS_OUT}/*.lock"
+    for file in ${wheels}
+        name = basename ${file}
+        cp ${file} "${staged}/${name}"
+    end
+    for file in ${locks}
+        name = basename ${file}
+        cp ${file} "${staged}/${name}"
+    end
+    cp "${WHEELS_OUT}/VERSION" "${staged}/VERSION"
+    n_wheels = array_length ${wheels}
+    n_locks = array_length ${locks}
+    echo "staged ${n_wheels} wheels and ${n_locks} locks in ${staged}"
 
-# Run tdd-install out of the wheel we just built, not the source tree: a
-# wheels-mode install is deliberately non-editable, so its catalog is a frozen
-# snapshot. Nothing lands on PATH; the envs go inside the tdd dir. --refresh
-# because uv caches by wheel filename and a rebuild keeps the same VERSION.
-uvx --quiet --refresh --python "$PY" --from "${WHEELS_OUT}"/tabsdata_dev_tdd-*.whl \
-    tdd-install --dir "$DIR" --from-wheels
-'''
+    tdd_wheels = glob_array "${WHEELS_OUT}/tabsdata_dev_tdd-*.whl"
+    tdd_wheel = array_get ${tdd_wheels} 0
+    exec --fail-on-error uvx --quiet --refresh --python ${py} --from ${tdd_wheel} tdd-install --dir ${tdd_dir} --from-wheels
+    ''']
 
 # --------------------------------------------------------------------- uninstall
 
+# Arguments: --dir PATH (or --dir=PATH); the `--` cargo-make forwards is
+# skipped. This deletes a caller-supplied path. catalog.json is the marker tdd
+# init writes, so its absence means this is not a tdd dir -- refused rather
+# than trusting a mistyped --dir or a stray TDD_DIR. Then it names the line to
+# remove from whichever shell profile -- bash, zsh or PowerShell -- loads one of
+# the loaders that went with it.
 [tasks.uninstall]
-description = "Delete the tdd dir and say what to remove from the shell rc"
-script_runner = "@shell"
-script = '''
-set -euo pipefail
+description = "Delete the tdd dir and say what to remove from the shell profile"
+dependencies = ["make-env"]
+script_runner = "@duckscript"
+script = [
+    '''
+    tdd_dir = get_env MAKE_TDD_DIR
+    count = array_length ${@}
+    i = set 0
+    while less_than ${i} ${count}
+        arg = array_get ${@} ${i}
+        i = calc ${i} + 1
+        if eq ${arg} "--dir"
+            tdd_dir = array_get ${@} ${i}
+            i = calc ${i} + 1
+        elseif starts_with ${arg} "--dir="
+            tdd_dir = replace ${arg} "--dir=" ""
+        elseif not eq ${arg} "--"
+            assert_fail "cargo make uninstall: unexpected argument ${arg}"
+        end
+    end
 
-DIR="${TDD_DIR:-$HOME/.tdd}"
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --) shift ;;                        # cargo-make forwards the separator
-        --dir) DIR="$2"; shift 2 ;;
-        --dir=*) DIR="${1#--dir=}"; shift ;;
-        *) echo "cargo make uninstall: unexpected argument $1" >&2; exit 2 ;;
-    esac
-done
+    if not is_path_exists ${tdd_dir}
+        echo "nothing to uninstall: ${tdd_dir} does not exist"
+        exit 0
+    end
+    if not is_path_exists "${tdd_dir}/catalog.json"
+        assert_fail "cargo make uninstall: refusing, ${tdd_dir} has no catalog.json so it is not a tdd dir"
+    end
 
-if [ ! -e "$DIR" ]; then
-    echo "nothing to uninstall: $DIR does not exist"
-    exit 0
-fi
-# This is an rm -rf of a caller-supplied path. catalog.json is the marker tdd
-# init writes, so its absence means this is not a tdd dir -- refuse rather than
-# trust a mistyped --dir or a stray TDD_DIR.
-if [ ! -f "$DIR/catalog.json" ]; then
-    echo "cargo make uninstall: refusing, $DIR has no catalog.json so it is not a tdd dir" >&2
-    exit 2
-fi
-
-rm -rf "$DIR"
-echo "removed $DIR (its tool envs and any managed venvs under $DIR/managed-venvs)"
-echo
-echo "tdd-source.sh is gone with it. If your shell sources it, remove this line:"
-echo
-echo "    source $DIR/tdd-source.sh"
-echo
-for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zprofile"; do
-    [ -f "$rc" ] || continue
-    grep -n "tdd-source.sh" "$rc" 2>/dev/null | sed "s|^|  found in $rc:|" || true
-done
-echo "The tdd, tdd-exe and tdd-fn functions stay defined in any shell that already"
-echo "sourced it; open a new shell, or: unset -f tdd tdd-exe tdd-fn"
-'''
+    rm -r ${tdd_dir}
+    echo "removed ${tdd_dir} (its tool envs and any managed venvs under ${tdd_dir}/managed-venvs)"
+    echo ""
+    echo "Its loaders are gone with it. If a shell profile loads one, remove that line:"
+    echo ""
+    echo "    source ${tdd_dir}/tdd-source.sh     (bash, zsh)"
+    echo "    . ${tdd_dir}/tdd-source.ps1         (PowerShell)"
+    echo ""
+    home = get_home_dir
+    profiles = array "${home}/.zshrc" "${home}/.bashrc" "${home}/.bash_profile" "${home}/.zprofile" "${home}/.config/powershell/Microsoft.PowerShell_profile.ps1" "${home}/Documents/PowerShell/Microsoft.PowerShell_profile.ps1"
+    for profile in ${profiles}
+        if is_path_exists ${profile}
+            text = readfile ${profile}
+            if contains ${text} "tdd-source"
+                echo "  found in ${profile}"
+            end
+        end
+    end
+    echo "The tdd, tdd-exe and tdd-fn functions stay defined in any shell that already"
+    echo "loaded them; open a new one."
+    ''']
 
 # --------------------------------------------------------------------- cleanup
 
+# The build output and every cache: ruff's, pytest's and Python's -- xp-tool
+# included, which holds the suites' function sources, imported when a suite is
+# read.
 [tasks.clean]
 description = "Remove build artifacts and caches"
-script_runner = "@shell"
-script = '''
-set -euo pipefail
-rm -rf "${WHEELS_OUT}" "${CARGO_MAKE_WORKING_DIRECTORY}/.ruff_cache"
-# xp-tool holds the suites' function sources, which import when a suite is read
-find "${PACKAGES}" "${XP_TOOL}" -name '__pycache__' -type d -prune -exec rm -rf {} +
-find "${PACKAGES}" -name '.pytest_cache' -type d -prune -exec rm -rf {} +
-find "${PACKAGES}" -name '.ruff_cache' -type d -prune -exec rm -rf {} +
-echo "cleaned"
-'''
+script_runner = "@duckscript"
+script = [
+    '''
+    rm -r ${WHEELS_OUT}
+    rm -r "${CARGO_MAKE_WORKING_DIRECTORY}/.ruff_cache"
+    patterns = array "${PACKAGES}/**/__pycache__" "${XP_TOOL}/**/__pycache__" "${PACKAGES}/**/.pytest_cache" "${PACKAGES}/**/.ruff_cache"
+    for pattern in ${patterns}
+        found = glob_array ${pattern}
+        for folder in ${found}
+            rm -r ${folder}
+        end
+    end
+    echo "cleaned"
+    ''']

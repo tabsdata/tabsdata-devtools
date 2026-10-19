@@ -150,11 +150,16 @@ env found on any other version. The exact version also keeps an env off uv's min
 (`cpython-3.12-...`), which uv re-points whenever it installs a newer patch; the toolset locks
 resolve for that minor only. Never `uv run --python <version>`: it takes an active venv, conda env
 or `./.venv` of that version over `--managed-python`, and runs inside it. So the cargo-make tasks
-run from their own env, `<tdd dir>/tdd-venvs/make`, which `make/venv.sh` builds with `uv venv`
+run from their own env, `<tdd dir>/tdd-venvs/make`, which the `make-env` task builds with `uv venv`
 from `PYTHON` and `make/requirements.txt` (ruff, pytest) and rebuilds when either changes -- it
 keeps a copy of both, so the check is two small files compared. tdd runs there from the
 checkout on `PYTHONPATH`, never installed: one env serves every checkout. xp's python steps name
 xp's own base interpreter by path.
+
+Every cargo-make task is duckscript, cargo-make's own language, so one `Makefile.toml` runs
+unchanged on macOS, Linux and Windows. The tasks only orchestrate -- read a variable, prepare
+arguments, call uv or Python; anything with an algorithm of its own is a file in `make/`
+(`catalog_rows.py`), and the help text is `make/help.txt`.
 
 `VERSION` at the repo root is the only version: every `pyproject.toml` is `dynamic` and reads
 it; `-tdd` force-includes it; `tdd-install` stamps `<tdd_dir>/VERSION`, which `tdd --version`

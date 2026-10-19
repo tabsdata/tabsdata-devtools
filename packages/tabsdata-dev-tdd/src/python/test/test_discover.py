@@ -317,5 +317,6 @@ def test_the_lock_task_drops_the_same_index_settings_the_sync_does():
         .split("[tasks.lock]", 1)[1]
         .split("\n[tasks.", 1)[0]
     )
-    assert f"unset {' '.join(initialize.INDEX_ENV)}\n" in task
+    for variable in initialize.INDEX_ENV:
+        assert f"unset_env {variable}\n" in task, variable
     assert f"--default-index {initialize.LOCK_INDEX}" in task

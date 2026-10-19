@@ -1,0 +1,34 @@
+usage: cargo make <task> [-- <options>]
+
+Task options go after `--`; cargo-make forwards them untouched. Every task that
+touches a tdd dir resolves it the same way: `-- --dir PATH`, else $TDD_DIR, else
+~/.tdd. Needs only uv and cargo-make; no venv, no active Python.
+
+setup
+  install [-- --dir PATH]   evict devtools packages from the uv cache, build
+                            wheels + locks, stage them in <dir>/wheels, build
+                            every env from them (no checkout needed after)
+  install -- --editable|-e  build every env editable from this checkout instead;
+                            source edits are live, no wheels involved
+  dev                       shortcut for `install -- --editable`
+  uninstall [-- --dir PATH] delete the tdd dir; tells you what to unsource
+
+quality (what CI runs)
+  check                     lint, then test, then reqs
+  lint                      ruff check over packages/ and make/
+  fmt                       ruff format over packages/ and make/ (rewrites files)
+  test                      test-tdd, then test-toolsets
+  test-tdd                  the dispatcher's tests, in an ephemeral env
+  test-toolsets             every tool in its own toolset env, common-* once
+                            per toolset, the shell package in its env
+  reqs                      report external binaries per tool; fails if any
+                            is missing from PATH
+
+build
+  gen                       regenerate the toolset packages and catalog.json
+  lock                      gen, then re-resolve every toolset's uv.lock in one
+                            pass, upgrading within the declared ranges
+  wheels                    gen, then wheels + exported locks -> target/wheels
+  clean                     remove target/wheels and every cache
+
+  help                      this listing
