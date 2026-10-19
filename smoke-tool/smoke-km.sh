@@ -138,8 +138,17 @@ while [ $# -gt 0 ]; do
         *) echo "smoke-km: unknown option: $1 (see --help)" >&2; exit 1 ;;
     esac
 done
-case "$VENV_TYPE" in uv | pyenv | conda) ;; *) echo "smoke-km: --venv-type must be uv, pyenv or conda" >&2; exit 1 ;; esac
+# tdd is loaded as soon as the line is read: resolving --uv-index, the checks,
+# the banner and every stage go through it (tdd _smoke).
+if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
+    echo "smoke-km: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir" >&2
+    exit 1
+fi
+# shellcheck disable=SC1090
+. "$TDD_DIR_OPT/tdd-source.sh"
 UV_INDEX_URI="$(common_resolve_uv_index "$UV_INDEX_URI")" || exit 1
+
+case "$VENV_TYPE" in uv | pyenv | conda) ;; *) echo "smoke-km: --venv-type must be uv, pyenv or conda" >&2; exit 1 ;; esac
 missing=""
 for _need in $REQUIRED_OPTIONS; do
     case "$_need" in
@@ -185,15 +194,6 @@ STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
 
 # shellcheck disable=SC1091
 . "$HERE/_common.sh"
-
-# tdd is loaded first: the checks below, the banner and every stage go
-# through it (tdd _smoke).
-if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
-    echo "smoke-km: no tdd dir at $TDD_DIR_OPT (tdd-source.sh missing); install with cargo make install or pass --tdd-dir" >&2
-    exit 1
-fi
-# shellcheck disable=SC1090
-. "$TDD_DIR_OPT/tdd-source.sh"
 
 # What this run would create must not already exist -- someone's setup could be
 # behind those names. --force says they are ours to replace.

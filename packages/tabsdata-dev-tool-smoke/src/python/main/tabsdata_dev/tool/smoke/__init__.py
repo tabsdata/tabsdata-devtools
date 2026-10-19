@@ -20,6 +20,7 @@ run. Both are the same scripts.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import functools
 import os
 import pathlib
@@ -33,12 +34,32 @@ DESCRIPTION = (
     "the end-to-end smoke test scripts: run one, or export them to read and edit"
 )
 
-#: Every script the export writes. `_common.sh` is not a smoke test but the
-#: shared stage engine all of them source, so exporting without it produces four
-#: scripts that cannot run.
-SHARED = "_common.sh"
 
-#: A smoke script is `smoke-<name>.sh`; `<name>` is what `run --script` takes.
+#: The scripts of a shell family -- the shell the user is in, not the OS: bash
+#: ones under a POSIX shell, PowerShell 7 ones under pwsh. Each family has its
+#: own stage engine, `_common`, which every script of it sources: it is not a
+#: smoke test, and exporting without it produces scripts that cannot run.
+@dataclasses.dataclass(frozen=True)
+class Family:
+    suffix: str
+    runner: tuple[str, ...]
+
+    @property
+    def shared(self) -> str:
+        return f"_common{self.suffix}"
+
+
+FAMILIES = {
+    "unix": Family(".sh", ("bash",)),
+    # -File, not -Command: the path and every argument travel as they are
+    "powershell": Family(".ps1", ("pwsh", "-NoProfile", "-File")),
+}
+
+#: The bash family's engine, the one that tells the layouts apart.
+SHARED = FAMILIES["unix"].shared
+
+#: A smoke script is `smoke-<name>` in its family's suffix; `<name>` is what
+#: `run --script` takes.
 PREFIX = "smoke-"
 
 #: The checkout keeps them here, at the repo root, where they are edited and
@@ -69,27 +90,42 @@ def scripts_dir() -> pathlib.Path:
     raise FileNotFoundError(f"smoke scripts not found beside {beside} nor at {repo}")
 
 
-def scripts() -> list[pathlib.Path]:
-    """`_common.sh` first, then each smoke script by name."""
-    found = sorted(scripts_dir().glob("*.sh"))
-    shared = [p for p in found if p.name == SHARED]
-    return shared + [p for p in found if p.name != SHARED]
+def family() -> Family:
+    """The family of the shell tdd was called from."""
+    return FAMILIES[proc.shell_family()]
 
 
-def script_names() -> list[str]:
-    """What `run --script` takes: `eks`, `aks`, `gke`, `km`."""
-    return [p.name[len(PREFIX) : -3] for p in scripts() if p.name != SHARED]
+def scripts(of: Family | None = None) -> list[pathlib.Path]:
+    """The family's engine first, then each of its smoke scripts by name."""
+    of = of or family()
+    found = sorted(scripts_dir().glob(f"*{of.suffix}"))
+    shared = [p for p in found if p.name == of.shared]
+    return shared + [p for p in found if p.name != of.shared]
 
 
-def resolve_script(name: str) -> pathlib.Path:
-    """`eks`, `smoke-eks` or `smoke-eks.sh` -> the carried script; anything
-    else names the choices. The engine is not a script to run."""
-    bare = name[:-3] if name.endswith(".sh") else name
-    bare = bare[len(PREFIX) :] if bare.startswith(PREFIX) else bare
-    path = scripts_dir() / f"{PREFIX}{bare}.sh"
-    if not bare or "/" in bare or not path.is_file():
+def _bare(path: pathlib.Path) -> str:
+    return path.stem[len(PREFIX) :]
+
+
+def script_names(of: Family | None = None) -> list[str]:
+    """What `run --script` takes: `eks`, `aks`, `gke`, `km` -- those the
+    family has."""
+    of = of or family()
+    return [_bare(p) for p in scripts(of) if p.name != of.shared]
+
+
+def resolve_script(name: str, of: Family | None = None) -> pathlib.Path:
+    """`eks`, `smoke-eks` or `smoke-eks.sh` -> the family's carried script;
+    anything else names the choices. The engine is not a script to run."""
+    of = of or family()
+    bare = name
+    for suffix in (f.suffix for f in FAMILIES.values()):
+        bare = bare.removesuffix(suffix)
+    bare = bare.removeprefix(PREFIX)
+    path = scripts_dir() / f"{PREFIX}{bare}{of.suffix}"
+    if not bare or "/" in bare or "\\" in bare or not path.is_file():
         raise errors.ToolError(
-            f"no smoke script {name!r}; one of: {', '.join(script_names())}"
+            f"no smoke script {name!r}; one of: {', '.join(script_names(of))}"
         )
     return path
 
@@ -184,9 +220,10 @@ def export(target: pathlib.Path, force: bool, out: render.Renderer) -> int:
         # executed is the first thing a person would have to fix by hand
         dest.chmod(0o755)
         out.debug(f"wrote {dest}")
-    names = ", ".join(p.name for p in found if p.name != SHARED)
+    shared = family().shared
+    names = ", ".join(p.name for p in found if p.name != shared)
     return out.ok(
-        f"exported {len(found)} file(s) to {target}: {names} (and {SHARED})",
+        f"exported {len(found)} file(s) to {target}: {names} (and {shared})",
         dir=str(target),
         files=[p.name for p in found],
     )
@@ -195,7 +232,8 @@ def export(target: pathlib.Path, force: bool, out: render.Renderer) -> int:
 def run_script(
     script: pathlib.Path, script_args: list[str], out: render.Renderer
 ) -> int:
-    """The carried copy, through bash -- the wheel keeps no exec bit -- in the
+    """The carried copy, through its family's shell -- bash, or pwsh -File;
+    the wheel keeps no exec bit, and Windows has none to keep -- in the
     user's cwd, on the terminal it was called from. `TDD_DIR` travels on, so the
     script's `--tdd-dir` defaults to the dir this tool runs from; `_TDD_TOOL`
     does not: it is tdd-exe's word to this process, and the sourced `tdd`
@@ -203,7 +241,7 @@ def run_script(
     else is one error event with the status, the launchers' way -- the script
     has already said what failed and where its own log is."""
     env = {k: v for k, v in os.environ.items() if k != "_TDD_TOOL"}
-    argv = ["bash", str(script), *script_args]
+    argv = [*family().runner, str(script), *script_args]
     out.debug(f"exec {' '.join(argv)}", script=str(script))
     try:
         done = proc.run(argv, env=env)
@@ -225,7 +263,8 @@ def configure(p: argparse.ArgumentParser) -> None:
         RUN,
         help="run one of the carried scripts, handing it every other argument",
         description=(
-            "Run the carried copy of smoke-NAME.sh. Everything on the line other "
+            "Run the carried copy of smoke-NAME (.sh under a POSIX shell, .ps1 "
+            "under PowerShell). Everything on the line other "
             "than --script is the script's, in order: `tdd smoke run --script eks "
             "--name NAME --kube-config FILE ...`, --profile NAME (the tdk "
             "connection, default sm_NAME) included. `--script NAME --help` shows "
@@ -238,7 +277,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         SCRIPT_OPTION,
         required=True,
         metavar="NAME",
-        help="which script: eks, aks, gke or km (smoke-NAME.sh; `tdd smoke list`)",
+        help="which script: eks, aks, gke or km (smoke-NAME; `tdd smoke list`)",
     )
     run_p.add_argument(
         "script_options",
@@ -266,7 +305,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         help="the smoke scripts this tool carries, what each is, and how to run it",
         description=(
             "List the packaged smoke scripts without writing anything. The stage "
-            "engine they share (_common.sh) is not a script to run and is not "
+            "engine they share (_common) is not a script to run and is not "
             "listed; export-scripts carries it along."
         ),
     )
@@ -282,16 +321,17 @@ def body(
     if args.action == "list":
         # the scripts a person can run; the engine they source is not one of
         # them, and the export is what carries it along
-        found = [p for p in scripts() if p.name != SHARED]
+        shared = family().shared
+        found = [p for p in scripts() if p.name != shared]
         width = max(len(p.name) for p in found)
         for script in found:
-            how = f"tdd smoke run --script {script.name[len(PREFIX) : -3]}"
+            how = f"tdd smoke run --script {_bare(script)}"
             out.info(f"{script.name:<{width}}  {summary(script)}   ({how})")
         return out.ok(
             f"{len(found)} script(s) at {scripts_dir()}",
             dir=str(scripts_dir()),
             scripts=script_names(),
-            engine=SHARED,
+            engine=shared,
         )
     return out.error("no action given (see --help)")
 

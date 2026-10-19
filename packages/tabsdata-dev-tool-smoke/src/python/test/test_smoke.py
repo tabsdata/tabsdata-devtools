@@ -19,6 +19,7 @@ from tabsdata_dev.tool import smoke
 def _engine(resource_folder, function: str, *args, **kwargs):
     """Run one function of the smoke engine, _common.sh, with these arguments
     passed through untouched (engine.sh)."""
+    import os
     import subprocess
 
     return subprocess.run(
@@ -31,6 +32,7 @@ def _engine(resource_folder, function: str, *args, **kwargs):
         ],
         capture_output=True,
         text=True,
+        env={**os.environ, "SMOKE_ENGINE": _smoke_engine()},
         **kwargs,
     )
 
@@ -218,12 +220,85 @@ def test_the_help_reads_long_form_first():
         assert "  --force, -f" in text and "  --help, -h" in text, path.name
 
 
+def test_the_powershell_family_runs_its_own_scripts(monkeypatch):
+    """A family is the shell the user is in: under PowerShell the tool lists,
+    resolves and runs the .ps1 scripts -- those written so far -- through
+    pwsh -File, and names its own choices for one it does not have."""
+    import argparse
+
+    import pytest
+
+    from tabsdata_dev.common.core.errors import ToolError
+
+    monkeypatch.setenv("_TDD_SHELL_FAMILY", "powershell")
+    names = [p.name for p in smoke.scripts()]
+    assert names[0] == "_common.ps1" and "smoke-km.ps1" in names, names
+    assert all(n.endswith(".ps1") for n in names), names
+    for spelling in ("km", "smoke-km", "smoke-km.ps1", "smoke-km.sh"):
+        assert smoke.resolve_script(spelling).name == "smoke-km.ps1", spelling
+    absent = sorted(
+        set(smoke.script_names(smoke.FAMILIES["unix"])) - set(smoke.script_names())
+    )
+    for name in absent:
+        with pytest.raises(ToolError, match="one of: "):
+            smoke.resolve_script(name)
+
+    calls = []
+
+    class Done:
+        returncode = 0
+
+    monkeypatch.setattr(
+        smoke.proc, "run", lambda argv, **_: calls.append(argv) or Done()
+    )
+    out = render.Renderer("smoke", fmt="json")
+    args = argparse.Namespace(action="run", script="km", script_options=[])
+    assert smoke.body(args, out, script_args=["--name", "x"]) == 0
+    assert calls[0][:3] == ["pwsh", "-NoProfile", "-File"]
+    assert calls[0][3].endswith("smoke-km.ps1") and calls[0][4:] == ["--name", "x"]
+
+
+def _help_options(text: str) -> list[str]:
+    """The options a script's help page lists, in order."""
+    import re
+
+    page = text.split("options:", 1)[1].split("\n\n", 1)[0]
+    return re.findall(r"^  (--[a-z-]+)", page, flags=re.M)
+
+
+def _stages(text: str) -> list[str]:
+    import re
+
+    return re.findall(
+        r"^\s*common_stage (?:--continue )?([a-z0-9-]+)", text, flags=re.M
+    )
+
+
+def test_every_powershell_script_is_its_bash_twin():
+    """The same command in both families: a .ps1 script has its .sh, takes the
+    same options and runs the same stages, in order."""
+    unix, powershell = smoke.FAMILIES["unix"], smoke.FAMILIES["powershell"]
+    for ps1 in smoke.scripts(powershell):
+        sh = ps1.with_suffix(unix.suffix)
+        assert sh.is_file(), ps1.name
+        if ps1.name == powershell.shared:
+            continue
+        ps1_text, sh_text = ps1.read_text(), sh.read_text()
+        assert _help_options(ps1_text) == _help_options(sh_text), ps1.name
+        assert _stages(ps1_text) == [
+            s for s in _stages(sh_text) if s != "llm-domain"
+        ], ps1.name
+
+
 def test_the_scripts_carry_no_inline_interpreter():
     """An algorithm is `tdd _smoke`'s, written once for both shell families: a
     python heredoc or a perl one-liner in a script is a copy the PowerShell
     twin would have to make again. perl was also a second interpreter for a
     script whose whole job is checking an install."""
-    for path in smoke.scripts():
+    for path in [
+        *smoke.scripts(smoke.FAMILIES["unix"]),
+        *smoke.scripts(smoke.FAMILIES["powershell"]),
+    ]:
         code = [
             ln
             for ln in path.read_text().splitlines()

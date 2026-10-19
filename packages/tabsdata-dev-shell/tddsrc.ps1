@@ -627,8 +627,19 @@ Remove-Variable -Name _tdd_scripts, _tdd_file -ErrorAction SilentlyContinue
 # ---------------------------------------------------------------- hello
 
 # Interactive sessions only: a script that dot-sources this wants the function,
-# not a greeting on its stdout.
-if ([Environment]::UserInteractive -and -not [Console]::IsOutputRedirected) {
+# not a greeting on its stdout. A console is interactive under `pwsh -File`
+# too, so what decides is who loaded this: the prompt (no calling script) or a
+# profile -- what POSIX shells mean by an interactive shell.
+$_tdd_caller = $MyInvocation.ScriptName
+$_tdd_profiles = @(
+    $PROFILE.AllUsersAllHosts,
+    $PROFILE.AllUsersCurrentHost,
+    $PROFILE.CurrentUserAllHosts,
+    $PROFILE.CurrentUserCurrentHost
+)
+$_tdd_greet = -not $_tdd_caller -or $_tdd_caller -in $_tdd_profiles
+Remove-Variable -Name _tdd_caller, _tdd_profiles -ErrorAction SilentlyContinue
+if ($_tdd_greet -and [Environment]::UserInteractive -and -not [Console]::IsOutputRedirected) {
     $_tdd_version = ''
     $_tdd_version_file = Join-Path $env:TDD_DIR 'VERSION'
     if (Test-Path -LiteralPath $_tdd_version_file) {
@@ -637,3 +648,4 @@ if ([Environment]::UserInteractive -and -not [Console]::IsOutputRedirected) {
     [Console]::Out.WriteLine("`ntdd $_tdd_version installed at $($env:TDD_DIR) -- tdd -h for help`n")
     Remove-Variable -Name _tdd_version, _tdd_version_file -ErrorAction SilentlyContinue
 }
+Remove-Variable -Name _tdd_greet -ErrorAction SilentlyContinue

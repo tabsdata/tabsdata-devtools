@@ -583,30 +583,23 @@ common_k8s_report() {
     echo "================ end kubernetes"
 }
 
-# The named indexes `--uv-index` takes in place of a URL. Here rather than in
-# each script, because the four have to mean the same thing by @dev -- and
-# because a CloudFront hostname is not something a reader can check by eye on a
-# command line, which is the whole point of having a name for it.
-COMMON_UV_INDEX_DEV="https://d3mm0r95u5i3hf.cloudfront.net/simple/"
-COMMON_UV_INDEX_PROD="https://pypi.tabsdata.com/simple/"
-
-# common_resolve_uv_index VALUE -- print the URL VALUE stands for: `@dev` and
-# `@prod` resolve, anything else passes through, and empty stays empty (no
-# index asked for). An unknown `@marker` is refused here rather than passed on:
-# uv would take it for a URL and fail several stages later, in a message about a
-# failed install that says nothing about the option that caused it.
+# common_resolve_uv_index VALUE -- print the URL VALUE stands for (`tdd _smoke
+# uv-index`, where the named ones live, so every script means the same by @dev):
+# `@dev` and `@prod` resolve, anything else passes through, and empty stays
+# empty (no index asked for). An unknown `@marker` is refused here rather than
+# passed on: uv would take it for a URL and fail several stages later, in a
+# message about a failed install that says nothing about the option that caused
+# it.
 common_resolve_uv_index() {
-    case "$1" in
-        @dev) printf '%s' "$COMMON_UV_INDEX_DEV" ;;
-        @prod) printf '%s' "$COMMON_UV_INDEX_PROD" ;;
-        @*)
-            # `.sh` stripped: this stands beside the scripts' own option
-            # errors, which name themselves without it.
-            echo "$(basename "$0" .sh): unknown --uv-index marker: $1 (@dev, @prod, or a URL)" >&2
-            return 1
-            ;;
-        *) printf '%s' "$1" ;;
-    esac
+    local url
+    url="$(tdd _smoke uv-index --value "$1")" || return 1
+    if [ -n "$1" ] && [ -z "$url" ]; then
+        # `.sh` stripped: this stands beside the scripts' own option
+        # errors, which name themselves without it.
+        echo "$(basename "$0" .sh): unknown --uv-index marker: $1 (@dev, @prod, or a URL)" >&2
+        return 1
+    fi
+    printf '%s' "$url"
 }
 
 # common_fill_placeholder FILE... -- PLACEHOLDER VALUE -- replace every literal

@@ -34,10 +34,18 @@ tdd smoke export-scripts --dir DIR [--force]    copy them there, chmod 755
 tdd smoke list                                  the four scripts, what each is, how to run it
 ```
 
-- `scripts/` inside the package: `_common.sh` and `smoke-{km,eks,gke,aks}.sh`. `_common.sh` is not
-  a test but the shared stage engine every one of them sources, so it is always exported with
-  them — four scripts without it do not run. `list` does not show it: it lists what a person can
-  run, and the engine is not that.
+- `scripts/` inside the package, once per shell family: `_common.sh` and
+  `smoke-{km,eks,gke,aks}.sh` for a POSIX shell, `_common.ps1` and `smoke-km.ps1` (so far) for
+  PowerShell 7 -- a family is the shell the user is in, read as every tool reads it
+  (`proc.shell_family`). `list`, `run` and `export-scripts` see the caller's family only. The
+  `_common` of a family is not a test but the stage engine every script of it sources, so it is
+  always exported with them -- scripts without it do not run. `list` does not show it: it lists
+  what a person can run, and the engine is not that.
+- A `.ps1` script is its `.sh` twin: the same options and the same stages, in order (a test holds
+  them to it). Where PowerShell differs is the engine's to absorb (see `_common.ps1`'s header):
+  no `exec >>LOG`, a status that travels in `$LASTEXITCODE`, no stdin through the `tdd` function,
+  and a bare `--` eaten by parameter binding. `smoke-km.ps1` refuses `--llm-domain` for now:
+  `tdd domain info --format export` writes sh lines only.
 - The wheel does not carry a file mode, so the export sets 755: a smoke script that cannot be
   executed is the first thing a person would otherwise fix by hand.
 - Overwriting is refused without `--force`. The reason to export is to edit, so silently replacing
@@ -105,12 +113,14 @@ line. `-h`/`--help` is the tool's until the script is named — `tdd smoke run -
 action's page — and the script's after it: `tdd smoke run --script eks --help` is the script's own.
 A `--` opening the script's part is dropped; the scripts' parsers would refuse it.
 
-The script runs through `bash` — the wheel keeps no exec bit — in the user's cwd, on the terminal it
+The script runs through its family's shell -- `bash`, or `pwsh -NoProfile -File` -- since the
+wheel keeps no exec bit and Windows has none to keep, in the user's cwd, on the terminal it
 was called from, so its screen, its rolling window and its colours are its own. `TDD_DIR` travels
 on, so the script's `--tdd-dir` defaults to the dir the tool runs from; `_TDD_TOOL` is dropped,
 since the sourced `tdd` function warns about a shell that carries one. Exit 0 stays 0 and anything
 else is one error event with the status, as the launchers do; the script has already said what
-failed and named its log. `bash` is the tool's one `bin-req`. What a script needs of its own —
+failed and named its log. That shell is the tool's one required `bin-req`, per family
+(`kubectl` and a previous run's `tdkserver` are optional ones `_smoke` runs). What a script needs of its own —
 `kubectl`, `python3`, `uv`, a venv manager — is the script's to check, as it does in its first
 stages; declaring them here would refuse an export on a machine that only wants the files.
 
@@ -122,9 +132,10 @@ stages; declaring them here would refuse an export on a machine that only wants 
 There is no sane default for which cluster to reach, so those are required and `common_help` paints
 `--uv-index` takes `@dev` (`https://d3mm0r95u5i3hf.cloudfront.net/simple/`) and `@prod`
 (`https://pypi.tabsdata.com/simple/`) as well as a URL, resolved once by
-`common_resolve_uv_index` right after parsing so the banner, the `uv pip install`, the
-`tabsdata.yaml` and tdkserver all see the URL and never the marker. The two URLs live in
-`_common.sh`, because the four scripts have to mean the same thing by `@dev`. An unknown
+`common_resolve_uv_index` as soon as tdd is loaded, before the banner, so the banner, the `uv
+pip install`, the `tabsdata.yaml` and tdkserver all see the URL and never the marker. The two
+URLs live in `tdd _smoke uv-index` (`indexes.py`), because every script, in either family, has
+to mean the same thing by `@dev`. An unknown
 `@marker` is refused there and then: passed on, uv would read it as a URL and fail several
 stages later, in a message about a failed install that says nothing about the option behind it.
 

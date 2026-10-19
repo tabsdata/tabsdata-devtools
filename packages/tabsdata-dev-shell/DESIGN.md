@@ -55,7 +55,9 @@ tdd dir, always, because which shell someone will open is not the installer's to
   zsh both work; summaries may not contain `|`. Sourcing never fails and checks nothing; in an
   interactive shell it ends with `tdd <version> installed at <dir> -- tdd -h for help`, a blank
   line either side (silent otherwise:
-  scp/rsync over ssh read the rc too).
+  scp/rsync over ssh read the rc too). PowerShell has no `$-`, and its console is interactive
+  under `pwsh -File` too, so `tdd-source.ps1` greets only when loaded at the prompt or from a
+  profile: a script that dot-sources it gets the functions and no greeting.
 - The `tdd` function routes: registry hit -> `tdd-fn` (checks the command's bin-reqs first,
   `--help` excepted), else `tdd-exe` through a wrapper that keeps that env off `PATH`. It applies
   `<tdd_dir>/<command>.toml` via `tdd-exe --defaults`, warns off and unsets a `_TDD_TOOL` found in the shell,

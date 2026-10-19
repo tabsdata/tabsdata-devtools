@@ -6,6 +6,13 @@
 #
 #   engine.sh ENGINE FUNCTION [ARG...]
 
+# `tdd _smoke` is the toolset's own `_smoke` program, $SMOKE_ENGINE.
+tdd() {
+    [ "$1" = _smoke ] || return 127
+    shift
+    "$SMOKE_ENGINE" "$@"
+}
+
 engine=$1
 shift
 function=$1

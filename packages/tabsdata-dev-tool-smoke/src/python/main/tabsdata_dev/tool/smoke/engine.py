@@ -24,7 +24,7 @@ import sys
 
 from tabsdata_dev.common.core import cli, errors, render
 
-from . import configs, display, forward, instances, screen, status
+from . import configs, display, forward, indexes, instances, screen, status
 
 DESCRIPTION = (
     "plumbing of the smoke scripts: the config edits, masking and status "
@@ -176,6 +176,18 @@ def configure(p: argparse.ArgumentParser) -> None:
     page.add_argument(
         "--required", default="", help="the required options, space separated"
     )
+    page.add_argument(
+        "--tty",
+        action="store_true",
+        help="paint as for a terminal: the caller knows, and stdout is its pipe",
+    )
+
+    index = sub.add_parser(
+        "uv-index",
+        help="the URL a --uv-index value stands for: @dev, @prod, a URL; "
+        "nothing for an unknown @marker",
+    )
+    index.add_argument("--value", required=True)
 
 
 def _forward_options(p: argparse.ArgumentParser) -> None:
@@ -294,7 +306,11 @@ def body(args: argparse.Namespace, out: render.Renderer) -> int:
     if args.action == "paint-help":
         text = sys.stdin.read().removesuffix("\n")
         required = set(args.required.split())
-        return out.ok(screen.paint_help(text, required, sys.stdout.isatty()))
+        tty = args.tty or sys.stdout.isatty()
+        return out.ok(screen.paint_help(text, required, tty))
+    if args.action == "uv-index":
+        url = indexes.resolve(args.value)
+        return out.ok(url or "", known=url is not None)
     return out.error("no action given (see --help)")
 
 

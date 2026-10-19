@@ -90,7 +90,7 @@ def _declared() -> frozenset[str]:
     entry = json.loads(catalog.read_text(encoding="utf-8"))["tools"].get(tool, {})
     # Required and optional alike: an optional binary is declared, so allowed;
     # whether it is installed is the caller's to check where it uses it.
-    family = _shell_family()
+    family = shell_family()
     return frozenset(
         binary
         for key in ("required", "optional")
@@ -98,7 +98,7 @@ def _declared() -> frozenset[str]:
     )
 
 
-def _shell_family() -> str:
+def shell_family() -> str:
     """The twin of `tabsdata_dev.tdd.reqs.shell_family`, which common-core
     cannot import: the family the loader exported, else the platform's own."""
     return os.environ.get("_TDD_SHELL_FAMILY", "").strip() or _default_family()
