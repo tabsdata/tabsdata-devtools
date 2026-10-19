@@ -1,0 +1,15 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+
+[project]
+name = "tabsdata-dev-tool-a"
+description = "the a tool"
+dependencies = ["tabsdata-dev-deps-d"]
+
+[project.scripts]
+_a = "m.plumbing:main"
+a = "m:main"
+
+[tool.tdd.summaries]
+_a = "plumbing of a"

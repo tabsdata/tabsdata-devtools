@@ -322,89 +322,6 @@ common_on_stage_failed() {
     common_k8s_report "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"
 }
 
-# fill_storage FILE -- the per-mount ${{secret}} of apiserver.storage.yaml: the
-# uri under the gcs domain's URI, and the bucket credentials on every mount.
-#
-# Which credential keys a GCS mount asks for is tabsdata's to decide, and there
-# are two ways to reach a bucket: natively with the service-account key, or over
-# the S3 protocol with the interop HMAC pair (which is why the gcs system carries
-# both). Rather than assume one, fill whichever keys the generated file actually
-# has, and report the ones met. A key neither branch knows is left alone --
-# common_placeholders_left then fails the stage naming it, which is a one-line
-# fix here rather than a broken instance.
-#
-# Values travel in the environment (they are credentials); python because
-# awk/sed would fight the &/\ a service-account key may hold.
-fill_storage() {
-    ST_FILE="$1" python3 - <<'PYEOF'
-import json, os, re
-
-path = os.environ["ST_FILE"]
-uri = os.environ["STORD__URI"].rstrip("/")
-sub = {"ROOT": f"{uri}/data/", "BUNDLES": f"{uri}/bundles/", "IMAGES": f"{uri}/images/"}
-
-# the service-account key is inline JSON or a path to it (see the gcs backend)
-sa = os.environ.get("STORD__SERVICE_ACCOUNT_KEY", "")
-if sa and not sa.lstrip().startswith("{"):
-    with open(os.path.expanduser(sa), encoding="utf-8") as fh:
-        sa = fh.read()
-sa = sa.strip()
-
-fixed = {
-    # native GCS, whichever spelling the config uses
-    "google_service_account_key": sa,
-    "gcp_service_account_key": sa,
-    "service_account_key": sa,
-    "google_service_account": sa,
-    # GCS over the S3 protocol: the interop HMAC pair against Google's endpoint
-    "aws_access_key_id": os.environ.get("STORD__HMAC_ACCESS_KEY", ""),
-    "aws_secret_access_key": os.environ.get("STORD__HMAC_SECRET_KEY", ""),
-    "aws_endpoint": "https://storage.googleapis.com",
-    "aws_endpoint_url": "https://storage.googleapis.com",
-    "aws_region": "auto",
-}
-
-
-def scalar(value):
-    """VALUE as a YAML double-quoted scalar. JSON's string escaping is a subset
-    of YAML's, so json.dumps produces exactly one, and it round-trips to the
-    same string. Left bare, a value that happens to be JSON -- the service
-    account key is -- reads back as a flow MAPPING, and tdkserver compares the
-    filled file's shape against the template's scalar placeholder and refuses
-    the whole config (ResolverError::StructureMismatch). Everything goes through
-    it, so no value can change the file's shape."""
-    return json.dumps(value)
-
-
-out, mount, filled, unknown, empty = [], None, [], [], []
-for line in open(path, encoding="utf-8"):
-    m = re.match(r"\s*- id: (\w+)", line)
-    if m:
-        mount = m.group(1)
-    if "${{secret}}" in line:
-        key = line.split(":", 1)[0].strip()
-        if key == "uri" and mount in sub:
-            line = line.replace("${{secret}}", scalar(sub[mount]))
-            filled.append(f"{mount}.uri")
-        elif key in fixed:
-            if fixed[key]:
-                line = line.replace("${{secret}}", scalar(fixed[key]))
-                filled.append(key)
-            else:
-                empty.append(key)
-        else:
-            unknown.append(key)
-    out.append(line)
-open(path, "w", encoding="utf-8").write("".join(out))
-
-print("filled:", ", ".join(sorted(set(filled))) or "(nothing)")
-if empty:
-    print("no value for:", ", ".join(sorted(set(empty))), "-- the gcs system has none set")
-if unknown:
-    print("not filled (unknown to fill_storage):", ", ".join(sorted(set(unknown))))
-PYEOF
-}
-
 common_screen "smoke-gke: effective options"
 common_screen "  --name              $NAME   -> instance and venv $BASE, namespace $NAMESPACE, domains ${BASE}__<what>"
 common_screen "  --venv-type         $VENV_TYPE"
@@ -578,18 +495,18 @@ common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_password
 common_note "database TLS: $DB__SSLMODE with the instance's own CA, from $DB_DOMAIN"
 common_fill_pem "$CONFIGS/dbmanager.database.yaml" -- '${{secret:tdk_database_ssl_root_cert_pem}}' "$DB__SERVER_CA_CERT_PEM"
 common_note "storage: the ROOT/BUNDLES/IMAGES mounts under ${STORD__URI%/}/ with the gcs system's credentials"
-common_run fill_storage "$CONFIGS/apiserver.storage.yaml"
+common_run tdd _smoke fill-storage --file "$CONFIGS/apiserver.storage.yaml" --cloud gcp
 if [ -n "$LLM_SYSTEM" ]; then
     common_note "aiagent: the $LLM_SYSTEM key from $LLM_DOMAIN"
     common_fill_placeholder "$CONFIGS/aiagent.yaml" -- "\${{secret:$LLM_SYSTEM-key?}}" "$LLM__API_KEY"
 fi
 if [ -n "$UV_INDEX_URI" ]; then
     common_note "tabsdata.yaml: UV_INDEX -> $(common_display "$UV_INDEX_URI")"
-    common_set_uv_index "$CONFIGS/tabsdata.yaml" "$UV_INDEX_URI"
+    common_run tdd _smoke set-uv-index --file "$CONFIGS/tabsdata.yaml" --uri "$UV_INDEX_URI"
 fi
 common_note "tabsdata.yaml: function pods memory $FN_MEMORY, disk $FN_DISK (pods.function.resources)"
-common_run common_set_fn_resources "$CONFIGS/tabsdata.yaml" "$FN_MEMORY" "$FN_DISK"
-common_run common_placeholders_left "$CONFIGS"
+common_run tdd _smoke set-fn-resources --file "$CONFIGS/tabsdata.yaml" --memory "$FN_MEMORY" --disk "$FN_DISK"
+common_run tdd _smoke placeholders-left --dir "$CONFIGS"
 common_run tdd tdkserver config check --instance "$INSTANCE" --init --accept-terms y
 
 common_stage create "tdkserver create (upload the config), then delete the plaintext input folder"

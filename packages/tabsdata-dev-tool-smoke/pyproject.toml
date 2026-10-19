@@ -12,8 +12,15 @@ dependencies = [
     "tabsdata-dev-deps-launchers",
 ]
 
+# `_smoke`: the Python half of the scripts' shared engine -- what both
+# families of it would otherwise write twice. The leading underscore makes it
+# plumbing, left out of `tdd help` (listed by `tdd -x`).
 [project.scripts]
+_smoke = "tabsdata_dev.tool.smoke.engine:main"
 smoke = "tabsdata_dev.tool.smoke:main"
+
+[tool.tdd.summaries]
+_smoke = "plumbing of the smoke scripts: the config edits and the parsing both shell families of their engine share"
 
 [tool.hatch.version]
 path = "../../VERSION"

@@ -39,16 +39,18 @@
 #   common_help REQUIRED                  paint a help page from stdin; REQUIRED options in red
 #   common_fill_placeholder FILE... -- PLACEHOLDER VALUE
 #                                         replace a `${{kind:name}}` placeholder in config files
-#   common_set_fn_resources FILE MEMORY DISK
-#                                         size the function pods in a tabsdata.yaml, and only them
 #   common_fill_pem FILE... -- PLACEHOLDER VALUE
 #                                         the same for a multi-line PEM: a YAML block scalar
-#   common_placeholders_left DIR          fail while a required placeholder remains in DIR/*.yaml
-#   common_xp_expand_all                  --xp-suites ALL -> every suite dir, in SUITE_LIST and
+#   common_xp_expand_all                 --xp-suites ALL -> every suite dir, in SUITE_LIST and
 #                                         STAGE_NAMES; once tdd is loaded, before the first stage
 #                                         `tdkserver status` must agree with the expected state
 #   common_tabsdata_setup_info common_screen|common_note
 #                                         the instance (running?), the venv, how to use/stop/remove them
+#
+# Whatever is an algorithm rather than stage keeping is `tdd _smoke`, written
+# once for both families: the config edits (set-uv-index, set-fn-resources,
+# fill-placeholder, fill-pem, fill-storage, placeholders-left) are called by the
+# scripts as stage commands, `common_run tdd _smoke ...`.
 #
 # The script declares STAGE_NAMES (in order) before the first `common_stage`.
 # `common_on_stage_failed` is called after a failed stage's recap, before the report,
@@ -827,165 +829,25 @@ common_resolve_uv_index() {
     esac
 }
 
-# common_set_uv_index FILE URI -- point a tabsdata.yaml's UV_INDEX at URI. The
-# replacement is a function rather than a template, so nothing in the URI is
-# ever read as a backreference, and the line keeps its own indentation.
-common_set_uv_index() {
-    TDD_UV_INDEX="$2" python3 - "$1" <<'PYEOF'
-import os, re, sys
-
-path, uri = sys.argv[1], os.environ["TDD_UV_INDEX"]
-with open(path, encoding="utf-8") as fh:
-    text = fh.read()
-with open(path, "w", encoding="utf-8") as fh:
-    fh.write(re.sub(r"(?m)^(\s*UV_INDEX:).*$", lambda m: f"{m.group(1)} {uri}", text))
-PYEOF
-}
-
-# common_set_fn_resources FILE MEMORY DISK -- size the FUNCTION pods in a
-# tabsdata.yaml: the memory: and disk: under pods.function.resources, and only
-# those. The file carries a resources block per service as well, so the block is
-# found by structure -- the `function:` key, its `resources:` one level in, the
-# two lines one level further -- and each value is rewritten on its own line
-# with the indentation kept, so tdkserver's shape check against the template
-# (StructureMismatch) sees the template's shape. Fails unless exactly one memory
-# and one disk line were rewritten: a config that only looks sized is the
-# failure to catch here, at configure, not at the first function pod that will
-# not schedule. A stage command: call it through common_run.
-common_set_fn_resources() {
-    TDD_FN_MEMORY="$2" TDD_FN_DISK="$3" python3 - "$1" <<'PYEOF'
-import os, re, sys
-
-path = sys.argv[1]
-want = {"memory": os.environ["TDD_FN_MEMORY"], "disk": os.environ["TDD_FN_DISK"]}
-with open(path, encoding="utf-8") as fh:
-    lines = fh.read().splitlines(keepends=True)
-
-
-def indent(line):
-    return len(line) - len(line.lstrip(" "))
-
-
-def inside(i, depth):
-    # still within the block opened at `depth`: deeper, or blank
-    return i < len(lines) and (not lines[i].strip() or indent(lines[i]) > depth)
-
-
-done = {}
-i = 0
-while i < len(lines):
-    fn = re.match(r"^(\s*)function:\s*$", lines[i])
-    if not fn:
-        i += 1
-        continue
-    fn_depth = len(fn.group(1))
-    i += 1
-    while inside(i, fn_depth):
-        res = re.match(r"^(\s*)resources:\s*$", lines[i])
-        if not res:
-            i += 1
-            continue
-        res_depth = len(res.group(1))
-        i += 1
-        while inside(i, res_depth):
-            key = re.match(r"^(\s*)(memory|disk):.*$", lines[i])
-            if key:
-                lines[i] = f"{key.group(1)}{key.group(2)}: {want[key.group(2)]}\n"
-                done[key.group(2)] = done.get(key.group(2), 0) + 1
-            i += 1
-if done != {"memory": 1, "disk": 1}:
-    sys.stderr.write(
-        f"{path}: expected one memory and one disk line under function.resources, rewrote {done or 'none'}\n"
-    )
-    sys.exit(1)
-with open(path, "w", encoding="utf-8") as fh:
-    fh.write("".join(lines))
-print(f"function pods: memory {want['memory']}, disk {want['disk']}")
-PYEOF
-}
-
 # common_fill_placeholder FILE... -- PLACEHOLDER VALUE -- replace every literal
 # occurrence of PLACEHOLDER (`${{literal:tdk_database_host}}`, `${{secret}}`,
-# ...) in the files with VALUE.
-#
-# A literal replace on both sides: the placeholder holds `${{`, `?` and `:`, and
-# the value can be a password, a PEM or JSON, so neither may be read as a
-# pattern or as a backreference. The value travels in the environment, never on
-# a command line. python3 rather than sed (which would interpret both sides) or
-# perl (which would not, but is a second interpreter for what these scripts
-# already do in python -- see common_fill_pem and each script's fill_storage).
+# ...) in the files with VALUE, as a stage command (`tdd _smoke
+# fill-placeholder`). The value travels in the environment, never on a command
+# line: it can be a password.
 common_fill_placeholder() {
     local files=()
     while [ $# -gt 0 ] && [ "$1" != "--" ]; do files[${#files[@]}]="$1"; shift; done
     shift
-    PH="$1" VAL="$2" python3 - "${files[@]}" <<'PYEOF'
-import os, sys
-
-ph, val = os.environ["PH"], os.environ["VAL"]
-for path in sys.argv[1:]:
-    with open(path, encoding="utf-8") as fh:
-        text = fh.read()
-    if ph in text:
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(text.replace(ph, val))
-PYEOF
+    _TDD_SMOKE_VALUE="$2" common_run tdd _smoke fill-placeholder --placeholder "$1" "${files[@]}"
 }
 
-# common_fill_pem FILE... -- PLACEHOLDER VALUE -- replace a whole `key: PLACEHOLDER`
-# line with a YAML block scalar holding VALUE. What a multi-line certificate needs:
-# substituted inline the way common_fill_placeholder does it, a PEM's newlines
-# would continue the plain scalar and YAML would fold them into spaces -- the file
-# still parses, and then no certificate ever loads. The block is indented two past
-# the key's own indent, so it works wherever the key sits. Refuses an empty value
-# or a placeholder that is not there: both leave a config that only looks filled.
+# common_fill_pem FILE... -- PLACEHOLDER VALUE -- the same for a multi-line PEM,
+# written as a YAML block scalar (`tdd _smoke fill-pem`).
 common_fill_pem() {
     local files=()
     while [ $# -gt 0 ] && [ "$1" != "--" ]; do files[${#files[@]}]="$1"; shift; done
     shift
-    PH="$1" VAL="$2" python3 - "${files[@]}" <<'PEMEOF'
-import os, sys
-
-ph, val = os.environ["PH"], os.environ["VAL"].strip()
-if not val:
-    sys.exit(f"nothing to fill {ph} with: the value is empty")
-hits = 0
-for path in sys.argv[1:]:
-    with open(path, encoding="utf-8") as fh:
-        lines = fh.readlines()
-    out = []
-    for line in lines:
-        if ph not in line:
-            out.append(line)
-            continue
-        hits += 1
-        key = line.split(":", 1)[0]
-        pad = " " * (len(key) - len(key.lstrip()) + 2)
-        out.append(f"{key}: |\n")
-        out.extend(f"{pad}{one}\n" for one in val.splitlines())
-    if out != lines:
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write("".join(out))
-if not hits:
-    sys.exit(f"{ph} is not in any of: {' '.join(sys.argv[1:])}")
-print(f"filled {ph} with {len(val.splitlines())} lines of PEM")
-PEMEOF
-}
-
-# common_placeholders_left DIR -- fail, listing them, while a REQUIRED
-# placeholder remains in DIR/*.yaml: `${{literal:..}}` or `${{secret:..}}` /
-# `${{secret}}` without the optional `?`. `system:` and `secretAuto:` are
-# tabsdata's to fill; `?` ones may stay. Meant for `common_run`.
-common_placeholders_left() {
-    local left
-    # unfilled placeholder lines hold no values, so they are shown as they are
-    left="$(grep -nE '\$\{\{(literal|secret)(:[^}?]*)?\}\}' "$1"/*.yaml 2>/dev/null)"
-    if [ -n "$left" ]; then
-        echo "required placeholders still to fill:"
-        printf '%s\n' "$left" | sed 's/^/  /'
-        return 1
-    fi
-    echo "no required placeholder left in $1"
-    return 0
+    _TDD_SMOKE_VALUE="$2" common_run tdd _smoke fill-pem --placeholder "$1" "${files[@]}"
 }
 
 # common_xp_expand_all -- `--xp-suites ALL` becomes the suite dirs `tdd xp
@@ -1001,13 +863,7 @@ common_xp_expand_all() {
     [ "${#SUITE_LIST[@]}" -eq 1 ] || return 0
     all="${SUITE_LIST[0]}"
     [ "$(printf '%s' "$all" | tr '[:lower:]' '[:upper:]')" = ALL ] || return 0
-    dirs="$(tdd xp list-suites --format json | python3 -c '
-import json, sys
-for line in sys.stdin:
-    event = json.loads(line)
-    if event.get("event") == "ok":
-        print("\n".join(event.get("dirs", [])))
-')"
+    dirs="$(tdd xp list-suites --format json | tdd _smoke event-field --field dirs)"
     if [ -z "$dirs" ]; then
         common_screen "${RED}$(basename "$0"): --xp-suites $all: tdd xp list-suites named no suite dir${RESET}"
         exit 1

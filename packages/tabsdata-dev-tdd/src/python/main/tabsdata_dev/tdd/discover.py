@@ -284,6 +284,16 @@ def discover(root: pathlib.Path) -> dict:
 
         reqs, optional = tool_bin_reqs(pyproject.parent)
 
+        # A package with several entry points shares one description; `[tool.tdd
+        # .summaries]` gives one of them its own (smoke's `_smoke` plumbing).
+        summaries = tdd_cfg.get("summaries", {})
+        strays = sorted(set(summaries) - set(scripts))
+        if strays:
+            raise LayoutError(
+                f"{dist}: [tool.tdd.summaries] names no entry point of it: "
+                f"{', '.join(strays)}"
+            )
+
         for command in scripts:
             if command in paths.RESERVED:
                 raise LayoutError(
@@ -305,7 +315,7 @@ def discover(root: pathlib.Path) -> dict:
             tools[command] = {
                 "toolset": toolset,
                 "package": dist,
-                "summary": data.get("description", ""),
+                "summary": summaries.get(command, data.get("description", "")),
                 "required": reqs,
                 "optional": optional,
                 "launcher": launcher,

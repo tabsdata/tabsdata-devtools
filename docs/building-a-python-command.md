@@ -178,7 +178,9 @@ commit them, never edit them). While iterating, `tdd _tdd-env activate --toolset
 toolset's `bin/` on `PATH` so `audit` runs without `tdd`. `[tool.tdd] hidden = true` hides
 plumbing another tool dispatches to from `tdd help` -- as does a name starting with `_`, the
 convention for plumbing (`tdd -x` lists them all); `disabled = true` comments the tool out
-(the generator treats the package as absent; the code and tests stay). Reuse before
+(the generator treats the package as absent; the code and tests stay). A package with two
+entry points (smoke and its `_smoke` plumbing) shares one description; `[tool.tdd.summaries]`
+gives one of them its own (`_smoke = "..."`). Reuse before
 writing: `common.core` has `batch`, `ports`, `passwords`, `docker`, `ssh`, `secrets`,
 `datadir.data_dir()`, `latch`, `managedvenv` + `launcher`; family code goes in a
 `common-<family>`.

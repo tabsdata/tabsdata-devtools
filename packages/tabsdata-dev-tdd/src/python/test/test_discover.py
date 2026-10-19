@@ -70,6 +70,27 @@ def test_a_disabled_tool_is_skipped_whole(tmp_path):
     assert found["toolsets"] == {"d": ["tabsdata-dev-tool-a"]}
 
 
+def test_an_entry_point_may_have_a_summary_of_its_own(tmp_path, resource_folder):
+    """A package with two entry points shares one description -- smoke and its
+    `_smoke` plumbing -- so `[tool.tdd.summaries]` gives one its own, and a
+    summary for an entry point the package does not declare is a typo."""
+    import shutil
+
+    import pytest
+
+    shutil.copytree(resource_folder / "summaries", tmp_path, dirs_exist_ok=True)
+    tools = discover.discover(tmp_path)["tools"]
+    assert tools["a"]["summary"] == "the a tool"
+    assert tools["_a"]["summary"] == "plumbing of a"
+
+    pyproject = tmp_path / "packages" / "tabsdata-dev-tool-a" / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text().replace('_a = "plumbing', '_b = "plumbing')
+    )
+    with pytest.raises(discover.LayoutError, match="names no entry point of it: _b"):
+        discover.discover(tmp_path)
+
+
 def test_shell_commands_and_their_reqs_reach_the_catalog():
     """Requirements are per family, because the shared layers differ: common.sh
     builds its JSON with jq and lays out its help with awk, and common.ps1 needs

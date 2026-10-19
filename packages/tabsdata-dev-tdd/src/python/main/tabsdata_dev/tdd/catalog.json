@@ -1,5 +1,5 @@
 {
-  "fingerprint": "b10de82fdbd17166",
+  "fingerprint": "200dbf573f00b2bc",
   "interpreter": "3.12.13",
   "members": {
     "launchers": [
@@ -133,6 +133,28 @@
       "package": "tabsdata-dev-tool-1p",
       "required": [],
       "summary": "fetches the crypto key and secrets from 1Password (for tdd env) and pushes items to it",
+      "toolset": "launchers"
+    },
+    "_smoke": {
+      "commons": [
+        "tabsdata-dev-common-core"
+      ],
+      "hidden": false,
+      "launcher": false,
+      "optional": {
+        "powershell": [],
+        "unix": []
+      },
+      "package": "tabsdata-dev-tool-smoke",
+      "required": {
+        "powershell": [
+          "pwsh"
+        ],
+        "unix": [
+          "bash"
+        ]
+      },
+      "summary": "plumbing of the smoke scripts: the config edits and the parsing both shell families of their engine share",
       "toolset": "launchers"
     },
     "_venv": {

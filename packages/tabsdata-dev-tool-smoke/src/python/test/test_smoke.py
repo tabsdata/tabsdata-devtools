@@ -132,55 +132,25 @@ def test_every_cluster_smoke_requires_the_options_it_cannot_guess():
         assert 'common_help "$REQUIRED_OPTIONS"' in text, path.name
 
 
-def test_common_fill_pem_writes_a_yaml_block_scalar(tmp_path, resource_folder):
-    """A certificate is many lines, and common_fill_placeholder substitutes text.
-    Dropped in raw, a PEM's newlines continue the plain scalar and YAML folds them
-    into spaces: the file still parses, and then no certificate ever loads. So the
-    whole `key: ${{...}}` line becomes a block scalar indented past its key."""
-    import shutil
-
-    pem = (resource_folder / "certificate.pem").read_text()
-    placeholder = "${{secret:ca}}"
-
-    def fill(ph: str, value: str):
-        cfg = tmp_path / "db.yaml"
-        shutil.copy(resource_folder / "pem.yaml", cfg)
-        done = _engine(resource_folder, "common_fill_pem", cfg, "--", ph, value)
-        return done, cfg.read_text()
-
-    done, written = fill(placeholder, pem)
-    assert done.returncode == 0, done.stderr
-    assert written == (resource_folder / "pem.expected.yaml").read_text()
-    # a config that only looks filled is the failure worth catching early, so
-    # neither an empty value nor an absent placeholder passes quietly
-    assert fill(placeholder, "")[0].returncode != 0
-    assert fill("${{secret:nope}}", pem)[0].returncode != 0
-
-
-def test_fill_storage_substitutes_yaml_scalars_in_every_cluster_smoke():
-    """tdkserver compares the filled config's shape against its template's and
-    refuses a value whose shape changed (ResolverError::StructureMismatch). The
-    GCS service-account key is itself JSON, so dropped in bare it reads back as a
-    flow MAPPING where the template holds a scalar -- a run reached `create`
-    before failing on it. Every value goes in as a YAML double-quoted scalar.
-
-    Every cluster script, found the way the context test finds them, rather than
-    a list of names here: the trap is the storage fill's, so a new cloud's script
-    inherits it the day it is written and not the day someone remembers this."""
-    scripts = smoke.scripts_dir()
+def test_every_cluster_smoke_fills_its_storage_as_its_own_cloud():
+    """One fill for the three clouds (`tdd _smoke fill-storage`, its scalars
+    pinned in test_configs), each script naming its own: the map is what knows
+    a cloud's option keys. Every cluster script, found the way the context test
+    finds them, so a new cloud's script is held to it the day it is written."""
+    clouds = {"eks": "aws", "gke": "gcp", "aks": "azure"}
     cluster = [
-        p for p in sorted(scripts.glob("smoke-*.sh")) if "KUBECTL=(" in p.read_text()
+        p
+        for p in sorted(smoke.scripts_dir().glob("smoke-*.sh"))
+        if "KUBECTL=(" in p.read_text()
     ]
     assert cluster, "no kubectl-using smoke scripts found"
-    marker = 'line.replace("${{secret}}", '
     for path in cluster:
-        text = path.read_text()
-        assert "def scalar(value):" in text, path.name
-        assert "import json" in text, path.name
-        pieces = text.split(marker)
-        assert len(pieces) > 1, path.name
-        for tail in pieces[1:]:
-            assert tail.startswith("scalar("), (path.name, tail[:40])
+        cloud = clouds[path.stem.split("-")[1]]
+        call = (
+            'common_run tdd _smoke fill-storage --file "$CONFIGS/apiserver.storage.yaml"'
+            f" --cloud {cloud}"
+        )
+        assert call in path.read_text(), path.name
 
 
 def test_every_cluster_smoke_collects_the_cluster_s_account_of_a_failure():
@@ -222,7 +192,7 @@ def test_the_gke_smoke_fills_the_database_ca_before_checking_placeholders():
         )
 
     assert "tdk_database_ssl_root_cert_pem" in "\n".join(lines)
-    assert called("common_fill_pem") < called("common_placeholders_left")
+    assert called("common_fill_pem") < called("tdd _smoke placeholders-left")
 
 
 def test_the_help_reads_long_form_first_and_paints_only_terms():
@@ -252,42 +222,19 @@ def test_the_help_reads_long_form_first_and_paints_only_terms():
     assert "{ print painted($0) }" in program, "the awk program is cut short"
 
 
-def test_substitution_is_literal_on_both_sides_and_uses_no_perl(
-    tmp_path,
-    resource_folder,
-):
-    """The placeholder holds `${{`, `?` and `:`; the value can be a password, a
-    PEM or JSON. Neither may be read as a pattern or as a backreference, which is
-    what ruled sed out. perl did that correctly and is still gone: these scripts
-    already run python3 for the other two fills, so it was a second interpreter
-    buying nothing -- one more thing to have installed, for a script whose whole
-    job is checking an install."""
-    import shutil
-
-    engine = smoke.scripts_dir() / "_common.sh"
-    cfg = tmp_path / "a.yaml"
-    shutil.copy(resource_folder / "placeholders.yaml", cfg)
-    nasty = r"p&ss\1\\word$1/x{}[]*.^"
-    for function, *args in (
-        ("common_fill_placeholder", cfg, "--", "${{secret:pw?}}", nasty),
-        ("common_fill_placeholder", cfg, "--", "${{literal:host}}", "10.0.0.1"),
-        ("common_set_uv_index", cfg, "https://cdn.example/simple/"),
-    ):
-        done = _engine(resource_folder, function, *args)
-        assert done.returncode == 0, (function, done.stderr)
-    written = cfg.read_text().splitlines()
-    assert written[0] == f"key: {nasty}", written[0]
-    assert written[1] == "other: 10.0.0.1"
-    # the rewrite keeps the line's indentation and takes the URL verbatim
-    assert written[2] == "  UV_INDEX: https://cdn.example/simple/"
-
-    for path in [engine, *smoke.scripts_dir().glob("smoke-*.sh")]:
+def test_the_scripts_carry_no_inline_interpreter():
+    """An algorithm is `tdd _smoke`'s, written once for both shell families: a
+    python heredoc or a perl one-liner in a script is a copy the PowerShell
+    twin would have to make again. perl was also a second interpreter for a
+    script whose whole job is checking an install."""
+    for path in smoke.scripts():
         code = [
             ln
             for ln in path.read_text().splitlines()
             if not ln.lstrip().startswith("#")
         ]
-        assert not [ln for ln in code if "perl" in ln], path.name
+        for word in ("perl", "python3", "PYEOF"):
+            assert not [ln for ln in code if word in ln], (path.name, word)
 
 
 def test_the_failure_report_names_only_what_the_run_actually_built(
@@ -501,49 +448,6 @@ def test_every_cluster_smoke_keeps_the_forward_s_two_ends_apart():
         assert "--kube-port-forward must be a port number" in text, path.name
 
 
-def test_common_set_fn_resources_sizes_the_function_pods_and_only_them(
-    tmp_path,
-    resource_folder,
-):
-    """`--td-fn-memory`/`--td-fn-disk` rewrite pods.function.resources in a
-    tabsdata.yaml that carries a `resources:` block under every service as well.
-    The helper walks the indentation to the function block's own, rewrites the two
-    lines in place -- tdkserver compares the filled file's shape to the template's
-    -- and fails unless exactly one memory and one disk line changed, because a
-    sizing that silently missed would pass that shape check and surface as a pod
-    that never schedules."""
-    template = (resource_folder / "tabsdata.yaml").read_text()
-
-    def run(body: str, memory: str, disk: str):
-        cfg = tmp_path / "tabsdata.yaml"
-        cfg.write_text(body)
-        done = _engine(resource_folder, "common_set_fn_resources", cfg, memory, disk)
-        return done, cfg.read_text()
-
-    done, written = run(template, "8Gi", "32Gi")
-    assert done.returncode == 0, done.stderr
-    assert "function pods: memory 8Gi, disk 32Gi" in done.stdout
-    # the function block moved, and nothing else did: the service blocks keep
-    # their 1Gi/16Gi and 8Gi/64Gi, the cpu and the placement are untouched
-    assert written == template.replace(
-        "      memory: 16Gi\n      disk: 64Gi\n",
-        "      memory: 8Gi\n      disk: 32Gi\n",
-    )
-    assert written.count("memory: 8Gi") == 2  # ours plus the apiserver override
-
-    # no function block: refused, and the file is left as it was
-    headless = template.split("  function:\n", 1)[0]
-    done, written = run(headless, "8Gi", "32Gi")
-    assert done.returncode != 0
-    assert "expected one memory and one disk line" in done.stderr
-    assert written == headless
-
-    # two function blocks would be two rewrites: refused too
-    function_block = "  function:\n" + template.split("  function:\n", 1)[1]
-    done, _ = run(template + function_block, "8Gi", "32Gi")
-    assert done.returncode != 0, "a second function block must not pass as one"
-
-
 def test_every_cluster_smoke_sizes_its_function_pods_before_the_shape_check():
     """The two options, their halved defaults, and the rewrite as a stage command
     ahead of the placeholder and config checks -- so a sizing that missed fails
@@ -559,11 +463,14 @@ def test_every_cluster_smoke_sizes_its_function_pods_before_the_shape_check():
         # a typo fails at the option, not at the first pod that never schedules
         assert "--td-fn-memory must be a Kubernetes quantity" in text, path.name
         assert "--td-fn-disk must be a Kubernetes quantity" in text, path.name
-        call = 'common_run common_set_fn_resources "$CONFIGS/tabsdata.yaml" "$FN_MEMORY" "$FN_DISK"'
+        call = (
+            'common_run tdd _smoke set-fn-resources --file "$CONFIGS/tabsdata.yaml"'
+            ' --memory "$FN_MEMORY" --disk "$FN_DISK"'
+        )
         assert call in text, path.name
         assert text.index("common_stage configure") < text.index(call), path.name
         assert text.index(call) < text.index(
-            'common_run common_placeholders_left "$CONFIGS"'
+            'common_run tdd _smoke placeholders-left --dir "$CONFIGS"'
         ), path.name
         assert text.index(call) < text.index("tdkserver config check --instance"), (
             path.name

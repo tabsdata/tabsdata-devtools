@@ -1,0 +1,14 @@
+mounts:
+  - id: ROOT
+    uri: ${{secret}}
+    options:
+      aws_region: ${{secret}}
+      aws_access_key_id: ${{secret}}
+      google_service_account_key: ${{secret}}
+      account_key: ${{secret}}
+  - id: BUNDLES
+    uri: ${{secret}}
+    options:
+      mystery_key: ${{secret}}
+  - id: IMAGES
+    uri: ${{secret}}

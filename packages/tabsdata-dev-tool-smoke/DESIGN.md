@@ -43,6 +43,28 @@ tdd smoke list                                  the four scripts, what each is, 
 - Overwriting is refused without `--force`. The reason to export is to edit, so silently replacing
   what is there is the one behaviour that loses work.
 
+## `_smoke`, the engine's Python half
+
+The stage engine is shell, once per family, because a stage runs its commands in the script's
+own shell: `tdd venv` and `tdd env` change it. What the engine does beyond keeping stages is an
+algorithm, and an algorithm written in two shells is two copies to drift -- so it is `tdd
+_smoke`, a second entry point of this package, plumbing (the `_` keeps it out of `tdd help`):
+the config edits (`set-uv-index`, `set-fn-resources`, `fill-placeholder`, `fill-pem`,
+`fill-storage`, `placeholders-left`) and reading a field of a command's JSON Lines
+(`event-field`). A call costs ~130 ms, nothing beside a stage.
+
+- The scripts call it as stage commands, `common_run tdd _smoke ...`, so the stage line shows
+  what ran. `common_fill_placeholder`/`common_fill_pem` stay as wrappers: they put the value in
+  `_TDD_SMOKE_VALUE`, because a value can be a password and never goes on a command line;
+  `fill-storage` reads the `STORD__*`/`STORS__*` the scripts already export.
+- A helper that answers with a value makes it the ok message, alone on stdout in the view
+  format, so `$(tdd _smoke ...)` reads it in either family; the rest goes to stderr, the log.
+- Every edit is literal on both sides (a placeholder holds `${{`, `?`, `:`; a value can hold
+  `&`, `\1`, JSON), keeps the file's line endings, and writes a storage value as a YAML
+  double-quoted scalar: bare, a value that is JSON reads back as a mapping and tdkserver
+  refuses the config's shape. aws alone writes an empty credential as it is, as eks always
+  did; gcp and azure leave it for `placeholders-left` to name.
+
 ## Running one
 
 `run` owns one option, `--script`, and hands the script everything else on the line, in order — the
@@ -129,7 +151,7 @@ watches again after a monitor that failed, but a lane whose request was reset mi
 `--td-fn-memory` and `--td-fn-disk` size the function pods: `pods.function.resources.memory` and
 `.disk` in `tabsdata.yaml`, rewritten at `configure` beside the `UV_INDEX` line. The template asks
 for 16Gi and 64Gi per function pod; the defaults are 8Gi and 32Gi, and each is an option so a run
-can try the template's figures, or less, without editing the script. `common_set_fn_resources`
+can try the template's figures, or less, without editing the script. `tdd _smoke set-fn-resources`
 finds the block by structure rather than by a regex over the file, because the file holds a
 `resources:` block per service too, and it fails the stage unless it rewrote exactly one memory
 and one disk line -- the shape check tdkserver runs at `create` would not notice a sizing that
@@ -138,9 +160,10 @@ silently missed. CPU is left as the template has it; nothing asked for it to mov
 `--db-domain`, `--storage-domain` and `--llm-domain` each name a **system**; the domain is always
 created, named `sm_<NAME>__<system>`, and `--force` recreates it. The per-cloud defaults are the
 storage and database beside the cluster (`awspostgres`/`s3`, `gcppostgres`/`gcs`,
-`azpostgres`/`azureblob`); an LLM domain is created only when asked for. Each script's config
-filling knows its own cloud's option keys, so naming another cloud's storage leaves placeholders
-that `common_placeholders_left` then refuses — visibly, at `configure`.
+`azpostgres`/`azureblob`); an LLM domain is created only when asked for. Each script fills its
+storage as its own cloud (`tdd _smoke fill-storage --cloud aws|gcp|azure`), whose map knows that
+cloud's option keys, so naming another cloud's storage leaves placeholders that `tdd _smoke
+placeholders-left` then refuses — visibly, at `configure`.
 
 `--profile` names the tdk connection every `tdd tdk` call and every `tdd xp one-shot` uses
 (`tdk COMMAND --profile NAME` -- tdk takes it per command, after the verb, never before it --

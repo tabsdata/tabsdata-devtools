@@ -298,49 +298,6 @@ common_on_stage_failed() {
     common_k8s_report "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"
 }
 
-# fill_storage FILE -- the twelve positional ${{secret}} of apiserver.storage.yaml:
-# per mount (ROOT/BUNDLES/IMAGES) the uri under the s3 domain's URI, and the s3
-# system's region/credentials on every mount. Values travel in the environment
-# (they are credentials); python because awk/sed would fight the &/\ a secret may hold.
-fill_storage() {
-    ST_FILE="$1" python3 - <<'PYEOF'
-import json, os, re
-path = os.environ["ST_FILE"]
-uri = os.environ["STORD__URI"].rstrip("/")
-sub = {"ROOT": f"{uri}/data/", "BUNDLES": f"{uri}/bundles/", "IMAGES": f"{uri}/images/"}
-fixed = {
-    "aws_region": os.environ.get("STORS__REGION", ""),
-    "aws_access_key_id": os.environ.get("STORS__ACCESS_KEY", ""),
-    "aws_secret_access_key": os.environ.get("STORS__SECRET_KEY", ""),
-}
-
-def scalar(value):
-    """VALUE as a YAML double-quoted scalar. JSON's string escaping is a subset
-    of YAML's, so json.dumps produces exactly one, and it round-trips to the
-    same string. Left bare, a value that happens to be JSON -- the service
-    account key is -- reads back as a flow MAPPING, and tdkserver compares the
-    filled file's shape against the template's scalar placeholder and refuses
-    the whole config (ResolverError::StructureMismatch). Everything goes through
-    it, so no value can change the file's shape."""
-    return json.dumps(value)
-
-
-out, mount = [], None
-for line in open(path):
-    m = re.match(r"\s*- id: (\w+)", line)
-    if m:
-        mount = m.group(1)
-    if "${{secret}}" in line:
-        key = line.split(":", 1)[0].strip()
-        if key == "uri" and mount in sub:
-            line = line.replace("${{secret}}", scalar(sub[mount]))
-        elif key in fixed:
-            line = line.replace("${{secret}}", scalar(fixed[key]))
-    out.append(line)
-open(path, "w").write("".join(out))
-PYEOF
-}
-
 common_screen "smoke-eks: effective options"
 common_screen "  --name              $NAME   -> instance and venv $BASE, namespace $NAMESPACE, domains ${BASE}__<what>"
 common_screen "  --venv-type         $VENV_TYPE"
@@ -504,18 +461,18 @@ common_fill_placeholder "$CONFIGS"/*.yaml -- '${{literal:tdk_database_name}}' "$
 common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_user}}' "$DB__USER"
 common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_password}}' "$DB__PASSWORD"
 common_note "storage: the ROOT/BUNDLES/IMAGES mounts under ${STORD__URI%/}/ with the s3 system's credentials"
-fill_storage "$CONFIGS/apiserver.storage.yaml"
+common_run tdd _smoke fill-storage --file "$CONFIGS/apiserver.storage.yaml" --cloud aws
 if [ -n "$LLM_SYSTEM" ]; then
     common_note "aiagent: the $LLM_SYSTEM key from $LLM_DOMAIN"
     common_fill_placeholder "$CONFIGS/aiagent.yaml" -- "\${{secret:$LLM_SYSTEM-key?}}" "$LLM__API_KEY"
 fi
 if [ -n "$UV_INDEX_URI" ]; then
     common_note "tabsdata.yaml: UV_INDEX -> $(common_display "$UV_INDEX_URI")"
-    common_set_uv_index "$CONFIGS/tabsdata.yaml" "$UV_INDEX_URI"
+    common_run tdd _smoke set-uv-index --file "$CONFIGS/tabsdata.yaml" --uri "$UV_INDEX_URI"
 fi
 common_note "tabsdata.yaml: function pods memory $FN_MEMORY, disk $FN_DISK (pods.function.resources)"
-common_run common_set_fn_resources "$CONFIGS/tabsdata.yaml" "$FN_MEMORY" "$FN_DISK"
-common_run common_placeholders_left "$CONFIGS"
+common_run tdd _smoke set-fn-resources --file "$CONFIGS/tabsdata.yaml" --memory "$FN_MEMORY" --disk "$FN_DISK"
+common_run tdd _smoke placeholders-left --dir "$CONFIGS"
 common_run tdd tdkserver config check --instance "$INSTANCE" --init --accept-terms y
 
 common_stage create "tdkserver create (upload the config), then delete the plaintext input folder"

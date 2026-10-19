@@ -337,80 +337,6 @@ common_on_stage_failed() {
     common_k8s_report "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"
 }
 
-# fill_storage FILE -- the per-mount ${{secret}} of apiserver.storage.yaml: the
-# uri under the azureblob domain's URI, and the container credentials on every
-# mount.
-#
-# There is one way into a container from a config file -- the storage account's
-# shared key -- so unlike the GKE flavour there is no second credential shape to
-# choose between. What is still open is the SPELLING: tabsdata canonicalises the
-# short account_name/account_key onto object_store's azure_storage_* names, so a
-# template may carry either. Fill whichever keys the generated file actually has
-# and report the ones met. A key neither spelling covers is left alone --
-# common_placeholders_left then fails the stage naming it, which is a one-line
-# fix here rather than a broken instance.
-#
-# Values travel in the environment (they are credentials); python because
-# awk/sed would fight the &/\ an account key may hold.
-fill_storage() {
-    ST_FILE="$1" python3 - <<'PYEOF'
-import json, os, re
-
-path = os.environ["ST_FILE"]
-uri = os.environ["STORD__URI"].rstrip("/")
-sub = {"ROOT": f"{uri}/data/", "BUNDLES": f"{uri}/bundles/", "IMAGES": f"{uri}/images/"}
-
-account = os.environ.get("STORD__ACCOUNT_NAME", "")
-account_key = os.environ.get("STORD__ACCOUNT_KEY", "")
-fixed = {
-    # object_store's own names, and the short ones tabsdata maps onto them
-    "azure_storage_account_name": account,
-    "account_name": account,
-    "azure_storage_account_key": account_key,
-    "account_key": account_key,
-}
-
-
-def scalar(value):
-    """VALUE as a YAML double-quoted scalar. JSON's string escaping is a subset
-    of YAML's, so json.dumps produces exactly one, and it round-trips to the
-    same string. Left bare, a value that happens to be JSON -- the service
-    account key is -- reads back as a flow MAPPING, and tdkserver compares the
-    filled file's shape against the template's scalar placeholder and refuses
-    the whole config (ResolverError::StructureMismatch). Everything goes through
-    it, so no value can change the file's shape."""
-    return json.dumps(value)
-
-
-out, mount, filled, unknown, empty = [], None, [], [], []
-for line in open(path, encoding="utf-8"):
-    m = re.match(r"\s*- id: (\w+)", line)
-    if m:
-        mount = m.group(1)
-    if "${{secret}}" in line:
-        key = line.split(":", 1)[0].strip()
-        if key == "uri" and mount in sub:
-            line = line.replace("${{secret}}", scalar(sub[mount]))
-            filled.append(f"{mount}.uri")
-        elif key in fixed:
-            if fixed[key]:
-                line = line.replace("${{secret}}", scalar(fixed[key]))
-                filled.append(key)
-            else:
-                empty.append(key)
-        else:
-            unknown.append(key)
-    out.append(line)
-open(path, "w", encoding="utf-8").write("".join(out))
-
-print("filled:", ", ".join(sorted(set(filled))) or "(nothing)")
-if empty:
-    print("no value for:", ", ".join(sorted(set(empty))), "-- the azureblob system has none set")
-if unknown:
-    print("not filled (unknown to fill_storage):", ", ".join(sorted(set(unknown))))
-PYEOF
-}
-
 common_screen "smoke-aks: effective options"
 common_screen "  --name              $NAME   -> instance and venv $BASE, namespace $NAMESPACE, domains ${BASE}__<what>"
 common_screen "  --venv-type         $VENV_TYPE"
@@ -584,24 +510,24 @@ common_fill_placeholder "$CONFIGS"/*.yaml -- '${{secret:postgres_system_password
 # server with a public root, so the bundle is baked into the image and aks's
 # dbmanager template names a PATH to it. Both ssl_mode and ssl_root_cert are
 # `system:` placeholders tdkserver resolves itself (verify-ca,
-# /tabsdata/certs/ca-azure.pem), which common_placeholders_left leaves alone.
+# /tabsdata/certs/ca-azure.pem), which `tdd _smoke placeholders-left` leaves alone.
 # The gke flavour is the exception, not this one: Cloud SQL's per-instance CA
 # has no bundle, so it asks for the certificate inline and the domain carries
 # the PEM. azpostgres keeps only the URL Azure publishes the root at.
 common_note "database TLS: tdkserver's own verify-ca against /tabsdata/certs/ca-azure.pem ($DB_SYSTEM asks for $DB__SSLMODE)"
 common_note "storage: the ROOT/BUNDLES/IMAGES mounts under ${STORD__URI%/}/ with the azureblob system's account credentials"
-common_run fill_storage "$CONFIGS/apiserver.storage.yaml"
+common_run tdd _smoke fill-storage --file "$CONFIGS/apiserver.storage.yaml" --cloud azure
 if [ -n "$LLM_SYSTEM" ]; then
     common_note "aiagent: the $LLM_SYSTEM key from $LLM_DOMAIN"
     common_fill_placeholder "$CONFIGS/aiagent.yaml" -- "\${{secret:$LLM_SYSTEM-key?}}" "$LLM__API_KEY"
 fi
 if [ -n "$UV_INDEX_URI" ]; then
     common_note "tabsdata.yaml: UV_INDEX -> $(common_display "$UV_INDEX_URI")"
-    common_set_uv_index "$CONFIGS/tabsdata.yaml" "$UV_INDEX_URI"
+    common_run tdd _smoke set-uv-index --file "$CONFIGS/tabsdata.yaml" --uri "$UV_INDEX_URI"
 fi
 common_note "tabsdata.yaml: function pods memory $FN_MEMORY, disk $FN_DISK (pods.function.resources)"
-common_run common_set_fn_resources "$CONFIGS/tabsdata.yaml" "$FN_MEMORY" "$FN_DISK"
-common_run common_placeholders_left "$CONFIGS"
+common_run tdd _smoke set-fn-resources --file "$CONFIGS/tabsdata.yaml" --memory "$FN_MEMORY" --disk "$FN_DISK"
+common_run tdd _smoke placeholders-left --dir "$CONFIGS"
 common_run tdd tdkserver config check --instance "$INSTANCE" --init --accept-terms y
 
 common_stage create "tdkserver create (upload the config), then delete the plaintext input folder"
