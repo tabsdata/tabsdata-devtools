@@ -9,7 +9,6 @@ import json
 import pathlib
 
 import pytest
-
 from tabsdata_dev.common.systems import constants, datagen, dispatch, systems
 from tabsdata_dev.common.systems.errors import TdxError
 
@@ -502,7 +501,8 @@ def test_config_describes_every_verb_the_tool_has():
     what keeps the two from drifting -- the alternative, a second list of
     options kept by hand, is the thing this repo already refuses elsewhere.
     """
-    from tabsdata_dev.common.systems import dispatch, main as family
+    from tabsdata_dev.common.systems import dispatch
+    from tabsdata_dev.common.systems import main as family
 
     for tool in (constants.SYS_TOOL, constants.DOM_TOOL):
         doc = family.config_doc(tool)
@@ -676,7 +676,8 @@ def test_every_type_makes_a_1password_item_that_reads_back_as_its_own_env_vars()
     are what a type's env-sourced options read. Normalised by the very function
     the reader uses, so the two halves cannot drift apart."""
     from tabsdata_dev.common.core.secrets_1p import _norm as reader_norm
-    from tabsdata_dev.common.systems import onepassword, options as opts
+    from tabsdata_dev.common.systems import onepassword
+    from tabsdata_dev.common.systems import options as opts
 
     for slug in systems.all_slugs():
         backend = systems.get(slug)
@@ -896,7 +897,8 @@ def test_a_generated_template_is_what_1p_set_may_file_untouched():
     """`tdd _1p set` reduces an item to what a create may carry; a template
     this tool generates is already exactly that."""
     from tabsdata_dev.common.core import secrets_1p
-    from tabsdata_dev.common.systems import onepassword, systems as _s
+    from tabsdata_dev.common.systems import onepassword
+    from tabsdata_dev.common.systems import systems as _s
 
     item = onepassword.item(_s.get("gcppostgres"))
     assert secrets_1p.for_upload(item) == item
@@ -1008,7 +1010,6 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
     is an orphan and is reclaimed; a live one is refused by its schema and by
     the store's name for it, with the command that frees it."""
     import pytest
-
     from tabsdata_dev.common.systems import descriptor, store
     from tabsdata_dev.common.systems.errors import TdxError
     from tabsdata_dev.common.systems.systems.db2cdc.backend import Db2Cdc
@@ -2374,7 +2375,6 @@ def test_run_sql_schedule_drives_one_connection_per_open_transaction(monkeypatch
     is rolled back, and the error names the statement and how many were open."""
     import sqlalchemy
     from sqlalchemy.exc import OperationalError
-
     from tabsdata_dev.common.systems import sql_runner, trx
     from tabsdata_dev.common.systems.trx import TrxMode
 
@@ -2852,8 +2852,8 @@ def test_airportdb_inserts_carry_defects_at_a_rate_each_seed_sets():
             "name lower case": lambda r: not upper.match(r["name"]),
         },
         "passenger": {
-            "passport malformed": lambda r: not re.fullmatch(
-                r"[A-Z][0-9]{8}", r["passportno"]
+            "passport malformed": lambda r: (
+                not re.fullmatch(r"[A-Z][0-9]{8}", r["passportno"])
             ),
             "firstname lower case": lambda r: not upper.match(r["firstname"]),
             "lastname lower case": lambda r: not upper.match(r["lastname"]),

@@ -13,7 +13,6 @@ section printed by top-level help.
 from __future__ import annotations
 
 import tempfile
-
 from dataclasses import dataclass
 from typing import Literal
 

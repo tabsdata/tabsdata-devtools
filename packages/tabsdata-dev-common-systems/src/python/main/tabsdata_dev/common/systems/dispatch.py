@@ -96,11 +96,11 @@ from tabsdata_dev.common.systems import (
     crypto,
     descriptor,
     manifest,
+    shell,
     store,
     systems,
 )
 from tabsdata_dev.common.systems.cli import ArgumentParser
-from tabsdata_dev.common.systems import shell
 from tabsdata_dev.common.systems.errors import TdxError
 
 # Verbs whose chatty detail is redirected to a /tmp log while the console shows
