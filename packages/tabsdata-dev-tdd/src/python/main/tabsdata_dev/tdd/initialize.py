@@ -29,6 +29,10 @@ TDD_DIST = "tabsdata-dev-tdd"
 _TDD_VENV = "tdd"
 SOURCE_NAME = "tdd-source.sh"
 SOURCE_NAME_PS = "tdd-source.ps1"
+#: Identifies a tdd folder to `cargo make uninstall`, which deletes only a
+#: folder carrying it; the Makefile.toml uninstall task holds the same values.
+MARKER_NAME = ".tdd-i-am"
+MARKER = "tabsdata-dev tdd folder"
 
 #: How each loader is loaded, in the shell it is for. PowerShell has no
 #: `source`, and dot-sourcing there is `.` followed by a space -- which is
@@ -389,6 +393,7 @@ def _finish(dir_: pathlib.Path, catalog: dict, out: render.Renderer) -> int:
     # Stamp what was built here, so `tdd --version` describes this dir rather
     # than whatever checkout tdd-exe happens to be linked to.
     version_mod.stamp(dir_)
+    (dir_ / MARKER_NAME).write_text(MARKER + "\n")
 
     written = _write_source(dir_, out)
     summary = f"initialized {dir_} ({len(catalog['tools'])} tools, {len(catalog['toolsets'])} toolsets)"

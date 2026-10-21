@@ -70,6 +70,7 @@ def test_initialize_from_source_preserves_user_state(tmp_path, monkeypatch):
     # and it did do its job: the toolset, tdd-exe and shell venvs, and the catalog
     assert paths.venvs_dir(dir_) / "launchers" in made
     assert (dir_ / "catalog.json").is_file()
+    assert (dir_ / initialize.MARKER_NAME).read_text() == initialize.MARKER + "\n"
 
 
 class _Out:

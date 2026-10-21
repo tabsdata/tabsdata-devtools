@@ -47,7 +47,7 @@ The public API of tabsdata as structured JSON, read statically (the spec is expl
 ```bash
 tdd apidoc generate --out api.json      # read from the current venv, which must have tabsdata installed
 tdd apidoc export-spec --dir ~/apidoc   # the bundled spec, to edit
-cargo make help         # every build task; `cargo make uninstall` removes ~/.tdd
+cargo make help         # every build task; `cargo make uninstall` moves ~/.tdd to the trash
 ```
 
 ## Tests

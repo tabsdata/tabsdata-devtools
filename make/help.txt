@@ -14,7 +14,7 @@ setup
   install -- --editable|-e  build every env editable from this checkout instead;
                             source edits are live, no wheels involved
   dev                       shortcut for `install -- --editable`
-  uninstall [-- --dir PATH] delete the tdd dir; tells you what to unsource
+  uninstall [-- --dir PATH] move the tdd dir to the trash; tells you what to unsource
 
 quality (what CI runs)
   check                     lint, then test, then reqs

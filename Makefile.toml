@@ -8,7 +8,7 @@
 #   cargo make install -- --editable     every env editable from this checkout (= dev)
 #   cargo make install -- --dir /tmp/t2  the same into another tdd dir
 #   cargo make check                     lint + test + reqs
-#   cargo make uninstall                 remove the tdd dir
+#   cargo make uninstall                 move the tdd dir to the trash
 #
 # Note the `--`: cargo-make forwards arguments after it to the task.
 #
@@ -527,13 +527,16 @@ script = [
 # --------------------------------------------------------------------- uninstall
 
 # Arguments: --dir PATH (or --dir=PATH); the `--` cargo-make forwards is
-# skipped. This deletes a caller-supplied path. catalog.json is the marker tdd
-# init writes, so its absence means this is not a tdd dir -- refused rather
-# than trusting a mistyped --dir or a stray TDD_DIR. Then it names the line to
-# remove from whichever shell profile -- bash, zsh or PowerShell -- loads one of
-# the loaders that went with it.
+# skipped. This moves a caller-supplied path to the trash, so it first checks
+# the path is a tdd dir: the .tdd-i-am marker tdd init writes (when present)
+# must hold its value, catalog.json must parse with its schema and fingerprint
+# keys, and tdd-venvs must exist -- each failure refused with its own message
+# rather than trusting a mistyped --dir or a stray TDD_DIR. The trash move runs
+# through `uvx send2trash`, never from an env inside the dir being removed. Then
+# it names the line to remove from whichever shell profile -- bash, zsh or
+# PowerShell -- loads one of the loaders that went with it.
 [tasks.uninstall]
-description = "Delete the tdd dir and say what to remove from the shell profile"
+description = "Move the tdd dir to the trash and say what to remove from the shell profile"
 dependencies = ["make-env"]
 script_runner = "@duckscript"
 script = [
@@ -558,12 +561,32 @@ script = [
         echo "nothing to uninstall: ${tdd_dir} does not exist"
         exit 0
     end
-    if not is_path_exists "${tdd_dir}/catalog.json"
-        assert_fail "cargo make uninstall: refusing, ${tdd_dir} has no catalog.json so it is not a tdd dir"
+    marker = set "${tdd_dir}/.tdd-i-am"
+    if is_path_exists ${marker}
+        marker_text = readfile ${marker}
+        marker_text = trim ${marker_text}
+        if not eq ${marker_text} "tabsdata-dev tdd folder"
+            assert_fail "cargo make uninstall: refusing, ${marker} does not hold the tdd folder marker"
+        end
+    end
+    catalog = set "${tdd_dir}/catalog.json"
+    if not is_path_exists ${catalog}
+        assert_fail "cargo make uninstall: refusing, ${tdd_dir} has no catalog.json so it is not a tdd folder"
+    end
+    catalog_text = readfile ${catalog}
+    catalog_json = json_parse ${catalog_text}
+    if not is_defined catalog_json.schema
+        assert_fail "cargo make uninstall: refusing, ${catalog} has no schema key so it is not a tdd catalog"
+    end
+    if not is_defined catalog_json.fingerprint
+        assert_fail "cargo make uninstall: refusing, ${catalog} has no fingerprint key so it is not a tdd catalog"
+    end
+    if not is_dir "${tdd_dir}/tdd-venvs"
+        assert_fail "cargo make uninstall: refusing, ${tdd_dir} has no tdd-venvs folder so it is not a tdd folder"
     end
 
-    rm -r ${tdd_dir}
-    echo "removed ${tdd_dir} (its tool envs and any managed venvs under ${tdd_dir}/managed-venvs)"
+    exec --fail-on-error uvx send2trash@2.1.0 ${tdd_dir}
+    echo "moved ${tdd_dir} to the trash (its tool envs, its descriptors and any managed venvs under ${tdd_dir}/managed-venvs)"
     echo ""
     echo "Its loaders are gone with it. If a shell profile loads one, remove that line:"
     echo ""
