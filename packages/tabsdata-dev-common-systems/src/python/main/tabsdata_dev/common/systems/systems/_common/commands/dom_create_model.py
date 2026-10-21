@@ -41,8 +41,7 @@ def run(ctx: cli.Context) -> int:
     entity_names = datagen.entities_of(model)
     descriptor.set_model(ctx.path, model, entity_names)
     if console.json_mode():
-        report = {name: datagen.iud() for name in entity_names}
-        console.result(report)
+        console.result({"entities": {name: datagen.iud() for name in entity_names}})
     else:
         console.good(f"installed model '{model}' into domain '{ctx.name}'")
     return 0

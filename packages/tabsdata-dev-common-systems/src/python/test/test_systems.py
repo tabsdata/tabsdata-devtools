@@ -2737,6 +2737,52 @@ def test_create_data_reports_the_load_in_modify_datas_shape(tmp_path, monkeypatc
     assert lines == ["  a   I=2  U=0  D=0  (rows=5)", "  bb  I=0  U=0  D=0"]
 
 
+def test_create_model_reports_its_entities_in_create_datas_shape(tmp_path, monkeypatch):
+    """create-model's counts sit under `entities`, as create-data's and
+    modify-data's do, so one reader takes the report of any of the three."""
+    import argparse
+
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.common.systems import cli, console, descriptor
+    from tabsdata_dev.common.systems.systems._common.commands import dom_create_model
+
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-test-secret-long-enough")
+    path = tmp_path / "d1"
+    descriptor.write_domain(
+        path, "postgres", "d1", sys_name="pg", external_name="d1", meta={"DB": "d1"}
+    )
+
+    class Fake:
+        def has_model(self, model):
+            return True
+
+        def install_schema(self, meta, model, force=False):
+            pass
+
+    console.bind(render.Renderer(constants.DOM_TOOL, fmt="json"))
+    rc = dom_create_model.run(
+        cli.Context(
+            tool=constants.DOM_TOOL,
+            verb=constants.V_CREATE_MODEL,
+            slug="postgres",
+            system=Fake(),  # type: ignore[arg-type]
+            args=argparse.Namespace(model="world", force=False),
+            name="d1",
+            info=descriptor.load(path),
+            path=path,
+            store_dir=tmp_path,
+        )
+    )
+    assert rc == 0
+    report = console.take_result()
+    assert set(report) == {"entities"}
+    assert set(report["entities"]) == set(datagen.entities_of("world"))
+    assert all(
+        (e["insert"], e["update"], e["delete"]) == (0, 0, 0)
+        for e in report["entities"].values()
+    )
+
+
 def test_only_the_transactional_sql_engines_take_a_trx_mode():
     """The container SQL engines and the managed postgres three apply
     interleaved and nested schedules; everything else -- files, kafka, the
