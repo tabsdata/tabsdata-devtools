@@ -1322,6 +1322,45 @@ def test_a_valid_batch_starts_and_a_missing_target_is_left_to_its_child(
     assert [step[2] for step in small_store] == ["dev1", "fs1", "ghost"]
 
 
+def test_a_rerouted_verb_hands_its_child_the_terminal_not_the_detail_log(
+    tmp_path, monkeypatch
+):
+    """The child of a re-dispatch speaks for the run, but under the detail log
+    fd 1 and 2 are the log file: a child inheriting them left the run with no
+    ok or error on screen at all. It is handed the terminal the renderer kept."""
+    import os
+    import subprocess
+
+    from tabsdata_dev.common.core import proc, render
+    from tabsdata_dev.common.systems import console
+
+    monkeypatch.setenv("TDD_DIR", str(tmp_path))
+    monkeypatch.delenv("_TDD_TOOL", raising=False)
+    monkeypatch.setattr(console, "_OUT", render.Renderer("systems"))
+    monkeypatch.setattr(console, "_FINAL", False)
+    calls = []
+
+    def run_tool(name, *args, **kwargs):
+        log = os.fstat(1)
+        child = [os.fstat(kwargs[s].fileno()) for s in ("stdout", "stderr")]
+        calls.append((name, log, child))
+        return subprocess.CompletedProcess([name, *args], 0)
+
+    monkeypatch.setattr(proc, "run_tool", run_tool)
+    with console.activate(tmp_path / "log", "test-") as path:
+        rc = dispatch._reroute(
+            constants.DOM_TOOL,
+            constants.V_CREATE,
+            ["--sys", "sf"],
+            constants.TOOLSET_SALESFORCE,
+        )
+    assert rc == 0
+    [(name, log, child)] = calls
+    assert name == constants.DOM_SF_TOOL
+    assert os.path.samestat(log, os.stat(path))
+    assert not any(os.path.samestat(log, stream) for stream in child)
+
+
 def test_delete_data_empties_the_model_and_delete_model_forgets_it(
     tmp_path, monkeypatch
 ):

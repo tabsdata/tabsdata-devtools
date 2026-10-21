@@ -79,6 +79,7 @@ connection details kept as encrypted descriptors.
   creates cannot compete for ports: every type owns a fixed slot, and `--ports` pins them.
 - The long verbs (`create`, `destroy`, `purge`) take `--latch FILE` so a background run is
   waitable, and their chatty detail goes to `<temp>/tdd-system-<verb>-...` while the console keeps
-  to brief progress.
+  to brief progress. A verb that re-dispatches to another toolset's tool hands that child the
+  terminal, not the detail log: the child reports the run's ok or error.
 - All logic is in `common-systems`; this package exists so the tool has a name, a toolset and a
   requirements file.

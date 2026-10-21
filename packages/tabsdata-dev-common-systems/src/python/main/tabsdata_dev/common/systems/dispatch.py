@@ -466,14 +466,20 @@ def _reroute(tool: str, verb: str, rest: list[str], needed: str) -> int | None:
             f"can be dispatched there"
         )
     console.debug(f"re-dispatching to {wanted} (toolset {needed})")
-    fmt = console.renderer().fmt
+    rend = console.renderer()
     passthrough = [verb, *rest]
     if constants.OPT_FORMAT not in rest and not any(
         a.startswith(f"{constants.OPT_FORMAT}=") for a in rest
     ):
-        passthrough += [constants.OPT_FORMAT, fmt]
+        passthrough += [constants.OPT_FORMAT, rend.fmt]
     console.mark_final()  # the child speaks for the run
-    return proc.run_tool(wanted, *passthrough).returncode
+    # Under the detail log fd 1 and 2 are the log file, so the child is handed
+    # the terminal the renderer kept.
+    rend.out.flush()
+    rend.err.flush()
+    return proc.run_tool(
+        wanted, *passthrough, stdout=rend.out, stderr=rend.err
+    ).returncode
 
 
 # ======================================================================
