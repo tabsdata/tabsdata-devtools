@@ -41,6 +41,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     cli.add_sys_dir(parser)
     cli.add_force(parser)
     cli.add_dry_run(parser)
+    cli.add_descriptor_only(parser)
     cli.add_latch(parser)
     cli.add_manifest(parser, "create")
     cli.add_sync(parser)
@@ -137,6 +138,9 @@ def run(ctx: cli.Context) -> int:
     # Persist the descriptor before provisioning, so a partial start can be torn
     # down from disk with `destroy`.
     descriptor.write_system(path, sysobj.slug, name, meta, env_refs, literals, hostname)
+    if a.descriptor_only:
+        console.good(f"wrote the descriptor of system '{name}' ({sysobj.label})")
+        return 0
     extra = sysobj.provision_system(meta, force=a.force)
     if extra:
         meta.update(extra)

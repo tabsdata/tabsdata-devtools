@@ -81,5 +81,10 @@ connection details kept as encrypted descriptors.
   waitable, and their chatty detail goes to `<temp>/tdd-system-<verb>-...` while the console keeps
   to brief progress. A verb that re-dispatches to another toolset's tool hands that child the
   terminal, not the detail log: the child reports the run's ok or error.
+- **`create --descriptor-only`** (system and domain) writes the descriptor a create writes and
+  stops before provisioning: no container, cloud or SQL call, and a domain create does not look
+  at the system's existing entities. It exists for tests that need real descriptors of any type
+  (the tabsdata itest fixtures' own tests); every option is resolved as in a real create, so a
+  remote type still needs its `<TYPE>__<KEY>` values, fake ones being enough.
 - All logic is in `common-systems`; this package exists so the tool has a name, a toolset and a
   requirements file.

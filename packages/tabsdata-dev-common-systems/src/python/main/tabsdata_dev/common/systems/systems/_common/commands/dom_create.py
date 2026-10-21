@@ -27,6 +27,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     cli.add_domain_dir(parser)
     cli.add_force(parser)
     cli.add_dry_run(parser)
+    cli.add_descriptor_only(parser)
     cli.add_latch(parser)
     cli.add_manifest(parser, "create")
     cli.add_sync(parser)
@@ -65,7 +66,11 @@ def run(ctx: cli.Context) -> int:
         # already in the system belongs to someone else -- another run that
         # drew the same name, or one left behind -- and provisioning over it
         # would mix the two. Said before anything is written.
-        taken = {e.lower() for e in sysobj.list_domain_entities(sys_meta)}
+        taken = (
+            set()
+            if a.descriptor_only
+            else {e.lower() for e in sysobj.list_domain_entities(sys_meta)}
+        )
         if entity.lower() in taken and not a.force:
             raise TdxError(
                 f"'{entity}' already exists in system '{sys_name}' -- another "
@@ -73,7 +78,9 @@ def run(ctx: cli.Context) -> int:
                 f"--external-prefix {entity} --force drops it)"
             )
     else:
-        existing = set(sysobj.list_domain_entities(sys_meta))
+        existing = (
+            set() if a.descriptor_only else set(sysobj.list_domain_entities(sys_meta))
+        )
         entity = naming.fit_entity_name(
             naming.external_name(domain), sysobj.max_entity_name_length, existing
         )
@@ -96,6 +103,9 @@ def run(ctx: cli.Context) -> int:
         external_name=entity,
         meta=dmeta,
     )
+    if a.descriptor_only:
+        console.good(f"wrote the descriptor of domain '{domain}' -> {entity}")
+        return 0
     sysobj.provision_domain(sys_meta, entity, dmeta, force=a.force)
     console.good(f"created domain '{domain}' -> {entity} in system '{sys_name}'")
     return 0

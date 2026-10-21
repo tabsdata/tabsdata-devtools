@@ -1361,6 +1361,63 @@ def test_a_rerouted_verb_hands_its_child_the_terminal_not_the_detail_log(
     assert not any(os.path.samestat(log, stream) for stream in child)
 
 
+def test_descriptor_only_writes_the_descriptors_and_provisions_nothing(
+    tmp_path, monkeypatch, capsys
+):
+    """`create --descriptor-only` writes what a create writes and stops there:
+    no container, no cloud or SQL call, and no look at the system's existing
+    entities, so tests get real descriptors for any type."""
+    from tabsdata_dev.common.systems import descriptor, store
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-key-for-the-test-only")
+    monkeypatch.delenv("_TDD_TOOL", raising=False)
+    for key, value in {
+        "S3__BUCKET": "b",
+        "S3__REGION": "r",
+        "S3__ACCESS_KEY": "ak",
+        "S3__SECRET_KEY": "sk",
+        "S3__SYS_PATH": "root",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    def live(*args, **kwargs):
+        raise AssertionError("a --descriptor-only create reached the system")
+
+    for slug in ("postgres", "s3"):
+        cls = systems.get_class(slug)
+        for hook in ("provision_system", "provision_domain", "list_domain_entities"):
+            monkeypatch.setattr(cls, hook, live)
+        rc, events = _run_json(
+            capsys,
+            constants.SYS_TOOL,
+            constants.V_CREATE,
+            "--type",
+            slug,
+            "--sys",
+            f"s_{slug}",
+            constants.OPT_DESCRIPTOR_ONLY,
+        )
+        assert rc == 0, events
+        rc, events = _run_json(
+            capsys,
+            constants.DOM_TOOL,
+            constants.V_CREATE,
+            "--sys",
+            f"s_{slug}",
+            "--domain",
+            f"d_{slug}",
+            constants.OPT_DESCRIPTOR_ONLY,
+        )
+        assert rc == 0, events
+        sys_info = descriptor.load(store.system_path(f"s_{slug}"))
+        dom_info = descriptor.load(store.domain_path(f"d_{slug}"))
+        assert (sys_info.system, dom_info.system) == (slug, slug)
+        assert dom_info.sys_name == f"s_{slug}" and dom_info.external_name
+        assert dom_info.meta["SYSTEM_KIND"] == sys_info.meta["SYSTEM_KIND"]
+
+
 def test_delete_data_empties_the_model_and_delete_model_forgets_it(
     tmp_path, monkeypatch
 ):

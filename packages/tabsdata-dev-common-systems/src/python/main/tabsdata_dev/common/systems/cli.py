@@ -299,6 +299,16 @@ def add_dry_run(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_descriptor_only(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        constants.OPT_DESCRIPTOR_ONLY,
+        dest="descriptor_only",
+        action="store_true",
+        help="write the descriptor without provisioning anything (no containers, "
+        "cloud or SQL calls)",
+    )
+
+
 def add_data_dry_run(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         constants.OPT_DRY_RUN,
