@@ -1425,7 +1425,8 @@ def top_help(tool: str) -> tuple[str, dict]:
             "",
             f"store: {store.system_dir()}",
             f"       {store.domain_dir()}",
-            "       (--sys-dir / --domain-dir override)",
+            f"       (--sys-dir / --domain-dir, else ${constants.ENV_SYSTEM_DIR} / "
+            f"${constants.ENV_DOMAIN_DIR}, override)",
         ]
     )
     p = core_cli.parser(tool, DESCRIPTIONS[tool])

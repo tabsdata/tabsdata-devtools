@@ -149,6 +149,8 @@ DOCKER_NAME_PREFIX = f"{DOCKER_CONTAINER_PREFIX}_"
 # tdd's own variables carry a leading underscore when they are private to the
 # tool chain; the crypto key is one -- users set it with `tdd env set --crypto`.
 ENV_CRYPTO_KEY = "_TDD_CRYPTO_KEY"
+ENV_SYSTEM_DIR = "TDD_SYSTEM_DIR"
+ENV_DOMAIN_DIR = "TDD_DOMAIN_DIR"
 ENV_BUILD_USER = "TD_BUILD_USER"
 ENV_BUILD_NUMBER = "TD_BUILD_NUMBER"
 ENV_MYSQL_IMAGE_VERSION = "MYSQL_IMAGE_VERSION"
@@ -170,6 +172,16 @@ class EnvVar:
 ENV_VARS: tuple[EnvVar, ...] = (
     EnvVar(
         ENV_CRYPTO_KEY, "(required, >=12 chars)", "secret that encrypts descriptors"
+    ),
+    EnvVar(
+        ENV_SYSTEM_DIR,
+        "<tdd_dir>/data/system",
+        "the system store dir when --sys-dir is not given",
+    ),
+    EnvVar(
+        ENV_DOMAIN_DIR,
+        "<tdd_dir>/data/domain",
+        "the domain store dir when --domain-dir is not given",
     ),
     EnvVar(
         ENV_BUILD_USER,

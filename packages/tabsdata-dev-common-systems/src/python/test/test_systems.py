@@ -1361,6 +1361,38 @@ def test_a_rerouted_verb_hands_its_child_the_terminal_not_the_detail_log(
     assert not any(os.path.samestat(log, stream) for stream in child)
 
 
+def test_the_store_dirs_come_from_the_flag_else_the_env_else_the_tdd_dir(
+    tmp_path, monkeypatch, capsys
+):
+    """A caller that cannot pass --sys-dir / --domain-dir (a test harness)
+    points every command at a scratch store through the environment; a flag
+    still wins over it."""
+    from tabsdata_dev.common.systems import descriptor, store
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-key-for-the-test-only")
+    monkeypatch.delenv("_TDD_TOOL", raising=False)
+    for env in (constants.ENV_SYSTEM_DIR, constants.ENV_DOMAIN_DIR):
+        monkeypatch.delenv(env, raising=False)
+    assert store.system_dir() == tmp_path / "tdd" / "data" / constants.SYS_TOOL
+    assert store.domain_dir() == tmp_path / "tdd" / "data" / constants.DOM_TOOL
+
+    monkeypatch.setenv(constants.ENV_SYSTEM_DIR, str(tmp_path / "sys"))
+    monkeypatch.setenv(constants.ENV_DOMAIN_DIR, str(tmp_path / "dom"))
+    assert store.system_dir() == tmp_path / "sys"
+    assert store.domain_dir() == tmp_path / "dom"
+    assert store.system_dir(str(tmp_path / "flag")) == tmp_path / "flag"
+
+    rc, events = _run_json(
+        capsys, constants.SYS_TOOL, constants.V_CREATE, "--type", "dev", "--sys", "d1"
+    )
+    assert rc == 0, events
+    assert descriptor.is_descriptor(tmp_path / "sys" / "d1")
+    rc, events = _run_json(capsys, constants.SYS_TOOL, constants.V_LIST)
+    assert rc == 0 and [s["name"] for s in events[-1]["systems"]] == ["d1"]
+
+
 def test_descriptor_only_writes_the_descriptors_and_provisions_nothing(
     tmp_path, monkeypatch, capsys
 ):

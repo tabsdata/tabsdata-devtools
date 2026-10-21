@@ -21,7 +21,9 @@ starts from these two.
   is `d_<user>_<build>_<domain>` unless you pass `--name-in-system`.
 - **Store**: one encrypted descriptor file per name in `<tdd_dir>/data/system/` and `<tdd_dir>/data/domain/` (default
   `~/.tdd/data/`). Descriptors are AES-256-GCM under `$_TDD_CRYPTO_KEY`; every command that reads or writes the store
-  needs that key. Reinstalling tdd never touches this directory.
+  needs that key. Reinstalling tdd never touches this directory. `--sys-dir` / `--domain-dir` point one command at
+  another store, and `$TDD_SYSTEM_DIR` / `$TDD_DOMAIN_DIR` do it for every command that gets no flag (how a test
+  harness uses a scratch store).
 
 ## Setup (once)
 

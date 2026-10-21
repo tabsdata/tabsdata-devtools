@@ -135,7 +135,8 @@ def add_sys_dir(parser: argparse.ArgumentParser) -> None:
         constants.OPT_SYS_DIR,
         default=None,
         metavar="DIR",
-        help="override <tdd_dir>/data/system (the system store dir)",
+        help="override $TDD_SYSTEM_DIR, else <tdd_dir>/data/system (the system "
+        "store dir)",
     )
 
 
@@ -193,7 +194,8 @@ def add_domain_dir(parser: argparse.ArgumentParser) -> None:
         constants.OPT_DOMAIN_DIR,
         default=None,
         metavar="DIR",
-        help="override <tdd_dir>/data/domain (the domain store dir)",
+        help="override $TDD_DOMAIN_DIR, else <tdd_dir>/data/domain (the domain "
+        "store dir)",
     )
 
 
