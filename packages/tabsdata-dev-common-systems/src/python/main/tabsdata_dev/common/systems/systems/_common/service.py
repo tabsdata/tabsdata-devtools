@@ -14,9 +14,7 @@ checks the credentials are present. Verbs are gated off by the capability flags
 
 from __future__ import annotations
 
-from tabsdata_dev.common.systems import constants
-
-from tabsdata_dev.common.systems import options
+from tabsdata_dev.common.systems import constants, options
 from tabsdata_dev.common.systems.errors import TdxError
 
 
@@ -27,6 +25,7 @@ class ServiceBackend:
     supports_data: bool = False
     supports_changes: bool = False
     supports_trx_modes: bool = False
+    supports_table_capture: bool = False
 
     # Credentials in, an HTTPS probe out — no driver either side.
     sys_toolset: str = constants.TOOLSET_SYSTEMS

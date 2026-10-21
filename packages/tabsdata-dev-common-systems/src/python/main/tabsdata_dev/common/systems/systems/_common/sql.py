@@ -20,8 +20,6 @@ iff that file exists), so the same generic ``models`` / ``create-model`` /
 
 from __future__ import annotations
 
-from tabsdata_dev.common.systems import constants
-
 import hashlib
 import inspect
 import platform
@@ -30,7 +28,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from tabsdata_dev.common.systems import datagen, emit, options
+from tabsdata_dev.common.systems import constants, datagen, emit, options
 from tabsdata_dev.common.systems.diagnostics import db_failure
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import (
@@ -98,6 +96,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
     # subclass that has no multi-statement transactions, or that locks a whole
     # table for a write, says False.
     supports_trx_modes: bool = True
+    supports_table_capture: bool = False
     # The dialect's DELETE locks every row it scans, not only the rows it removes
     # (MySQL InnoDB, Db2): on a table with no key and no unique index it scans it
     # all, and waits on any row another open transaction wrote. Postgres reads row versions and waits only on the rows

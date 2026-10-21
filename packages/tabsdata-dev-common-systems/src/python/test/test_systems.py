@@ -1393,6 +1393,82 @@ def test_the_store_dirs_come_from_the_flag_else_the_env_else_the_tdd_dir(
     assert rc == 0 and [s["name"] for s in events[-1]["systems"]] == ["d1"]
 
 
+def test_capture_and_release_table_drive_the_backends_registration(
+    tmp_path, monkeypatch, capsys
+):
+    """capture-table / release-table hand a domain's own table to the backend's
+    registration, and exist only where the backend captures changes."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-key-for-the-test-only")
+    monkeypatch.delenv("_TDD_TOOL", raising=False)
+    for slug in ("db2cdc", "mysql"):
+        for argv in (
+            [constants.SYS_TOOL, constants.V_CREATE, "--type", slug, "--sys", slug],
+            [constants.DOM_TOOL, constants.V_CREATE, "--sys", slug, "--domain", slug],
+        ):
+            monkeypatch.setattr(
+                systems.get_class(slug), "list_domain_entities", lambda self, m: []
+            )
+            rc, events = _run_json(
+                capsys, argv[0], *argv[1:], constants.OPT_DESCRIPTOR_ONLY
+            )
+            assert rc == 0, events
+
+    calls = []
+    db2cdc = systems.get_class("db2cdc")
+    monkeypatch.setattr(
+        db2cdc,
+        "register_table",
+        lambda self, meta, table, ddl=None: (
+            calls.append(("capture", table, ddl)) or f"ASN.TD_X__{table.upper()}"
+        ),
+    )
+    monkeypatch.setattr(
+        db2cdc,
+        "deregister_table",
+        lambda self, meta, table, drop=False: calls.append(("release", table, drop)),
+    )
+    ddl = "create table t1 (id integer)"
+    rc, events = _run_json(
+        capsys,
+        constants.DOM_TOOL,
+        constants.V_CAPTURE_TABLE,
+        "--domain",
+        "db2cdc",
+        constants.OPT_TABLE,
+        "t1",
+        constants.OPT_DDL,
+        ddl,
+    )
+    assert rc == 0, events
+    assert (events[-1]["table"], events[-1]["cd_table"]) == ("T1", "ASN.TD_X__T1")
+    rc, events = _run_json(
+        capsys,
+        constants.DOM_TOOL,
+        constants.V_RELEASE_TABLE,
+        "--domain",
+        "db2cdc",
+        constants.OPT_TABLE,
+        "t1",
+        constants.OPT_DROP,
+    )
+    assert rc == 0 and events[-1]["dropped"] is True
+    assert calls == [("capture", "t1", ddl), ("release", "t1", True)]
+
+    rc, events = _run_json(
+        capsys,
+        constants.DOM_TOOL,
+        constants.V_CAPTURE_TABLE,
+        "--domain",
+        "mysql",
+        constants.OPT_TABLE,
+        "t1",
+    )
+    assert rc == 1
+    assert "does not support 'capture-table'" in events[-1]["message"]
+
+
 def test_descriptor_only_writes_the_descriptors_and_provisions_nothing(
     tmp_path, monkeypatch, capsys
 ):

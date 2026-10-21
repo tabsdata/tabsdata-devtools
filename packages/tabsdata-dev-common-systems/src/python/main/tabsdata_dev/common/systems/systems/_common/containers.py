@@ -34,6 +34,7 @@ class ContainersBackend(PortRangeMixin, HostMixin):
     supports_data: bool = False
     supports_changes: bool = False
     supports_trx_modes: bool = False
+    supports_table_capture: bool = False
 
     # A compose stack driven by docker, administered over HTTP.
     sys_toolset: str = constants.TOOLSET_SYSTEMS

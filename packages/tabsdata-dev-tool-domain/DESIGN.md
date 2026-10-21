@@ -19,14 +19,19 @@ manifests so a test suite gets the same data on every backend.
 ## How it works
 
 - Verbs: `create/destroy/status/models/create-model/create-data/modify-data/sentinel-data/
-  delete-data/delete-model`, plus
+  delete-data/delete-model/capture-table/release-table`, plus
   `types/list/info/manifest/upgrade` and the shared `config`. A domain's name is `<user>_<build>`
   unless given, and its system's descriptor must be readable first (`_TDD_CRYPTO_KEY`, which
   every store-reading verb requires before it runs).
 - **A verb exists when some backend exposes it.** The catalog gates each one on a capability
-  (`supports_models`, `supports_data`, `supports_changes`), and a verb aimed at a system that
-  does not have it is rejected naming what that system does support -- rather than the verb
-  simply not existing, which would read as a typo.
+  (`supports_models`, `supports_data`, `supports_changes`, `supports_table_capture`), and a
+  verb aimed at a system that does not have it is rejected naming what that system does
+  support -- rather than the verb simply not existing, which would read as a typo.
+- **A test's own CDC source table goes through the backend.** `capture-table --table T
+  [--ddl SQL]` creates `T` in the domain's schema when given its DDL, registers it for change
+  capture by the same sequence `create-model` runs for the model's tables, and reports the CD
+  table in its ok event; `release-table --table T [--drop]` undoes it, best-effort, so a test's
+  teardown never fails on a half-made registration. Only `db2cdc` captures this way today.
 - **Batches are the normal case.** `--domain NAME|d1,d2|ALL` on any verb, `--sys` on `create`
   (one domain per system, named after it), `--manifest FILE` on `create` to replay a YAML
   manifest (`--sync` reconciles the store to it) and on `destroy/status`. Targets run in parallel

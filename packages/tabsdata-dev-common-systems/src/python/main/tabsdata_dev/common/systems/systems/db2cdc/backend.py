@@ -131,6 +131,7 @@ class Db2Cdc(Db2):
     label = "IBM Db2 Community (CDC)"
     ddl_from_slug = "db2"
     exclusive = True
+    supports_table_capture = True
 
     # ---- CLP plumbing --------------------------------------------------
 

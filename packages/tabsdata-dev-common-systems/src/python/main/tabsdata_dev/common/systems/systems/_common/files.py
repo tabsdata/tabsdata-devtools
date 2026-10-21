@@ -23,14 +23,12 @@ the domain root) mapped to their row counts.
 
 from __future__ import annotations
 
-from tabsdata_dev.common.systems import constants
-
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from tabsdata_dev.common.systems import datagen, emit, options
+from tabsdata_dev.common.systems import constants, datagen, emit, options
 from tabsdata_dev.common.systems.datagen import OpKind
 from tabsdata_dev.common.systems.errors import TdxError
 
@@ -71,6 +69,7 @@ class FileBackend:
     supports_trx_modes: bool = (
         False  # a change set is one staging; nothing to interleave
     )
+    supports_table_capture: bool = False
 
     # Staging data files needs the frame writer; a local root does not.
     sys_toolset: str = constants.TOOLSET_SYSTEMS

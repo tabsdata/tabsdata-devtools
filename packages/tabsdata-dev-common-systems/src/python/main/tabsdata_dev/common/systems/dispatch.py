@@ -117,6 +117,8 @@ LOGGED_VERBS = {
     constants.V_SENTINEL_DATA,
     constants.V_DELETE_DATA,
     constants.V_DELETE_MODEL,
+    constants.V_CAPTURE_TABLE,
+    constants.V_RELEASE_TABLE,
 }
 # Verbs that accept ``--latch FILE`` (the long-running ones).
 LATCH_VERBS = {
@@ -182,6 +184,8 @@ _DOM_CATALOG: dict[str, tuple[str, str | None]] = {
     constants.V_SENTINEL_DATA: ("dom_sentinel_data", "supports_changes"),
     constants.V_DELETE_DATA: ("dom_delete_data", "supports_data"),
     constants.V_DELETE_MODEL: ("dom_delete_model", "supports_models"),
+    constants.V_CAPTURE_TABLE: ("dom_capture_table", "supports_table_capture"),
+    constants.V_RELEASE_TABLE: ("dom_release_table", "supports_table_capture"),
 }
 
 _COMMANDS_PKG = f"{systems.__name__}._common.commands"

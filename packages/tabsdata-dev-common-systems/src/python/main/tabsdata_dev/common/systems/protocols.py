@@ -43,6 +43,9 @@ class Backend(Protocol):
     # modify-data's --trx-mode: the backend applies a run's transactions
     # interleaved or nested over concurrent connections (the SQL engines).
     supports_trx_modes: bool
+    # capture-table / release-table: the backend registers a table of the
+    # domain for change capture on demand (a test's own CDC source table).
+    supports_table_capture: bool
 
     def docker_images(self) -> list[tuple[str, str]]: ...
 
