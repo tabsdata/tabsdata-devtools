@@ -32,9 +32,10 @@ import os
 import random
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib import import_module
 from pathlib import Path
+from typing import ClassVar
 
 from tabsdata_dev.common.systems.emit import Column, Table, sql_literal, sql_quote_ident
 from tabsdata_dev.common.systems.errors import TdxError
@@ -146,7 +147,7 @@ class Model:
     spans tables satisfies foreign keys. ``build_initial`` returns every
     generated table (a superset of the delta entities) in FK-safe load order."""
 
-    entities: list[Entity] = []
+    entities: ClassVar[list[Entity]] = []
 
     def build_initial(self, rng: random.Random, n: int) -> list[Table]:
         raise NotImplementedError
@@ -443,7 +444,7 @@ def append_ops(
     counts down. A run's lines go out in one append, so runs sharing the file
     (a batch's children, a live script's entries) never interleave inside one.
     Returns the number of lines."""
-    stamp = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    stamp = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
     run: dict = {
         "run": uuid.uuid4().hex[:12],
         "ts": stamp.isoformat(),

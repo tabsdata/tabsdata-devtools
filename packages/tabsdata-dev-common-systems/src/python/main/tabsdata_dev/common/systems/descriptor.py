@@ -18,13 +18,12 @@ under a name that says which (``gcppostgres``).
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
-
 from tabsdata_dev.common.core import secrets
 from tabsdata_dev.common.systems import constants, crypto
 from tabsdata_dev.common.systems.errors import TdxError
@@ -93,12 +92,12 @@ class DomainInfo(BaseModel):
     seed: int = 0
 
 
-Info = Annotated[Union[SystemInfo, DomainInfo], Field(discriminator="role")]
+Info = Annotated[SystemInfo | DomainInfo, Field(discriminator="role")]
 _ADAPTER: TypeAdapter[SystemInfo | DomainInfo] = TypeAdapter(Info)
 
 
 def now_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def validate_name(name: str) -> None:

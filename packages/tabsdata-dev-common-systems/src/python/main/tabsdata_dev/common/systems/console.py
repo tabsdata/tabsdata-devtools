@@ -20,6 +20,7 @@ verb fails, so there is one place to look either way.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 import time
@@ -176,11 +177,9 @@ def activate(log_dir: str | Path, name_prefix: str):
     try:
         yield path
     finally:
-        try:
+        with contextlib.suppress(Exception):  # restore must not be masked
             sys.stdout.flush()
             sys.stderr.flush()
-        except Exception:  # noqa: BLE001 - restore must not be masked
-            pass
         os.dup2(term_fd, 1)
         os.dup2(err_fd, 2)
         sys.stdout, sys.stderr = saved_out, saved_err

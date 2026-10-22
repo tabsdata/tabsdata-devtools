@@ -8,7 +8,6 @@ instance-state`, `tdd _smoke pods-ready`)."""
 import io
 
 import pytest
-
 from tabsdata_dev.tool.smoke import engine, status
 
 

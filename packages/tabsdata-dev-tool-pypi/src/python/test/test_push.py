@@ -9,9 +9,8 @@ from __future__ import annotations
 import hashlib
 
 import pytest
-from tabsdata_dev.common.core.errors import ToolError
 from conftest import FakeS3, make_cfg, release
-
+from tabsdata_dev.common.core.errors import ToolError
 from tabsdata_dev.tool.pypi import push as push_mod
 from tabsdata_dev.tool.pypi.generate import generate
 from tabsdata_dev.tool.pypi.plan import (
@@ -624,8 +623,8 @@ def test_cache_clean_staging_asks_and_refuses_off_a_tty(monkeypatch, out):
 
 
 def test_cache_clean_from_the_cli(monkeypatch):
+    from tabsdata_dev.tool import pypi
     from tabsdata_dev.tool.pypi import cache as cache_mod
-    import tabsdata_dev.tool.pypi as pypi
 
     s3 = FakeS3()
     monkeypatch.setattr(cache_mod.boto3, "client", lambda *a, **k: s3)

@@ -93,6 +93,7 @@ def fetch_remote_file(ep: SshEndpoint, remote_path: str) -> str:
             "--",
             remote_path,
         ],
+        check=False,
         capture_output=True,
         encoding="utf-8",
     )
@@ -105,21 +106,28 @@ def fetch_remote_file(ep: SshEndpoint, remote_path: str) -> str:
 
 
 def _popen_detached(args: list[str], log_path: str) -> subprocess.Popen:
-    logf = open(log_path, "ab")
-    if sys.platform == "win32":
-        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+    # The child gets its own copy of the log descriptor when it starts, so this
+    # process's copy is closed once Popen returns.
+    with open(log_path, "ab") as logf:
+        if sys.platform == "win32":
+            flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+            return subprocess.Popen(
+                args,
+                stdin=subprocess.DEVNULL,
+                stdout=logf,
+                stderr=logf,
+                creationflags=flags,
+            )
+        # setsid: own session/process group, detached from the controlling
+        # terminal, so it survives `connect` exiting and can be signalled as a
+        # group.
         return subprocess.Popen(
             args,
             stdin=subprocess.DEVNULL,
             stdout=logf,
             stderr=logf,
-            creationflags=flags,
+            start_new_session=True,
         )
-    # setsid: own session/process group, detached from the controlling terminal,
-    # so it survives `connect` exiting and can be signalled as a group.
-    return subprocess.Popen(
-        args, stdin=subprocess.DEVNULL, stdout=logf, stderr=logf, start_new_session=True
-    )
 
 
 def open_tunnel(
@@ -173,7 +181,10 @@ def open_tunnel(
 def tunnel_alive(pid: int) -> bool:
     if os.name == "nt":
         cp = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, encoding="utf-8"
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            check=False,
+            capture_output=True,
+            encoding="utf-8",
         )
         return str(pid) in cp.stdout
     try:
@@ -188,7 +199,9 @@ def close_tunnel(pid: int) -> None:
     child was started in its own session); Windows uses ``taskkill /T`` to take
     the tree down. Best-effort — a stale/absent PID is not an error."""
     if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True)
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"], check=False, capture_output=True
+        )
         return
     try:
         os.killpg(os.getpgid(pid), signal.SIGTERM)

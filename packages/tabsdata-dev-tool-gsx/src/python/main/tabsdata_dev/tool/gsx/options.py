@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import argparse
 
-from tabsdata_dev.common.core import cli, config as config_mod, resources
+from tabsdata_dev.common.core import cli, resources
+from tabsdata_dev.common.core import config as config_mod
 
 from .args import NATIVES
 

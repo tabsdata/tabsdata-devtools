@@ -2,12 +2,13 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-import os
-import pytest
 import io
 import json
+import os
+import pathlib
 import sys
 
+import pytest
 from tabsdata_dev.common.core import cli, parallel, proc, render
 from tabsdata_dev.common.core.errors import ToolError
 
@@ -75,7 +76,7 @@ def test_colour_codes_by_kind(monkeypatch):
 
 def test_error_writes_a_log_and_returns_1(tmp_path, monkeypatch):
     monkeypatch.setattr(render, "LOG_DIR", tmp_path)
-    r, out, err = _renderer("json")
+    r, out = _renderer("json")[:2]
     assert r.error("broke", details="trace") == 1
     line = json.loads(out.getvalue())
     assert line["event"] == "error" and line["message"] == "broke"
@@ -330,6 +331,7 @@ def test_a_windows_export_gives_powershell_every_value_exactly(
     file.write_text(text, encoding="utf-8")
     done = subprocess.run(
         [pwsh, "-NoProfile", "-File", resource_folder / "load_ps1.ps1", file, *values],
+        check=False,
         capture_output=True,
         encoding="utf-8",
     )
@@ -494,10 +496,13 @@ def test_managedvenv_resolves_the_marker_and_composes_each_manager(
     root = tmp_path / "managed-venvs"
     for manager in ("pyenv", "uv", "conda"):
         (root / manager / f"v-{manager}").mkdir(parents=True)
-        (root / f"v-{manager}.json").write_text(
-            '{"schema": 1, "manager": "%s", "python": "3.12.13", '
-            '"relocatable": false}\n' % manager
-        )
+        record = {
+            "schema": 1,
+            "manager": manager,
+            "python": "3.12.13",
+            "relocatable": False,
+        }
+        (root / f"v-{manager}.json").write_text(json.dumps(record) + "\n")
     assert managedvenv.resolve("v-uv") == ("uv", root / "uv" / "v-uv")
     assert managedvenv.marker("v-uv") == {
         "schema": 1,
@@ -913,7 +918,7 @@ def test_a_tool_error_carries_diagnostics_into_the_log_and_not_the_terminal(caps
     assert "permission denied for schema public" in shown
     assert "DETAIL: it is owned by x" not in shown
     path = shown.split("details: ", 1)[1].strip().splitlines()[0]
-    written = open(path).read()
+    written = pathlib.Path(path).read_text()
     assert "error:   permission denied for schema public" in written
     assert "DETAIL: it is owned by x" in written
     os.unlink(path)
@@ -930,7 +935,7 @@ def test_a_plain_tool_error_still_writes_a_log_without_a_details_block(capsys):
 
     assert cli.run("probe", "d", body, argv=[]) == 1
     path = capsys.readouterr().err.split("details: ", 1)[1].strip().splitlines()[0]
-    written = open(path).read()
+    written = pathlib.Path(path).read_text()
     assert "just the message" in written and "\ndetails:" not in written
     os.unlink(path)
 
@@ -1018,7 +1023,7 @@ def test_a_command_can_render_formats_of_its_own(capsys):
         seen.append((args.format, out.fmt))
         return out.ok("lines" if args.format == "export" else "summary")
 
-    run = dict(formats={"export": "lines to eval"}, default_format="export")
+    run = {"formats": {"export": "lines to eval"}, "default_format": "export"}
     assert cli.run("demo", "d", body, argv=[], **run) == 0
     assert cli.run("demo", "d", body, argv=["--format", "json"], **run) == 0
     assert seen == [("export", "view"), ("json", "json")]

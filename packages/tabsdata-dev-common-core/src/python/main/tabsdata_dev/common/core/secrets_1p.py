@@ -25,7 +25,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .errors import ToolError
 
-
 #: An item titled this way is the reader's own business, not a system's config.
 #: Checked on the title as 1Password shows it, before `_norm` -- which maps a
 #: leading `-` to `_` too, and would then hide items nobody meant to hide.
@@ -62,6 +61,7 @@ def fetch(vault: str) -> dict[str, str]:
     _require("op")
     cp = subprocess.run(
         ["op", "--vault", vault, "item", "list", "--format=json"],
+        check=False,
         capture_output=True,
         encoding="utf-8",
     )
@@ -88,6 +88,7 @@ def fetch(vault: str) -> dict[str, str]:
     def get_item(title: str) -> dict | None:
         cp = subprocess.run(
             ["op", "--vault", vault, "item", "get", title, "--format=json"],
+            check=False,
             capture_output=True,
             encoding="utf-8",
         )
@@ -120,7 +121,9 @@ def read_field(vault: str, item: str, field: str) -> str:
     to :func:`fetch`, which sweeps a whole shared vault."""
     _require("op")
     ref = f"op://{vault}/{item}/{field}"
-    cp = subprocess.run(["op", "read", ref], capture_output=True, encoding="utf-8")
+    cp = subprocess.run(
+        ["op", "read", ref], check=False, capture_output=True, encoding="utf-8"
+    )
     if cp.returncode != 0:
         raise ToolError(
             f"could not read {ref}: {cp.stderr.strip() or cp.stdout.strip() or 'op failed'}"
@@ -133,7 +136,7 @@ def read_field(vault: str, item: str, field: str) -> str:
 
 def _op(args: list[str], what: str, stdin: str | None = None) -> str:
     cp = subprocess.run(
-        ["op", *args], input=stdin, capture_output=True, encoding="utf-8"
+        ["op", *args], check=False, input=stdin, capture_output=True, encoding="utf-8"
     )
     if cp.returncode != 0:
         raise ToolError(
@@ -171,6 +174,7 @@ def item_exists(vault: str, title: str) -> bool:
     _require("op")
     cp = subprocess.run(
         ["op", "--vault", vault, "item", "get", title, "--format=json"],
+        check=False,
         capture_output=True,
         encoding="utf-8",
     )

@@ -13,6 +13,8 @@ entities, so ``modify-data`` is not offered (``supports_changes=False``).
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from tabsdata_dev.common.systems.systems._common import container_info
 from tabsdata_dev.common.systems.systems._common.sql import SqlContainerBackend
 
@@ -32,7 +34,7 @@ class Clickhouse(SqlContainerBackend):
     root_user = "default"
     driver = "clickhousedb"
     admin_db = "default"
-    extra_run_flags = ["--ulimit", "nofile=262144:262144"]
+    extra_run_flags: ClassVar[list[str]] = ["--ulimit", "nofile=262144:262144"]
     system_schemas = frozenset({"system", "information_schema", "default"})
 
     def env_vars(self, password: str) -> dict[str, str]:
@@ -54,8 +56,10 @@ class Clickhouse(SqlContainerBackend):
     def create_domain_sql(self, db: str, user: str, password: str) -> list[str]:
         return [
             f'CREATE DATABASE "{db}"',
-            f'CREATE USER "{user}" IDENTIFIED WITH plaintext_password '
-            f"BY '{password}'",
+            (
+                f'CREATE USER "{user}" IDENTIFIED WITH plaintext_password '
+                f"BY '{password}'"
+            ),
             f'GRANT ALL ON "{db}".* TO "{user}"',
             # Cloud-staging ingest uses s3()/azureBlobStorage() table functions,
             # which need global source grants (not the db-scoped ALL above).

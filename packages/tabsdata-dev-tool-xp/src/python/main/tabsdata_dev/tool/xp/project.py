@@ -16,7 +16,7 @@ import os
 import pathlib
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from tabsdata_dev.common.core import proc
 
@@ -75,6 +75,7 @@ def store_rows() -> list[dict]:
     test can stand in for the store."""
     r = subprocess.run(
         proc.tool_argv("system", "list", "--format", "json"),
+        check=False,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -152,8 +153,10 @@ def cmd_list_systems(args) -> tuple[str, dict]:
 def cmd_export_suites(args) -> tuple[str, dict]:
     out = suites.export(pathlib.Path(args.dir), bool(getattr(args, "force", False)))
     return (
-        f"exported the built-in suites to {out['dir']}: suites/ ({out['suites']} files), "
-        f"connections/ ({out['connections']} files); use them with --suites-dir {out['dir']}/suites",
+        (
+            f"exported the built-in suites to {out['dir']}: suites/ ({out['suites']} files), "
+            f"connections/ ({out['connections']} files); use them with --suites-dir {out['dir']}/suites"
+        ),
         out,
     )
 
@@ -552,7 +555,7 @@ def register_functions(inst, project: str, functions: list) -> None:
 
 
 def fire_triggers(inst, project: str, triggers: list) -> None:
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     rep().plan(len(triggers))
 
     def _trigger(t):
@@ -692,7 +695,7 @@ def _watch(
             return shell.run_cmd(argv, check=False, timeout=left)
         rep().note(f"monitor '{project}' (Ctrl-C to stop watching)")
         shell.flush_stdout()
-        return subprocess.run(argv, timeout=left)
+        return subprocess.run(argv, check=False, timeout=left)
     except subprocess.TimeoutExpired:
         return None
 

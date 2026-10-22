@@ -21,7 +21,10 @@ from .errors import ToolError
 def require_docker() -> None:
     if (
         subprocess.run(
-            ["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            ["docker", "info"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         ).returncode
         != 0
     ):
@@ -32,6 +35,7 @@ def container_exists(name: str) -> bool:
     return (
         subprocess.run(
             ["docker", "container", "inspect", name],
+            check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         ).returncode
@@ -43,6 +47,7 @@ def container_state(name: str) -> str | None:
     """`running`/`exited`/`created`/etc., or None if the container is absent."""
     cp = subprocess.run(
         ["docker", "container", "inspect", "-f", "{{.State.Status}}", name],
+        check=False,
         capture_output=True,
         encoding="utf-8",
     )
@@ -65,6 +70,7 @@ def container_failure(name: str, tail: int = 40) -> str:
         fmt = "{{.State.Status}}|{{.State.ExitCode}}|{{.State.Error}}|{{.State.OOMKilled}}"
         cp = subprocess.run(
             ["docker", "container", "inspect", "-f", fmt, name],
+            check=False,
             capture_output=True,
             encoding="utf-8",
         )
@@ -84,6 +90,7 @@ def container_failure(name: str, tail: int = 40) -> str:
             lines.append("OOM killed:  yes")
         logs = subprocess.run(
             ["docker", "logs", "--tail", str(tail), name],
+            check=False,
             capture_output=True,
             encoding="utf-8",
         )
@@ -103,6 +110,7 @@ def container_id(name: str) -> str | None:
     try:
         cp = subprocess.run(
             ["docker", "container", "inspect", "-f", "{{.Id}}", name],
+            check=False,
             capture_output=True,
             encoding="utf-8",
         )
@@ -130,6 +138,7 @@ def list_containers(name_prefix: str) -> list[dict]:
             "--format",
             "{{.ID}}\t{{.Names}}\t{{.State}}\t{{.Image}}",
         ],
+        check=False,
         capture_output=True,
         encoding="utf-8",
     )
@@ -154,12 +163,14 @@ def docker_pull(image: str, platform: str = "") -> None:
     if platform:
         args += ["--platform", platform]
     args.append(image)
-    if subprocess.run(args).returncode != 0:
+    if subprocess.run(args, check=False).returncode != 0:
         raise ToolError(f"docker pull failed for image {image}")
 
 
 def docker_run(args: list[str]) -> str:
-    cp = subprocess.run(["docker", "run"] + args, capture_output=True, encoding="utf-8")
+    cp = subprocess.run(
+        ["docker", "run"] + args, check=False, capture_output=True, encoding="utf-8"
+    )
     if cp.returncode != 0:
         raise ToolError(f"docker run failed: {cp.stderr.strip() or cp.stdout.strip()}")
     cid = cp.stdout.strip()
@@ -173,7 +184,7 @@ def docker_rm(name: str, force: bool = False) -> None:
     if force:
         args.append("-f")
     args.append(name)
-    cp = subprocess.run(args, capture_output=True, encoding="utf-8")
+    cp = subprocess.run(args, check=False, capture_output=True, encoding="utf-8")
     if cp.returncode != 0:
         detail = cp.stderr.strip() or cp.stdout.strip()
         raise ToolError(f"could not remove container {name}: {detail}")
@@ -181,7 +192,7 @@ def docker_rm(name: str, force: bool = False) -> None:
 
 def docker_start(name: str) -> None:
     cp = subprocess.run(
-        ["docker", "start", name], capture_output=True, encoding="utf-8"
+        ["docker", "start", name], check=False, capture_output=True, encoding="utf-8"
     )
     if cp.returncode != 0:
         detail = cp.stderr.strip() or cp.stdout.strip()
@@ -189,7 +200,9 @@ def docker_start(name: str) -> None:
 
 
 def docker_stop(name: str) -> None:
-    cp = subprocess.run(["docker", "stop", name], capture_output=True, encoding="utf-8")
+    cp = subprocess.run(
+        ["docker", "stop", name], check=False, capture_output=True, encoding="utf-8"
+    )
     if cp.returncode != 0:
         detail = cp.stderr.strip() or cp.stdout.strip()
         raise ToolError(f"could not stop container {name}: {detail}")
@@ -197,7 +210,7 @@ def docker_stop(name: str) -> None:
 
 def docker_restart(name: str) -> None:
     cp = subprocess.run(
-        ["docker", "restart", name], capture_output=True, encoding="utf-8"
+        ["docker", "restart", name], check=False, capture_output=True, encoding="utf-8"
     )
     if cp.returncode != 0:
         detail = cp.stderr.strip() or cp.stdout.strip()
@@ -221,7 +234,9 @@ def docker_exec(
         for k, v in env.items():
             args += ["-e", f"{k}={v}"]
     args += [container, *cmd]
-    return subprocess.run(args, input=input, capture_output=True, encoding="utf-8")
+    return subprocess.run(
+        args, check=False, input=input, capture_output=True, encoding="utf-8"
+    )
 
 
 def docker_exec_check(container: str, *cmd: str) -> bool:
@@ -229,6 +244,7 @@ def docker_exec_check(container: str, *cmd: str) -> bool:
     return (
         subprocess.run(
             ["docker", "exec", container] + list(cmd),
+            check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         ).returncode
@@ -250,10 +266,12 @@ def docker_compose(
     run_env = {**os.environ, **env} if env else None
     verb = args[0] if args else ""
     if not capture:
-        if subprocess.run(cmd, env=run_env).returncode != 0:
+        if subprocess.run(cmd, check=False, env=run_env).returncode != 0:
             raise ToolError(f"docker compose {verb} failed for project {project}")
         return ""
-    cp = subprocess.run(cmd, capture_output=True, encoding="utf-8", env=run_env)
+    cp = subprocess.run(
+        cmd, check=False, capture_output=True, encoding="utf-8", env=run_env
+    )
     if cp.returncode != 0:
         detail = (cp.stderr or cp.stdout or "").strip()
         raise ToolError(f"docker compose {verb} failed for project {project}: {detail}")

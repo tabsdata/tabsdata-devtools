@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import random
 from datetime import date, timedelta
+from typing import ClassVar
 
 from tabsdata_dev.common.systems.datagen import Entity, Model, OpKind
 from tabsdata_dev.common.systems.emit import Column, Table
@@ -373,7 +374,7 @@ class _Departments(Entity):
 
 
 class _EmployeesModel(Model):
-    entities = [_Employees(), _Departments()]
+    entities: ClassVar[list[Entity]] = [_Employees(), _Departments()]
 
     def build_initial(self, rng: random.Random, n: int) -> list[Table]:
         employees = _gen_employees(rng, n)

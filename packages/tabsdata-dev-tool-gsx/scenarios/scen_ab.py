@@ -4,7 +4,6 @@
 
 """Batch A/B: baseline collaboration and the cascade family."""
 
-# ruff: noqa: F403, F405 -- the harness is the scenario vocabulary, imported whole
 from harness import *
 
 
@@ -15,11 +14,11 @@ def a1(steps):
     steps.append(f"alice: stack #{num} {names}")
     track("bob", num)
     write_commit("bob", "A1-1", "[A1-1] bob adds to the bottom")
-    rc, o = gsx("bob", "sync", "--push")
+    o = gsx("bob", "sync", "--push")[1]
     expect_not_in(o, "CONFLICT")
     steps.append("bob: commit on A1-1, sync")
     write_commit("alice", "A1-3", "[A1-3] alice adds to the top")
-    rc, o = gsx("alice", "sync", "--push")
+    o = gsx("alice", "sync", "--push")[1]
     expect_not_in(o, "CONFLICT")
     steps.append("alice: commit on A1-3, sync (must integrate bob's)")
     fetch("alice")
@@ -31,7 +30,7 @@ def a1(steps):
     expect_no_dups("alice", "A1-3")
     expect_stacked("alice", names)
     expect(stack_map().get(num) == names, f"stack #{num} changed: {stack_map()}")
-    rc, o = gsx("bob", "sync", "--push")
+    o = gsx("bob", "sync", "--push")[1]
     fetch("bob")
     expect_local_equals_remote("bob", names)
     steps.append("bob: sync brings everything down; local == remote")
@@ -44,7 +43,7 @@ def a2(steps):
     write_commit("bob", "A2-2", "[A2-2] bob's change", "bob.txt")
     gsx("bob", "sync", "--push")
     write_commit("alice", "A2-2", "[A2-2] alice's change", "alice.txt")
-    rc, o = gsx("alice", "sync", "--push")
+    o = gsx("alice", "sync", "--push")[1]
     expect_not_in(o, "CONFLICT")
     steps.append("bob then alice, both on A2-2")
     fetch("alice")
@@ -74,7 +73,7 @@ def a3(steps):
     mid = sha("alice", "HEAD")
     git("alice", "checkout", "-q", "A3-2")
     git("alice", "rebase", "-q", "--onto", mid, first, "A3-2")
-    rc, o = gsx("alice", "sync", "--push")
+    o = gsx("alice", "sync", "--push")[1]
     expect_not_in(o, "REFUSING")
     steps.append("alice interleaved on A3-2, sync forced A3-2 and A3-3")
     fetch("alice")
@@ -84,7 +83,7 @@ def a3(steps):
         f"order wrong: {subjects('alice', 'origin/A3-1..origin/A3-2')}",
     )
     expect_stacked("alice", names)
-    rc, o = gsx("bob", "sync", "--push")
+    o = gsx("bob", "sync", "--push")[1]
     expect_not_in(o, "CONFLICT")
     fetch("bob")
     expect_local_equals_remote("bob", names)
@@ -94,12 +93,12 @@ def a3(steps):
 # ================================================================ B: cascades
 @scenario("B1: trunk moves; a 5-branch stack restacks once each, no duplicates")
 def b1(steps):
-    names, num = make_stack("alice", "B1", 5)
+    names = make_stack("alice", "B1", 5)[0]
     write_commit("bob", "main", "[main] landed by bob")
     git("bob", "push", "-q", "origin", "main")
     steps.append("bob landed on main")
     git("alice", "checkout", "-q", "B1-5")
-    rc, o = gsx("alice", "sync", "--push")
+    o = gsx("alice", "sync", "--push")[1]
     expect_not_in(o, "CONFLICT")
     expect_in(o, "5 restacked")
     fetch("alice")
@@ -123,7 +122,7 @@ def b2(steps):
     for n in ("B2-3", "B2-4", "B2-5"):
         write_commit("alice", n, f"[{n}] alice local")
     git("alice", "checkout", "-q", "B2-5")
-    rc, o = gsx("alice", "sync", "--push")
+    o = gsx("alice", "sync", "--push")[1]
     expect_not_in(o, "CONFLICT")
     fetch("alice")
     expect_present_once(
@@ -156,7 +155,7 @@ def b3(steps):
     gsx("bob", "sync", "--push")
     write_commit("alice", "B3-5", "[B3-5] alice top")
     git("alice", "checkout", "-q", "B3-5")
-    rc, o = gsx("alice", "sync", "--push")
+    o = gsx("alice", "sync", "--push")[1]
     expect_not_in(o, "CONFLICT")
     fetch("alice")
     expect_present_once("alice", "B3-5", ["[B3-3] bob mid", "[B3-5] alice top"])
@@ -179,10 +178,10 @@ def b4(steps):
         who = "alice" if round_ == 1 else "bob"
         write_commit(who, f"B4-{6 * round_}", f"[B4-{6 * round_}] {who} r{round_}")
         git(who, "checkout", "-q", names[-1])
-        rc, o = gsx(who, "sync", "--push")
+        o = gsx(who, "sync", "--push")[1]
         expect_not_in(o, "CONFLICT")
         other = "bob" if who == "alice" else "alice"
-        rc, o = gsx(other, "sync", "--push")
+        o = gsx(other, "sync", "--push")[1]
         expect_not_in(o, "CONFLICT")
     fetch("alice")
     expect_present_once("alice", "B4-12", ["[B4-6] alice r1", "[B4-12] bob r2"])

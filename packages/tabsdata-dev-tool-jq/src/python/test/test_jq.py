@@ -9,7 +9,6 @@ import subprocess
 import sys
 
 import pytest
-
 from tabsdata_dev.tool import jq
 
 
@@ -65,6 +64,7 @@ def test_stdin_reaches_the_real_jq(tmp_path):
     launcher = pathlib.Path(sys.executable).parent / "jq"
     done = subprocess.run(
         [launcher, "-c", ".a"],
+        check=False,
         input='{"a": [1, 2]}',
         capture_output=True,
         text=True,

@@ -13,11 +13,9 @@ import re
 import sys
 import tomllib
 
+from . import bundled, paths, render
 from . import catalog as catalog_mod
 from . import discover as discover_mod
-from . import paths
-from . import render
-from . import bundled
 from . import version as version_mod
 
 TOOLSET_PREFIX = discover_mod.TOOLSET_PREFIX

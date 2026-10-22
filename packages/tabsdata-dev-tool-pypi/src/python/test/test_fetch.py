@@ -11,11 +11,10 @@ import threading
 from pathlib import Path
 
 import pytest
-from tabsdata_dev.common.core.errors import ToolError
 from conftest import FakeS3, make_cfg, make_lane
-
-import tabsdata_dev.tool.pypi as pypi
 from tabsdata_dev.common.core import cli
+from tabsdata_dev.common.core.errors import ToolError
+from tabsdata_dev.tool import pypi
 from tabsdata_dev.tool.pypi import fetch as fetch_mod
 
 
@@ -179,7 +178,7 @@ def test_biggest_first_and_really_parallel(raw, monkeypatch, out):
     lock, started = threading.Lock(), threading.Event()
     real = s3.download_file
 
-    def slow(Bucket, Key, Filename):  # noqa: N803
+    def slow(Bucket, Key, Filename):
         nonlocal peak, in_flight
         with lock:
             in_flight += 1

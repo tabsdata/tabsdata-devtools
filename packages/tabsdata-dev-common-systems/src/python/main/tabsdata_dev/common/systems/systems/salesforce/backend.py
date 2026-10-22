@@ -86,7 +86,7 @@ class Salesforce(ServiceBackend):
         if not url:
             return False
         try:
-            urllib.request.urlopen(url, timeout=10)  # noqa: S310
+            urllib.request.urlopen(url, timeout=10)
             return True
         except urllib.error.HTTPError:
             return True  # the host answered (even a 4xx) — it's reachable

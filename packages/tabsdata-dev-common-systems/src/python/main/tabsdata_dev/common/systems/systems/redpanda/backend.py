@@ -19,6 +19,7 @@ still exists; ``modify-data`` is insert-only (a Kafka log only appends).
 
 from __future__ import annotations
 
+import contextlib
 import json
 from contextlib import contextmanager
 from urllib.parse import quote, unquote
@@ -239,7 +240,7 @@ class Redpanda(SqlContainerBackend):
     def _topics(self, client) -> list[str]:
         try:
             return list(client.list_topics(timeout=10).topics)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise TdxError(f"kafka list topics failed: {exc}") from exc
 
     def _delete_topics(self, client, name: str, *, include_root: bool = True) -> None:
@@ -252,10 +253,8 @@ class Redpanda(SqlContainerBackend):
             return
         futures = client.delete_topics(targets)
         for t in targets:
-            try:
+            with contextlib.suppress(Exception):  # best-effort; report nothing
                 futures[t].result()
-            except Exception:  # noqa: BLE001 - best-effort; report nothing
-                pass
 
     def domain_meta(
         self, sys_meta: dict[str, str], entity_name: str, password: str
@@ -295,7 +294,7 @@ class Redpanda(SqlContainerBackend):
         )
         try:
             futures[entity_name].result()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise TdxError(f"kafka create topic '{entity_name}' failed: {exc}") from exc
 
     def destroy_domain(self, domain_meta: dict[str, str]) -> None:
@@ -338,7 +337,7 @@ class Redpanda(SqlContainerBackend):
     def _endpoint(uri: str) -> tuple[dict, str, str]:
         """``(client config, brokers, topic prefix)`` from a data-plane handle."""
         rest = uri.split("://", 1)[-1]
-        auth, at, rest = rest.rpartition("@") if "@" in rest else ("", "", rest)
+        auth, rest = rest.rsplit("@", 1) if "@" in rest else ("", rest)
         brokers, _, prefix = rest.partition("/")
         user, _, password = auth.partition(":")
         return client_conf(brokers, unquote(user), unquote(password)), brokers, prefix
@@ -377,7 +376,7 @@ class Redpanda(SqlContainerBackend):
             for topic, future in client.create_topics(todo).items():
                 try:
                     future.result()
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     raise TdxError(
                         f"kafka create topic '{topic}' failed: {exc}"
                     ) from exc

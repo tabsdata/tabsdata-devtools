@@ -26,8 +26,9 @@ import csv
 import hashlib
 import random
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import ClassVar
 
 from tabsdata_dev.common.systems.datagen import BASE_SIZE, Entity, Model, OpKind
 from tabsdata_dev.common.systems.emit import Column, Table
@@ -35,7 +36,7 @@ from tabsdata_dev.common.systems.emit import Column, Table
 _ACCOUNTS_CSV = Path(__file__).parent / "accounts.csv"
 
 # Frozen "now" so repeat runs produce identical timestamps.
-NOW = datetime(2026, 4, 19, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 4, 19, 12, 0, 0, tzinfo=UTC)
 
 # Base seed folded into every per-account RNG.
 SEED = 42
@@ -178,11 +179,11 @@ def _plan_index(
 
 
 def _parse_sf_dt(s: str) -> datetime:
-    return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S.%f%z").astimezone(timezone.utc)
+    return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S.%f%z").astimezone(UTC)
 
 
 def _to_naive_utc(dt: datetime) -> datetime:
-    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt.astimezone(UTC).replace(tzinfo=None)
 
 
 @dataclass
@@ -506,6 +507,7 @@ def _build_tables(accounts: list[dict], subs_per_customer: int) -> list[Table]:
                 to: str | None,
                 when: datetime,
                 actor: str,
+                sub_id=sub_id,
             ) -> None:
                 event_rows.append(
                     {
@@ -579,7 +581,7 @@ _TS = datetime(2020, 1, 1, 0, 0, 0)
 
 class _Customers(Entity):
     table = "customers"
-    columns = [
+    columns: ClassVar[list[Column]] = [
         Column("customer_id", "bigint", nullable=False, auto=True),
         Column("external_id", "varchar(36)", nullable=False),
         Column("name", "varchar(255)", nullable=False),
@@ -614,7 +616,9 @@ class _Customers(Entity):
 
 class _SubscriptionEvents(Entity):
     table = "customer_subscription_events"
-    columns = [Column("event_id", "bigint", nullable=False, auto=True)]
+    columns: ClassVar[list[Column]] = [
+        Column("event_id", "bigint", nullable=False, auto=True)
+    ]
     # Leaf table — nothing references it, so a delete never breaks a foreign key;
     # inserts would need an FK + JSON column, so this entity only deletes.
     supports = (OpKind.DELETE,)
@@ -625,7 +629,7 @@ class _SubscriptionEvents(Entity):
 
 
 class _Finance(Model):
-    entities = [_Customers(), _SubscriptionEvents()]
+    entities: ClassVar[list[Entity]] = [_Customers(), _SubscriptionEvents()]
 
     def build_initial(self, rng: random.Random, n: int) -> list[Table]:
         random.seed(SEED)

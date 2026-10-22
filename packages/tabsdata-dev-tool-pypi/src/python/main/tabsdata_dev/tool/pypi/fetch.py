@@ -10,7 +10,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 import boto3
-
 from tabsdata_dev.common.core.errors import ToolError
 from tabsdata_dev.common.core.render import Renderer
 
@@ -143,8 +142,9 @@ def fetch_raw(
         pruned = _prune(
             root,
             {p.dst for p in pulls},
-            lambda p: p.name == _MARKER
-            or (p.name == MANIFEST and p.parent in archived_dirs),
+            lambda p: (
+                p.name == _MARKER or (p.name == MANIFEST and p.parent in archived_dirs)
+            ),
             out,
             assume_yes=assume_yes,
         )

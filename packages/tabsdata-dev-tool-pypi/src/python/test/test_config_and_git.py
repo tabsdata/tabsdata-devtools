@@ -10,7 +10,6 @@ import subprocess
 
 import pytest
 from tabsdata_dev.common.core.errors import ToolError
-
 from tabsdata_dev.tool.pypi import config as config_mod
 from tabsdata_dev.tool.pypi.git import assert_committed_and_pushed
 

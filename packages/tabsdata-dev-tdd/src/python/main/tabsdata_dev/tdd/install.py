@@ -19,8 +19,7 @@ from __future__ import annotations
 import sys
 
 from . import initialize as initialize_mod
-from . import paths
-from . import render
+from . import paths, render
 
 COMMAND = "tdd-install"
 

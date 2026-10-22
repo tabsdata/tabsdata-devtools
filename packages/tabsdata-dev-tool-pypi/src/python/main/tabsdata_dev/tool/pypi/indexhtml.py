@@ -19,7 +19,6 @@ from urllib.parse import quote
 
 from markupsafe import Markup
 from packaging.version import InvalidVersion, Version
-
 from tabsdata_dev.common.core import resources
 
 from .model import Dist

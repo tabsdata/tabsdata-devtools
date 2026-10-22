@@ -13,7 +13,6 @@ import pathlib
 
 from tabsdata_dev.tdd import initialize, paths
 
-
 PYTHON = "3.12.13"
 
 

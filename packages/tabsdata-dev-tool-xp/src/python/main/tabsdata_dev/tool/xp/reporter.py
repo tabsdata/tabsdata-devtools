@@ -36,9 +36,9 @@ import tempfile
 import threading
 import time
 from collections.abc import Iterable, Iterator
-from typing import TextIO
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TextIO
 
 from tabsdata_dev.common.core import render
 
@@ -46,7 +46,7 @@ from . import state
 
 # Stamped ONCE at process start and reused for every name this run derives, so
 # all domains a single invocation creates share one timestamp.
-RUN_TS = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+RUN_TS = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
 SCRATCH_ROOT = render.LOG_DIR / "tdd-xp"
 
 # Progress-line column widths (view format). The path ends the line: it is as
@@ -153,7 +153,7 @@ class Reporter:
         # run's), so keyed by lane alone a later phase would replace an earlier
         # one's summary, or count its lanes twice (empty for a single suite).
         self.lanes: dict[str, dict[str, dict]] = {}
-        self.started = datetime.now(timezone.utc)
+        self.started = datetime.now(UTC)
         self._t0 = time.perf_counter()
         self._lock = threading.Lock()
 
@@ -207,7 +207,7 @@ class Reporter:
         t = time.perf_counter()
         try:
             yield rec
-        except BaseException as exc:  # noqa: BLE001 -- reported, then re-raised
+        except BaseException as exc:
             self._record(
                 action,
                 path,
@@ -279,9 +279,8 @@ class Reporter:
         """One line of a running step's output, into run.log as it comes,
         prefixed with the step's label: steps that run side by side write
         between each other's lines, and the prefix says whose each is."""
-        with self._lock:
-            with self.log_path.open("a", encoding="utf-8") as fh:
-                fh.write(f"{label} | {line.rstrip(chr(10))}\n")
+        with self._lock, self.log_path.open("a", encoding="utf-8") as fh:
+            fh.write(f"{label} | {line.rstrip(chr(10))}\n")
 
     def error(self, header: str, body: str = "") -> None:
         """Append one entry to errors.log -- a failed step, or an error that would
@@ -296,12 +295,11 @@ class Reporter:
         self._append(self.errors_path, strip_ansi(header), strip_ansi(body))
 
     def _append(self, path: pathlib.Path, header: str, body: str) -> None:
-        stamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        with self._lock:
-            with path.open("a", encoding="utf-8") as fh:
-                fh.write(f"\n=== {stamp} {header} ===\n")
-                if body:
-                    fh.write(body.rstrip("\n") + "\n")
+        stamp = datetime.now(UTC).strftime("%H:%M:%S")
+        with self._lock, path.open("a", encoding="utf-8") as fh:
+            fh.write(f"\n=== {stamp} {header} ===\n")
+            if body:
+                fh.write(body.rstrip("\n") + "\n")
 
     def absorb_lane(self, dispatch: str, lane: str, summary: dict) -> None:
         """Fold a dispatched lane's summary into this run's, under the dispatch

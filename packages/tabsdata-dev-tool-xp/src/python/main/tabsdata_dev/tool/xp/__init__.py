@@ -50,9 +50,8 @@ import argparse
 import pathlib
 import sys
 
-from tabsdata_dev.common.core import cli
+from tabsdata_dev.common.core import cli, render
 from tabsdata_dev.common.core import latch as core_latch
-from tabsdata_dev.common.core import render
 
 from . import actions, cycle, domains, project, state
 from .reporter import render_summary

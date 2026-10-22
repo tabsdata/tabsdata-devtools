@@ -111,7 +111,7 @@ class Reporter(core_batch.Reporter):
 
     def end(self, task: core_batch.Task, done: int, total: int) -> None:
         text = f"[{done}/{total}] {task.name} {task.status.upper()} ({task.seconds}s)"
-        fields = dict(suite=task.name, status=task.status, seconds=task.seconds)
+        fields = {"suite": task.name, "status": task.status, "seconds": task.seconds}
         (self.out.info if task.status == "ok" else self.out.warn)(text, **fields)
 
 

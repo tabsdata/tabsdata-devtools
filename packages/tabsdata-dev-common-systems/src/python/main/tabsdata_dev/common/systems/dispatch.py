@@ -987,7 +987,7 @@ def _cmn_clean_docker(tool: str, rest: list[str]) -> int:
             shell.docker_rm(c["name"], force=True)
             removed.append(c["name"])
             console.out(f"  removed {c['name']}")
-        except Exception as exc:  # one stubborn container must not stop the sweep
+        except Exception as exc:  # noqa: BLE001 - one stubborn container must not stop the sweep
             failed.append({"name": c["name"], "error": str(exc)})
             console.warn(f"  {c['name']}: {exc}")
     console.result({"prefix": prefix, "removed": removed, "failed": failed})
@@ -1429,8 +1429,10 @@ def top_help(tool: str) -> tuple[str, dict]:
             "",
             f"store: {store.system_dir()}",
             f"       {store.domain_dir()}",
-            f"       (--sys-dir / --domain-dir, else ${constants.ENV_SYSTEM_DIR} / "
-            f"${constants.ENV_DOMAIN_DIR}, override)",
+            (
+                f"       (--sys-dir / --domain-dir, else ${constants.ENV_SYSTEM_DIR} / "
+                f"${constants.ENV_DOMAIN_DIR}, override)"
+            ),
         ]
     )
     p = core_cli.parser(tool, DESCRIPTIONS[tool])

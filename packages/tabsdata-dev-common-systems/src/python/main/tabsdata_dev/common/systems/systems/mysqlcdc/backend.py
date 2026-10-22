@@ -17,6 +17,8 @@ no per-table setup.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from tabsdata_dev.common.systems.systems.mysql.backend import Mysql
 
 
@@ -25,7 +27,7 @@ class Mysqlcdc(Mysql):
     label = "MySQL (CDC)"
     ddl_from_slug = "mysql"
 
-    cmd_args = [
+    cmd_args: ClassVar[list[str]] = [
         "--server-id=1",
         "--log-bin=mysql-bin",
         "--binlog-format=ROW",

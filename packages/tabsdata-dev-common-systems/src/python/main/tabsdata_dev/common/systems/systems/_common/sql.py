@@ -27,6 +27,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 from tabsdata_dev.common.systems import constants, datagen, emit, options
 from tabsdata_dev.common.systems.diagnostics import db_failure
@@ -127,10 +128,9 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
     root_user: str = ""
     driver: str = ""  # SQLAlchemy driver, e.g. "mysql+mysqlconnector"
     sql_quote: str = '"'
-    cmd_args: list[str] = []  # server flags appended after the image
-    extra_run_flags: list[
-        str
-    ] = []  # docker-run flags before the image (db2: --privileged)
+    cmd_args: ClassVar[list[str]] = []  # server flags appended after the image
+    # docker-run flags before the image (db2: --privileged)
+    extra_run_flags: ClassVar[list[str]] = []
     system_schemas: frozenset[str] = frozenset()
     admin_db: str = ""  # maintenance DB the admin connection targets (pg: postgres)
     admin_autocommit: bool = False  # some DBs can't CREATE/DROP DATABASE in a txn
@@ -477,7 +477,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
                     for st in statements:
                         running = st
                         conn.exec_driver_sql(st)
-        except Exception as exc:  # noqa: BLE001 - surface the DB's own message
+        except Exception as exc:
             raise TdxError(
                 f"{self.label} admin SQL failed: {exc}",
                 db_failure(exc, statement=running, url=url, label="admin SQL"),
@@ -493,7 +493,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         try:
             with engine.connect() as conn:
                 rows = conn.exec_driver_sql(query).fetchall()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise TdxError(
                 f"{self.label} admin query failed: {exc}",
                 db_failure(exc, statement=query, url=url, label="admin query"),
@@ -646,7 +646,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
                 except NotImplementedError:  # a dialect that reports them as indexes
                     pass
                 out.add(t)
-        except Exception as exc:  # noqa: BLE001 - surface the database's own message
+        except Exception as exc:
             raise TdxError(
                 f"{self.label}: cannot read the tables' keys: {exc}",
                 db_failure(exc, statement="(reflection)", url=uri, label="keys"),
@@ -748,7 +748,7 @@ class RemoteSqlBackend(SqlContainerBackend):
             with engine.begin() as conn:
                 for stmt in statements:
                     conn.exec_driver_sql(stmt)
-        except Exception as exc:  # noqa: BLE001 - surface the warehouse's message
+        except Exception as exc:
             raise TdxError(f"{self.label} SQL failed: {exc}") from exc
         finally:
             engine.dispose()
@@ -760,7 +760,7 @@ class RemoteSqlBackend(SqlContainerBackend):
         try:
             with engine.connect() as conn:
                 rows = conn.exec_driver_sql(sql).fetchall()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise TdxError(f"{self.label} query failed: {exc}") from exc
         finally:
             engine.dispose()

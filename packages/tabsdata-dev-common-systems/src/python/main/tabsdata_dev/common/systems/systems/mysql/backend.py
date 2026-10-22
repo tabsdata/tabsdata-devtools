@@ -13,6 +13,8 @@ default (ROW + FULL metadata) so the same container feeds CDC.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from tabsdata_dev.common.systems.systems._common import container_info
 from tabsdata_dev.common.systems.systems._common.sql import (
     LOCK_WAIT_SECONDS,
@@ -33,7 +35,7 @@ class Mysql(SqlContainerBackend):
     driver = "mysql+mysqlconnector"
     sql_quote = "`"
     scan_locks = True  # InnoDB locks every row a DELETE scans
-    cmd_args = [
+    cmd_args: ClassVar[list[str]] = [
         "--server-id=1",
         "--log-bin=mysql-bin",
         "--binlog-format=ROW",

@@ -15,7 +15,7 @@ import shlex
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from tabsdata_dev.common.core import batch as core_batch
 
@@ -73,7 +73,7 @@ def suite_notes(inst, project_name: str, sel: actions.Selection) -> list[str]:
     a disabled function's and a trigger's plan,
     named by a timestamp of the length its own will have. What a step finds out
     as it runs is known only then."""
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     notes: list[str] = []
     for s in inst.stages:
         notes += [
@@ -321,7 +321,7 @@ def cmd_bench(args) -> None:
         )
     domains.require_crypto_key()
     shell.require_login()
-    started = datetime.now(timezone.utc)
+    started = datetime.now(UTC)
     base_ids = ids.new()
     base = args.name or base_ids[0]
     selector = suites.label(path)
@@ -433,7 +433,7 @@ def cmd_bench(args) -> None:
 
         ok = [ln for ln in lane_docs if ln["status"] == "ok"]
         bad = [ln for ln in lane_docs if ln["status"] != "ok"]
-        total_wall = round((datetime.now(timezone.utc) - started).total_seconds(), 2)
+        total_wall = round((datetime.now(UTC) - started).total_seconds(), 2)
         rep().note(
             f"bench summary: {len(ok)}/{len(lane_docs)} lanes ok, total {total_wall}s"
         )
@@ -521,9 +521,9 @@ def _bench_await(
         max_workers=max(1, min(len(alive), core_batch.parallelism()))
     ) as pool:
         for future in [pool.submit(_await, ln) for ln in alive]:
-            try:
+            with contextlib.suppress(
+                BaseException
+            ):  # recorded on the lane, reported above
                 future.result()
-            except BaseException:  # noqa: BLE001 -- recorded on the lane, reported above
-                pass
     phase_wall["completion"] = round(time.perf_counter() - t0, 2)
     rep().note(f"-> completion wall {phase_wall['completion']}s")

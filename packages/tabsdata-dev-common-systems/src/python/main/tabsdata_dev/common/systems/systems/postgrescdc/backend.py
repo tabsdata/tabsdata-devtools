@@ -29,6 +29,7 @@ import hashlib
 import re
 import time
 from dataclasses import replace
+from typing import ClassVar
 
 from tabsdata_dev.common.systems import datagen
 from tabsdata_dev.common.systems.errors import TdxError
@@ -65,7 +66,7 @@ class Postgrescdc(Postgres):
     label = "PostgreSQL (CDC)"
     ddl_from_slug = "postgres"
 
-    cmd_args = [
+    cmd_args: ClassVar[list[str]] = [
         *Postgres.cmd_args,
         "-c",
         "wal_level=logical",
@@ -193,8 +194,10 @@ class Postgrescdc(Postgres):
                 self._run_admin(
                     admin,
                     [
-                        "SELECT pg_terminate_backend(active_pid) FROM pg_replication_slots "
-                        f"WHERE slot_name = '{slot}' AND active_pid IS NOT NULL",
+                        (
+                            "SELECT pg_terminate_backend(active_pid) FROM pg_replication_slots "
+                            f"WHERE slot_name = '{slot}' AND active_pid IS NOT NULL"
+                        ),
                         f"SELECT pg_drop_replication_slot('{slot}')",
                     ],
                 )

@@ -10,7 +10,6 @@ import pathlib
 import shlex
 
 import pytest
-
 from tabsdata_dev.common.core import secrets, secrets_1p
 from tabsdata_dev.tool import onepassword
 
@@ -405,9 +404,9 @@ def test_push_has_nothing_to_export(op_items, tmp_path, monkeypatch, capsys):
         ["push", "--vault", "1p:dev_xp", "--entry", str(entry)], monkeypatch, capsys
     )
     assert code == 0 and out.startswith("created 'S3' in 1p:dev_xp")
-    code, events = _run(
+    code = _run(
         ["push", "--vault", "1p:dev_xp", "--entry", str(entry), "--format", "export"],
         monkeypatch,
         capsys,
-    )
+    )[0]
     assert code == 1

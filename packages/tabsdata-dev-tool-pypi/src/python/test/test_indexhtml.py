@@ -12,9 +12,8 @@ from urllib.parse import urljoin
 
 import pytest
 from conftest import make_dist
-
-from tabsdata_dev.tool.pypi.model import normalize
 from tabsdata_dev.tool.pypi.indexhtml import render_all, render_project, render_root
+from tabsdata_dev.tool.pypi.model import normalize
 
 
 class _Anchors(HTMLParser):

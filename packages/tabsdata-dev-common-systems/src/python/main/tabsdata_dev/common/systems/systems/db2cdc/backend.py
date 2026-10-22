@@ -355,10 +355,12 @@ class Db2Cdc(Db2):
         self._clp_batch(
             container,
             [
-                f"update {_ASN}.ibmsnap_capparms set commit_interval = {interval}, "
-                f"sleep_interval = {interval}, memory_limit = {memory} "
-                f"where commit_interval <> {interval} or sleep_interval <> {interval} "
-                f"or memory_limit <> {memory}"
+                (
+                    f"update {_ASN}.ibmsnap_capparms set commit_interval = {interval}, "
+                    f"sleep_interval = {interval}, memory_limit = {memory} "
+                    f"where commit_interval <> {interval} or sleep_interval <> {interval} "
+                    f"or memory_limit <> {memory}"
+                )
             ],
         )
         self._exec_inst(
@@ -519,10 +521,14 @@ class Db2Cdc(Db2):
         )
         removal = (
             [
-                f"delete from {_ASN}.ibmsnap_register where source_owner = "
-                f"'{schema}' and source_table in ({names})",
-                f"delete from {_ASN}.ibmsnap_pruncntl where source_owner = "
-                f"'{schema}' and source_table in ({names})",
+                (
+                    f"delete from {_ASN}.ibmsnap_register where source_owner = "
+                    f"'{schema}' and source_table in ({names})"
+                ),
+                (
+                    f"delete from {_ASN}.ibmsnap_pruncntl where source_owner = "
+                    f"'{schema}' and source_table in ({names})"
+                ),
             ]
             + [f"drop table {_ASN}.{staging}" for staging in stagings]
             + (after or [])
@@ -892,7 +898,7 @@ class Db2Cdc(Db2):
         for path in paths:
             try:
                 info = descriptor.load(path)
-            except Exception:  # noqa: BLE001 -- best effort, see above
+            except Exception:  # noqa: BLE001, S112 - best effort, see above
                 continue
             meta = getattr(info, "meta", {}) or {}
             if (
@@ -943,19 +949,23 @@ class Db2Cdc(Db2):
         # The domain's own, as the CD tables are: two domains may register at
         # the same moment, and share the container's home dir.
         script = f"TD_ASN_REGISTER_{schema}".upper()
-        map_ids = [str(random.randint(1, 2**31 - 1)) for _ in tables]  # noqa: S311 - internal signal ids
+        map_ids = [str(random.randint(1, 2**31 - 1)) for _ in tables]
         after: list[str] = []
         for table, staging, map_id in zip(tables, stagings, map_ids):
             after += [
-                f"insert into {_ASN}.ibmsnap_pruncntl (target_server, target_owner, "
-                f"target_table, source_owner, source_table, source_view_qual, "
-                f"apply_qual, set_name, cntl_server, target_structure, "
-                f"phys_change_owner, phys_change_table, map_id) values "
-                f"('{_XP_DB}', '{_ASN}', '{staging}', '{schema}', '{table}', 0, "
-                f"'TDQUAL', 'TDSET', '{_XP_DB}', 1, '{_ASN}', '{staging}', '{map_id}')",
-                f"insert into {_ASN}.ibmsnap_signal (signal_type, signal_subtype, "
-                f"signal_input_in, signal_state) values "
-                f"('CMD', 'CAPSTART', '{map_id}', 'P')",
+                (
+                    f"insert into {_ASN}.ibmsnap_pruncntl (target_server, target_owner, "
+                    f"target_table, source_owner, source_table, source_view_qual, "
+                    f"apply_qual, set_name, cntl_server, target_structure, "
+                    f"phys_change_owner, phys_change_table, map_id) values "
+                    f"('{_XP_DB}', '{_ASN}', '{staging}', '{schema}', '{table}', 0, "
+                    f"'TDQUAL', 'TDSET', '{_XP_DB}', 1, '{_ASN}', '{staging}', '{map_id}')"
+                ),
+                (
+                    f"insert into {_ASN}.ibmsnap_signal (signal_type, signal_subtype, "
+                    f"signal_input_in, signal_state) values "
+                    f"('CMD', 'CAPSTART', '{map_id}', 'P')"
+                ),
             ]
         self._run(
             container,

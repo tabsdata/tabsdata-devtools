@@ -5,7 +5,6 @@
 """The masking of a smoke run's command lines (`tdd _smoke display`)."""
 
 import pytest
-
 from tabsdata_dev.tool.smoke import display, engine
 
 

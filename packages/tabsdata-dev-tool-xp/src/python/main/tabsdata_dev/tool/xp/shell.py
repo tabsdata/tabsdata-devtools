@@ -105,6 +105,7 @@ def run_cmd(
     passes kills the child and raises `subprocess.TimeoutExpired`."""
     r = subprocess.run(
         argv,
+        check=False,
         input=stdin_text,
         stdin=subprocess.DEVNULL if stdin_text is None else None,
         capture_output=True,

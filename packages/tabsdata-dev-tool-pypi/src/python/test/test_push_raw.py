@@ -7,9 +7,8 @@
 from __future__ import annotations
 
 import pytest
-from tabsdata_dev.common.core.errors import ToolError
 from conftest import FakeS3, build_wheel, make_cfg, release, write_manifest
-
+from tabsdata_dev.common.core.errors import ToolError
 from tabsdata_dev.tool.pypi import push_raw as mod
 from tabsdata_dev.tool.pypi.dist import sha256_file
 

@@ -33,6 +33,8 @@ from tabsdata_dev.common.systems import (
     constants,
     descriptor,
     store,
+)
+from tabsdata_dev.common.systems import (
     systems as _systems,
 )
 from tabsdata_dev.common.systems.errors import TdxError
@@ -61,13 +63,19 @@ def spawn_for(tool: str) -> core_batch.Spawn:
     # stderr folded into stdout so the child's lines keep their order: its
     # progress goes to stderr and its ok to stdout, and two captures would
     # show the ok first.
-    capture = dict(stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8")
+    capture = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "encoding": "utf-8",
+    }
 
     def spawn(argv: list[str]) -> subprocess.CompletedProcess:
         if os.environ.get("TDD_DIR"):
             return proc.run_tool(tool, *argv, **capture)
         module = f"tabsdata_dev.tool.{tool.replace('-', '_')}"
-        return subprocess.run([sys.executable, "-m", module, *argv], **capture)
+        return subprocess.run(
+            [sys.executable, "-m", module, *argv], check=False, **capture
+        )
 
     return spawn
 

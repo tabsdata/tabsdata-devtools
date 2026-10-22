@@ -15,12 +15,10 @@ BigQuery and GCS.
 
 from __future__ import annotations
 
-from tabsdata_dev.common.systems import constants
-
 import json
 from functools import cached_property
 
-from tabsdata_dev.common.systems import options
+from tabsdata_dev.common.systems import constants, options
 from tabsdata_dev.common.systems.errors import TdxError
 
 

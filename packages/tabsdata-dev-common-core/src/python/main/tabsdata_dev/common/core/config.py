@@ -142,8 +142,8 @@ def from_parser(
     """
     doc = Doc(command=command, preamble=preamble, tables=tables)
     doc.actions[""] = _options_of(parser)
-    for action in parser._actions:  # noqa: SLF001 -- argparse exposes no other way
-        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
             for name, sub in action.choices.items():
                 found = _options_of(sub)
                 if found:
@@ -153,8 +153,8 @@ def from_parser(
 
 def _options_of(parser: argparse.ArgumentParser) -> dict[str, tuple[Any, str]]:
     found: dict[str, tuple[Any, str]] = {}
-    for action in parser._actions:  # noqa: SLF001
-        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
             continue
         if not action.option_strings or action.dest in ("help", argparse.SUPPRESS):
             continue
@@ -249,24 +249,25 @@ def write(command: str, text: str) -> pathlib.Path:
     file = path(command)
     try:
         file.parent.mkdir(parents=True, exist_ok=True)
-        handle = tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=file.parent,
-            prefix=f".{file.name}.",
-            suffix=".tmp",
-            delete=False,
-        )
-        temporary = pathlib.Path(handle.name)
+        temporary = None
         try:
-            with handle:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=file.parent,
+                prefix=f".{file.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temporary = pathlib.Path(handle.name)
                 handle.write(text)
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary, file)
         except BaseException:
-            with contextlib.suppress(OSError):
-                temporary.unlink()
+            if temporary is not None:
+                with contextlib.suppress(OSError):
+                    temporary.unlink()
             raise
     except OSError as error:
         raise ToolError(f"cannot write {file}: {error}") from error
@@ -422,7 +423,7 @@ def _default_tables(doc: Doc) -> dict[str, Any]:
     if not doc.tables:
         return {}
     text = "\n".join(
-        line[2:] if line.startswith("# ") else line
+        line.removeprefix("# ")
         for line in doc.tables.splitlines()
         if line.startswith("# [") or " = " in line
     )
@@ -488,8 +489,8 @@ def announce(parser: argparse.ArgumentParser, command: str) -> None:
     be a word nobody could discover: registered here as a subcommand where the
     command has them, and named in the epilog where it does not.
     """
-    for action in parser._actions:  # noqa: SLF001 -- argparse exposes no other way
-        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
             if OPTIONS_TABLE not in action.choices and "config" not in action.choices:
                 action.add_parser("config", help=SUMMARY, description=SUMMARY)
             return

@@ -1033,8 +1033,10 @@ class Pending:
         and it offers `--abort` outright.
         """
         lines = [
-            f"GitHub and this checkout disagree about {len(self.dissolve)} stack(s) "
-            "-- most likely an unpublished `gsx move`:"
+            (
+                f"GitHub and this checkout disagree about {len(self.dissolve)} stack(s) "
+                "-- most likely an unpublished `gsx move`:"
+            )
         ]
         for number in self.dissolve:
             held = [

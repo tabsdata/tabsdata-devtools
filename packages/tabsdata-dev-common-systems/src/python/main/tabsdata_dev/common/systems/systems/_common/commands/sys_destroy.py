@@ -60,7 +60,7 @@ def _destroy_domain(info: descriptor.DomainInfo, path: Path, *, force: bool) -> 
         bind(info.meta)
     try:
         backend.destroy_domain(info.meta)
-    except Exception as exc:  # noqa: BLE001 - --force removes the descriptor regardless
+    except Exception as exc:
         if not force:
             raise
         console.warn(
@@ -104,7 +104,7 @@ def run(ctx: cli.Context) -> int:
     else:
         try:
             ctx.system.destroy_system(ctx.info.meta)
-        except Exception as exc:  # noqa: BLE001 - --force removes the descriptor regardless
+        except Exception as exc:
             if not ctx.args.force:
                 raise
             console.warn(

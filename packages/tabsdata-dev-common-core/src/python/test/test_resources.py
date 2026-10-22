@@ -6,7 +6,6 @@ import sys
 
 import jinja2
 import pytest
-
 from tabsdata_dev.common.core import resources
 
 PACKAGE = "rsprobe.tool.thing"

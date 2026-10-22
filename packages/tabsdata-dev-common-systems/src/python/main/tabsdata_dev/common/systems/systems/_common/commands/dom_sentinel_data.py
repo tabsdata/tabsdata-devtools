@@ -16,7 +16,7 @@ writes nothing; ``--emit-ops FILE`` appends it to FILE as a CDC-style JSON line.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from tabsdata_dev.common.systems import cli, console, constants, datagen, descriptor
 from tabsdata_dev.common.systems.datagen import Change, OpKind
@@ -47,7 +47,7 @@ def run(ctx: cli.Context) -> int:
         raise TdxError(f"model '{info.model}' has no {datagen.SENTINEL_ENTITY} entity")
     if not key or len(key) > 255:
         raise TdxError(f"{constants.OPT_KEY} must be 1 to 255 characters")
-    stamp = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    stamp = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
     row = {"sentinel_key": key, "sentinel_ts": stamp}
     change = Change(
         OpKind.INSERT, datagen.SENTINEL_ENTITY, datagen.SENTINEL_COLUMNS, row=row

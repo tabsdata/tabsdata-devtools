@@ -4,22 +4,22 @@
 
 import json
 import os
+import pathlib
 import shutil
 import subprocess
-import pathlib
 
 import pytest
 from tabsdata_dev.common.core.errors import ToolError
 from tabsdata_dev.tool import gsx
 from tabsdata_dev.tool.gsx import approve as approve_mod
 from tabsdata_dev.tool.gsx import args as args_mod
-from tabsdata_dev.tool.gsx.version import VERSION
 from tabsdata_dev.tool.gsx import commands, config, gh, labels, progress
+from tabsdata_dev.tool.gsx import hooks as hooks_mod
 from tabsdata_dev.tool.gsx import move as move_mod
 from tabsdata_dev.tool.gsx import prune as prune_mod
 from tabsdata_dev.tool.gsx import purge as purge_mod
-from tabsdata_dev.tool.gsx import hooks as hooks_mod
 from tabsdata_dev.tool.gsx import sync as sync_mod
+from tabsdata_dev.tool.gsx.version import VERSION
 
 
 @pytest.fixture(autouse=True)
@@ -201,7 +201,7 @@ def test_the_commented_tables_are_valid_toml_once_uncommented(tmp_path, monkeypa
     from tabsdata_dev.tool.gsx.options import CONFIG_TABLES
 
     text = "\n".join(
-        line[2:] if line.startswith("# ") else line
+        line.removeprefix("# ")
         for line in CONFIG_TABLES.splitlines()
         if line.startswith("# [") or " = " in line
     )
@@ -2534,9 +2534,11 @@ def test_what_only_github_has_is_a_magenta_question_mark():
     assert painted.splitlines() == [
         # a mark gets a column of ITS own, left of the brackets, because a
         # stack can be both the one you are on and one GitHub does not have
-        " <white>[</>#34<white>]</>  main "
-        "<-<green>=</><white>[</><green>a1</><white>]</>"
-        "<- <magenta>?</><magenta>a3</>",
+        (
+            " <white>[</>#34<white>]</>  main "
+            "<-<green>=</><white>[</><green>a1</><white>]</>"
+            "<- <magenta>?</><magenta>a3</>"
+        ),
         # a whole stack this checkout does not track: the same `?` in the same
         # magenta, and the number takes the mark's colour as a branch's name
         # takes its own. The tag is bracketed tightly and the padding goes
@@ -2624,9 +2626,11 @@ def test_what_only_this_checkout_has_is_a_red_bang():
     assert painted.splitlines() == [
         # the stack you are on AND one GitHub does not have: the mark has a
         # column of its own precisely so both can be said
-        "<red>!</><white>[</><red>#34</><white>]</>  main "
-        # `!` takes the place of the sync symbol, as `?` does
-        "<-<red>!</><white>[</><red>a1</><white>]</>",
+        (
+            "<red>!</><white>[</><red>#34</><white>]</>  main "
+            # `!` takes the place of the sync symbol, as `?` does
+            "<-<red>!</><white>[</><red>a1</><white>]</>"
+        ),
         "<magenta>?</> <magenta>#41</>   main <- <magenta>?</><magenta>c1</>",
     ]
     line = commands.legend(rows, "origin", lambda name, text: f"<{name}>{text}</>")
@@ -4462,7 +4466,7 @@ def test_the_guard_knows_a_commit_by_its_change_id_in_a_real_repository(tmp_path
     work = tmp_path / "work"
     _real_git(tmp_path, "init", "-q", "--bare", str(origin), env=env)
     _real_git(tmp_path, "init", "-q", "-b", "main", str(work), env=env)
-    git = lambda *a, **k: _real_git(work, *a, env=env, **k)  # noqa: E731
+    git = lambda *a, **k: _real_git(work, *a, env=env, **k)
 
     def commit(name, subject, change_id=""):
         (work / name).write_text(subject + "\n")
@@ -4495,6 +4499,7 @@ def test_the_guard_knows_a_commit_by_its_change_id_in_a_real_repository(tmp_path
         local = git("rev-parse", "B").strip()
         return subprocess.run(
             ["sh", str(hook), "origin", str(origin)],
+            check=False,
             cwd=work,
             text=True,
             capture_output=True,
@@ -4583,8 +4588,9 @@ def test_the_fork_point_is_the_latest_merge_base_over_the_parents_states(monkeyp
     monkeypatch.setattr(
         gh,
         "is_ancestor",
-        lambda r, a, b: (a, b)
-        in {("old-b1", "bob-b3"), ("old-b1", "bob-b4"), ("bob-b3", "bob-b4")},
+        lambda r, a, b: (
+            (a, b) in {("old-b1", "bob-b3"), ("old-b1", "bob-b4"), ("bob-b3", "bob-b4")}
+        ),
     )
     r = runner_with(
         {

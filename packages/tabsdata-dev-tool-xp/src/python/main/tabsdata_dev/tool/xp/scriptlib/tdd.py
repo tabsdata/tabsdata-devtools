@@ -22,7 +22,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-__all__ = ["tdd", "note", "TddError"]
+__all__ = ["TddError", "note", "tdd"]
 
 #: xp reads a stdout line so marked as the step's note (xp's actions.NOTE_MARK).
 NOTE_MARK = "xp-note:"
@@ -43,6 +43,7 @@ def tdd(*args: str, out: Path | None = None, check: bool = True) -> str:
     ``check=False``, returns its stdout anyway."""
     done = subprocess.run(
         ["tdd-exe", *args],
+        check=False,
         capture_output=True,
         encoding="utf-8",
     )

@@ -8,7 +8,6 @@ backends keep importing them from here. Only ``validate_name`` is local."""
 from __future__ import annotations
 
 from tabsdata_dev.common.core.docker import (  # noqa: F401 - re-exports
-    list_containers,
     compose_container_ids,
     container_exists,
     container_failure,
@@ -23,6 +22,7 @@ from tabsdata_dev.common.core.docker import (  # noqa: F401 - re-exports
     docker_run,
     docker_start,
     docker_stop,
+    list_containers,
     require_docker,
 )
 from tabsdata_dev.common.core.passwords import gen_password  # noqa: F401
@@ -32,7 +32,6 @@ from tabsdata_dev.common.core.ports import (  # noqa: F401 - re-exports
     http_ok,
     port_open,
 )
-
 from tabsdata_dev.common.systems.errors import TdxError
 
 

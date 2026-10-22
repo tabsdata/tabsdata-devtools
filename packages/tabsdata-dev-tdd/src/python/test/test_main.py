@@ -3,13 +3,13 @@
 #
 
 import json
+import os
 import pathlib
 import shutil
 
+import pytest
 from tabsdata_dev.tdd import __main__ as main_mod
 from tabsdata_dev.tdd import render
-import os
-import pytest
 
 
 def _events(capsys):
@@ -24,7 +24,6 @@ def test_a_builtin_helps_like_every_other_command(capsys):
     throwaway one for the page: argparse is standard library, the only kind of
     dependency this package may have."""
     import pytest as _pytest
-
     from tabsdata_dev.tdd import __main__ as main_mod
 
     for word in ("_doctor", "info"):
@@ -240,8 +239,9 @@ def test_dispatch_refuses_when_a_declared_binary_is_missing(
     monkeypatch.setattr(
         os,
         "execve",
-        lambda exe, argv, env: called.append(argv)
-        or (_ for _ in ()).throw(SystemExit(0)),
+        lambda exe, argv, env: (
+            called.append(argv) or (_ for _ in ()).throw(SystemExit(0))
+        ),
     )
     with pytest.raises(SystemExit):
         dispatch_mod.dispatch(tmp_path, "demo", ["--help"], out)

@@ -26,7 +26,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from tabsdata_dev.common.systems import constants, descriptor, systems as _systems
+from tabsdata_dev.common.systems import constants, descriptor
+from tabsdata_dev.common.systems import systems as _systems
 from tabsdata_dev.common.systems.errors import TdxError
 
 

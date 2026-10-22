@@ -28,7 +28,7 @@ def run(ctx: cli.Context) -> int:
     console.out(f"▶ destroying domain '{ctx.name}' …")
     try:
         ctx.system.destroy_domain(ctx.info.meta)
-    except Exception as exc:  # noqa: BLE001 - --force removes the descriptor regardless
+    except Exception as exc:
         if not ctx.args.force:
             raise
         console.warn(f"teardown failed ({exc}); --force: removing descriptor anyway")

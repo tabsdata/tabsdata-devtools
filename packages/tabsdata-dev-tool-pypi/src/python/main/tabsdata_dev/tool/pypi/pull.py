@@ -34,9 +34,12 @@ def pull_one(s3, bucket: str, p: Pull, force: bool = False) -> str:
     """-> 'have' or 'fetched'. Raises on a download whose bytes disagree.
 
     force re-downloads even when the local file already matches."""
-    if p.dst.exists() and not force:
-        if object_differs(p.dst, p.dst.stat().st_size, p.etag, p.size) is None:
-            return "have"
+    if (
+        p.dst.exists()
+        and not force
+        and object_differs(p.dst, p.dst.stat().st_size, p.etag, p.size) is None
+    ):
+        return "have"
 
     # Download beside the target and rename, so an interrupted run never leaves a
     # truncated file under a real name for `generate` or `push` to trust.

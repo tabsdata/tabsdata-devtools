@@ -33,6 +33,7 @@ import time
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Self
 
 from tabsdata_dev.common.core import cli, parallel, proc, render
 from tabsdata_dev.common.core.errors import ToolError
@@ -185,7 +186,7 @@ class Progress:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
-    def __enter__(self) -> Progress:
+    def __enter__(self) -> Self:
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
         return self

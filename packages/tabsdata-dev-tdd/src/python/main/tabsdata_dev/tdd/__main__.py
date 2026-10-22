@@ -24,8 +24,12 @@ import json
 import pathlib
 import sys
 
-from . import catalog as catalog_mod, defaults as defaults_mod, dispatch as dispatch_mod
-from . import initialize as initialize_mod, paths, render, reqs as reqs_mod
+from . import catalog as catalog_mod
+from . import defaults as defaults_mod
+from . import dispatch as dispatch_mod
+from . import initialize as initialize_mod
+from . import paths, render
+from . import reqs as reqs_mod
 from . import version as version_mod
 
 BUILTIN_SUMMARIES = {

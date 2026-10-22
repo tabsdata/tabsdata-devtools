@@ -10,9 +10,7 @@ import os
 import pathlib
 
 from . import catalog as catalog_mod
-from . import paths
-from . import render
-from . import reqs
+from . import paths, render, reqs
 
 HELP_FLAGS = ("-h", "--help")
 
@@ -85,7 +83,7 @@ def _run_child(exe: pathlib.Path, argv: list[str], env: dict[str, str]) -> int:
 
     previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
-        return subprocess.run([str(exe), *argv], env=env).returncode
+        return subprocess.run([str(exe), *argv], check=False, env=env).returncode
     finally:
         signal.signal(signal.SIGINT, previous)
 

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import itertools
 import os
 import re
 import sys
@@ -15,11 +16,10 @@ from tabsdata_dev.common.core.errors import ToolError
 
 from . import approve as approve_mod
 from . import config as config_mod
-from . import gh
+from . import gh, progress
 from . import hooks as hooks_mod
 from . import labels as labels_mod
 from . import move as move_mod
-from . import progress
 from . import prune as prune_mod
 from . import purge as purge_mod
 from . import sync as sync_mod
@@ -174,11 +174,13 @@ def create(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         ) from error
 
     return (
-        f"created issue #{issue} and stack branch {branch}\n"
-        f"  issue   #{issue}  {issue_url}\n"
-        f"  branch  {branch}\n"
-        f"  commit  [{branch}] {summary}\n"
-        "  not pushed yet: use `tdd gsx submit` to push the stack and create the PR",
+        (
+            f"created issue #{issue} and stack branch {branch}\n"
+            f"  issue   #{issue}  {issue_url}\n"
+            f"  branch  {branch}\n"
+            f"  commit  [{branch}] {summary}\n"
+            "  not pushed yet: use `tdd gsx submit` to push the stack and create the PR"
+        ),
         {"issue": issue, "issue_url": issue_url, "branch": branch, "summary": summary},
     )
 
@@ -923,7 +925,7 @@ def _grow_stack(runner: gh.Runner, out, steps) -> None:
     Non-fatal: the push is done, and a warning naming the endpoint is better
     than an error saying the submit failed.
     """
-    trunk, branches, prs = _stack_here(runner)
+    branches, prs = _stack_here(runner)[1:]
     if not prs:
         return
     _, landed = _pr_info(runner, prs, out)
@@ -1494,7 +1496,7 @@ def _refuse_inconsistent(runner: gh.Runner, chain: list[str]) -> None:
     """
     stale = [
         f"{branch} does not contain {parent}"
-        for parent, branch in zip(chain, chain[1:])
+        for parent, branch in itertools.pairwise(chain)
         if not gh.is_ancestor(runner, f"refs/heads/{parent}", f"refs/heads/{branch}")
     ]
     if stale:
@@ -2399,8 +2401,10 @@ def stack(args, out, runner: gh.Runner, extras: Extras) -> tuple[str, dict]:
         # Asked about "my stack" while standing outside every one of them: an
         # answer, and the useful half of it is that --all would show them.
         return (
-            f"{current!r} is not in a tracked stack; --all lists the "
-            f"{len(every)} there {'is' if len(every) == 1 else 'are'}",
+            (
+                f"{current!r} is not in a tracked stack; --all lists the "
+                f"{len(every)} there {'is' if len(every) == 1 else 'are'}"
+            ),
             {"stacks": [], "remote": remote, "fetched": fetched, "source": source},
         )
     # Only the branches actually being shown are compared against the remote,

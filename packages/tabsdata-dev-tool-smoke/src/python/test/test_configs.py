@@ -10,7 +10,6 @@ import json
 import shutil
 
 import pytest
-
 from tabsdata_dev.common.core import errors
 from tabsdata_dev.tool.smoke import configs, engine
 

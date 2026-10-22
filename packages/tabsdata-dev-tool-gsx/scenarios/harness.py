@@ -45,6 +45,7 @@ def sh(who, argv, check=True, timeout=420, env=None, input=None):
     cwd = ROOT / who if who else ROOT
     r = subprocess.run(
         argv,
+        check=False,
         cwd=cwd,
         capture_output=True,
         text=True,
@@ -77,7 +78,7 @@ def gs(who, *args, check=True, input=None):
 
 
 def gh_json(*args):
-    rc, o = sh(None, ["gh", *args], check=True)
+    o = sh(None, ["gh", *args], check=True)[1]
     return json.loads(o)
 
 
@@ -138,7 +139,7 @@ def write_commit(who, branch, subject, filename=None, content=None):
 
 
 def stacks_on_github():
-    rc, o = sh(None, ["gh", "api", "--paginate", f"repos/{REPO}/stacks?per_page=100"])
+    o = sh(None, ["gh", "api", "--paginate", f"repos/{REPO}/stacks?per_page=100"])[1]
     data = json.loads(o)
     if data and isinstance(data[0], list):
         data = [s for page in data for s in page]
@@ -192,7 +193,7 @@ def make_stack(who, prefix, n, base="main", submit=True):
     if submit:
         git(who, "checkout", "-q", names[-1])
         # --open, as gsx submit does: a draft cannot be merged by `gh stack merge`
-        rc, o = gs(who, "submit", "--auto", "--open")
+        o = gs(who, "submit", "--auto", "--open")[1]
         m = re.search(r"stack #(\d+)", o)
         number = int(m.group(1)) if m else None
     return names, number

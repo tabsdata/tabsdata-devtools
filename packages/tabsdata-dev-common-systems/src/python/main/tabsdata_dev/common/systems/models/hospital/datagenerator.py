@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import random
 from datetime import datetime, timedelta
+from typing import ClassVar
 
 from tabsdata_dev.common.systems.datagen import Entity, Model
 from tabsdata_dev.common.systems.emit import Column, Table
@@ -576,7 +577,7 @@ RX_COLS = [
 
 
 class _Hospital(Model):
-    entities: list[Entity] = []  # reference-only: no deltas
+    entities: ClassVar[list[Entity]] = []  # reference-only: no deltas
 
     def build_initial(self, rng: random.Random, n: int) -> list[Table]:
         random.seed(BASE_SEED)

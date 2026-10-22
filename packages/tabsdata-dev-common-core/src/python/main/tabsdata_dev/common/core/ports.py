@@ -108,12 +108,12 @@ def http_ok(
     import base64
     import urllib.request
 
-    req = urllib.request.Request(url)  # noqa: S310
+    req = urllib.request.Request(url)
     if user is not None:
         token = base64.b64encode(f"{user}:{password or ''}".encode()).decode()
         req.add_header("Authorization", f"Basic {token}")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return 200 <= resp.status < 300
     except Exception:  # noqa: BLE001 - any failure means "not ready"
         return False

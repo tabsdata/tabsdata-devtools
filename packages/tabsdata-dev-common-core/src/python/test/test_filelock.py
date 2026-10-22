@@ -9,7 +9,6 @@ import threading
 import time
 
 import pytest
-
 from tabsdata_dev.common.core import filelock
 
 

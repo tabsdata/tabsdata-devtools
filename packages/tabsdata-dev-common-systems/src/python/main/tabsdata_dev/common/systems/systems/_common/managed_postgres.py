@@ -89,7 +89,7 @@ def download_ca(url: str, what: str) -> str:
         return _CA_DOWNLOADS[url]
     console.debug(f"fetching the {what} root CA from {url}")
     try:
-        with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
+        with urllib.request.urlopen(url, timeout=30) as response:
             pem = response.read().decode("utf-8")
     except OSError as exc:
         raise TdxError(f"could not fetch the {what} root CA from {url}: {exc}") from exc

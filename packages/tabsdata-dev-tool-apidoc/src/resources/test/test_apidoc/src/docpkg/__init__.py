@@ -5,7 +5,7 @@
 
 from docpkg._impl import Hidden, Widget
 
-__all__ = ["Widget", "Hidden", "publish"]
+__all__ = ["Hidden", "Widget", "publish"]
 
 
 def publish(count: int, name: "str" = "x") -> str:

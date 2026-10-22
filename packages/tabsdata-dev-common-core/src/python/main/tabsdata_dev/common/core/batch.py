@@ -37,7 +37,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from . import proc, render
 
@@ -101,12 +101,12 @@ class Reporter:
         head = f"[{done}/{total}] {task.name} {task.status.upper()} ({task.seconds}s)"
         body = "\n".join(f"        {line}" for line in task.output.splitlines())
         text = head + ("\n" + body if body else "")
-        fields = dict(
-            task=task.name,
-            status=task.status,
-            seconds=task.seconds,
-            output=task.output,
-        )
+        fields = {
+            "task": task.name,
+            "status": task.status,
+            "seconds": task.seconds,
+            "output": task.output,
+        }
         (self.out.info if task.status == "ok" else self.out.warn)(text, **fields)
 
 
@@ -319,7 +319,7 @@ def execute(
     tail = f", {skipped} skipped" if skipped else ""
     tail += f", {aborted} aborted" if aborted else ""
     summary = f"{label}: {ok} ok, {failed} failed{tail} in {total}s"
-    fields = dict(ok=ok, failed=failed, skipped=skipped, seconds=total)
+    fields = {"ok": ok, "failed": failed, "skipped": skipped, "seconds": total}
     if aborted:
         fields["aborted"] = aborted
     if final:
@@ -352,7 +352,7 @@ def _write_report(
 ) -> None:
     report = {
         "label": label,
-        "started": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "started": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "parallelism": workers,
         "total_seconds": total,
         "ok": sum(1 for t in tasks if t.status == "ok"),

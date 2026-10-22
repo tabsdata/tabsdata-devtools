@@ -11,7 +11,6 @@ import subprocess
 import sys
 
 import pytest
-
 from tabsdata_dev.tool.smoke import instances
 
 #: Names no real run takes, so a developer's open instance never answers.

@@ -13,6 +13,8 @@ create / destroy / status / purge are exposed.
 
 from __future__ import annotations
 
+import contextlib
+
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.systems._common import container_info
 from tabsdata_dev.common.systems.systems._common.host import DEFAULT_HOSTNAME
@@ -122,7 +124,7 @@ class MongoDB(SqlContainerBackend):
             db.create_collection("_init")  # materialise the DB so it lists
         except TdxError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise TdxError(f"mongodb create '{entity_name}' failed: {exc}") from exc
         finally:
             client.close()
@@ -152,8 +154,6 @@ class MongoDB(SqlContainerBackend):
 
     @staticmethod
     def _drop(client, name: str) -> None:
-        try:
+        with contextlib.suppress(Exception):  # user may not exist; best-effort
             client[name].command("dropUser", name)
-        except Exception:  # noqa: BLE001 - user may not exist; best-effort
-            pass
         client.drop_database(name)

@@ -106,7 +106,7 @@ def inside_environment(parts: tuple[str, ...]) -> bool:
 def distribution_name(entry: str) -> str:
     """The name uv knows an entry by: the version and whatever follows it
     dropped, then normalized the way uv normalizes (lower-case, `-` for `_`)."""
-    name = entry[: -len(DIST_INFO)] if entry.endswith(DIST_INFO) else entry
+    name = entry.removesuffix(DIST_INFO)
     name = SUFFIX.sub("", name)
     name = VERSION_TAIL.sub("", name)
     return name.replace("_", "-").lower()
@@ -190,6 +190,7 @@ def _pip_run(argv: list[str]) -> subprocess.CompletedProcess:
     """
     return subprocess.run(
         argv,
+        check=False,
         capture_output=True,
         encoding="utf-8",
         env={**os.environ, "PATH": search_path()},

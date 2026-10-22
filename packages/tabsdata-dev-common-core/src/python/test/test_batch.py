@@ -14,7 +14,6 @@ import sys
 import time
 
 import pytest
-
 from tabsdata_dev.common.core import batch, render
 
 posix = pytest.mark.skipif(os.name == "nt", reason="drives sh")

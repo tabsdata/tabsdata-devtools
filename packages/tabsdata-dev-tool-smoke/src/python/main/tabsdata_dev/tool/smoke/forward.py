@@ -30,7 +30,6 @@ import time
 from collections.abc import Callable
 
 import psutil
-
 from tabsdata_dev.common.core import proc
 
 KUBECTL = "kubectl"

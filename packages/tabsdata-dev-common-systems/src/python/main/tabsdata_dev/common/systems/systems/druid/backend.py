@@ -206,7 +206,7 @@ class Druid(ContainersBackend):
 
     @staticmethod
     def _request(url: str, method: str, user: str, password: str):
-        req = urllib.request.Request(url, method=method)  # noqa: S310
+        req = urllib.request.Request(url, method=method)
         if user:
             token = base64.b64encode(f"{user}:{password}".encode()).decode()
             req.add_header("Authorization", f"Basic {token}")
@@ -215,7 +215,7 @@ class Druid(ContainersBackend):
     def _list_datasources(self, overlord: str, user: str, password: str) -> list[str]:
         url = f"{overlord}/druid/coordinator/v1/datasources"
         try:
-            with urllib.request.urlopen(  # noqa: S310
+            with urllib.request.urlopen(
                 self._request(url, "GET", user, password), timeout=30
             ) as resp:
                 data = json.loads(resp.read())
@@ -233,7 +233,7 @@ class Druid(ContainersBackend):
     ) -> None:
         url = f"{overlord}/druid/coordinator/v1/datasources/{datasource}"
         try:
-            with urllib.request.urlopen(  # noqa: S310
+            with urllib.request.urlopen(
                 self._request(url, "DELETE", user, password), timeout=30
             ):
                 return

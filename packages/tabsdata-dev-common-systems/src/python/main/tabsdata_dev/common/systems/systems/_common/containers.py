@@ -16,6 +16,8 @@ compose file + image list and the ``plan_endpoints`` / ``compose_env`` /
 
 from __future__ import annotations
 
+import contextlib
+
 from tabsdata_dev.common.systems import constants
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import (
@@ -115,10 +117,8 @@ class ContainersBackend(PortRangeMixin, HostMixin):
             self.wait_ready(meta, self.ready_timeout)
         except BaseException:
             print(f">>> provision failed — removing stack {project}")
-            try:
+            with contextlib.suppress(Exception):  # teardown is best-effort
                 docker_compose(project, self.compose_file, "down", "-v")
-            except Exception:  # noqa: BLE001 - teardown is best-effort
-                pass
             raise
         return {}
 

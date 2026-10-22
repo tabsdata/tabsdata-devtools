@@ -22,6 +22,7 @@ def test_the_shells_env_answers_for_those_that_cannot_import_this_package():
     def ask(*words: str) -> str:
         done = subprocess.run(
             [sys.executable, "-m", "tabsdata_dev.shell", *words],
+            check=False,
             capture_output=True,
             text=True,
         )
@@ -189,7 +190,7 @@ def test_no_two_command_files_define_the_same_function():
     )  # the loader shares the namespace too
     owners: dict[str, str] = {}
     for name, text in sorted(sources.items()):
-        for fn in re.findall(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*\(\)", text, re.M):
+        for fn in re.findall(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*\(\)", text, re.MULTILINE):
             assert fn not in owners, (
                 f"{fn}() is defined in both {owners[fn]} and {name}"
             )
@@ -207,6 +208,7 @@ def _render_help(resource_folder, declaration: str) -> list[str]:
             resource_folder / "render_help.sh",
             shell.scripts_dir() / COMMON,
         ],
+        check=False,
         input=(resource_folder / declaration).read_text(),
         capture_output=True,
         text=True,
@@ -564,7 +566,9 @@ def _config_show(
     if no_color:
         env["NO_COLOR"] = "1"
     if not tty:
-        done = subprocess.run(argv, capture_output=True, text=True, env=env)
+        done = subprocess.run(
+            argv, check=False, capture_output=True, text=True, env=env
+        )
         assert done.returncode == 0, done.stderr
         return done.stdout
     # a real terminal, because every paint is a terminal's alone
@@ -973,6 +977,7 @@ def test_the_powershell_files_parse(resource_folder):
     # arrived -- this test once passed on an empty file list.
     done = subprocess.run(
         [pwsh, "-NoProfile", "-File", resource_folder / "parse.ps1", *files],
+        check=False,
         capture_output=True,
         text=True,
     )
@@ -1012,6 +1017,7 @@ def _masked(resource_folder, shell_bin: str, name: str, value: str) -> str:
     # is how a command file says what it depends on.
     done = subprocess.run(
         argv,
+        check=False,
         capture_output=True,
         text=True,
         env={
@@ -1103,6 +1109,7 @@ def _resolved(
 
     done = subprocess.run(
         _half(resource_folder, shell_bin, "set_index", option, value),
+        check=False,
         capture_output=True,
         text=True,
         env={
@@ -1183,6 +1190,7 @@ def test_the_powershell_loader_passes_an_unquoted_comma_list_as_typed(
     loader = shell._root() / shell.TEMPLATES[shell.POWERSHELL]
     done = subprocess.run(
         [pwsh, "-NoProfile", "-File", resource_folder / "argv_text.ps1", loader],
+        check=False,
         capture_output=True,
         text=True,
     )
@@ -1211,6 +1219,7 @@ def test_the_powershell_entry_points_set_lastexitcode_from_tdd_rc(resource_folde
     loader = shell._root() / shell.TEMPLATES[shell.POWERSHELL]
     done = subprocess.run(
         [pwsh, "-NoProfile", "-File", resource_folder / "lastexitcode.ps1", loader],
+        check=False,
         capture_output=True,
         text=True,
     )
@@ -1233,6 +1242,7 @@ def test_the_powershell_loader_warns_once_below_powershell_7(resource_folder):
     loader = shell._root() / shell.TEMPLATES[shell.POWERSHELL]
     done = subprocess.run(
         [pwsh, "-NoProfile", "-File", resource_folder / "old_powershell.ps1", loader],
+        check=False,
         capture_output=True,
         text=True,
     )
@@ -1240,8 +1250,10 @@ def test_the_powershell_loader_warns_once_below_powershell_7(resource_folder):
     assert done.stderr.splitlines() == [
         "== 7.4.6",
         "== 5.1.19041",
-        "tdd: written for PowerShell 7 (pwsh); this is PowerShell 5.1.19041, "
-        "where it is not tested and may not work",
+        (
+            "tdd: written for PowerShell 7 (pwsh); this is PowerShell 5.1.19041, "
+            "where it is not tested and may not work"
+        ),
     ]
 
 
@@ -1267,9 +1279,8 @@ def _pypi_twine(resource_folder, shell_bin: str, tmp_path) -> tuple[str, str]:
     would: (the argv it got, `rc USER PASS` after set + `rc USER PASS` after
     unset)."""
     import os
-    import subprocess
-
     import shutil
+    import subprocess
 
     calls = tmp_path / "argv"
     fake = tmp_path / "tdd-exe"
@@ -1282,6 +1293,7 @@ def _pypi_twine(resource_folder, shell_bin: str, tmp_path) -> tuple[str, str]:
     }
     done = subprocess.run(
         _half(resource_folder, shell_bin, "pypi_twine"),
+        check=False,
         capture_output=True,
         text=True,
         env={

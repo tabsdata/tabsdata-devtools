@@ -353,6 +353,7 @@ def _dispatch_dry(argvs: list[tuple[str, list[str]]]) -> None:
         # own progress and summary lines.
         r = subprocess.run(
             [*argv, "--format", "json"],
+            check=False,
             capture_output=True,
             text=True,
             encoding="utf-8",

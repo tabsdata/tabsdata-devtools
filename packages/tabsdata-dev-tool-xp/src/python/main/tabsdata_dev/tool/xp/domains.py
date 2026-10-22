@@ -17,7 +17,6 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import yaml
-
 from tabsdata_dev.common.core import batch as core_batch
 from tabsdata_dev.common.core import proc
 

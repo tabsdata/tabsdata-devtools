@@ -5,8 +5,10 @@
 """Smoke tests for the shared family: registry, models, constants -- nothing that
 needs a driver, a docker daemon or a crypto key."""
 
+import itertools
 import json
 import pathlib
+from datetime import UTC
 
 import pytest
 from tabsdata_dev.common.systems import constants, datagen, dispatch, systems
@@ -100,7 +102,7 @@ def test_clean_docker_lists_then_refuses_without_yes_and_sweeps_with_it(
         if line.startswith("{")
     ]
     assert rc == 1 and calls == []
-    err = [e for e in events if e["event"] == "error"][0]
+    err = next(e for e in events if e["event"] == "error")
     assert "2 container(s)" in err["message"] and "--yes" in err["message"]
 
     rc = main.run(
@@ -111,7 +113,7 @@ def test_clean_docker_lists_then_refuses_without_yes_and_sweeps_with_it(
         for line in capsys.readouterr().out.splitlines()
         if line.startswith("{")
     ]
-    ok = [e for e in events if e["event"] == "ok"][0]
+    ok = next(e for e in events if e["event"] == "ok")
     assert rc == 0
     assert calls == [
         ("stop", "tdd_mysql_a1"),
@@ -131,7 +133,7 @@ def test_every_system_type_owns_a_disjoint_port_slot_documented_in_docs_ports_md
     slots = [system_port_range(s) for s in order]
     assert all(hi - lo + 1 == constants.PORTS_PER_SYSTEM for lo, hi in slots)
     assert slots[0][0] == constants.PORT_BASE and slots[-1][1] < constants.PORTS_CEILING
-    assert all(a[1] < b[0] for a, b in zip(slots, slots[1:]))  # in order, disjoint
+    assert all(a[1] < b[0] for a, b in itertools.pairwise(slots))  # in order, disjoint
     # the table in docs/ports.md is the contract: a new or moved system must update it
     doc = (
         pathlib.Path(__file__).resolve().parents[5] / "docs" / "ports.md"
@@ -538,9 +540,9 @@ def test_a_domain_owner_is_given_the_schema_its_tables_go_in():
         ], slug
 
         ran: list[tuple[str, list[str]]] = []
-        backend._run_admin = lambda admin, sql: ran.append((admin.db, sql))  # noqa: SLF001
+        backend._run_admin = lambda admin, sql, ran=ran: ran.append((admin.db, sql))
         try:
-            backend._do_create(backend._admin(_plan(slug)), "d1", "d1", "pw")  # noqa: SLF001
+            backend._do_create(backend._admin(_plan(slug)), "d1", "d1", "pw")
         finally:
             del backend._run_admin
         # the domain SQL on the maintenance database, then the schema on the new
@@ -807,6 +809,7 @@ def test_info_exports_for_the_shell_of_each_platform(tmp_path, resource_folder):
     names = [f"LLM__{k}" for k in meta]
     done = subprocess.run(
         [pwsh, "-NoProfile", "-File", resource_folder / "eval_lines.ps1", file, *names],
+        check=False,
         capture_output=True,
         encoding="utf-8",
     )
@@ -1293,7 +1296,7 @@ def test_a_batch_refuses_an_option_no_child_takes_before_starting_any(
         capsys, constants.SYS_TOOL, constants.V_STATUS, "--sys", "dev1,fs1", "--yes"
     )
     assert rc == 1 and small_store == []
-    error = [e for e in events if e["event"] == "error"][0]
+    error = next(e for e in events if e["event"] == "error")
     assert "unrecognized arguments: --yes" in error["message"]
 
     rc, _ = _run_json(
@@ -1764,7 +1767,7 @@ def test_dry_run_touches_nothing_and_emit_ops_appends_the_plan(tmp_path, monkeyp
         return [json.loads(x) for x in dest.read_text().splitlines()]
 
     run_keys = {"run", "ts", "domain", "verb", "dry_run", "txn", "op", "entity"}
-    load = dict(size=1, force=False)
+    load = {"size": 1, "force": False}
     assert run(dom_create_data, constants.V_CREATE_DATA, None, **load) == 0
     assert list(tmp_path.glob("*.jsonl")) == []  # a dry run alone writes nothing
 
@@ -1777,14 +1780,14 @@ def test_dry_run_touches_nothing_and_emit_ops_appends_the_plan(tmp_path, monkeyp
     assert all(r["dry_run"] is True for r in rows)
     assert all(set(r) == run_keys | {"row"} for r in rows)
 
-    opts = dict(
-        entity="ALL",
-        sets=3,
-        ops="Mix",
-        seed="AUTO",
-        trx_mode="serial",
-        trx_concurrency=4,
-    )
+    opts = {
+        "entity": "ALL",
+        "sets": 3,
+        "ops": "Mix",
+        "seed": "AUTO",
+        "trx_mode": "serial",
+        "trx_concurrency": 4,
+    }
     trail = tmp_path / "trail.jsonl"
     assert run(dom_modify_data, constants.V_MODIFY_DATA, trail, **opts) == 0
     first = lines(trail)
@@ -1857,7 +1860,7 @@ def test_sentinel_data_writes_one_stamped_row_and_create_data_keeps_its_count(
     create-data leaves that count alone (it drops nothing); a reload zeroes it."""
     import argparse
     import contextlib
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from tabsdata_dev.common.core import render
     from tabsdata_dev.common.systems import cli, console, descriptor
@@ -1913,9 +1916,9 @@ def test_sentinel_data_writes_one_stamped_row_and_create_data_keeps_its_count(
         run(dom_sentinel_data, constants.V_SENTINEL_DATA, key="k1")
     descriptor.set_model(path, "world", datagen.entities_of("world"))
 
-    before = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    before = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
     trail = tmp_path / "trail.jsonl"
-    live = dict(dry_run=False, emit_ops=str(trail))
+    live = {"dry_run": False, "emit_ops": str(trail)}
     assert run(dom_sentinel_data, constants.V_SENTINEL_DATA, key="k1", **live) == 0
     [[change]] = applied
     assert labels == [constants.V_SENTINEL_DATA]  # a failure names this verb
@@ -2495,36 +2498,95 @@ def test_trx_schedules_interleave_and_nest_as_their_names_say():
     assert s.commit_order == [0, 1]
 
     s = trx.schedule([2, 2, 2], TrxMode.INTERLEAVED, 3)
-    assert _trace(s) == "B0 B1 B2 0.0 1.0 2.0 0.1 C0 1.1 C1 2.1 C2".split()
+    assert _trace(s) == [
+        "B0",
+        "B1",
+        "B2",
+        "0.0",
+        "1.0",
+        "2.0",
+        "0.1",
+        "C0",
+        "1.1",
+        "C1",
+        "2.1",
+        "C2",
+    ]
     assert s.commit_order == [0, 1, 2] and s.label == "interleaved(3)"
     s = trx.schedule([2] * 5, TrxMode.INTERLEAVED, 2)
-    assert (
-        _trace(s)
-        == (
-            "B0 B1 0.0 1.0 0.1 C0 B2 1.1 C1 B3 2.0 3.0 2.1 C2 B4 3.1 C3 4.0 4.1 C4"
-        ).split()
-    )
+    assert _trace(s) == [
+        "B0",
+        "B1",
+        "0.0",
+        "1.0",
+        "0.1",
+        "C0",
+        "B2",
+        "1.1",
+        "C1",
+        "B3",
+        "2.0",
+        "3.0",
+        "2.1",
+        "C2",
+        "B4",
+        "3.1",
+        "C3",
+        "4.0",
+        "4.1",
+        "C4",
+    ]
     s = trx.schedule([1, 3], TrxMode.INTERLEAVED, 2)
-    assert _trace(s) == "B0 B1 0.0 C0 1.0 1.1 1.2 C1".split()
+    assert _trace(s) == ["B0", "B1", "0.0", "C0", "1.0", "1.1", "1.2", "C1"]
 
     s = trx.schedule([2, 2, 2], TrxMode.NESTED, 3)
-    assert _trace(s) == "B0 0.0 B1 1.0 B2 2.0 2.1 C2 1.1 C1 0.1 C0".split()
+    assert _trace(s) == [
+        "B0",
+        "0.0",
+        "B1",
+        "1.0",
+        "B2",
+        "2.0",
+        "2.1",
+        "C2",
+        "1.1",
+        "C1",
+        "0.1",
+        "C0",
+    ]
     assert s.commit_order == [2, 1, 0] and s.label == "nested(3)"
     s = trx.schedule([1, 1, 1], TrxMode.NESTED, 2)
-    assert _trace(s) == "B0 0.0 B1 1.0 C1 C0 B2 2.0 C2".split()
+    assert _trace(s) == ["B0", "0.0", "B1", "1.0", "C1", "C0", "B2", "2.0", "C2"]
     assert s.commit_order == [1, 0, 2]
     s = trx.schedule([3, 1], TrxMode.NESTED, 2)
-    assert _trace(s) == "B0 0.0 B1 1.0 C1 0.1 0.2 C0".split()
+    assert _trace(s) == ["B0", "0.0", "B1", "1.0", "C1", "0.1", "0.2", "C0"]
     assert trx.schedule([1, 1], TrxMode.NESTED, 10).concurrency == 2
     assert trx.schedule([], TrxMode.INTERLEAVED, 3).steps == []
 
     s = trx.schedule([1] * 7, TrxMode.MIX, 3)
-    assert (
-        _trace(s)
-        == (
-            "B0 0.0 C0 B1 1.0 C1 B2 2.0 C2 B3 B4 B5 3.0 C3 4.0 C4 5.0 C5 B6 6.0 C6"
-        ).split()
-    )
+    assert _trace(s) == [
+        "B0",
+        "0.0",
+        "C0",
+        "B1",
+        "1.0",
+        "C1",
+        "B2",
+        "2.0",
+        "C2",
+        "B3",
+        "B4",
+        "B5",
+        "3.0",
+        "C3",
+        "4.0",
+        "C4",
+        "5.0",
+        "C5",
+        "B6",
+        "6.0",
+        "C6",
+    ]
     assert s.parts == [
         (TrxMode.SERIAL, 3),
         (TrxMode.INTERLEAVED, 3),
@@ -2533,14 +2595,32 @@ def test_trx_schedules_interleave_and_nest_as_their_names_say():
     assert s.summary == "serial 3, interleaved 3, nested 1"
     assert s.commit_order == list(range(7)) and s.label == "mix(3)"
     s = trx.schedule([2] * 6, TrxMode.MIX, 2)
-    assert (
-        _trace(s)
-        == (
-            "B0 0.0 0.1 C0 B1 1.0 1.1 C1 "
-            "B2 B3 2.0 3.0 2.1 C2 3.1 C3 "
-            "B4 4.0 B5 5.0 5.1 C5 4.1 C4"
-        ).split()
-    )
+    assert _trace(s) == [
+        "B0",
+        "0.0",
+        "0.1",
+        "C0",
+        "B1",
+        "1.0",
+        "1.1",
+        "C1",
+        "B2",
+        "B3",
+        "2.0",
+        "3.0",
+        "2.1",
+        "C2",
+        "3.1",
+        "C3",
+        "B4",
+        "4.0",
+        "B5",
+        "5.0",
+        "5.1",
+        "C5",
+        "4.1",
+        "C4",
+    ]
     assert s.commit_order == [0, 1, 2, 3, 5, 4]
     assert trx.schedule([2, 2], TrxMode.SERIAL, 5).parts == [(TrxMode.SERIAL, 2)]
     assert trx.schedule([1] * 5, TrxMode.NESTED, 2).parts == [
@@ -2711,16 +2791,16 @@ def test_modify_data_trx_modes_schedule_the_plan_and_say_so(tmp_path, monkeypatc
 
     def run(system, fmt="view", **opts):
         console.bind(render.Renderer(constants.DOM_TOOL, fmt=fmt))
-        args = dict(
-            entity="ALL",
-            sets=3,
-            ops="Mix",
-            seed="AUTO",
-            trx_mode="serial",
-            trx_concurrency=4,
-            dry_run=False,
-            emit_ops=None,
-        )
+        args = {
+            "entity": "ALL",
+            "sets": 3,
+            "ops": "Mix",
+            "seed": "AUTO",
+            "trx_mode": "serial",
+            "trx_concurrency": 4,
+            "dry_run": False,
+            "emit_ops": None,
+        }
         args.update(opts)
         return dom_modify_data.run(
             cli.Context(
@@ -2812,7 +2892,7 @@ def test_create_data_reports_the_load_in_modify_datas_shape(tmp_path, monkeypatc
 
     def run(**opts):
         console.bind(render.Renderer(constants.DOM_TOOL, fmt="json"))
-        args = dict(size=1, force=False, dry_run=False, emit_ops=None)
+        args = {"size": 1, "force": False, "dry_run": False, "emit_ops": None}
         args.update(opts)
         return dom_create_data.run(
             cli.Context(
@@ -3124,7 +3204,10 @@ def test_airportdb_inserts_carry_defects_at_a_rate_each_seed_sets():
                 shares[d].append(sum(map(hit, rows)) / len(rows))
         for d, s in shares.items():
             assert all(0.0 < x < 0.75 for x in s), (d, s)
-            assert all(a != b for a, b in zip(s, s[1:])), (d, s)  # moves every run
+            assert all(a != b for a, b in itertools.pairwise(s)), (
+                d,
+                s,
+            )  # moves every run
 
 
 def test_only_salesforce_and_db2cdc_are_exclusive_system_types():

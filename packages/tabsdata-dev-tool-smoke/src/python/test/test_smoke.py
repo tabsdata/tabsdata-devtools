@@ -30,6 +30,7 @@ def _engine(resource_folder, function: str, *args, **kwargs):
             function,
             *args,
         ],
+        check=kwargs.pop("check", False),
         capture_output=True,
         text=True,
         env={**os.environ, "SMOKE_ENGINE": _smoke_engine()},
@@ -227,7 +228,6 @@ def test_the_powershell_family_runs_its_own_scripts(monkeypatch):
     import argparse
 
     import pytest
-
     from tabsdata_dev.common.core.errors import ToolError
 
     monkeypatch.setenv("_TDD_SHELL_FAMILY", "powershell")
@@ -263,14 +263,14 @@ def _help_options(text: str) -> list[str]:
     import re
 
     page = text.split("options:", 1)[1].split("\n\n", 1)[0]
-    return re.findall(r"^  (--[a-z-]+)", page, flags=re.M)
+    return re.findall(r"^  (--[a-z-]+)", page, flags=re.MULTILINE)
 
 
 def _stages(text: str) -> list[str]:
     import re
 
     return re.findall(
-        r"^\s*common_stage (?:--continue )?([a-z0-9-]+)", text, flags=re.M
+        r"^\s*common_stage (?:--continue )?([a-z0-9-]+)", text, flags=re.MULTILINE
     )
 
 
@@ -340,6 +340,7 @@ def test_the_failure_report_names_only_what_the_run_actually_built(
                 tmp_path / "log",
                 domains,
             ],
+            check=False,
             capture_output=True,
             text=True,
             env={
@@ -364,9 +365,7 @@ def test_the_failure_report_names_only_what_the_run_actually_built(
     venv.mkdir(parents=True)
     lines = report()
     assert "remove     tdd venv delete --name sm_fixture_notarealrun" in lines
-    assert not [
-        ln for ln in lines if ln.startswith("instance") or ln.startswith("nothing")
-    ], lines
+    assert not [ln for ln in lines if ln.startswith(("instance", "nothing"))], lines
 
     # both, plus a domain the script says it created
     instance.mkdir(parents=True)
@@ -442,6 +441,7 @@ def test_the_port_forward_listens_locally_where_it_is_told_and_points_at_the_api
                 log,
                 str(port),
             ],
+            check=False,
             capture_output=True,
             text=True,
             timeout=90,
@@ -607,6 +607,7 @@ def test_the_forward_is_relaunched_when_kubectl_exits_and_checked_before_a_suite
             log,
             str(local),
         ],
+        check=False,
         capture_output=True,
         text=True,
         timeout=120,
@@ -646,6 +647,7 @@ def test_a_forward_that_had_been_up_is_relaunched_without_a_pause(
             log,
             str(local),
         ],
+        check=False,
         capture_output=True,
         text=True,
         timeout=60,
@@ -768,7 +770,6 @@ def test_run_owns_script_and_hands_the_script_everything_else():
 
 def test_a_script_is_named_in_any_spelling_and_the_choices_are_named_otherwise():
     import pytest
-
     from tabsdata_dev.common.core.errors import ToolError
 
     root = smoke.scripts_dir()
@@ -800,7 +801,6 @@ def test_run_executes_the_carried_copy_through_bash_without_tdds_private_variabl
     import argparse
 
     import pytest
-
     from tabsdata_dev.common.core.errors import ToolError
 
     calls: list[tuple[list[str], dict]] = []
@@ -882,7 +882,7 @@ def test_list_names_the_scripts_with_how_to_run_each_and_not_the_engine():
     assert not [m for m in infos if m.startswith("_")]
     for m in infos:
         assert "Tabsdata " in m and "(tdd smoke run --script " in m, m
-    done = [e for e in events if e["event"] == "ok"][0]
+    done = next(e for e in events if e["event"] == "ok")
     assert (
         done["scripts"] == ["aks", "eks", "gke", "km"]
         and done["engine"] == "_common.sh"
@@ -955,7 +955,7 @@ def test_each_script_holds_its_own_local_ports():
         # km names its base port `PORT`; the cluster scripts keep `PORT` for the
         # apiserver's in-cluster port and forward from `FORWARD_PORT`.
         var = "PORT" if which == "km" else "FORWARD_PORT"
-        found = re.search(rf'^{var}="(\d+)"', text, re.M)
+        found = re.search(rf'^{var}="(\d+)"', text, re.MULTILINE)
         assert found, (path.name, var)
         seen[which] = found.group(1)
         # the page names its own default and the whole scheme, so the

@@ -14,7 +14,6 @@ import subprocess
 import sys
 
 import pytest
-
 from tabsdata_dev.tool import pycache
 
 #: A cache holding one of everything the command has to tell apart.

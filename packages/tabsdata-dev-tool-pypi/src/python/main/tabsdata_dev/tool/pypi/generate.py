@@ -12,8 +12,8 @@ from tabsdata_dev.common.core.errors import ToolError
 from tabsdata_dev.common.core.render import Renderer
 
 from .dist import describe
-from .model import Dist
 from .indexhtml import render_all
+from .model import Dist
 from .tree import (
     INDEX,
     clear_tree,

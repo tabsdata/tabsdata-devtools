@@ -18,8 +18,7 @@ import subprocess
 
 from . import catalog as catalog_mod
 from . import generate as generate_mod
-from . import paths
-from . import render
+from . import paths, render
 from . import version as version_mod
 
 LOCK_SUFFIX = ".lock"
@@ -291,6 +290,7 @@ def _uv(
     env = {k: v for k, v in os.environ.items() if k not in drop_env}
     result = subprocess.run(
         argv,
+        check=False,
         env=dict(env, **RELOCATABLE_ENV, **extra_env),
         capture_output=True,
         text=True,
@@ -445,6 +445,7 @@ def _write_source(dir_: pathlib.Path, out: render.Renderer) -> dict[str, pathlib
 
     found = subprocess.run(
         [str(python), "-m", "tabsdata_dev.shell", "loaders"],
+        check=False,
         capture_output=True,
         text=True,
     )

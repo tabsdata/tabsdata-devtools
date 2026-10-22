@@ -36,6 +36,7 @@ from __future__ import annotations
 import random
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import ClassVar
 
 from tabsdata_dev.common.systems.datagen import Entity, Model
 from tabsdata_dev.common.systems.emit import Column, Table
@@ -272,7 +273,13 @@ def _gen_readings(rng: random.Random, n: int) -> list[dict]:
 
 
 class _EmployeesCdcModel(Model):
-    entities = [_Accounts(), _Ledger(), _Devices(), _Readings(), _Audit()]
+    entities: ClassVar[list[Entity]] = [
+        _Accounts(),
+        _Ledger(),
+        _Devices(),
+        _Readings(),
+        _Audit(),
+    ]
 
     def build_initial(self, rng: random.Random, n: int) -> list[Table]:
         return [

@@ -18,6 +18,7 @@ line on the terminal is rarely enough to tell what to change.
 
 from __future__ import annotations
 
+import contextlib
 import re
 
 from tabsdata_dev.common.systems.diagnostics import db_failure
@@ -142,7 +143,6 @@ def run_sql_schedule(
     from sqlalchemy import create_engine
     from sqlalchemy.exc import SQLAlchemyError
     from sqlalchemy.pool import NullPool
-
     from tabsdata_dev.common.systems.trx import Action
 
     # No pool: a connection per open transaction, as many as the schedule
@@ -189,10 +189,10 @@ def run_sql_schedule(
         ) from None
     finally:
         for conn, txn in open_.values():
-            try:
+            with contextlib.suppress(
+                Exception
+            ):  # already failing; the first error wins
                 txn.rollback()
                 conn.close()
-            except Exception:  # noqa: BLE001 - already failing; the first error wins
-                pass
         engine.dispose()
     return applied

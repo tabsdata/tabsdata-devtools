@@ -9,7 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import boto3
-
 from tabsdata_dev.common.core.errors import ToolError
 from tabsdata_dev.common.core.render import Renderer
 

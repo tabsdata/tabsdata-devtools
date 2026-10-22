@@ -29,6 +29,7 @@ import functools
 import random
 import string
 from datetime import date, datetime, time, timedelta
+from typing import ClassVar
 
 from tabsdata_dev.common.systems.datagen import (
     FIXED_SEED_INSERT_STRIDE,
@@ -898,7 +899,9 @@ class _Passenger(Entity):
 
 class _Booking(Entity):
     table = "booking"
-    columns = [Column("booking_id", "int", nullable=False, auto=True)]
+    columns: ClassVar[list[Column]] = [
+        Column("booking_id", "int", nullable=False, auto=True)
+    ]
     # Leaf table (nothing references a booking) — safe to delete from.
     supports = (OpKind.DELETE,)
     rows_per_set = 1
@@ -1004,7 +1007,12 @@ class _Weather(Entity):
 
 
 class _AirportDb(Model):
-    entities = [_Airport(), _Passenger(), _Booking(), _Weather()]
+    entities: ClassVar[list[Entity]] = [
+        _Airport(),
+        _Passenger(),
+        _Booking(),
+        _Weather(),
+    ]
 
     def build_initial(self, rng: random.Random, n: int) -> list[Table]:
         random.seed(42)

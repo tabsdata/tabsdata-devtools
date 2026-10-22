@@ -90,7 +90,7 @@ def config_doc(tool: str) -> core_config.Doc:
         # table above; repeating them per verb would say nothing new.
         found = {
             name: value
-            for name, value in core_config._options_of(sub).items()  # noqa: SLF001
+            for name, value in core_config._options_of(sub).items()
             if name not in shared
         }
         if found:
@@ -100,13 +100,13 @@ def config_doc(tool: str) -> core_config.Doc:
         sub = argparse.ArgumentParser(prog=f"tdd {tool} {verb}")
         try:
             module.add_arguments(sub)
-        except Exception:  # noqa: BLE001 -- a verb we cannot describe is left out
+        except Exception:  # noqa: BLE001, S112 - a verb we cannot describe is left out
             continue
         table(verb, sub)
     for verb, build in dispatch.common_parsers(tool).items():
         try:
             table(verb, build(tool))
-        except Exception:  # noqa: BLE001 -- same rule: describe it or leave it out
+        except Exception:  # noqa: BLE001, S112 - same rule: describe it or leave it out
             continue
     return doc
 

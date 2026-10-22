@@ -35,9 +35,9 @@ import os
 import re
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
+EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
 DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz"
 SHORT_TIME_WIDTH = 6
 SLOT_WIDTH = 2
@@ -90,7 +90,7 @@ def slot_token(slot: int) -> str:
 def make(user: str, build: str, seconds: int, slot: int = 0) -> tuple[str, str]:
     """``(XP_ID, XP_SHORT_ID)`` of a run begun at `seconds` (since the epoch) in
     `slot`."""
-    when = datetime.fromtimestamp(seconds, tz=timezone.utc)
+    when = datetime.fromtimestamp(seconds, tz=UTC)
     ss = slot_token(slot)
     xp_id = f"xp_{user}_{build}_s{ss}_{when:%Y%m%dT%H%M%S}"
     uuu = re.sub(r"[^a-z0-9]", "", user.lower())[:3].ljust(3, "x")

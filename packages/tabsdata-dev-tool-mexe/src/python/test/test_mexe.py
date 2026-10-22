@@ -11,7 +11,6 @@ import pathlib
 import sys
 
 import pytest
-
 from tabsdata_dev.common.core import cli
 from tabsdata_dev.tool import mexe
 

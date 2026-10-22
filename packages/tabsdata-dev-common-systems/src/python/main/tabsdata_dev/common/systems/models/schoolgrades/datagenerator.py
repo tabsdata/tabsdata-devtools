@@ -16,6 +16,7 @@ from __future__ import annotations
 import random
 from collections import defaultdict
 from datetime import date, datetime, timedelta
+from typing import ClassVar
 
 from tabsdata_dev.common.systems.datagen import Entity, Model
 from tabsdata_dev.common.systems.emit import Column, Table
@@ -522,7 +523,7 @@ def gen_grades(enrollments: list[dict], assessments: list[dict]) -> list[dict]:
 
 
 class _SchoolGrades(Model):
-    entities: list[Entity] = []  # reference-only: no deltas
+    entities: ClassVar[list[Entity]] = []  # reference-only: no deltas
 
     def build_initial(self, rng: random.Random, n: int) -> list[Table]:
         random.seed(_BASE_SEED)

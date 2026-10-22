@@ -42,7 +42,7 @@ from . import commands, gh
 from . import hooks as hooks_mod
 from . import move as move_mod
 from .args import NATIVES, TAKES_LR
-from .options import DESCRIPTION, NAME, CONFIG_PREAMBLE, CONFIG_TABLES, configure
+from .options import CONFIG_PREAMBLE, CONFIG_TABLES, DESCRIPTION, NAME, configure
 
 HANDLERS = {
     "create": commands.create,

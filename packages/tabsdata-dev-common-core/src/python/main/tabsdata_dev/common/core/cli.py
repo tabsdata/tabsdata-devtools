@@ -42,8 +42,8 @@ class ColorHelp(argparse.RawDescriptionHelpFormatter):
 def _colorize(parser: argparse.ArgumentParser) -> None:
     """Give a parser and every subparser under it the coloured formatter."""
     parser.formatter_class = ColorHelp
-    for action in parser._actions:  # noqa: SLF001 -- argparse exposes no other way
-        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
             for sub in action.choices.values():
                 _colorize(sub)
 

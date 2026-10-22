@@ -16,6 +16,7 @@ command (not SQL).
 from __future__ import annotations
 
 import re
+from typing import ClassVar
 
 from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.systems.errors import TdxError
@@ -48,7 +49,7 @@ class Db2(SqlContainerBackend):
     driver = "db2+ibm_db"
     admin_db = _XP_DB
     ready_timeout = 600
-    extra_run_flags = ["--privileged"]
+    extra_run_flags: ClassVar[list[str]] = ["--privileged"]
     scan_locks = True  # a searched DELETE locks the rows it scans
     system_schemas = frozenset({"nullid", "sqlj", "db2inst1", "db2gse", "db2qp"})
 

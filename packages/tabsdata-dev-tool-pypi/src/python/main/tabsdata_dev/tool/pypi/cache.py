@@ -15,7 +15,6 @@ from __future__ import annotations
 from uuid import uuid4
 
 import boto3
-
 from tabsdata_dev.common.core.render import Renderer
 
 from .config import Lane

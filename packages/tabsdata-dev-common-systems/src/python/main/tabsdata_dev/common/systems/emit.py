@@ -18,10 +18,11 @@ database IDENTITY).
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 # The data-file formats a file/object-store domain stages (one file per entity
 # per format), each named ``<entity>_<file_stamp()>.<fmt>``.
@@ -44,8 +45,10 @@ class Table:
     sql_post: list[str] = field(default_factory=list)
 
 
-_DECIMAL_RE = re.compile(r"^decimal\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)$", re.I)
-_VARCHAR_RE = re.compile(r"^(?:varchar|char|nvarchar|nchar)\s*\(\s*\d+\s*\)$", re.I)
+_DECIMAL_RE = re.compile(r"^decimal\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)$", re.IGNORECASE)
+_VARCHAR_RE = re.compile(
+    r"^(?:varchar|char|nvarchar|nchar)\s*\(\s*\d+\s*\)$", re.IGNORECASE
+)
 
 
 def _is_decimal(t: str):
@@ -158,8 +161,7 @@ def iter_insert_statements(
     ``batch`` row tuples in one multi-row ``VALUES`` clause."""
     cols = [c for c in columns if not c.auto]
     col_names = ",".join(sql_quote_ident(c.name, quote) for c in cols)
-    if batch < 1:
-        batch = 1
+    batch = max(batch, 1)
     for start in range(0, len(rows), batch):
         tuples = ",".join(
             "(" + ",".join(sql_literal(r.get(c.name), c.sql_type) for c in cols) + ")"
@@ -173,7 +175,7 @@ def iter_insert_statements(
 # ---------------------------------------------------------------------------
 
 
-def _frame(tbl: "Table"):
+def _frame(tbl: Table):
     """A polars DataFrame of `tbl` (ALL columns, incl. ``auto``), preserving
     column order even when there are no rows.
 
@@ -199,7 +201,7 @@ def file_stamp() -> str:
     return now.strftime("%Y%m%dT%H%M%S_") + f"{now.microsecond // 1000:03d}"
 
 
-def write_frame(tbl: "Table", path: str | Path, fmt: str) -> None:
+def write_frame(tbl: Table, path: str | Path, fmt: str) -> None:
     """Write `tbl`'s columns and rows (incl. ``auto`` surrogate keys) to `path`
     as `fmt` (one of :data:`FILE_FORMATS`), creating parent directories."""
     if fmt not in FILE_FORMATS:

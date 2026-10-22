@@ -623,7 +623,7 @@ class Session:
             self._raise()
         try:
             _run_list(entries, self._top, self._run, "", frozenset())
-        except BaseException as exc:
+        except BaseException as exc:  # noqa: BLE001 - any failure, interrupts included, is the run's failure
             self._run.fail(exc)
             self.finish()
         if self._run.stop.is_set():

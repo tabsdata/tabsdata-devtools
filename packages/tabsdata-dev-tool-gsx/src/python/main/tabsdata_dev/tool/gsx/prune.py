@@ -86,9 +86,11 @@ class Plan:
         """The plan as the operator reads it before confirming."""
         lines = [
             "Plan",
-            f"  stack #{self.number} on {self.trunk}: "
-            f"{len(self.keep) + len(self.drop)} PR(s), {len(self.drop)} of them "
-            "merged or closed",
+            (
+                f"  stack #{self.number} on {self.trunk}: "
+                f"{len(self.keep) + len(self.drop)} PR(s), {len(self.drop)} of them "
+                "merged or closed"
+            ),
             f"  drop  {_ends(self.drop)}",
             f"  keep  {_ends(self.keep) or '(none)'}",
         ]

@@ -14,7 +14,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
 from tabsdata_dev.tool.pypi.model import Dist
 
 
@@ -175,11 +174,11 @@ class FakeS3:
     def get_paginator(self, _name):
         return FakePaginator(self.objects)
 
-    def get_bucket_encryption(self, Bucket):  # noqa: N803 - boto3 casing
+    def get_bucket_encryption(self, Bucket):
         rule = {"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": self.sse}}
         return {"ServerSideEncryptionConfiguration": {"Rules": [rule]}}
 
-    def get_bucket_versioning(self, Bucket):  # noqa: N803 - boto3 casing
+    def get_bucket_versioning(self, Bucket):
         return {"Status": "Enabled"} if self.versioned else {}
 
     def put_object(self, **kwargs):
@@ -190,7 +189,7 @@ class FakeS3:
         self.metadata[kwargs["Key"]] = dict(kwargs.get("Metadata") or {})
         return {}
 
-    def head_object(self, Bucket, Key):  # noqa: N803 - boto3 casing
+    def head_object(self, Bucket, Key):
         self.heads.append(Key)
         if Key not in self.objects:
             from botocore.exceptions import ClientError
@@ -206,15 +205,15 @@ class FakeS3:
             "Metadata": dict(self.metadata.get(Key, {})),
         }
 
-    def get_object(self, Bucket, Key):  # noqa: N803 - boto3 casing
+    def get_object(self, Bucket, Key):
         self.gets.append(Key)
         return {"Body": io.BytesIO(self.bodies[Key])}
 
-    def download_file(self, Bucket, Key, Filename):  # noqa: N803 - boto3 casing
+    def download_file(self, Bucket, Key, Filename):
         self.gets.append(Key)
         Path(Filename).write_bytes(self.bodies[Key])
 
-    def delete_object(self, Bucket, Key):  # noqa: N803 - boto3 casing
+    def delete_object(self, Bucket, Key):
         self.deletes.append(Key)
         self.objects.pop(Key, None)
         self.bodies.pop(Key, None)

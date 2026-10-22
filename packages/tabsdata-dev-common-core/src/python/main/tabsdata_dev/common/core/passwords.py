@@ -9,7 +9,6 @@ from __future__ import annotations
 import secrets
 import string
 
-
 # The punctuation a generated password may use: the URL-unreserved set, and
 # nothing else. A password reaches a server three ways and each rules something
 # out. It is interpolated into a quoted SQL literal (`IDENTIFIED BY '...'`), so

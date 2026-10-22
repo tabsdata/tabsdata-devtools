@@ -23,7 +23,6 @@ import datetime
 import pathlib
 
 from tabsdata_dev.common.core import config as common
-from tabsdata_dev.common.core.errors import ToolError
 
 from .options import doc
 from .version import VERSION
@@ -159,10 +158,7 @@ def render_tables(config: dict) -> str:
 
 def write(config: dict) -> pathlib.Path:
     """Rewrite the file: the option template as it stands, then gsx's tables."""
-    try:
-        return common.update(COMMAND, doc(), keep=render_tables(config))
-    except ToolError:
-        raise
+    return common.update(COMMAND, doc(), keep=render_tables(config))
 
 
 def now() -> str:

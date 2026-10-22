@@ -18,12 +18,14 @@ behind them are in the package's README.md.
 
 from __future__ import annotations
 
+import contextlib
 import re
 import textwrap
 import urllib.request
 import zlib
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 import griffe
 from griffe import (
@@ -42,7 +44,6 @@ from griffe import (
     Module,
     Parser,
 )
-
 from tabsdata_dev.common.core.errors import ToolError
 
 # Bumped when the output schema or extraction semantics change. Emitted into
@@ -87,7 +88,7 @@ def install_pyi_wins_policy() -> None:
         try:
             mod1_is_stub = mod1.filepath.suffix == ".pyi"
             mod2_is_stub = mod2.filepath.suffix == ".pyi"
-        except Exception:
+        except Exception:  # noqa: BLE001 - griffe cannot locate every module's file
             return mod1
         if mod1_is_stub:
             stubs, regular = mod1, mod2
@@ -229,9 +230,13 @@ def normalise_sections(doc: str) -> str:
     out: list[str] = []
     for line in lines:
         m = _SECTION_HEADER_RE.match(line)
-        if m and m.group(2).strip().lower() in _GOOGLE_SECTIONS:
-            if out and out[-1].strip() != "":
-                out.append("")
+        if (
+            m
+            and m.group(2).strip().lower() in _GOOGLE_SECTIONS
+            and out
+            and out[-1].strip() != ""
+        ):
+            out.append("")
         out.append(line)
     return "\n".join(out)
 
@@ -240,7 +245,7 @@ _EXAMPLES_HEAD_RE = re.compile(r"^(\s*)Examples?:\s*$")
 _CODE_BLOCK_RE = re.compile(r"^\s*\.\.\s+code-block::\s*(\w+)\s*$")
 
 
-def split_off_examples(doc: str) -> tuple[Optional[str], str]:
+def split_off_examples(doc: str) -> tuple[str | None, str]:
     """Split the ``Examples:`` section off a docstring.
 
     Returns ``(examples_body, docstring_without_examples)``. The body is the
@@ -295,7 +300,7 @@ def parse_examples(body: str) -> list[dict[str, str]]:
             while i < len(lines) and lines[i].strip() == "":
                 i += 1
             code: list[str] = []
-            base: Optional[int] = None
+            base: int | None = None
             while i < len(lines):
                 cur = lines[i]
                 if cur.strip() == "":
@@ -413,23 +418,21 @@ def render_annotation(
         )
     # Fallback: render as-is but still try to harvest names for linking.
     if isinstance(expr, Expr):
-        try:
+        with contextlib.suppress(Exception):
             for el in expr.iterate(flat=True):
                 if isinstance(el, ExprName):
                     refs.append((el.name, _safe_canonical(el)))
-        except Exception:
-            pass
     return str(expr)
 
 
 def _safe_canonical(expr: Any) -> str:
     try:
         return expr.canonical_path
-    except Exception:
+    except Exception:  # noqa: BLE001 - an unresolvable alias renders as written
         return str(expr)
 
 
-def _subscript_head(expr: ExprSubscript) -> Optional[str]:
+def _subscript_head(expr: ExprSubscript) -> str | None:
     """Leaf name of a subscript's base (``Union[...]`` / ``typing.Union[...]``
     -> ``Union``), or ``None`` when it is not a plain name/attribute."""
     left = expr.left
@@ -507,7 +510,7 @@ class LinkResolver:
                 self.templates.append((modules, template, url))
 
             inv = entry.get("inventory")
-            inv_source: Optional[str] = None
+            inv_source: str | None = None
             if inv is True:
                 inv_source = f"{url}/objects.inv"
             elif isinstance(inv, str):
@@ -575,13 +578,13 @@ class LinkResolver:
         return [self.resolve(n, cp) for n, cp in _dedup_refs(refs)]
 
 
-def _fetch_bytes(source: str, warn: Callable[[str], Any]) -> Optional[bytes]:
+def _fetch_bytes(source: str, warn: Callable[[str], Any]) -> bytes | None:
     try:
         if source.startswith(("http://", "https://")):
-            with urllib.request.urlopen(source, timeout=20) as resp:  # noqa: S310
+            with urllib.request.urlopen(source, timeout=20) as resp:
                 return resp.read()
         return Path(source).read_bytes()
-    except Exception as exc:  # network down, 404, missing file ...
+    except Exception as exc:  # noqa: BLE001 - network down, 404, missing file ...
         warn(f"could not load inventory {source!r}: {exc}")
         return None
 
@@ -608,7 +611,7 @@ def load_inventory(
             warn(f"unsupported inventory version for {source!r}")
             return {}
         payload = zlib.decompress(data[header_end:])
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - a malformed inventory is a warning, not a crash
         warn(f"could not parse inventory {source!r}: {exc}")
         return {}
 
@@ -648,7 +651,7 @@ def _is_type_alias(attr: Any) -> bool:
         return False
     try:
         return str(annotation).rsplit(".", 1)[-1] == "TypeAlias"
-    except Exception:
+    except Exception:  # noqa: BLE001 - an annotation griffe cannot render is not an alias
         return False
 
 
@@ -693,7 +696,7 @@ class Extractor:
             value = None
             try:
                 node = self.modules_collection[canonical_path]
-            except Exception:
+            except Exception:  # noqa: BLE001 - a path griffe has no object for has no value
                 node = None
             if isinstance(node, Attribute) and _is_type_alias(node):
                 value = node.value
@@ -702,17 +705,17 @@ class Extractor:
 
     def category_pairs(
         self, raw_categories: list[str], where: str
-    ) -> list[list[Optional[str]]]:
+    ) -> list[list[str | None]]:
         """Turn raw category ids from a docstring into ``[group, category]``
         pairs (group is ``None`` when no groups are configured), recording each
         occurrence for later validation. Empty list when the entity has none."""
-        pairs: list[list[Optional[str]]] = []
+        pairs: list[list[str | None]] = []
         for category in raw_categories:
             self.used_categories.setdefault(category, []).append(where)
             pairs.append([self.category_to_group.get(category), category])
         return pairs
 
-    def _base_head(self, expr: Any) -> Optional[str]:
+    def _base_head(self, expr: Any) -> str | None:
         """The head class name of a base expression (``_Base[T]`` -> ``_Base``)."""
         if isinstance(expr, str):
             return expr.rsplit(".", 1)[-1]
@@ -725,7 +728,7 @@ class Extractor:
         return None
 
     # -- annotation -> serialisable ------------------------------------- #
-    def type_field(self, annotation: Any) -> Optional[dict[str, Any]]:
+    def type_field(self, annotation: Any) -> dict[str, Any] | None:
         if annotation is None:
             return None
         refs: list[tuple[str, str]] = []
@@ -753,7 +756,7 @@ class Extractor:
             "raises": [],
             "examples": [],
         }
-        doc_obj: Optional[Docstring] = getattr(obj, "docstring", None)
+        doc_obj: Docstring | None = getattr(obj, "docstring", None)
         if not doc_obj or not doc_obj.value:
             return info
 
@@ -773,7 +776,7 @@ class Extractor:
             sections = Docstring(cleaned, parent=obj).parse(
                 Parser.google, warnings=False
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - an unparsable docstring is kept as plain text
             info["description"] = cleaned
             info["summary"] = (
                 cleaned.strip().splitlines()[0] if cleaned.strip() else None
@@ -818,7 +821,7 @@ class Extractor:
         qualname: str,
         reexported: bool,
         canonical: str,
-        fallback_param_docs: Optional[dict[str, str]] = None,
+        fallback_param_docs: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         # `qualname` is the within-module path (e.g. "Class.method" or "publisher");
         # `name` is just the leaf, `qualified_name` the full dotted path.
@@ -959,7 +962,7 @@ class Extractor:
             if member.is_alias:
                 try:
                     member = member.target
-                except Exception:
+                except Exception:  # noqa: BLE001 - an unresolvable alias is left out
                     return
             member_canonical = _safe_canonical(member)
             if member_name == "__init__" and isinstance(member, Function):
@@ -1031,7 +1034,7 @@ class Extractor:
             own = set(cls.members.keys())
             try:
                 inherited_members = cls.inherited_members
-            except Exception:
+            except Exception:  # noqa: BLE001 - griffe cannot always resolve inherited members
                 inherited_members = {}
             for member_name, member in inherited_members.items():
                 if member_name in own:
@@ -1048,7 +1051,7 @@ class Extractor:
                         if member.is_alias
                         else _safe_canonical(member)
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 - an unresolvable target is left out
                     target_path = ""
                 if not target_path.startswith(self.root + "."):
                     continue
@@ -1087,18 +1090,16 @@ class Extractor:
             if member.is_alias:
                 try:
                     resolved = member.target
-                except Exception:
+                except Exception:  # noqa: BLE001 - an unresolvable alias is recorded, then dropped
                     # Unresolvable alias (usually a re-export of a name from an
                     # unloaded external package, e.g. polars) -> drop it.
-                    try:
+                    with contextlib.suppress(Exception):
                         ignored.append(
                             {
                                 "name": member_name,
                                 "target": member.target_path,
                             }
                         )
-                    except Exception:
-                        pass
                     continue
             else:
                 resolved = member
@@ -1153,12 +1154,10 @@ class Extractor:
 
 
 _VARIADIC_KINDS = set()  # filled after import (ParameterKind values)
-try:
+with contextlib.suppress(Exception):
     from griffe import ParameterKind
 
     _VARIADIC_KINDS = {ParameterKind.var_positional, ParameterKind.var_keyword}
-except Exception:
-    pass
 
 
 # --------------------------------------------------------------------------- #
@@ -1195,7 +1194,7 @@ def _best_triple(
     index: dict[str, list[tuple[str, str, bool]]],
     canonical_path: str,
     root_package: str,
-) -> Optional[list[str]]:
+) -> list[str] | None:
     """Pick the best [package, module, name] triple for a canonical path.
 
     Prefers an occurrence where the entity is defined (not re-exported), then
@@ -1205,9 +1204,7 @@ def _best_triple(
     candidates = index.get(canonical_path)
     if not candidates:
         return None
-    module_name, name, _ = sorted(
-        candidates, key=lambda t: (t[2], t[0].count("."), t[0])
-    )[0]
+    module_name, name, _ = min(candidates, key=lambda t: (t[2], t[0].count("."), t[0]))
     return [root_package, module_name, name]
 
 
@@ -1436,8 +1433,10 @@ def validate_used_categories(
     if not unknown:
         return
     lines = [
-        "error: undefined categories found in docstrings "
-        "(add them to the spec's 'categories' section or fix the source):"
+        (
+            "error: undefined categories found in docstrings "
+            "(add them to the spec's 'categories' section or fix the source):"
+        )
     ]
     for category in sorted(unknown):
         locations = unknown[category]
@@ -1529,7 +1528,7 @@ def generate(
         )
         try:
             mod = root[rel] if rel else root
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - a module griffe cannot load is skipped, with a warning
             out.warn(f"skipping {module_name!r}: {exc}")
             continue
         if not isinstance(mod, Module):

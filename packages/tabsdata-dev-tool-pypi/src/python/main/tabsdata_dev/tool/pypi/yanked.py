@@ -15,7 +15,6 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 
 import yaml
-
 from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.core.errors import ToolError
 

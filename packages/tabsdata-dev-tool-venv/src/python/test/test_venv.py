@@ -13,7 +13,6 @@ import pathlib
 import sys
 
 import pytest
-
 from tabsdata_dev.tool import venv as tool
 
 

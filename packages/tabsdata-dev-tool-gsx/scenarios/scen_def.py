@@ -4,7 +4,6 @@
 
 """Batch D/E/F: the guard, landed PRs, and edges."""
 
-# ruff: noqa: F403, F405 -- the harness is the scenario vocabulary, imported whole
 from harness import *
 
 
@@ -34,7 +33,7 @@ def pr_of_number(n):
 # ================================================================== D: guard
 @scenario("D1: a squash of pushed commits is refused; the override lets it through")
 def d1(steps):
-    names, num = make_stack("alice", "D1", 2)
+    make_stack("alice", "D1", 2)
     write_commit("alice", "D1-2", "[D1-2] second")
     gsx("alice", "sync", "--push")
     git("alice", "checkout", "-q", "D1-2")
@@ -64,15 +63,15 @@ def d1(steps):
     "D2: gh stack sync from a STALE clone after a restructure is refused by the guard"
 )
 def d2(steps):
-    a, na = make_stack("alice", "D2A", 3)
-    b, nb = make_stack("alice", "D2B", 2)
+    na = make_stack("alice", "D2A", 3)[1]
+    nb = make_stack("alice", "D2B", 2)[1]
     track("bob", na)
     git("alice", "checkout", "-q", "D2A-2")
     gsx("alice", "move", "--to", f"#{nb}", "--yes")
     gsx("alice", "submit", "--move")
     steps.append("alice moved D2A-2..3 onto B and published")
     write_commit("bob", "D2A-3", "[D2A-3] bob on the old layout", "bob.txt")
-    rc, o = gs("bob", "sync", check=False, input="n\n")
+    gs("bob", "sync", check=False, input="n\n")
     fetch("bob")
     expect(
         is_ancestor("bob", "origin/D2B-2", "origin/D2A-2"),
@@ -80,9 +79,9 @@ def d2(steps):
     )
     expect(is_ancestor("bob", "origin/D2B-2", "origin/D2A-3"), "remote D2A-3 clobbered")
     steps.append("guard held: the published restructure survived bob's gh stack sync")
-    rc, o = gsx("bob", "checkout", f"#{nb}", "--adopt")
+    gsx("bob", "checkout", f"#{nb}", "--adopt")
     git("bob", "checkout", "-q", "D2A-3")
-    rc, o = gsx("bob", "sync", "--push")
+    gsx("bob", "sync", "--push")
     fetch("bob")
     expect_present_once("bob", "D2A-3", ["[D2A-3] bob on the old layout"])
     steps.append("bob --adopt, then sync: his commit landed on the new arrangement")
@@ -92,7 +91,7 @@ def d2(steps):
     "D3: an unguarded clone is refused by every pushing command, not by the readers"
 )
 def d3(steps):
-    names, num = make_stack("alice", "D3", 2)
+    num = make_stack("alice", "D3", 2)[1]
     track("carol", num)
     # unguard by pointing git away from .githooks; deleting the committed hook
     # file would dirty the tree and refuse for the wrong reason
@@ -117,7 +116,7 @@ def d3(steps):
     "D4: the guard knows a commit by its Change-Id: rewritten patch and subject pass, a drop is refused"
 )
 def d4(steps):
-    names, num = make_stack("alice", "D4", 2)
+    num = make_stack("alice", "D4", 2)[1]
     track("bob", num)
     write_commit("bob", "D4-1", "[D4-1] bob's commit", "bob.txt")
     gsx("bob", "sync", "--push")
@@ -166,7 +165,7 @@ def e1(steps):
     merge_stacked("alice", pr)
     steps.append(f"PR #{pr} (E1-1) squash-merged, branch deleted on GitHub")
     git("alice", "checkout", "-q", "E1-4")
-    rc, o = gsx("alice", "sync", "--push")
+    o = gsx("alice", "sync", "--push")[1]
     expect_not_in(o, "CONFLICT")
     fetch("alice")
     expect(
@@ -180,44 +179,44 @@ def e1(steps):
         expect_no_dups("alice", n)
     expect_stacked("alice", names[1:])
     steps.append("alice: E1-2..4 restacked onto the squash, E1-1 not pushed back")
-    rc, o = gsx("bob", "sync", "--push")
+    o = gsx("bob", "sync", "--push")[1]
     expect_not_in(o, "CONFLICT")
     fetch("bob")
     expect(sha("bob", "origin/E1-1") == "", "bob's sync recreated E1-1")
     expect_local_equals_remote("bob", names[1:])
-    rc, o = gsx("bob", "purge")
+    o = gsx("bob", "purge")[1]
     expect(sha("bob", "E1-1") == "", "purge kept the landed branch")
     steps.append("bob synced and purged the landed branch")
 
 
 @scenario("E2: gsx stack hides landed PRs; --merged shows them")
 def e2(steps):
-    names, num = make_stack("alice", "E2", 3)
+    make_stack("alice", "E2", 3)
     pr = pr_of("E2-1")["number"]
     merge_stacked("alice", pr)
     git("alice", "checkout", "-q", "E2-3")
-    rc, o = gsx("alice", "stack", "--short", "--no-fetch")
+    o = gsx("alice", "stack", "--short", "--no-fetch")[1]
     expect("E2-1" not in o and "left out" in o, f"landed PR still shown:\n{o}")
-    rc, o = gsx("alice", "stack", "--short", "--no-fetch", "--merged")
+    o = gsx("alice", "stack", "--short", "--no-fetch", "--merged")[1]
     expect("E2-1" in o, "--merged did not bring it back")
     steps.append("landed PR hidden by default, back with --merged")
 
 
 @scenario("E3: move onto a stack whose bottom has landed (the finished-run logic)")
 def e3(steps):
-    a, na = make_stack("alice", "E3A", 3)
-    b, nb = make_stack("alice", "E3B", 2)
+    na = make_stack("alice", "E3A", 3)[1]
+    make_stack("alice", "E3B", 2)
     pr = pr_of("E3A-1")["number"]
     merge_stacked("alice", pr)
     git("alice", "checkout", "-q", "E3A-3")
     gsx("alice", "sync", "--push")
     git("alice", "checkout", "-q", "E3B-2")
-    rc, o = gsx("alice", "move", "--to", f"#{na}", "--yes")
+    o = gsx("alice", "move", "--to", f"#{na}", "--yes")[1]
     expect_in(o, "moved")
     expect(is_ancestor("alice", "E3A-3", "E3B-2"), "not moved onto E3A-3")
-    rc, o = gsx("alice", "sync")
+    o = gsx("alice", "sync")[1]
     expect_in(o, "submit --move")
-    rc, o = gsx("alice", "submit", "--move")
+    o = gsx("alice", "submit", "--move")[1]
     sm = stack_map()
     expect(sm.get(na) == ["E3A-2", "E3A-3", "E3B-2"], f"stack wrong: {sm}")
     fetch("alice")
@@ -228,8 +227,8 @@ def e3(steps):
 # ================================================================== F: edges
 @scenario("F1: sync --all with two stacks both needing work; dirty tree refused first")
 def f1(steps):
-    a, na = make_stack("alice", "F1A", 2)
-    b, nb = make_stack("alice", "F1B", 2)
+    a = make_stack("alice", "F1A", 2)[0]
+    b = make_stack("alice", "F1B", 2)[0]
     write_commit("carol", "main", "[main] carol lands")
     git("carol", "push", "-q", "origin", "main")
     (ROOT / "alice" / "shared.txt").write_text(
@@ -250,7 +249,7 @@ def f1(steps):
     "F2: checkout '#N' resolves a stack or a PR from the repository; a bare number is refused"
 )
 def f2(steps):
-    names, num = make_stack("alice", "F2", 2)
+    num = make_stack("alice", "F2", 2)[1]
     pr = pr_of("F2-1")["number"]
     rc, o = gsx("bob", "checkout", f"#{num}")
     expect(
@@ -272,13 +271,13 @@ def f2(steps):
 def f3(steps):
     git("alice", "checkout", "-q", "main")
     (ROOT / "alice" / "F3-a.txt").write_text("a\n")
-    rc, o = gsx("alice", "create", "-s", "F3 first step")
+    o = gsx("alice", "create", "-s", "F3 first step")[1]
     branch = out("alice", "rev-parse", "--abbrev-ref", "HEAD")
     expect(branch.startswith("SCENARIOS-"), f"branch name {branch!r}")
     (ROOT / "alice" / "F3-b.txt").write_text("b\n")
-    rc, o = gsx("alice", "create", "-s", "F3 second step")
+    o = gsx("alice", "create", "-s", "F3 second step")[1]
     top = out("alice", "rev-parse", "--abbrev-ref", "HEAD")
-    rc, o = gsx("alice", "submit", "--no-defaults")
+    o = gsx("alice", "submit", "--no-defaults")[1]
     expect_in(o, "pushed the stack")
     sm = stack_map()
     expect([branch, top] in sm.values(), f"stack not on GitHub: {sm}")

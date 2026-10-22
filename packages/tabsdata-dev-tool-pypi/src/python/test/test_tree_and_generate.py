@@ -10,9 +10,8 @@ import json
 import os
 
 import pytest
-from tabsdata_dev.common.core.errors import ToolError
 from conftest import build_wheel, release, write_manifest
-
+from tabsdata_dev.common.core.errors import ToolError
 from tabsdata_dev.tool.pypi.generate import generate
 from tabsdata_dev.tool.pypi.tree import (
     INDEX,

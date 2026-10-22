@@ -138,7 +138,7 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
     dependency on whatever happens to be installed.
     """
     _check(argv)
-    return subprocess.run(argv, **kwargs)
+    return subprocess.run(argv, check=kwargs.pop("check", False), **kwargs)
 
 
 def popen(argv: list[str], **kwargs) -> subprocess.Popen:
@@ -193,7 +193,9 @@ def tool_argv(name: str, *args: str) -> list[str]:
 def run_tool(name: str, *args: str, **kwargs) -> subprocess.CompletedProcess:
     """Invoke a sibling tool in its own environment, through the dispatcher
     (see `tool_argv`)."""
-    return subprocess.run(tool_argv(name, *args), **kwargs)
+    return subprocess.run(
+        tool_argv(name, *args), check=kwargs.pop("check", False), **kwargs
+    )
 
 
 # ------------------------------------------------------------ process trees

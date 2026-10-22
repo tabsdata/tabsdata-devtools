@@ -42,16 +42,15 @@ def test_a_page_is_left_plain_off_a_terminal_and_under_no_color(
 
 
 def test_the_pointers_are_the_last_distinct_log_files_a_command_named():
-    text = "\n".join(
-        [
-            "\x1b[31mdetails: /tmp/tdd-xp-1.log\x1b[0m",
-            "  errors:   /tmp/e1.log and more",
-            "lane log: C:\\Users\\u\\AppData\\Local\\Temp\\lane.log",
-            "it failed, full output in D:/logs/out.txt (see)",
-            "details: /tmp/tdd-xp-1.log",
-            "log: relative/is/not/a/path",
-        ]
-    )
+    lines = [
+        "\x1b[31mdetails: /tmp/tdd-xp-1.log\x1b[0m",
+        "  errors:   /tmp/e1.log and more",
+        "lane log: C:\\Users\\u\\AppData\\Local\\Temp\\lane.log",
+        "it failed, full output in D:/logs/out.txt (see)",
+        "details: /tmp/tdd-xp-1.log",
+        "log: relative/is/not/a/path",
+    ]
+    text = "\n".join(lines)
     assert screen.pointers(text) == [
         "details /tmp/tdd-xp-1.log",
         "errors /tmp/e1.log",

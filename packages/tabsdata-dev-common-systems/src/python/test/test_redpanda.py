@@ -11,7 +11,6 @@ import json
 import random
 
 import pytest
-
 from tabsdata_dev.common.systems import constants, datagen, dispatch
 from tabsdata_dev.common.systems.errors import TdxError
 
@@ -150,7 +149,7 @@ def test_create_model_creates_every_topic_with_its_partitions(
     system = backend.Redpanda()
     monkeypatch.setattr(system, "_admin_client", lambda meta: Admin())
     monkeypatch.setattr(system, "_topics", lambda client: ["pfx", "pfx.departments"])
-    opts = dict(model="employees", force=False, up_to_partitions=3)
+    opts = {"model": "employees", "force": False, "up_to_partitions": 3}
     assert create_model.run(_ctx(path, tmp_path, "create-model", system, **opts)) == 0
     # departments was there already; every other entity's topic is created
     assert {t.topic: t.num_partitions for t in created} == {
@@ -239,7 +238,7 @@ def test_data_goes_to_the_entities_named_and_the_trail_is_what_was_sent(
 
     dry, real = tmp_path / "dry.jsonl", tmp_path / "real.jsonl"
     for dry_run, dest in ((True, dry), (False, real)):
-        opts = dict(size=1, force=False, dry_run=dry_run, emit_ops=str(dest))
+        opts = {"size": 1, "force": False, "dry_run": dry_run, "emit_ops": str(dest)}
         opts.update(entity="employees,dept_emp", schema_changes="add,drop")
         assert create_data.run(_ctx(path, tmp_path, "create-data", system, **opts)) == 0
     assert loaded == [["employees", "dept_emp"]]
@@ -258,7 +257,7 @@ def test_data_goes_to_the_entities_named_and_the_trail_is_what_was_sent(
     assert "hire_date" not in emp[2] and "hire_date" in emp[3]
     assert descriptor.load(path).entities["pfx.employees"] == 100
 
-    opts = dict(size=1, dry_run=False, emit_ops=None, entity="departments")
+    opts = {"size": 1, "dry_run": False, "emit_ops": None, "entity": "departments"}
     opts["schema_changes"] = None
     assert modify_data.run(_ctx(path, tmp_path, "modify-data", system, **opts)) == 0
     assert loaded[-1] == ["departments"]

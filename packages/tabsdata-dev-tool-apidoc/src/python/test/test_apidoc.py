@@ -5,7 +5,6 @@
 import json
 
 import pytest
-
 from tabsdata_dev.common.core.errors import ToolError
 from tabsdata_dev.tool import apidoc
 from tabsdata_dev.tool.apidoc import generate, markdown

@@ -43,7 +43,7 @@ def _domain_from_url(url: str) -> str:
     if host == "test.salesforce.com":
         return "test"
     suffix = ".salesforce.com"
-    return host[: -len(suffix)] if host.endswith(suffix) else host
+    return host.removesuffix(suffix)
 
 
 def _client(meta: dict):
@@ -72,7 +72,7 @@ def _generate(recipe: Path, db: Path) -> None:
     """Run the snowfakery recipe into a SQLite db (one table per object)."""
     snowfakery = Path(sys.executable).with_name("snowfakery")
     cmd = [str(snowfakery), str(recipe), "--dburl", f"sqlite:///{db}"]
-    if subprocess.run(cmd).returncode != 0:
+    if subprocess.run(cmd, check=False).returncode != 0:
         raise TdxError(f"snowfakery generation failed: {' '.join(cmd)}")
 
 

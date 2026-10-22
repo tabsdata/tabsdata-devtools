@@ -25,7 +25,9 @@ def test_the_tools_entry_point_is_twines_own():
 def test_the_toolset_runs_the_pinned_twine():
     """`tdd twine` execs the venv's bin/twine: the pin in deps-twine."""
     exe = pathlib.Path(sys.executable).parent / "twine"
-    done = subprocess.run([exe, "--version"], capture_output=True, text=True)
+    done = subprocess.run(
+        [exe, "--version"], check=False, capture_output=True, text=True
+    )
     assert done.returncode == 0
     assert f"twine version {metadata.version('twine')}" in done.stdout
     assert metadata.version("twine") == "7.0.0"

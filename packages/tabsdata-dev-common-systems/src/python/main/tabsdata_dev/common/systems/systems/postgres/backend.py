@@ -39,6 +39,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import replace
+from typing import ClassVar
 from urllib.parse import quote
 
 from tabsdata_dev.common.systems.systems._common import container_info
@@ -82,7 +83,7 @@ class Postgres(SqlContainerBackend):
     # each builds a whole schema in one transaction, holding a lock per object
     # until it commits, which the default lock-table sizing (64 per transaction)
     # cannot seat concurrently -- it fails as "out of shared memory" (53200).
-    cmd_args = [
+    cmd_args: ClassVar[list[str]] = [
         "-c",
         "max_connections=500",
         "-c",

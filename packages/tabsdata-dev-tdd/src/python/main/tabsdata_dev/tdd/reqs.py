@@ -75,7 +75,7 @@ def shim_manager(path: str) -> str | None:
     if not text.startswith("#!"):
         return None
     for manager in SHIM_MANAGERS:
-        if re.search(rf'(^|[\s"/]){manager}"?\s+(exec|x)\b', text, re.M):
+        if re.search(rf'(^|[\s"/]){manager}"?\s+(exec|x)\b', text, re.MULTILINE):
             return manager
     return None
 
@@ -90,7 +90,9 @@ def resolve(binary: str) -> tuple[str | None, str]:
     manager = shim_manager(found)
     if manager is None or shutil.which(manager) is None:
         return found, ""
-    cp = subprocess.run([manager, "which", binary], capture_output=True, text=True)
+    cp = subprocess.run(
+        [manager, "which", binary], check=False, capture_output=True, text=True
+    )
     out = (cp.stdout or "").strip()
     if cp.returncode == 0 and out:
         real = out.splitlines()[-1]

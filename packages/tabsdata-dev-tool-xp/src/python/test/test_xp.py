@@ -3,8 +3,9 @@
 #
 
 import json
-import re
 import pathlib
+import re
+from datetime import UTC
 
 import pytest
 
@@ -22,7 +23,7 @@ MONITOR = {"monitor": {"time_out": "30m"}}
 
 def N(name):
     """A suite's own domain, as a suite names it: `<XP_ID>_<name>` once read."""
-    return "${xp:name(%s)}" % name
+    return f"${{xp:name({name})}}"
 
 
 def calls(name, system, model=None, size=None, *data_opts):
@@ -99,13 +100,13 @@ def xp_root(tmp_path, monkeypatch, resource_folder):
 
 def _run_the_clock(monkeypatch):
     """Run IDs from a clock the test owns: XP_ID first, a second on each next."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from tabsdata_dev.tool.xp import ids
 
     monkeypatch.setenv("TD_BUILD_USER", "tucu")
     monkeypatch.setenv("TD_BUILD_NUMBER", "0")
-    now = [datetime(2026, 10, 1, 9, 30, 12, tzinfo=timezone.utc).timestamp()]
+    now = [datetime(2026, 10, 1, 9, 30, 12, tzinfo=UTC).timestamp()]
     monkeypatch.setattr(ids, "clock", lambda: now[0])
     monkeypatch.setattr(ids, "sleep", lambda s: now.__setitem__(0, now[0] + max(s, 0)))
     monkeypatch.setattr(ids, "_last", -1)
@@ -668,12 +669,12 @@ def test_list_systems_reports_each_required_system_and_fails_on_a_missing_one(
         for line in capsys.readouterr().out.splitlines()
         if line.startswith("{")
     ]
-    ok = [e for e in events if e["event"] == "ok"][0]
+    ok = next(e for e in events if e["event"] == "ok")
     assert rc == 0 and ok["missing"] == []
     assert [r["name"] for r in ok["systems"]] == needed
     assert all(r["present"] and r["type"] == f"{r['name']}-type" for r in ok["systems"])
 
-    monkeypatch.setattr(project, "_store_systems", lambda: {})
+    monkeypatch.setattr(project, "_store_systems", dict)
     rc = _run(
         [
             "list-systems",
@@ -690,7 +691,7 @@ def test_list_systems_reports_each_required_system_and_fails_on_a_missing_one(
         for line in capsys.readouterr().out.splitlines()
         if line.startswith("{")
     ]
-    err = [e for e in events if e["event"] == "error"][0]
+    err = next(e for e in events if e["event"] == "error")
     assert rc == 1
     assert all(n in err["message"] for n in needed)
     # the table still came out, MISSING marked, before the failure
@@ -761,7 +762,7 @@ def test_a_failed_transaction_leaves_its_worker_logs_in_the_scratch_dir(
         for line in capsys.readouterr().out.splitlines()
         if line.startswith("{")
     ]
-    err = [e for e in events if e["event"] == "error"][0]
+    err = next(e for e in events if e["event"] == "error")
     assert rc == 1 and "1 failed transaction(s)" in err["message"]
     assert not any(a[:2] == ["trx", "logs"] for a in calls)
     assert not any("tx-2" in a for a in calls)  # only the failed one is fetched
@@ -846,7 +847,7 @@ def test_the_monitor_gives_up_once_the_grace_period_is_spent(
 
     watched = _fake_monitor(monkeypatch, [(1, 1)] * 100)
     rc, events = _monitor_events(capsys)
-    err = [e for e in events if e["event"] == "error"][0]
+    err = next(e for e in events if e["event"] == "error")
     assert rc == 1 and "kept failing for 120s" in err["message"]
     # every attempt costs a pause plus its own second: the grace bounds them
     grace = project.MONITOR_OUTAGE_GRACE
@@ -861,7 +862,7 @@ def test_the_monitor_fails_the_run_once_its_time_out_passes(
     time_out fail the run, through outages and retries alike."""
     watched = _fake_monitor(monkeypatch, [(40, 1), (600, 0)])
     rc, events = _monitor_events(capsys, time_out="2m")
-    err = [e for e in events if e["event"] == "error"][0]
+    err = next(e for e in events if e["event"] == "error")
     assert rc == 1 and watched == [1]
     assert (
         "still has transactions running after the monitor's time_out (2m)"
@@ -1812,7 +1813,9 @@ def test_every_step_of_a_suite_counts_out_of_the_whole_suite(xp_root, capsys):
     _, err = capsys.readouterr()
     counts = [
         (int(n), int(m))
-        for n, m in re.findall(r"^staged/one - \[\s*(\d+)/(\d+)\] - ", err, re.M)
+        for n, m in re.findall(
+            r"^staged/one - \[\s*(\d+)/(\d+)\] - ", err, re.MULTILINE
+        )
     ]
     assert [n for n, _ in counts] == list(range(1, len(counts) + 1))
     assert {m for _, m in counts} == {len(counts)}
@@ -2663,7 +2666,6 @@ def test_a_domain_manifest_seeds_to_files_of_their_own_then_joins_them_in_order(
     are appended to emit_ops in the order listed, whatever order they finished
     in -- appended, since live calls keep adding to the same trail."""
     import yaml
-
     from tabsdata_dev.common.core import render
     from tabsdata_dev.tool.xp import domains, shell, state, work
     from tabsdata_dev.tool.xp.models import build_instance
@@ -2703,7 +2705,6 @@ def test_a_domain_manifest_seeds_to_files_of_their_own_then_joins_them_in_order(
 
 def test_a_domain_manifest_without_emit_ops_captures_nothing(xp_root, monkeypatch):
     import yaml
-
     from tabsdata_dev.common.core import render
     from tabsdata_dev.tool.xp import domains, shell, state
     from tabsdata_dev.tool.xp.models import build_instance
@@ -2856,7 +2857,11 @@ def test_the_tdd_module_runs_tdd_exe_and_says_how_it_failed(
         "PYTHONPATH": str(actions.tdd_module_dir()),
     }
     done = subprocess.run(
-        [sys.executable, str(script)], env=env, capture_output=True, text=True
+        [sys.executable, str(script)],
+        check=False,
+        env=env,
+        capture_output=True,
+        text=True,
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.splitlines() == [

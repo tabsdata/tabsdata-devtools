@@ -4,7 +4,6 @@
 
 """Batch C: moves -- the family every real bug came from."""
 
-# ruff: noqa: F403, F405 -- the harness is the scenario vocabulary, imported whole
 from harness import *
 
 
@@ -34,8 +33,8 @@ def resolve_all(who, keep="both"):
     "C1: move the top branch onto another stack; sync while pending; publish; bob adopts"
 )
 def c1(steps):
-    a, na = make_stack("alice", "C1A", 3)
-    b, nb = make_stack("alice", "C1B", 2)
+    na = make_stack("alice", "C1A", 3)[1]
+    nb = make_stack("alice", "C1B", 2)[1]
     track("bob", na)
     track("bob", nb)
     git("alice", "checkout", "-q", "C1A-3")
@@ -102,17 +101,17 @@ def c1(steps):
     "C2: move a 3-branch SLICE onto another stack; teammate pushes to the middle of the slice; sync; publish"
 )
 def c2(steps):
-    a, na = make_stack("alice", "C2A", 5)
-    b, nb = make_stack("alice", "C2B", 2)
+    na = make_stack("alice", "C2A", 5)[1]
+    nb = make_stack("alice", "C2B", 2)[1]
     track("bob", na)
     git("alice", "checkout", "-q", "C2A-3")
-    rc, o = gsx("alice", "move", "--to", f"#{nb}", "--yes")
+    o = gsx("alice", "move", "--to", f"#{nb}", "--yes")[1]
     expect_in(o, "moved")
-    steps.append("alice: C2A-3..5 -> #%d" % nb)
+    steps.append(f"alice: C2A-3..5 -> #{nb}")
     # the middle of the moved slice gets a teammate commit on the old arrangement
     write_commit("bob", "C2A-4", "[C2A-4] bob mid-slice", "bob.txt")
     gsx("bob", "sync", "--push")
-    rc, o = gsx("alice", "sync")
+    o = gsx("alice", "sync")[1]
     expect_in(o, "submit --move")
     expect_not_in(o, "CONFLICT")
     # the taint: C2A-4 and C2A-5 must be treated as moved too, not rebased onto their remote copies
@@ -135,7 +134,7 @@ def c2(steps):
     steps.append(
         "alice sync: bob's commit taken into the slice, old chain NOT dragged back"
     )
-    rc, o = gsx("alice", "submit", "--move")
+    o = gsx("alice", "submit", "--move")[1]
     sm = stack_map()
     expect(
         sm.get(nb) == ["C2B-1", "C2B-2", "C2A-3", "C2A-4", "C2A-5"],
@@ -154,7 +153,7 @@ def c2(steps):
     "C3: move an UNSUBMITTED single-PR branch from the trunk onto a stack top, with a conflict (the OS-3512 case)"
 )
 def c3(steps):
-    a, na = make_stack("alice", "C3A", 3)
+    na = make_stack("alice", "C3A", 3)[1]
     # a lone PR off main that touches shared.txt, like OS-3512 did
     git("alice", "checkout", "-q", "main")
     git("alice", "checkout", "-q", "-b", "C3S-1")
@@ -200,21 +199,21 @@ def c3(steps):
 
 @scenario("C4: move a slice onto the TRUNK (a stack of its own); publish")
 def c4(steps):
-    a, na = make_stack("alice", "C4A", 4)
+    make_stack("alice", "C4A", 4)
     git("alice", "checkout", "-q", "C4A-3")
-    rc, o = gsx("alice", "move", "--to", "main", "--yes")
+    o = gsx("alice", "move", "--to", "main", "--yes")[1]
     expect_in(o, "moved")
     expect(
         is_ancestor("alice", "main", "C4A-3")
         and not is_ancestor("alice", "C4A-2", "C4A-3"),
         "slice not on trunk",
     )
-    rc, o = gsx("alice", "sync")
+    o = gsx("alice", "sync")[1]
     expect_in(o, "submit --move")
     expect(
         not is_ancestor("alice", "C4A-2", "C4A-3"), "sync dragged the old chain back"
     )
-    rc, o = gsx("alice", "submit", "--move")
+    o = gsx("alice", "submit", "--move")[1]
     sm = stack_map()
     expect(["C4A-3", "C4A-4"] in sm.values(), f"new stack not found: {sm}")
     expect(["C4A-1", "C4A-2"] in sm.values(), f"remainder not found: {sm}")
@@ -224,14 +223,14 @@ def c4(steps):
 
 @scenario("C5: move, then --abort: every branch and both stacks back exactly")
 def c5(steps):
-    a, na = make_stack("alice", "C5A", 3)
+    a = make_stack("alice", "C5A", 3)[0]
     b, nb = make_stack("alice", "C5B", 2)
     before = {n: sha("alice", n) for n in a + b}
     state_before = (ROOT / "alice" / ".git" / "gh-stack").read_text()
     git("alice", "checkout", "-q", "C5A-2")
     gsx("alice", "move", "--to", f"#{nb}", "--yes")
     expect(sha("alice", "C5A-2") != before["C5A-2"], "move did nothing")
-    rc, o = gsx("alice", "move", "--abort")
+    o = gsx("alice", "move", "--abort")[1]
     expect_in(o, "aborted")
     after = {n: sha("alice", n) for n in a + b}
     expect(
@@ -242,7 +241,7 @@ def c5(steps):
         (ROOT / "alice" / ".git" / "gh-stack").read_text() == state_before,
         "tracking not restored byte for byte",
     )
-    rc, o = gsx("alice", "sync")
+    o = gsx("alice", "sync")[1]
     expect_in(o, "the remote already has it all")
     steps.append("abort restored shas and tracking; sync is a no-op")
 
@@ -278,17 +277,17 @@ def c6(steps):
 
 @scenario("C7: two moves queued (A top -> B, then B top -> C), one publish")
 def c7(steps):
-    a, na = make_stack("alice", "C7A", 2)
-    b, nb = make_stack("alice", "C7B", 2)
-    c, nc = make_stack("alice", "C7C", 2)
+    make_stack("alice", "C7A", 2)
+    nb = make_stack("alice", "C7B", 2)[1]
+    nc = make_stack("alice", "C7C", 2)[1]
     git("alice", "checkout", "-q", "C7A-2")
     gsx("alice", "move", "--to", f"#{nb}", "--yes")
     git("alice", "checkout", "-q", "C7A-2")  # now top of B's local stack
     gsx("alice", "move", "--to", f"#{nc}", "--yes")
-    rc, o = gsx("alice", "sync")
+    o = gsx("alice", "sync")[1]
     expect_in(o, "submit --move")
     expect(is_ancestor("alice", "C7C-2", "C7A-2"), "second move lost")
-    rc, o = gsx("alice", "submit", "--move")
+    o = gsx("alice", "submit", "--move")[1]
     sm = stack_map()
     expect(sm.get(nc) == ["C7C-1", "C7C-2", "C7A-2"], f"C wrong: {sm}")
     expect(pr_base("C7A-2") == "C7C-2", f"base {pr_base('C7A-2')}")
@@ -299,8 +298,8 @@ def c7(steps):
     "C8: a moved branch's commit, rewritten in patch and subject, is known by its Change-Id: sync takes nothing twice"
 )
 def c8(steps):
-    xs, nx = make_stack("alice", "C8X", 2)
-    ys, ny = make_stack("alice", "C8Y", 2)
+    nx = make_stack("alice", "C8X", 2)[1]
+    ny = make_stack("alice", "C8Y", 2)[1]
     track("bob", nx)
     write_commit("bob", "C8X-2", "[C8X-2] bob's commit", "bob.txt")
     gsx("bob", "sync", "--push")

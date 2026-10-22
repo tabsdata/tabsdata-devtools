@@ -16,8 +16,7 @@ Each PR of the snapshot is one numbered unit of progress -- see `progress`.
 from __future__ import annotations
 
 from . import config as config_mod
-from . import gh
-from . import progress
+from . import gh, progress
 from .args import LrOp
 from .version import VERSION
 

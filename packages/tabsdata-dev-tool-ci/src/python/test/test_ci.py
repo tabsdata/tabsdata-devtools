@@ -12,7 +12,6 @@ import sys
 import zlib
 
 import pytest
-
 from tabsdata_dev.tool import ci
 
 
@@ -240,7 +239,7 @@ def test_two_artifacts_with_the_same_file_do_not_overwrite(
     assert code == 1
     err = events[-1]
     assert err["downloaded"] == ["clash-a"] and err["failed"] == ["clash-b"]
-    warn = [e for e in events if e["event"] == "warn"][0]["message"]
+    warn = next(e for e in events if e["event"] == "warn")["message"]
     assert "shared.txt already came from artifact clash-a" in warn
     assert (tmp_path / "shared.txt").read_text() == "clash-a"
     assert not list(tmp_path.glob(".*"))
