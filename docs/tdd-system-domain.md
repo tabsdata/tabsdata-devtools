@@ -14,8 +14,8 @@ starts from these two.
 
 - **System**: one platform with its connection details. 14 types run locally as docker containers (mysql, postgres,
   mssqlserver, oracle, db2, starrocks, clickhouse, the three `*cdc` variants, mongodb, redpanda, redpandasasl, druid).
-  14 are remote: managed Postgres (aws, gcp, az), warehouses (snowflake, databricks, bigquery), object stores (s3, gcs,
-  azureblob, plus a local `fs`) and credential-only services (anthropic, openai, salesforce, dev).
+  15 are remote: managed Postgres (aws, gcp, az), warehouses (snowflake, databricks, bigquery), object stores (s3, gcs,
+  azureblob, plus a local `fs`) and credential-only services (anthropic, openai, typesafe, salesforce, dev).
 - **Domain**: an isolated container inside one system: a database, schema, folder, prefix, topic or dataset, whichever
   that system calls it. A domain has its own owner and credentials, one model and its data. Its name inside the system
   is `d_<user>_<build>_<domain>` unless you pass `--name-in-system`.
@@ -138,7 +138,7 @@ only · **-** = not supported. Systems with identical support share a column.
 ¹ modify-data in serial transactions only. ² modify-data appends only: pass `--ops Insert`. ³ Kafka has its own
 commands: modify-data appends a fresh batch of the model's rows (no `--ops`), create-model takes `--up-to-partitions`,
 create-data `--entity` and `--schema-changes`. ⁴ a datasource fills on ingestion, so there is no create-data. ⁵ size 1
-only. Not listed: mongodb, bigquery, anthropic, openai and dev take no models.
+only. Not listed: mongodb, bigquery, anthropic, openai, typesafe and dev take no models.
 
 SQL systems take a model when they have DDL for it, which is why clickhouse and starrocks stop at world and mssqlserver,
 oracle, snowflake and databricks skip employeescdc. Object stores and Kafka take any generated model but only append.
