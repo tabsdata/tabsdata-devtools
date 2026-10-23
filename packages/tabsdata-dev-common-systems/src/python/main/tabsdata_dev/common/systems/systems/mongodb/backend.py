@@ -22,7 +22,7 @@ from tabsdata_dev.common.systems.systems._common.hosting.endpoint import (
     DEFAULT_HOSTNAME,
     Admin,
 )
-from tabsdata_dev.common.systems.systems._common.nature.server.document import (
+from tabsdata_dev.common.systems.systems._common.nature.database.document import (
     DocumentDatabase,
 )
 

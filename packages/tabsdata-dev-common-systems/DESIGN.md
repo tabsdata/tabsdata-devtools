@@ -108,8 +108,11 @@ bases, and each axis owns its own half of the backend contract, never the same m
   `ManagedHosting` (a provider-run instance) and `LocalHosting` (the host machine), all on
   `AttachedHosting`.
 - **Nature** (`_common/nature/`) -- what it is -- owns the domains, the data plane and the
-  capability flags. `server/`: `Messaging` (a domain is a set of topics; the log only appends)
-  and `DocumentDatabase` (a database with its owner; no data plane yet) on `Server`. `file/`:
+  capability flags. `server/`: `Server` (a process at HOST:PORT, administered as the login its
+  hosting records) and `Messaging` (a domain is a set of topics; the log only appends).
+  `database/`, on `Server`: `SqlDatabase` (below), `SqlWarehouse` (a SQL database whose domain is
+  a schema inside the account's namespace: snowflake, databricks, bigquery) and
+  `DocumentDatabase` (a database with its owner; no data plane yet). `file/`:
   `FileStore` (staged data files under a root) and `ObjectStore` (under a bucket prefix).
   `credential/`: `AiProvider`, `Application` and `Synthetic` (data generated on ingestion) on
   `CredentialAccount`.
@@ -119,12 +122,16 @@ nature paired with an attached hosting also supplies `complete_plan` (what it de
 resolved options) and `probe_system` (whether the system answers), which create and status
 call. `hosting` and `nature` are also attributes of every system.
 
-**`SqlDatabaseContainerBackend`** (`_common/sql.py`) for the docker-container SQL databases -- mysql,
-postgres, oracle, db2, mssqlserver, clickhouse, starrocks. A subclass supplies only its dialect
-hooks: image and server flags, the readiness probe, the SQLAlchemy driver and identifier quote,
-the create/drop-domain SQL and the schema-listing query, and the server's own schemas that must
-never be read as domains. The container lifecycle comes from `SingleContainerHosting`; TCP admin over
-SQLAlchemy, per-domain provisioning, model and data loading and delta application live here once. A model is available
+**`SqlDatabase`** (`_common/nature/database/sql.py`) for the SQL databases -- mysql, postgres,
+oracle, db2, mssqlserver, clickhouse, starrocks and the managed postgres three; druid and
+bigquery wear the nature but keep domain planes of their own. A system supplies only its dialect
+hooks: the SQLAlchemy driver and identifier quote, the create/drop-domain SQL and the
+schema-listing query, and the server's own schemas that must never be read as domains; its
+hosting supplies the rest (on a container: image, server flags, readiness probe). TCP admin over
+SQLAlchemy, per-domain provisioning, model and data loading and delta application live here once.
+The postgres family is the one SQL dialect on two hostings, so its SQL lives in
+`postgres/dialect.py` (`PostgresDialect`), which the container `Postgres` and `ManagedPostgres`
+each pair with their hosting. A model is available
 for a system exactly when `<slug>/domain/models/<model>/<slug>.ddl` exists, which is what lets the
 generic `models`/`create-model`/`create-data`/`modify-data`/`delete-data`/`delete-model` serve
 every dialect. Two session hooks: `session_setup()` runs first on every data-plane connection
@@ -165,7 +172,7 @@ belongs to one database, and nothing can read it once that is gone. Rejected: le
 slot to its creator -- no suite has a step to drop one, so every teardown left the database
 and its slots behind.
 
-**`ManagedPostgres`** (`postgres/managed.py`) for provider-managed PostgreSQL -- AWS RDS
+**`ManagedPostgres`** (`postgres/managed.py`, `ManagedHosting` + `PostgresDialect`) for provider-managed PostgreSQL -- AWS RDS
 (`awspostgres`), GCP Cloud SQL (`gcppostgres`), Azure Flexible Server (`azpostgres`). They differ
 in almost nothing the toolkit cares about: nothing runs locally, so `create` reads the connection
 from the `<SYSTEM>__` environment and probes it, and the master user is **not** a superuser, which

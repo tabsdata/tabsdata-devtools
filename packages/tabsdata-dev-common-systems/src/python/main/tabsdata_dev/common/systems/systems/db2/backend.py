@@ -22,10 +22,13 @@ from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec, docker_exec_check
 from tabsdata_dev.common.systems.systems._common.hosting.container import images
+from tabsdata_dev.common.systems.systems._common.hosting.container.single import (
+    SingleContainerHosting,
+)
 from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
-from tabsdata_dev.common.systems.systems._common.sql import (
+from tabsdata_dev.common.systems.systems._common.nature.database.sql import (
     LOCK_WAIT_SECONDS,
-    SqlDatabaseContainerBackend,
+    SqlDatabase,
 )
 
 _XP_DB = "XP"  # the one shared database (<= 8 chars, Db2's DB-name limit)
@@ -35,7 +38,7 @@ _XP_DB = "XP"  # the one shared database (<= 8 chars, Db2's DB-name limit)
 PACKAGE = "tabsdata_dev.common.systems"
 
 
-class Db2(SqlDatabaseContainerBackend):
+class Db2(SingleContainerHosting, SqlDatabase):
     slug = "db2"
     label = "IBM Db2 Community"
     weight = 3  # slow to boot (archive log + backup for CDC) — schedule first

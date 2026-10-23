@@ -6,7 +6,7 @@
 
 A domain is a SCHEMA inside the Unity ``CATALOG``. Connection comes from the
 ``DATABRICKS__`` environment (HOST/TOKEN/WAREHOUSE_ID/CATALOG, plus an optional
-VOLUME); the data plane is inherited from :class:`RemoteSqlDatabaseBackend` over the
+VOLUME); the data plane is inherited from :class:`SqlWarehouse` over the
 ``databricks`` SQLAlchemy dialect (which drives the SQL warehouse and resumes it
 on connect). Databricks FK constraints are informational, so the employees
 model's parent deletes apply cleanly.
@@ -17,10 +17,15 @@ from __future__ import annotations
 from urllib.parse import quote_plus
 
 from tabsdata_dev.common.systems import options
-from tabsdata_dev.common.systems.systems._common.sql import RemoteSqlDatabaseBackend
+from tabsdata_dev.common.systems.systems._common.hosting.attached.remote import (
+    RemoteHosting,
+)
+from tabsdata_dev.common.systems.systems._common.nature.database.warehouse import (
+    SqlWarehouse,
+)
 
 
-class Databricks(RemoteSqlDatabaseBackend):
+class Databricks(RemoteHosting, SqlWarehouse):
     slug = "databricks"
     label = "Databricks"
     domain_word = "schema"

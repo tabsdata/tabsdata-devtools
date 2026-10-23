@@ -37,7 +37,6 @@ from tabsdata_dev.common.systems.systems._common.hosting.container._base import 
 )
 from tabsdata_dev.common.systems.systems._common.hosting.endpoint import (
     DEFAULT_HOSTNAME,
-    Admin,
 )
 
 
@@ -45,7 +44,6 @@ class SingleContainerHosting(ContainerHosting):
     # ---- container hooks (subclass overrides) ----
     image: str = ""
     internal_port: int = 0
-    root_user: str = ""
     cmd_args: ClassVar[list[str]] = []  # server flags appended after the image
     # docker-run flags before the image (db2: --privileged)
     extra_run_flags: ClassVar[list[str]] = []
@@ -194,11 +192,3 @@ class SingleContainerHosting(ContainerHosting):
             raise TdxError(f"container does not exist: {cname}")
         docker_restart(cname)
         return "restarted"
-
-    def _admin(self, sys_meta: dict[str, str]) -> Admin:
-        return Admin(
-            host=sys_meta.get("HOST", DEFAULT_HOSTNAME),
-            port=sys_meta.get("PORT", ""),
-            user=sys_meta.get("USER", self.root_user),
-            password=sys_meta.get("PASSWORD", ""),
-        )

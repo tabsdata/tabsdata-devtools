@@ -31,19 +31,19 @@ from tabsdata_dev.common.systems.systems._common.hosting.container.stack import 
 from tabsdata_dev.common.systems.systems._common.hosting.endpoint import (
     DEFAULT_HOSTNAME,
 )
+from tabsdata_dev.common.systems.systems._common.nature.database.sql import SqlDatabase
 
 _ADMIN_USER = "admin"
 _SYS_DATASOURCES = frozenset({"wikipedia"})  # tutorial datasource, never a domain
 
 
-class Druid(ContainerStackHosting):
+class Druid(ContainerStackHosting, SqlDatabase):
     slug = "druid"
     label = "Apache Druid"
     kind = "druid"
     weight = 3  # multi-container compose stack — schedule first
     domain_word = "datasource"
     max_entity_name_length = 255
-    nature = "sql_database"
     supports_purge = True
     supports_models = True  # records the model; no schema to create
     supports_data = False  # a datasource only materialises on ingestion

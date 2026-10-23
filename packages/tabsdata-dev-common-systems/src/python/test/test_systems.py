@@ -1222,8 +1222,8 @@ def test_db2cdc_deregisters_before_a_forced_recreate_drops_the_tables(monkeypatc
     the registrations are in ASN and outlive both, so each forced path
     deregisters first -- while the tables still exist, since CAPSTOP names
     them -- and only then hands over to the drop."""
-    from tabsdata_dev.common.systems.systems._common.sql import (
-        SqlDatabaseContainerBackend,
+    from tabsdata_dev.common.systems.systems._common.nature.database.sql import (
+        SqlDatabase,
     )
     from tabsdata_dev.common.systems.systems.db2cdc.backend import Db2Cdc
 
@@ -1231,12 +1231,12 @@ def test_db2cdc_deregisters_before_a_forced_recreate_drops_the_tables(monkeypatc
     order: list[str] = []
     monkeypatch.setattr(b, "_deregister_schema", lambda meta: order.append("dereg"))
     monkeypatch.setattr(
-        SqlDatabaseContainerBackend,
+        SqlDatabase,
         "provision_domain",
         lambda self, s, e, d, force=False: order.append(f"provision force={force}"),
     )
     monkeypatch.setattr(
-        SqlDatabaseContainerBackend,
+        SqlDatabase,
         "install_schema",
         lambda self, m, model, force=False: order.append(f"install force={force}"),
     )
@@ -1830,8 +1830,8 @@ def test_every_model_carries_an_empty_sentinel_in_every_ddl():
     so create-data leaves it empty and modify-data never picks it."""
     import random
 
-    from tabsdata_dev.common.systems.systems._common.sql import (
-        SqlDatabaseContainerBackend,
+    from tabsdata_dev.common.systems.systems._common.nature.database.sql import (
+        SqlDatabase,
     )
 
     sentinel = datagen.SENTINEL_ENTITY
@@ -1846,10 +1846,7 @@ def test_every_model_carries_an_empty_sentinel_in_every_ddl():
     checked = 0
     for slug in systems.all_slugs():
         backend = systems.get(slug)
-        if (
-            not isinstance(backend, SqlDatabaseContainerBackend)
-            or not backend.supports_models
-        ):
+        if not isinstance(backend, SqlDatabase) or not backend.supports_models:
             continue
         for model in datagen.list_models():
             if not any(backend._ddl_dir(model).glob("*.ddl")):
@@ -2012,7 +2009,7 @@ def test_a_postgrescdc_domain_creates_its_slot_and_destroy_drops_it_first(
     """Create makes the slot from a connection to the new database, and records
     it in the meta; destroy ends its reader and drops it before the database,
     which Postgres would otherwise refuse to drop."""
-    from tabsdata_dev.common.systems.systems._common.sql import Admin
+    from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
     from tabsdata_dev.common.systems.systems.postgrescdc.backend import (
         REPLICATION_SLOT_KEY,
     )
@@ -2044,7 +2041,7 @@ def test_postgrescdc_destroy_drops_every_slot_on_the_database_first(monkeypatch)
     a logical slot belongs to one database, and Postgres would not drop the
     database while any is on it. Each reader is ended before its drop; a slot
     on another database is not touched."""
-    from tabsdata_dev.common.systems.systems._common.sql import Admin
+    from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
 
     admin = Admin(host="h", port="1", user="postgres", password="p", db="postgres")
     slots = {"dom_a": ["dom_a", "td_cdc_initial_load"], "dom_b": ["dom_b"]}

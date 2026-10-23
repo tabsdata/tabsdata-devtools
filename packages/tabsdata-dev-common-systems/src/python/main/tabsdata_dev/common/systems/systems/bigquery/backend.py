@@ -23,10 +23,12 @@ from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.systems._common.hosting.attached.remote import (
     RemoteHosting,
 )
+from tabsdata_dev.common.systems.systems._common.nature.database.warehouse import (
+    SqlWarehouse,
+)
 
 
-class BigQuery(RemoteHosting):
-    nature: str = "sql_database"
+class BigQuery(RemoteHosting, SqlWarehouse):
     supports_purge: bool = True
     supports_models: bool = False
     supports_data: bool = False

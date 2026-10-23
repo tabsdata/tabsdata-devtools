@@ -2,17 +2,16 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""``SqlDatabaseContainerBackend`` — the shared base for docker-container SQL
-databases.
+"""``SqlDatabase`` -- the nature of SQL databases: a domain is a database with
+its own owner, administered and loaded over SQLAlchemy.
 
 A concrete SQL system (mysql, postgres, oracle, db2, mssqlserver, clickhouse,
-starrocks, …) subclasses this and supplies only its *dialect hooks*: the docker
-image and server flags, the readiness probe, the SQLAlchemy driver + identifier
-quote, the CREATE/DROP-domain SQL and the schema-listing query, and the set of
-the server's own schemas that must never be treated as domains. The container
-lifecycle comes from :class:`SingleContainerHosting`; TCP admin over SQLAlchemy,
-per-domain provisioning, model/data loading and delta application live here
-once.
+starrocks, …) supplies only its *dialect hooks*: the SQLAlchemy driver and
+identifier quote, the CREATE/DROP-domain SQL and the schema-listing query, and
+the set of the server's own schemas that must never be treated as domains. Its
+hosting supplies the rest (for a container: image, server flags, readiness).
+TCP admin over SQLAlchemy, per-domain provisioning, model/data loading and delta
+application live here once.
 
 The per-model DDL for a system lives beside its backend under
 ``<slug>/domain/models/<model>/<slug>.ddl`` (a model is available for the system
@@ -27,7 +26,7 @@ import inspect
 from contextlib import contextmanager
 from pathlib import Path
 
-from tabsdata_dev.common.systems import constants, datagen, emit, options
+from tabsdata_dev.common.systems import constants, datagen, emit
 from tabsdata_dev.common.systems.diagnostics import db_failure
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import validate_name
@@ -35,9 +34,6 @@ from tabsdata_dev.common.systems.sql_runner import (
     run_sql_schedule,
     run_sql_text,
     run_sql_transactions,
-)
-from tabsdata_dev.common.systems.systems._common.hosting.container.single import (
-    SingleContainerHosting,
 )
 from tabsdata_dev.common.systems.systems._common.hosting.endpoint import (
     DEFAULT_HOSTNAME,
@@ -54,7 +50,7 @@ from tabsdata_dev.common.systems.systems._common.nature.server._base import Serv
 LOCK_WAIT_SECONDS = 10
 
 
-class SqlDatabaseContainerBackend(SingleContainerHosting, Server):
+class SqlDatabase(Server):
     nature: str = "sql_database"
 
     # ---- capability flags (drive verb availability in the dispatcher) ----
@@ -72,9 +68,7 @@ class SqlDatabaseContainerBackend(SingleContainerHosting, Server):
     # its WHERE matches, so it says False.
     scan_locks: bool = False
 
-    # ---- identity / shape (subclass sets these) ----
-    slug: str = ""
-    label: str = ""
+    # ---- shape (subclass sets these) ----
     kind: str = "sql"
     domain_word: str = "database"
     max_entity_name_length: int = 63
@@ -478,182 +472,3 @@ class SqlDatabaseContainerBackend(SingleContainerHosting, Server):
                 md.drop_all(bind=engine)
         finally:
             engine.dispose()
-
-
-class RemoteSqlDatabaseBackend(SqlDatabaseContainerBackend):
-    """A remote (non-container) SQL warehouse — snowflake, databricks, …
-
-    Reuses the whole :class:`SqlDatabaseContainerBackend` data plane (install-schema /
-    load / modify-data over SQLAlchemy) but has nothing to start: create reads the
-    connection from the declared ``options()`` (env-sourced by default), bakes it
-    into the descriptor and probes reachability, and a domain is a SCHEMA inside
-    the account's namespace (a ``DATABASE`` / ``CATALOG``). Subclasses supply the
-    connection ``options()``, the dialect ``_url`` and identifier ``sql_quote``,
-    and — where the case differs — ``_schema``; ``_extra_domain_sql`` adds any
-    per-domain setup (e.g. a Volume).
-    """
-
-    hosting = "remote"
-    is_container = False
-    # A warehouse is no place for a concurrent schedule: Databricks has no
-    # multi-statement transaction at all, and Snowflake's DML takes a lock on
-    # the table, so a second transaction's UPDATE waits for the first's commit.
-    supports_trx_modes = False
-    # Nothing to start, so create probes reachability over SQL — the driver is
-    # needed from the outside too.
-    sys_toolset = constants.TOOLSET_SYSTEMS
-    env_prefix: str = ""
-    namespace_meta: str = (
-        "DATABASE"  # meta key naming the DB/catalog the schema sits in
-    )
-
-    def options(self) -> tuple[options.Option, ...]:
-        return ()  # subclass declares its connection options
-
-    def docker_images(self) -> list[tuple[str, str]]:
-        return []
-
-    # ---- connection ----------------------------------------------------
-
-    def _schema(self, name: str) -> str:
-        return name
-
-    def _url(self, meta: dict[str, str], schema: str = "") -> str:
-        raise NotImplementedError
-
-    def _location(self, meta: dict[str, str]) -> str:
-        return f"{self.slug}://{meta.get(self.namespace_meta, '')}"
-
-    def _qualified(self, ns: str, schema: str) -> str:
-        q = self.sql_quote
-        return f"{q}{ns}{q}.{q}{schema}{q}"
-
-    def _extra_domain_sql(self, sys_meta: dict[str, str], schema: str) -> list[str]:
-        return []
-
-    def _exec(self, url: str, statements: list[str]) -> None:
-        from sqlalchemy import create_engine
-
-        engine = create_engine(url)
-        try:
-            with engine.begin() as conn:
-                for stmt in statements:
-                    conn.exec_driver_sql(stmt)
-        except Exception as exc:
-            raise TdxError(f"{self.label} SQL failed: {exc}") from exc
-        finally:
-            engine.dispose()
-
-    def _query(self, url: str, sql: str) -> list[str]:
-        from sqlalchemy import create_engine
-
-        engine = create_engine(url)
-        try:
-            with engine.connect() as conn:
-                rows = conn.exec_driver_sql(sql).fetchall()
-        except Exception as exc:
-            raise TdxError(f"{self.label} query failed: {exc}") from exc
-        finally:
-            engine.dispose()
-        return [str(r[0]).strip() for r in rows if r and r[0] is not None]
-
-    # ---- system lifecycle (remote — nothing to run) --------------------
-
-    def plan_system(
-        self, name: str, overrides: dict[str, str] | None = None
-    ) -> dict[str, str]:
-        o = overrides or {}
-        meta = {opt.name: o.get(opt.name, "") for opt in self.options()}
-        meta["LOCATION"] = self._location(meta)
-        return meta
-
-    def provision_system(
-        self, meta: dict[str, str], *, force: bool = False
-    ) -> dict[str, str]:
-        self._exec(self._url(meta), ["SELECT 1"])
-        return {}
-
-    def destroy_system(self, meta: dict[str, str]) -> None:
-        return None  # the account is externally owned
-
-    def system_status(self, meta: dict[str, str]) -> tuple[bool, str]:
-        try:
-            self._exec(self._url(meta), ["SELECT 1"])
-        except TdxError as exc:
-            return False, f"cannot reach {self.label}: {exc}"
-        return True, f"{self.label} at {self._location(meta)}"
-
-    # ---- domain lifecycle (a schema in the namespace) ------------------
-
-    def new_domain_password(self) -> str:
-        return ""
-
-    def domain_meta(
-        self, sys_meta: dict[str, str], entity_name: str, password: str
-    ) -> dict[str, str]:
-        schema = self._schema(entity_name)
-        meta = {opt.name: sys_meta.get(opt.name, "") for opt in self.options()}
-        meta["DB"] = schema
-        meta["SQLALCHEMY_URI"] = self._url(sys_meta, schema)
-        meta["URI"] = f"{self._location(sys_meta)}/{schema}"
-        return meta
-
-    def provision_domain(
-        self,
-        sys_meta: dict[str, str],
-        entity_name: str,
-        domain_meta: dict[str, str],
-        *,
-        force: bool = False,
-    ) -> None:
-        schema = self._schema(entity_name)
-        ns = sys_meta[self.namespace_meta]
-        url = self._url(sys_meta)
-        exists = schema.lower() in {
-            s.lower() for s in self.list_domain_entities(sys_meta)
-        }
-        if exists and not force:
-            raise TdxError(f"schema '{schema}' already exists (use --force)")
-        if exists or force:
-            self._exec(
-                url, [f"DROP SCHEMA IF EXISTS {self._qualified(ns, schema)} CASCADE"]
-            )
-        self._exec(
-            url,
-            [
-                f"CREATE SCHEMA {self._qualified(ns, schema)}",
-                *self._extra_domain_sql(sys_meta, schema),
-            ],
-        )
-
-    def destroy_domain(self, domain_meta: dict[str, str]) -> None:
-        ns, schema = domain_meta[self.namespace_meta], domain_meta["DB"]
-        self._exec(
-            self._url(domain_meta),
-            [f"DROP SCHEMA IF EXISTS {self._qualified(ns, schema)} CASCADE"],
-        )
-
-    def domain_status(self, domain_meta: dict[str, str]) -> tuple[bool, str]:
-        try:
-            self._exec(self._url(domain_meta), ["SELECT 1"])
-        except TdxError as exc:
-            return False, f"cannot reach {self.label}: {exc}"
-        return True, f"{self.label} schema {domain_meta.get('DB', '')}"
-
-    def list_domain_entities(self, sys_meta: dict[str, str]) -> list[str]:
-        ns = sys_meta[self.namespace_meta]
-        q = self.sql_quote
-        names = self._query(
-            self._url(sys_meta),
-            f"SELECT SCHEMA_NAME FROM {q}{ns}{q}.INFORMATION_SCHEMA.SCHEMATA",
-        )
-        return [n for n in names if n.lower() not in self.system_schemas]
-
-    def purge_domain_entity(self, sys_meta: dict[str, str], name: str) -> None:
-        if name.lower() in self.system_schemas:
-            raise TdxError(f"refusing to purge {self.label} system schema '{name}'")
-        ns = sys_meta[self.namespace_meta]
-        self._exec(
-            self._url(sys_meta),
-            [f"DROP SCHEMA IF EXISTS {self._qualified(ns, name)} CASCADE"],
-        )

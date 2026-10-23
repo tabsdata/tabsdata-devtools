@@ -58,10 +58,13 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from tabsdata_dev.common.core import resources
-from tabsdata_dev.common.systems import console, constants, options
+from tabsdata_dev.common.systems import console, options
 from tabsdata_dev.common.systems.errors import TdxError
+from tabsdata_dev.common.systems.systems._common.hosting.attached.managed import (
+    ManagedHosting,
+)
 from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
-from tabsdata_dev.common.systems.systems.postgres.backend import Postgres
+from tabsdata_dev.common.systems.systems.postgres.dialect import PostgresDialect
 
 # libpq's modes, weakest first. The two that check the server's certificate are
 # the ones that need a root cert to check it against.
@@ -103,14 +106,8 @@ def download_ca(url: str, what: str) -> str:
 PACKAGE = "tabsdata_dev.common.systems"
 
 
-class ManagedPostgres(Postgres):
+class ManagedPostgres(ManagedHosting, PostgresDialect):
     slug = ""
-    hosting = "managed"
-    is_container = False
-    # A container's outside plane is docker-only, but this one has nothing to
-    # start and probes over SQL instead, so it needs the driver from the outside
-    # too (see _venv).
-    sys_toolset = constants.TOOLSET_SYSTEMS
     # A managed instance holds a model and its data like any other postgres: the
     # DDL is the plain system's (ddl_from_slug on each provider) and the loader
     # connects over the external plane, with the root certificate materialized
@@ -235,9 +232,6 @@ class ManagedPostgres(Postgres):
             f"{self.ca_url_default} ({doc})",
             required=False,
         )
-
-    def docker_images(self) -> list[tuple[str, str]]:
-        return []
 
     # ---- connection -----------------------------------------------------
 
@@ -413,10 +407,8 @@ class ManagedPostgres(Postgres):
 
     # ---- system lifecycle (the instance is externally owned) ------------
 
-    def plan_system(
-        self, name: str, overrides: dict[str, str] | None = None
-    ) -> dict[str, str]:
-        o = overrides or {}
+    def complete_plan(self, name: str, meta: dict[str, str]) -> dict[str, str]:
+        o = meta
         # Built in the order a reader wants it: the block every one of the five
         # shares, then this provider's own group, then the URIs derived from both.
         meta = {opt.name: o.get(opt.name, "") for opt in self.connection_options()}
@@ -434,13 +426,12 @@ class ManagedPostgres(Postgres):
     def provision_system(
         self, meta: dict[str, str], *, force: bool = False
     ) -> dict[str, str]:
+        # The instance answers, so ask it what it is: the version goes back as
+        # the `extra` a create writes to the descriptor.
         self._probe(meta)
         return {"VERSION": self._probe_version(meta)}
 
-    def destroy_system(self, meta: dict[str, str]) -> None:
-        return None
-
-    def system_status(self, meta: dict[str, str]) -> tuple[bool, str]:
+    def probe_system(self, meta: dict[str, str]) -> tuple[bool, str]:
         try:
             self._probe(meta)
         except TdxError as exc:

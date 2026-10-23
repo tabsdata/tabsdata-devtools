@@ -5,8 +5,8 @@
 """ClickHouse backend — a docker-container OLAP database.
 
 A domain is a database with a dedicated user. Only dialect hooks live here; the
-container lifecycle and data plane come from :class:`SqlDatabaseContainerBackend` over
-the ``clickhousedb`` SQLAlchemy dialect (clickhouse-connect, HTTP on 8123). Only
+container lifecycle comes from :class:`SingleContainerHosting` and the data plane
+from :class:`SqlDatabase` over the ``clickhousedb`` SQLAlchemy dialect (clickhouse-connect, HTTP on 8123). Only
 the ``world`` model ships a ClickHouse schema in v1, and it has no delta
 entities, so ``modify-data`` is not offered (``supports_changes=False``).
 """
@@ -16,10 +16,13 @@ from __future__ import annotations
 from typing import ClassVar
 
 from tabsdata_dev.common.systems.systems._common.hosting.container import images
-from tabsdata_dev.common.systems.systems._common.sql import SqlDatabaseContainerBackend
+from tabsdata_dev.common.systems.systems._common.hosting.container.single import (
+    SingleContainerHosting,
+)
+from tabsdata_dev.common.systems.systems._common.nature.database.sql import SqlDatabase
 
 
-class Clickhouse(SqlDatabaseContainerBackend):
+class Clickhouse(SingleContainerHosting, SqlDatabase):
     slug = "clickhouse"
     label = "ClickHouse"
     domain_word = "database"

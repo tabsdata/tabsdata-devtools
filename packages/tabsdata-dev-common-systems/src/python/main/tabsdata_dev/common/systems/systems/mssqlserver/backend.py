@@ -14,16 +14,19 @@ from __future__ import annotations
 
 from tabsdata_dev.common.systems.shell import docker_exec_check
 from tabsdata_dev.common.systems.systems._common.hosting.container import images
+from tabsdata_dev.common.systems.systems._common.hosting.container.single import (
+    SingleContainerHosting,
+)
 from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
-from tabsdata_dev.common.systems.systems._common.sql import (
+from tabsdata_dev.common.systems.systems._common.nature.database.sql import (
     LOCK_WAIT_SECONDS,
-    SqlDatabaseContainerBackend,
+    SqlDatabase,
 )
 
 _ODBC = "driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
 
 
-class Mssqlserver(SqlDatabaseContainerBackend):
+class Mssqlserver(SingleContainerHosting, SqlDatabase):
     slug = "mssqlserver"
     label = "Microsoft SQL Server"
     domain_word = "database"

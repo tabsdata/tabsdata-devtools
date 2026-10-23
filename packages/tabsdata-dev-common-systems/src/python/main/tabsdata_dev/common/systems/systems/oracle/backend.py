@@ -16,10 +16,11 @@ from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec
 from tabsdata_dev.common.systems.systems._common.hosting.container import images
-from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
-from tabsdata_dev.common.systems.systems._common.sql import (
-    SqlDatabaseContainerBackend,
+from tabsdata_dev.common.systems.systems._common.hosting.container.single import (
+    SingleContainerHosting,
 )
+from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
+from tabsdata_dev.common.systems.systems._common.nature.database.sql import SqlDatabase
 
 _SERVICE = "FREEPDB1"
 
@@ -28,7 +29,7 @@ _SERVICE = "FREEPDB1"
 PACKAGE = "tabsdata_dev.common.systems"
 
 
-class Oracle(SqlDatabaseContainerBackend):
+class Oracle(SingleContainerHosting, SqlDatabase):
     slug = "oracle"
     label = "Oracle Database Free"
     weight = 2  # slow to boot — schedule ahead of the light systems

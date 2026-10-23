@@ -4,8 +4,9 @@
 
 """MySQL backend — a docker-run container with a per-domain database.
 
-Only the MySQL dialect hooks live here; the container lifecycle, TCP admin and
-data plane come from :class:`SqlDatabaseContainerBackend`. A domain is a database plus a
+Only the MySQL dialect hooks live here; the container lifecycle comes from
+:class:`SingleContainerHosting`, TCP admin and the data plane from
+:class:`SqlDatabase`. A domain is a database plus a
 dedicated owner user, provisioned over TCP on the published host port (no
 ``docker exec``); all admin runs as ``root`` over SQLAlchemy. Binlog is on by
 default (ROW + FULL metadata) so the same container feeds CDC.
@@ -16,13 +17,16 @@ from __future__ import annotations
 from typing import ClassVar
 
 from tabsdata_dev.common.systems.systems._common.hosting.container import images
-from tabsdata_dev.common.systems.systems._common.sql import (
+from tabsdata_dev.common.systems.systems._common.hosting.container.single import (
+    SingleContainerHosting,
+)
+from tabsdata_dev.common.systems.systems._common.nature.database.sql import (
     LOCK_WAIT_SECONDS,
-    SqlDatabaseContainerBackend,
+    SqlDatabase,
 )
 
 
-class Mysql(SqlDatabaseContainerBackend):
+class Mysql(SingleContainerHosting, SqlDatabase):
     slug = "mysql"
     label = "MySQL"
     domain_word = "database"

@@ -17,10 +17,13 @@ import time
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec, docker_exec_check
 from tabsdata_dev.common.systems.systems._common.hosting.container import images
-from tabsdata_dev.common.systems.systems._common.sql import SqlDatabaseContainerBackend
+from tabsdata_dev.common.systems.systems._common.hosting.container.single import (
+    SingleContainerHosting,
+)
+from tabsdata_dev.common.systems.systems._common.nature.database.sql import SqlDatabase
 
 
-class Starrocks(SqlDatabaseContainerBackend):
+class Starrocks(SingleContainerHosting, SqlDatabase):
     slug = "starrocks"
     label = "StarRocks"
     weight = 2  # heavy all-in-one image — schedule ahead of the light systems

@@ -11,12 +11,12 @@ endpoint its hosting (``_common.hosting``) wrote into the system meta, and
 nothing else. A nature paired with an attached hosting also supplies
 ``complete_plan`` and ``probe_system``.
 
-- ``server`` -- natures served by a process at HOST:PORT (SQL, document,
-  messaging).
-- ``messaging`` / ``document_database`` -- a message broker / a document
-  database on such a server.
-- ``file_store`` / ``object_store`` -- staged data files under a root: a local
-  directory, or a bucket prefix.
-- ``credential_account`` -- an account reached with credentials alone; its
-  natures ``ai_provider``, ``application`` and ``synthetic``.
+- ``server`` -- the base of natures served by a process at HOST:PORT, and
+  message brokers (``messaging``).
+- ``database`` -- databases on such a server: SQL databases (``sql``), SQL
+  warehouses (``warehouse``) and document databases (``document``).
+- ``file`` -- staged data files under a root: a local directory (``_base``) or
+  a bucket prefix (``object``).
+- ``credential`` -- accounts reached with credentials alone: AI providers
+  (``ai``), applications (``application``) and synthetic data (``synthetic``).
 """

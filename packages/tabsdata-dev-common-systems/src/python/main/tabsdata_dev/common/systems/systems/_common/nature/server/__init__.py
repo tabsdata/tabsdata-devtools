@@ -3,4 +3,4 @@
 #
 
 """Natures served by a process at HOST:PORT, all on ``_base``: message brokers
-(``messaging``) and document databases (``document``)."""
+(``messaging``); the databases live in ``nature.database`` on the same base."""
