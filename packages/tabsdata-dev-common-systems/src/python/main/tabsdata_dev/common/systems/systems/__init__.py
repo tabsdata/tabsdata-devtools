@@ -55,6 +55,7 @@ _SLUGS: dict[str, tuple[str, str]] = {
     "azpostgres": ("azpostgres", "AzPostgres"),
     "redpandasasl": ("redpandasasl", "Redpandasasl"),
     "typesafe": ("typesafe", "TypeSafe"),
+    "s3local": ("s3local", "S3Local"),
 }
 
 

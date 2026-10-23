@@ -22,7 +22,9 @@ from tabsdata_dev.common.core.docker import (  # noqa: F401 - re-exports
     docker_run,
     docker_start,
     docker_stop,
+    docker_volume_rm,
     list_containers,
+    list_volumes,
     require_docker,
 )
 from tabsdata_dev.common.core.passwords import gen_password  # noqa: F401

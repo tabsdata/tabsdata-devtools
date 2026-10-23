@@ -75,16 +75,26 @@ def test_clean_docker_lists_then_refuses_without_yes_and_sweeps_with_it(
     monkeypatch, capsys
 ):
     """`clean-docker` over a fake daemon: without --yes and no terminal it lists
-    the tdd_* containers and refuses; with --yes it stops the running ones and
-    removes all, and only the tdd-prefixed names are ever touched."""
+    the tdd_* containers and volumes and refuses; with --yes it stops the
+    running containers, removes them all and then the volumes, and only the
+    tdd-prefixed names are ever touched."""
     from tabsdata_dev.common.systems import main, shell
 
     boxes = [
         {"id": "1", "name": "tdd_mysql_a1", "state": "running", "image": "mysql:8"},
         {"id": "2", "name": "tdd_pg-db-1", "state": "exited", "image": "postgres:16"},
     ]
+    volumes = ["tdd_s3local", "other_volume"]
     calls: list[tuple[str, str]] = []
     monkeypatch.setattr(shell, "require_docker", lambda: None)
+    monkeypatch.setattr(
+        shell,
+        "list_volumes",
+        lambda prefix: [v for v in volumes if v.startswith(prefix)],
+    )
+    monkeypatch.setattr(
+        shell, "docker_volume_rm", lambda name: calls.append(("volume rm", name))
+    )
     monkeypatch.setattr(
         shell,
         "list_containers",
@@ -103,7 +113,8 @@ def test_clean_docker_lists_then_refuses_without_yes_and_sweeps_with_it(
     ]
     assert rc == 1 and calls == []
     err = next(e for e in events if e["event"] == "error")
-    assert "2 container(s)" in err["message"] and "--yes" in err["message"]
+    assert "2 container(s) and 1 volume(s)" in err["message"]
+    assert "--yes" in err["message"]
 
     rc = main.run(
         constants.SYS_TOOL, [constants.V_CLEAN_DOCKER, "-y", "--format", "json"]
@@ -119,8 +130,10 @@ def test_clean_docker_lists_then_refuses_without_yes_and_sweeps_with_it(
         ("stop", "tdd_mysql_a1"),
         ("rm", "tdd_mysql_a1"),
         ("rm", "tdd_pg-db-1"),
+        ("volume rm", "tdd_s3local"),
     ]
-    assert ok["removed"] == ["tdd_mysql_a1", "tdd_pg-db-1"] and ok["failed"] == []
+    assert ok["removed"] == ["tdd_mysql_a1", "tdd_pg-db-1", "tdd_s3local"]
+    assert ok["failed"] == []
 
 
 def test_every_system_type_owns_a_disjoint_port_slot_documented_in_docs_ports_md():

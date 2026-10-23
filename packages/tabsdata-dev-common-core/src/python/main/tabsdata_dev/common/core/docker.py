@@ -157,6 +157,43 @@ def list_containers(name_prefix: str) -> list[dict]:
     return rows
 
 
+def list_volumes(name_prefix: str) -> list[str]:
+    """Every docker volume whose name starts with `name_prefix` -- anchored the
+    same way :func:`list_containers` is."""
+    cp = subprocess.run(
+        [
+            "docker",
+            "volume",
+            "ls",
+            "--filter",
+            f"name=^{name_prefix}",
+            "--format",
+            "{{.Name}}",
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    if cp.returncode != 0:
+        raise ToolError(
+            f"docker volume ls failed: {cp.stderr.strip() or cp.stdout.strip()}"
+        )
+    return [n for n in cp.stdout.split() if n.startswith(name_prefix)]
+
+
+def docker_volume_rm(name: str) -> None:
+    """Remove the named volume; one that does not exist is already gone."""
+    cp = subprocess.run(
+        ["docker", "volume", "rm", "-f", name],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    if cp.returncode != 0:
+        detail = cp.stderr.strip() or cp.stdout.strip()
+        raise ToolError(f"could not remove volume {name}: {detail}")
+
+
 def docker_pull(image: str, platform: str = "") -> None:
     """Pull `image`, streaming docker's own download progress to stdout/stderr."""
     args = ["docker", "pull"]

@@ -7,7 +7,9 @@
 Pick a host port and a password, pull the image for the host's architecture,
 run it, wait until the server inside is ready, and later report on, restart or
 remove it. A system supplies the image, the internal port, the server flags and
-environment and the readiness probe.
+environment and the readiness probe. A system that keeps data names the path to
+mount a named volume at (``volume_path``): the volume is called after the
+container, starts empty on every create and goes with the container on destroy.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from tabsdata_dev.common.systems.shell import (
     docker_rm,
     docker_run,
     docker_stop,
+    docker_volume_rm,
     gen_password,
     require_docker,
 )
@@ -47,6 +50,9 @@ class SingleContainerHosting(ContainerHosting):
     cmd_args: ClassVar[list[str]] = []  # server flags appended after the image
     # docker-run flags before the image (db2: --privileged)
     extra_run_flags: ClassVar[list[str]] = []
+    # where the server keeps its data, on a named volume; "" keeps it in the
+    # container's own layer
+    volume_path: str = ""
 
     image_platform = (
         "linux/arm64" if platform.machine() in ("arm64", "aarch64") else "linux/amd64"
@@ -120,6 +126,8 @@ class SingleContainerHosting(ContainerHosting):
                 print(f">>> --force: removed existing container {container}")
             else:
                 raise TdxError(f"container already exists: {container} (use --force)")
+        if self.volume_path:
+            docker_volume_rm(container)
         print(f">>> pulling docker image {self.image} …", flush=True)
         docker_pull(self.image, self.image_platform)
         print(f">>> starting container {container} from image {self.image}")
@@ -141,6 +149,8 @@ class SingleContainerHosting(ContainerHosting):
             self.image_platform,
         ]
         args.extend(self.extra_run_flags)
+        if self.volume_path:
+            args += ["-v", f"{container}:{self.volume_path}"]
         for key, value in self.env_vars(password).items():
             args += ["-e", f"{key}={value}"]
         args.append(self.image)
@@ -173,6 +183,8 @@ class SingleContainerHosting(ContainerHosting):
         if st == "running":
             docker_stop(cname)
         docker_rm(cname)
+        if self.volume_path:
+            docker_volume_rm(cname)
 
     def system_status(self, meta: dict[str, str]) -> tuple[bool, str]:
         cname = meta["DOCKER_CONTAINER_NAME"]

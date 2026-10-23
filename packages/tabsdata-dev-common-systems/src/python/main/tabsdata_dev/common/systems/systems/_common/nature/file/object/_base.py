@@ -68,7 +68,14 @@ class ObjectStore(FileStore):
     ) -> dict[str, str]:
         # super() sets URI via the polymorphic _uri (== _location for cloud)
         meta = super().domain_meta(sys_meta, entity_name, password)
-        for opt in self.options():  # forward baked config so the domain
-            if opt.name in sys_meta:  # descriptor is self-contained too
-                meta[opt.name] = sys_meta[opt.name]
+        for key in self.store_keys():  # forward baked config so the domain
+            if key in sys_meta:  # descriptor is self-contained too
+                meta[key] = sys_meta[key]
         return meta
+
+    def store_keys(self) -> tuple[str, ...]:
+        """The system-meta keys a domain descriptor carries over to reach the
+        store on its own. Default: the declared options (a cloud system's
+        config); a system that plans its config itself (an emulator) names
+        them."""
+        return tuple(opt.name for opt in self.options())

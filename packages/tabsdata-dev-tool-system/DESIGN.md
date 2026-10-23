@@ -23,12 +23,14 @@ connection details kept as encrypted descriptors.
   push` (2026-09-28) -- none touches a store or a backend, and each put an `op` call in the
   `systems` env. What stays is what needs a backend: `1p-template` and `info --format 1p`, which
   write a system's item.
-  `clean-docker [--yes|-y]` stops and deletes every `tdd_*` container -- the prefix all
-  docker-backed systems use -- descriptor or not; it lists them and asks first unless `--yes`.
-- **The five postgres types are one shape** (`systems/postgres/backend.py`, which
-  `ManagedPostgres` extends): `postgres` and `postgrescdc` are containers, `awspostgres`,
-  `gcppostgres` and `azpostgres` managed instances, and every one of them records the same
-  block -- `INTERNAL_HOST`/`EXTERNAL_HOST`, `PORT`, `DATABASE`, `USER`, `PASSWORD`, `VERSION`
+  `clean-docker [--yes|-y]` stops and deletes every `tdd_*` container and volume -- the
+  prefix all docker-backed systems use, and the name a system's data volume takes from its
+  container -- descriptor or not; it lists them and asks first unless `--yes`.
+- **The five postgres types are one shape** (`systems/postgres/dialect.py`, which the
+  container `Postgres` and `ManagedPostgres` each pair with their hosting): `postgres` and
+  `postgrescdc` are containers, `awspostgres`, `gcppostgres` and `azpostgres` managed
+  instances, and every one of them records the same block -- `INTERNAL_HOST`/`EXTERNAL_HOST`,
+  `PORT`, `DATABASE`, `USER`, `PASSWORD`, `VERSION`
   (probed at create) and a `SQLALCHEMY_URI`/`URI` pair per plane -- plus only its own group
   (`DOCKER_CONTAINER_NAME`/`_ID`, or `AWS_*` / `GCP_*` / `AZ_*`, and the TLS pair on the
   managed three). Which plane a reader wants is the reader's property, not the instance's, so

@@ -12,8 +12,9 @@ As of 2026-10-14
 with a model and data. Every xp suite and every manual test against a database, object store, warehouse or Kafka broker
 starts from these two.
 
-- **System**: one platform with its connection details. 14 types run locally as docker containers (mysql, postgres,
-  mssqlserver, oracle, db2, starrocks, clickhouse, the three `*cdc` variants, mongodb, redpanda, redpandasasl, druid).
+- **System**: one platform with its connection details. 15 types run locally as docker containers (mysql, postgres,
+  mssqlserver, oracle, db2, starrocks, clickhouse, the three `*cdc` variants, mongodb, redpanda, redpandasasl, druid,
+  and s3local, the local twin of s3 served by RustFS).
   15 are remote: managed Postgres (aws, gcp, az), warehouses (snowflake, databricks, bigquery), object stores (s3, gcs,
   azureblob, plus a local `fs`) and credential-only services (anthropic, openai, typesafe, salesforce, dev).
 - **Domain**: an isolated container inside one system: a database, schema, folder, prefix, topic or dataset, whichever
@@ -70,7 +71,7 @@ tdd domain destroy      --domain pg1
 - **Many at once**: `tdd domain create --manifest m.json` runs create, create-model and create-data for every entry
   (`{name, sys, model, size}`). This is how xp builds a suite's domains.
 - **Housekeeping**: `tdd domain list`, `tdd domain status --domain ALL`, `tdd system restart --sys ALL` after a docker
-  or laptop restart, `tdd system clean-docker --yes` to sweep stray `tdd_*` containers. `tdd system destroy --sys X`
+  or laptop restart, `tdd system clean-docker --yes` to sweep stray `tdd_*` containers and volumes. `tdd system destroy --sys X`
   refuses while the system has domains; `--force` destroys them first.
 - **On failure**: every command prints one line and writes the full log to `<temp>/tdd-<tool>-<verb>-*.log`.
 

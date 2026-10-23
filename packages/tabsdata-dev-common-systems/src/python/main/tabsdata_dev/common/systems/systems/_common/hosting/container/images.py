@@ -70,3 +70,15 @@ REDPANDA = Image(
 CLICKHOUSE = Image(
     "clickhouse/clickhouse-server", _tag("CLICKHOUSE_IMAGE_VERSION", "24.8"), NATIVE
 )
+
+# --- object-store emulators -------------------------------------------------
+# Pinned by the digest of the multi-arch index, so every machine pulls the same
+# build for its own architecture (amd64 and arm64 are both published).
+RUSTFS = Image(
+    "rustfs/rustfs",
+    _tag(
+        "RUSTFS_IMAGE_VERSION",
+        "1.0.2@sha256:7e948dad4748bda48f8985fda7195f8cf2e4259427011f6120acc2c9acf51587",
+    ),
+    NATIVE,
+)

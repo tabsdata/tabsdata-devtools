@@ -3,7 +3,11 @@
 #
 
 """``S3Store`` -- the S3 protocol of an :class:`ObjectStore` (boto3): the five
-storage primitives over a bucket, for Amazon S3 and any S3-compatible store."""
+storage primitives over a bucket, for Amazon S3 and any S3-compatible store.
+
+An ``ENDPOINT`` in the config points the client at an S3-compatible server
+instead of AWS (path-style addressing, as such servers expect), and
+:meth:`storage_options` says the same to polars and obstore."""
 
 from __future__ import annotations
 
@@ -27,13 +31,42 @@ class S3Store(ObjectStore):
     @cached_property
     def _client(self):
         import boto3
+        from botocore.config import Config
 
+        endpoint = self._cfg("ENDPOINT", required=False)
         return boto3.client(
             "s3",
             region_name=self._cfg("REGION", required=False) or None,
             aws_access_key_id=self._cfg("ACCESS_KEY", required=False) or None,
             aws_secret_access_key=self._cfg("SECRET_KEY", required=False) or None,
+            endpoint_url=endpoint or None,
+            config=Config(s3={"addressing_style": "path"}) if endpoint else None,
         )
+
+    def create_bucket(self) -> None:
+        """Create the configured bucket; one this account already owns is
+        already there."""
+        from botocore.exceptions import ClientError
+
+        try:
+            self._client.create_bucket(Bucket=self._bucket())
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code not in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
+                raise
+
+    def storage_options(self, meta: dict[str, str]) -> dict[str, str]:
+        """The polars / obstore ``storage_options`` that reach this store."""
+        options = {
+            "aws_access_key_id": meta.get("ACCESS_KEY", ""),
+            "aws_secret_access_key": meta.get("SECRET_KEY", ""),
+            "aws_region": meta.get("REGION", ""),
+        }
+        endpoint = meta.get("ENDPOINT", "")
+        if endpoint:
+            options["aws_endpoint_url"] = endpoint
+            options["aws_allow_http"] = str(endpoint.startswith("http://")).lower()
+        return {key: value for key, value in options.items() if value}
 
     def store_status(self, root: str) -> None:
         self._client.head_bucket(Bucket=self._bucket())

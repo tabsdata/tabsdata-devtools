@@ -65,6 +65,7 @@ is consulted once they run out. Backends that need no ports never ask.
 | `azpostgres` | 22600-22699 | no ports |
 | `redpandasasl` | 22700-22799 | container |
 | `typesafe` | 22800-22899 | no ports |
+| `s3local` | 22900-22999 | container |
 
 ## Where in the code
 

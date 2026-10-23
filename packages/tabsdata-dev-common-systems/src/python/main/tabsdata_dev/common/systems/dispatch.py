@@ -19,7 +19,7 @@
                        [--ssh-port N] [--identity KEYFILE] [--force]
     tdd system upgrade [--sys-dir DIR]        # convert legacy TDX2 descriptors
     tdd system 1p-template --type TYPE|list|ALL
-    tdd system clean-docker [--yes]           # stop and delete every tdd_* docker container
+    tdd system clean-docker [--yes]           # stop and delete every tdd_* docker container and volume
 
     tdd domain list [--domain-dir DIR]
     tdd domain manifest [--out FILE]
@@ -935,13 +935,13 @@ def _parser_clean_docker(tool: str) -> ArgumentParser:
     prefix = constants.DOCKER_CONTAINER_PREFIX
     p = ArgumentParser(
         prog=f"tdd {tool} {constants.V_CLEAN_DOCKER}",
-        description=f"stop and delete every docker container whose name starts with {prefix}",
+        description=f"stop and delete every docker container, and every volume, whose name starts with {prefix}",
     )
     p.add_argument(
         constants.OPT_YES,
         "-y",
         action="store_true",
-        help="do not ask; without it the containers are listed and a confirmation is read from the terminal (an error when there is none)",
+        help="do not ask; without it the containers and volumes are listed and a confirmation is read from the terminal (an error when there is none)",
     )
     cli.add_format_verbose(p)
     return p
@@ -949,29 +949,34 @@ def _parser_clean_docker(tool: str) -> ArgumentParser:
 
 def _cmn_clean_docker(tool: str, rest: list[str]) -> int:
     """Stop and delete every docker container named `tdd_*` -- the ones the
-    docker-backed systems create -- whether or not a descriptor still points at
-    them. The sweep for a store that lost track of its containers, or a machine
-    to be left clean. Asks first, unless --yes."""
+    docker-backed systems create -- and every volume named so (where systems
+    keep their data), whether or not a descriptor still points at them. The
+    sweep for a store that lost track of its containers, or a machine to be
+    left clean. Asks first, unless --yes."""
     prefix = constants.DOCKER_CONTAINER_PREFIX
     p = _parser_clean_docker(tool)
     a = p.parse_args(rest)
     shell.require_docker()
     found = shell.list_containers(prefix)
-    if not found:
+    volumes = shell.list_volumes(prefix)
+    if not found and not volumes:
         console.result({"prefix": prefix, "removed": [], "failed": []})
-        console.good(f"no docker containers named {prefix}*")
+        console.good(f"no docker containers or volumes named {prefix}*")
         return 0
-    width = max(len(c["name"]) for c in found)
+    width = max([len(c["name"]) for c in found] + [len(v) for v in volumes])
     for c in found:
         console.out(f"  {c['name']:<{width}}  {c['state']:<10} {c['image']}")
+    for v in volumes:
+        console.out(f"  {v:<{width}}  volume")
+    what = f"{len(found)} container(s) and {len(volumes)} volume(s)"
     if not a.yes:
         if console.json_mode() or not sys.stdin.isatty():
             raise TdxError(
-                f"{len(found)} container(s) named {prefix}* would be stopped and deleted "
+                f"{what} named {prefix}* would be stopped and deleted "
                 f"(listed above); pass {constants.OPT_YES} to proceed"
             )
         print(
-            f"stop and delete these {len(found)} container(s)? [y/N] ",
+            f"stop and delete these {what}? [y/N] ",
             end="",
             file=sys.stderr,
             flush=True,
@@ -990,14 +995,23 @@ def _cmn_clean_docker(tool: str, rest: list[str]) -> int:
         except Exception as exc:  # noqa: BLE001 - one stubborn container must not stop the sweep
             failed.append({"name": c["name"], "error": str(exc)})
             console.warn(f"  {c['name']}: {exc}")
+    # After the containers: docker refuses to remove a volume still mounted.
+    for v in volumes:
+        try:
+            shell.docker_volume_rm(v)
+            removed.append(v)
+            console.out(f"  removed volume {v}")
+        except Exception as exc:  # noqa: BLE001 - one stubborn volume must not stop the sweep
+            failed.append({"name": v, "error": str(exc)})
+            console.warn(f"  {v}: {exc}")
     console.result({"prefix": prefix, "removed": removed, "failed": failed})
     if failed:
         raise TdxError(
-            f"stopped and deleted {len(removed)} container(s), {len(failed)} could not be removed: "
+            f"deleted {len(removed)} container(s) and volume(s), {len(failed)} could not be removed: "
             + ", ".join(f["name"] for f in failed)
         )
     console.good(
-        f"stopped and deleted {len(removed)} docker container(s) named {prefix}*"
+        f"stopped and deleted {len(removed)} docker container(s) and volume(s) named {prefix}*"
     )
     return 0
 
