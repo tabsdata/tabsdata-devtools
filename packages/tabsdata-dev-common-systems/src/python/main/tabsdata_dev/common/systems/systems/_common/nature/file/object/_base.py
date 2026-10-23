@@ -14,6 +14,11 @@ variable read at use time is the crypto key. Staged files live at
 implement the five ``store_*`` primitives with their SDK plus ``_bucket`` (the
 bucket / container name shown in URIs), declare their connection ``options()``
 and their ``uri_scheme`` (``s3`` / ``gs`` / ``az``).
+
+Every system and domain descriptor also records ``STORAGE_OPTIONS`` (JSON): the
+polars / obstore ``storage_options`` that reach the store, built by the same
+store code, so a test reads a store the same way whether it is the real cloud
+one or its local twin.
 """
 
 from __future__ import annotations
@@ -61,6 +66,7 @@ class ObjectStore(FileStore):
         for opt in self.options():
             if opt.name != "SYS_PATH":
                 planned[opt.name] = meta.get(opt.name, "")
+        planned["STORAGE_OPTIONS"] = json.dumps(self.storage_options(planned))
         self.configure(planned)  # so _bucket()/_cfg read the planned config
         planned["LOCATION"] = self._location(root)
         return planned
@@ -97,6 +103,6 @@ class ObjectStore(FileStore):
     def store_keys(self) -> tuple[str, ...]:
         """The system-meta keys a domain descriptor carries over to reach the
         store on its own. Default: the declared options (a cloud system's
-        config); a system that plans its config itself (an emulator) names
-        them."""
-        return tuple(opt.name for opt in self.options())
+        config) and the storage options; a system that plans its config itself
+        (a local store) names them."""
+        return (*(opt.name for opt in self.options()), "STORAGE_OPTIONS")
