@@ -71,7 +71,8 @@ connection details kept as encrypted descriptors.
   and re-emit their events. The selector is `--type` for `create` (one system per type, named
   after it) and `--sys` for everything else, each a name, a comma list or `ALL`; `--sys-prefix P`
   prepends `P_`, `--manifest FILE` replays a YAML manifest (`--sync` reconciles the store to it),
-  `--fail-fast` stops at the first failure and `--report FILE` writes a JSON run record. Before
+  `--fail-fast` stops at the first failure, `--report FILE` writes a JSON run record and
+  `--brief` prints one line per target (a failure keeps its output). Before
   any child starts, the parent parses each child's argv with the parser that child builds (per
   type, bound to its descriptor): an option no target takes is one error, not a failure per
   child after the batch has begun. A target the store lacks, a verb its type lacks, or a type in

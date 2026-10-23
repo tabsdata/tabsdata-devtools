@@ -80,6 +80,34 @@ def test_spawn_fail_fast_skips_what_has_not_started():
     assert _events(stream)[-1]["event"] == "error"
 
 
+def test_brief_says_one_line_per_task_and_keeps_a_failures_output():
+    stream = io.StringIO()
+    out = render.Renderer("t", fmt="json", verbose=True, out=stream, err=io.StringIO())
+    tasks = [batch.Task("good", 0, [["a"]]), batch.Task("bad", 0, [["b"]])]
+    rc = batch.execute(
+        "run",
+        tasks,
+        _fake_spawn({"a": (0, "made it\n"), "b": (3, "why it broke")}),
+        out,
+        workers=1,
+        heaviest_first=False,
+        brief=True,
+    )
+    assert rc == 1
+    shown = [e for e in _events(stream) if e["event"] in ("info", "warn")]
+    assert [e["message"].splitlines()[0] for e in shown] == [
+        "run: 2 target(s), parallel x1",
+        "[1/2] good OK (0.0s)",
+        "[2/2] bad FAIL (0.0s)",
+    ]
+    assert shown[1]["message"] == "[1/2] good OK (0.0s)"
+    assert shown[1]["output"] == "made it"
+    assert "why it broke" in shown[2]["message"]
+    # --verbose brings a success's output back, as a debug event.
+    debug = [e["message"] for e in _events(stream) if e["event"] == "debug"]
+    assert any("made it" in m for m in debug)
+
+
 @posix
 def test_streamed_lines_arrive_in_order_in_each_cwd(tmp_path):
     for name in ("b", "a"):

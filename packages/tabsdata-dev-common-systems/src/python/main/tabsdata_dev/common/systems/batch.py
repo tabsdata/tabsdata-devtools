@@ -98,14 +98,15 @@ def _is_all(sel: str) -> bool:
 
 def is_batch(tool: str, verb: str, rest: list[str]) -> bool:
     """Whether the verb targets many systems/domains (comma list or ALL) or a
-    report/fail-fast was requested (so even one target runs through here)."""
+    report/fail-fast/brief was requested (so even one target runs through
+    here)."""
     sel = cli.peek(rest, _batch_selector(tool, verb))
     if sel is None:
         return False
     if len(_names(sel)) > 1 or _is_all(sel):
         return True
-    return cli.peek(rest, constants.OPT_REPORT) is not None or (
-        constants.OPT_FAIL_FAST in rest
+    return cli.peek(rest, constants.OPT_REPORT) is not None or any(
+        flag in rest for flag in (constants.OPT_FAIL_FAST, constants.OPT_BRIEF)
     )
 
 
@@ -159,7 +160,12 @@ def _strip(argv: list[str], value_flags: set[str], bool_flags: set[str]) -> list
 
 
 # Children run in view mode with their output captured; the parent renders.
-_BATCH_ONLY = {constants.OPT_FAIL_FAST, constants.OPT_VERBOSE, "-v"}
+_BATCH_ONLY = {
+    constants.OPT_FAIL_FAST,
+    constants.OPT_BRIEF,
+    constants.OPT_VERBOSE,
+    "-v",
+}
 _BATCH_VALUE = {constants.OPT_REPORT, constants.OPT_FORMAT}
 
 
@@ -261,6 +267,7 @@ def run(
         tasks,
         report_path=cli.peek(rest, constants.OPT_REPORT),
         fail_fast=constants.OPT_FAIL_FAST in rest,
+        brief=constants.OPT_BRIEF in rest,
         final=final,
     )
 
@@ -272,6 +279,7 @@ def execute(
     *,
     report_path: str | None = None,
     fail_fast: bool = False,
+    brief: bool = False,
     final: bool = True,
 ) -> int:
     """Run `tasks` through the generic runner; when it emits the summary
@@ -286,6 +294,7 @@ def execute(
         fail_fast=fail_fast,
         report_path=report_path,
         final=final,
+        brief=brief,
     )
     if final:
         console.mark_final()

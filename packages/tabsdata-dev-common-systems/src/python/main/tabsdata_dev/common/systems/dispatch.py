@@ -53,8 +53,8 @@ Each accepts a single name, a comma list, or ``ALL``; ``--sys-prefix P`` /
 run in parallel, heaviest ``weight`` first (``$TDD_PARALLELISM`` bounds
 concurrency), each in its own child process through ``tdd-exe``; system creates
 cannot compete for ports, every type owning a fixed slot (``--ports`` pins them).
-``--fail-fast`` stops on the first failure and ``--report FILE`` writes a JSON run
-record. ``create --manifest FILE`` replays a YAML manifest in parallel and
+``--fail-fast`` stops on the first failure, ``--report FILE`` writes a JSON run
+record and ``--brief`` prints one line per target (a failure keeps its output). ``create --manifest FILE`` replays a YAML manifest in parallel and
 ``--sync`` reconciles the store to it.
 
 Toolsets: every system verb, and every domain verb of most systems, runs in the
@@ -1189,6 +1189,7 @@ def _create_from_manifest(tool: str, rest: list[str]) -> int:
     cli.add_force(p)
     cli.add_report(p)
     cli.add_fail_fast(p)
+    cli.add_brief(p)
     if not _is_domain_tool(tool):
         cli.add_sys_hostname(p)
     dir_opt = _add_store_dir(tool, p)
@@ -1236,6 +1237,7 @@ def _create_from_manifest(tool: str, rest: list[str]) -> int:
             tasks,
             report_path=a.report,
             fail_fast=a.fail_fast,
+            brief=a.brief,
             final=False,
         )
         if tasks

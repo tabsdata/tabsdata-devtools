@@ -189,6 +189,16 @@ def add_fail_fast(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_brief(parser: argparse.ArgumentParser) -> None:
+    """Declare ``--brief`` — see :func:`add_report` on why it is needed."""
+    parser.add_argument(
+        constants.OPT_BRIEF,
+        action="store_true",
+        help="one line per target: its result, and a failure's output (default: "
+        "every target's output as it finishes; --verbose shows it under --brief)",
+    )
+
+
 def add_domain_dir(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         constants.OPT_DOMAIN_DIR,

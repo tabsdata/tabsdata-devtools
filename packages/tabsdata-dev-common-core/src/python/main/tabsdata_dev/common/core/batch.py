@@ -11,7 +11,9 @@ separate process (full isolation, safe with fork- and thread-unsafe native
 clients), and speaks the event model: an ``info`` when a task starts, an
 ``info``/``warn`` when it ends (with its captured output), and one ``ok`` or
 ``error`` summary -- unless the caller asks to emit its own. ``--fail-fast``
-stops launching once a task fails; ``--report FILE`` writes the run as JSON.
+stops launching once a task fails; ``--report FILE`` writes the run as JSON;
+``--brief`` says one line per task: its start and a success's captured output
+drop to ``debug`` (``--verbose`` shows them), a failure's output stays.
 
 ``TDD_PARALLELISM`` bounds the concurrency (default 10). The caller supplies
 ``spawn(argv)``: how a child is actually launched (through ``tdd-exe`` so it
@@ -76,10 +78,13 @@ class Reporter:
     defaults are the batch's own lines; `line` says nothing, since a streamed
     task's output is reported whole at its end."""
 
-    def __init__(self, out: render.Renderer, label: str, role: str):
+    def __init__(
+        self, out: render.Renderer, label: str, role: str, *, brief: bool = False
+    ):
         self.out = out
         self.label = label
         self.role = role
+        self.brief = brief
 
     def begin(self, tasks: list[Task], workers: int, heaviest_first: bool) -> None:
         self.out.info(
@@ -90,7 +95,7 @@ class Reporter:
         )
 
     def start(self, task: Task) -> None:
-        self.out.info(
+        (self.out.debug if self.brief else self.out.info)(
             f"▶ {self.label} {task.name} (weight {task.weight})", task=task.name
         )
 
@@ -100,14 +105,20 @@ class Reporter:
     def end(self, task: Task, done: int, total: int) -> None:
         head = f"[{done}/{total}] {task.name} {task.status.upper()} ({task.seconds}s)"
         body = "\n".join(f"        {line}" for line in task.output.splitlines())
-        text = head + ("\n" + body if body else "")
         fields = {
             "task": task.name,
             "status": task.status,
             "seconds": task.seconds,
             "output": task.output,
         }
-        (self.out.info if task.status == "ok" else self.out.warn)(text, **fields)
+        if task.status != "ok":
+            self.out.warn(head + ("\n" + body if body else ""), **fields)
+        elif not self.brief:
+            self.out.info(head + ("\n" + body if body else ""), **fields)
+        else:
+            self.out.info(head, **fields)
+            if body:
+                self.out.debug(body, task=task.name)
 
 
 # ------------------------------------------------------------ process trees
@@ -188,6 +199,7 @@ def execute(
     kill_on_fail: bool = False,
     env: dict[str, str] | None = None,
     reporter: Reporter | None = None,
+    brief: bool = False,
 ) -> int:
     """Run `tasks`; return 0 iff every task succeeded.
 
@@ -204,7 +216,7 @@ def execute(
     workers = workers or parallelism()
     if heaviest_first:
         tasks.sort(key=lambda t: (-t.weight, t.name))
-    say = reporter or Reporter(out, label, role)
+    say = reporter or Reporter(out, label, role, brief=brief)
     lock = threading.Lock()
     abort = threading.Event()
     trees: set[Tree] = set()
