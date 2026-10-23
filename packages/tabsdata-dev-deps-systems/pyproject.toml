@@ -13,7 +13,7 @@ requires-python = ">=3.12,<3.13"
 # ibm_db builds against the IBM clidriver its install downloads -- natively on arm64 too.
 dependencies = [
     "azure-storage-blob==12.31.0",
-    "boto3==1.43.115",
+    "boto3==1.43.118",
     "clickhouse-connect==1.11.0",
     "confluent-kafka==2.16.0",
     "cryptography==50.0.2",
@@ -23,9 +23,9 @@ dependencies = [
     "google-cloud-storage==3.17.1",
     "ibm_db==3.3.0",
     "ibm_db_sa==0.4.4",
-    "mysql-connector-python==26.7.0",
+    "mysql-connector-python==26.10.0",
     "oracledb==26.0.1",
-    "pandas==3.0.6",
+    "pandas==3.1.0",
     "polars==2.0.0",
     "protobuf==7.36.2",
     "psycopg2-binary==2.9.13",
