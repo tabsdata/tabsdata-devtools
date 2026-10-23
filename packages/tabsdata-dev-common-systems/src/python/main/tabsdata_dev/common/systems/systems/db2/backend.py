@@ -21,11 +21,11 @@ from typing import ClassVar
 from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec, docker_exec_check
-from tabsdata_dev.common.systems.systems._common import container_info
+from tabsdata_dev.common.systems.systems._common.hosting.container import images
+from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
 from tabsdata_dev.common.systems.systems._common.sql import (
     LOCK_WAIT_SECONDS,
-    Admin,
-    SqlContainerBackend,
+    SqlDatabaseContainerBackend,
 )
 
 _XP_DB = "XP"  # the one shared database (<= 8 chars, Db2's DB-name limit)
@@ -35,15 +35,15 @@ _XP_DB = "XP"  # the one shared database (<= 8 chars, Db2's DB-name limit)
 PACKAGE = "tabsdata_dev.common.systems"
 
 
-class Db2(SqlContainerBackend):
+class Db2(SqlDatabaseContainerBackend):
     slug = "db2"
     label = "IBM Db2 Community"
     weight = 3  # slow to boot (archive log + backup for CDC) — schedule first
     domain_word = "schema"
     max_entity_name_length = 128  # Db2 schema-name limit
 
-    image = container_info.DB2.ref
-    image_platform = container_info.DB2.platform
+    image = images.DB2.ref
+    image_platform = images.DB2.platform
     internal_port = 50000
     root_user = "db2inst1"
     driver = "db2+ibm_db"

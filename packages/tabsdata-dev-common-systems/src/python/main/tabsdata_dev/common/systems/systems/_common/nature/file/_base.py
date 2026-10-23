@@ -2,7 +2,7 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""``FileBackend`` — the shared base for file / object-store systems.
+"""``FileStore`` -- the nature of systems that stage data files under a root.
 
 A file system has no container and no schema: the "system" is a staging root, a
 "domain" is a prefix/folder under it, and a model's data is staged as one file
@@ -10,8 +10,8 @@ per entity per format (:data:`emit.FILE_FORMATS` — csv / ndjson / parquet), ea
 named ``<entity>_<YYYYMMDD>T<hhmmss_mmm>.<fmt>`` after the command's invocation
 time. ``modify-data`` is **insert-only** — each run writes the inserted rows as
 NEW (freshly timestamped) files alongside the seed, never mutating existing ones.
-Concrete backends (fs, s3, gcs, azureblob) implement only the five storage
-primitives; everything else lives here once.
+Concrete systems (fs, and through :class:`ObjectStore` s3, gcs, azureblob)
+implement only the five storage primitives; everything else lives here once.
 
 The generic data-plane commands take the domain's staging destination from
 :meth:`data_plane_uri` (the opaque ``BASE_PATH`` — a path for fs, a bucket key for
@@ -28,7 +28,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from tabsdata_dev.common.systems import constants, datagen, emit, options
+from tabsdata_dev.common.systems import constants, datagen, emit
 from tabsdata_dev.common.systems.datagen import OpKind
 from tabsdata_dev.common.systems.errors import TdxError
 
@@ -59,9 +59,10 @@ def walk_files(local_dir: str) -> Iterator[tuple[Path, str]]:
             yield src, src.relative_to(base).as_posix()
 
 
-class FileBackend:
+class FileStore:
+    nature: str = "file_store"
+
     # ---- capability flags ----
-    is_container: bool = False
     supports_purge: bool = True
     supports_models: bool = True
     supports_data: bool = True
@@ -71,23 +72,12 @@ class FileBackend:
     )
     supports_table_capture: bool = False
 
-    # Staging data files needs the frame writer; a local root does not.
-    sys_toolset: str = constants.TOOLSET_SYSTEMS
+    # Staging data files needs the frame writer.
     dom_toolset: str = constants.TOOLSET_SYSTEMS
 
-    slug: str = ""
-    label: str = ""
     kind: str = "file"
-    weight: int = 1
-    exclusive: bool = False
     domain_word: str = "prefix"
     max_entity_name_length: int = 255
-
-    def docker_images(self) -> list[tuple[str, str]]:
-        return []
-
-    def options(self) -> tuple:
-        return ()  # declarative create options; overridden by backends that have any
 
     # ---- storage primitives (subclass implements) ----
 
@@ -114,32 +104,18 @@ class FileBackend:
     def join(self, root: str, child: str) -> str:
         return squash_slashes(f"{root.rstrip('/')}/{child}")
 
-    # ---- system lifecycle ----
+    # ---- system hooks (for the attached hosting) -----------------------
 
-    def plan_system(
-        self, name: str, overrides: dict[str, str] | None = None
-    ) -> dict[str, str]:
-        raise NotImplementedError  # file systems create via their own command
+    def complete_plan(self, name: str, meta: dict[str, str]) -> dict[str, str]:
+        return meta
 
-    def provision_system(
-        self, meta: dict[str, str], *, force: bool = False
-    ) -> dict[str, str]:
-        self.store_status(meta["SYS_PATH"])
-        return {}
-
-    def destroy_system(self, meta: dict[str, str]) -> None:
-        return None  # the staging root is externally owned — never removed
-
-    def system_status(self, meta: dict[str, str]) -> tuple[bool, str]:
+    def probe_system(self, meta: dict[str, str]) -> tuple[bool, str]:
         root = meta.get("SYS_PATH", "")
         try:
             self.store_status(root)
         except Exception as exc:  # noqa: BLE001
             return False, f"cannot reach {self.slug}: {exc}"
         return True, f"{self.label} root '{root}' reachable"
-
-    def restart_system(self, meta: dict[str, str]) -> str:
-        raise TdxError(f"{self.slug} is not a container (nothing to restart)")
 
     # ---- domain lifecycle ----
 
@@ -279,72 +255,3 @@ class FileBackend:
 
     def drop_all_tables(self, uri: str) -> None:
         self.store_clear(uri)
-
-
-class CloudFileBackend(FileBackend):
-    """Object-store base (s3 / gcs / azureblob).
-
-    Its connection config (bucket/container, secrets, ``SYS_PATH`` staging-root)
-    is resolved from the declared ``options()`` (env-sourced by default) **at
-    create time** and baked into the (encrypted) descriptor; every later op reads
-    it back from that descriptor via :meth:`configure` — the only environment
-    variable read at use time is the crypto key. Staged files live at
-    ``<bucket>/<SYS_PATH>/<domain>/<fmt>/<entity>_<stamp>.<fmt>``. Subclasses
-    implement the five ``store_*`` primitives with their SDK plus ``_bucket`` (the
-    bucket / container name shown in URIs), declare their connection ``options()``
-    and their ``uri_scheme`` (``s3`` / ``gs`` / ``az``).
-    """
-
-    # Creating the bucket already goes through the store's SDK.
-    sys_toolset = constants.TOOLSET_SYSTEMS
-    env_prefix: str = ""  # S3 / GCS / AZ
-    uri_scheme: str = ""  # URI scheme for the location URI; defaults to the slug
-
-    _bound: dict[str, str] | None = None
-
-    def options(self) -> tuple[options.Option, ...]:
-        return ()  # subclass declares its connection options
-
-    def configure(self, meta: dict[str, str]) -> None:
-        self._bound = dict(meta)
-
-    def _cfg(self, key: str, *, required: bool = True) -> str:
-        """A config value from the bound descriptor (create binds it before
-        provisioning; every later op binds it from the loaded descriptor)."""
-        return (self._bound or {}).get(key, "")
-
-    def _bucket(self) -> str:
-        raise NotImplementedError
-
-    def _location(self, prefix: str) -> str:
-        return f"{self.uri_scheme or self.slug}://{self._bucket()}/{prefix}"
-
-    def _uri(self, dest: str) -> str:
-        return self._location(dest)  # s3:// / gs:// / az:// bucket/prefix
-
-    def join(self, root: str, child: str) -> str:
-        root = squash_slashes(root).strip("/")
-        return squash_slashes(f"{root}/{child}") if root else squash_slashes(child)
-
-    def plan_system(
-        self, name: str, overrides: dict[str, str] | None = None
-    ) -> dict[str, str]:
-        o = overrides or {}
-        root = squash_slashes(o.get("SYS_PATH") or "").strip("/")
-        meta = {"SYS_PATH": root, "ENV_PREFIX": self.env_prefix}
-        for opt in self.options():
-            if opt.name != "SYS_PATH":
-                meta[opt.name] = o.get(opt.name, "")
-        self.configure(meta)  # so _bucket()/_cfg read the planned config
-        meta["LOCATION"] = self._location(root)
-        return meta
-
-    def domain_meta(
-        self, sys_meta: dict[str, str], entity_name: str, password: str
-    ) -> dict[str, str]:
-        # super() sets URI via the polymorphic _uri (== _location for cloud)
-        meta = super().domain_meta(sys_meta, entity_name, password)
-        for opt in self.options():  # forward baked config so the domain
-            if opt.name in sys_meta:  # descriptor is self-contained too
-                meta[opt.name] = sys_meta[opt.name]
-        return meta

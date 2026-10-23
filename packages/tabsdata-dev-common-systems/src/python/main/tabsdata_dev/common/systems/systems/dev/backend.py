@@ -10,17 +10,15 @@ same tooling for CI consistency; it backs the tabsdata dev connectors.
 
 from __future__ import annotations
 
-from tabsdata_dev.common.systems.systems._common.service import ServiceBackend
+from tabsdata_dev.common.systems.systems._common.hosting.attached.local import (
+    LocalHosting,
+)
+from tabsdata_dev.common.systems.systems._common.nature.credential.synthetic import (
+    Synthetic,
+)
 
 
-class Dev(ServiceBackend):
+class Dev(LocalHosting, Synthetic):
     slug = "dev"
     label = "Development"
     kind = "dev"
-    domain_word = "domain"
-
-    def system_status(self, meta: dict[str, str]) -> tuple[bool, str]:
-        return True, "dev system (no external resource)"
-
-    def domain_status(self, domain_meta: dict[str, str]) -> tuple[bool, str]:
-        return True, "dev domain (no external resource)"

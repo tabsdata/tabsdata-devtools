@@ -16,11 +16,11 @@ import time
 
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec, docker_exec_check
-from tabsdata_dev.common.systems.systems._common import container_info
-from tabsdata_dev.common.systems.systems._common.sql import SqlContainerBackend
+from tabsdata_dev.common.systems.systems._common.hosting.container import images
+from tabsdata_dev.common.systems.systems._common.sql import SqlDatabaseContainerBackend
 
 
-class Starrocks(SqlContainerBackend):
+class Starrocks(SqlDatabaseContainerBackend):
     slug = "starrocks"
     label = "StarRocks"
     weight = 2  # heavy all-in-one image — schedule ahead of the light systems
@@ -28,8 +28,8 @@ class Starrocks(SqlContainerBackend):
     max_entity_name_length = 256
     supports_trx_modes = False  # a load is the transaction; no interleaving of them
 
-    image = container_info.STARROCKS.ref
-    image_platform = container_info.STARROCKS.platform
+    image = images.STARROCKS.ref
+    image_platform = images.STARROCKS.platform
     internal_port = 9030
     root_user = "root"
     driver = "mysql+mysqlconnector"

@@ -18,7 +18,7 @@ with per-system DDL. The tools `system`, `domain` and `domain-sf` are thin entry
   csv/ddl carry no header). `protocols.py` is the structural contract they satisfy: a command
   module gets one as `ctx.system` and calls those methods, so a new system is a class
   implementing the Protocol plus its command files.
-- Two shared bases under `systems/_common/` carry everything a family has in common, so a
+- Shared bases under `systems/_common/` carry everything a family has in common, so a
   backend is only what differs -- see below.
 - Ranges on pydantic, pyyaml, cryptography; joins only the toolsets whose tools depend on it.
 
@@ -94,12 +94,37 @@ role is not enough to let it put a table there: since PostgreSQL 15 `public` bel
 appear to need nothing -- while Azure Flexible Server's template gives it to `azure_pg_admin` and
 everyone else USAGE alone. Saying it outright makes the five behave alike on any server.
 
-**`SqlContainerBackend`** (`_common/sql.py`) for the docker-container SQL databases -- mysql,
+**Two coordinates per system.** Every system names its *hosting* and its *nature* as its two
+bases, and each axis owns its own half of the backend contract, never the same method:
+
+- **Hosting** (`_common/hosting/`) -- where it runs, and who starts and stops it -- owns the
+  system lifecycle: plan, provision, destroy, status, restart, images, ports. `container/`:
+  `SingleContainerHosting` (one `docker run`: host port and password, image pull for the host's
+  architecture, `linux/arm64` or `linux/amd64`, readiness wait) and `ContainerStackHosting` (a
+  docker-compose stack), both on `ContainerHosting`. Beside them, what only local containers need: `images` (every
+  container system's image, tag and platform), `hostname` (the hostname a create advertises)
+  and `ports` (each system type's host-port slot). `attached/`: systems that exist on their
+  own, which tdd attaches to but never runs -- `RemoteHosting` (a service it only calls),
+  `ManagedHosting` (a provider-run instance) and `LocalHosting` (the host machine), all on
+  `AttachedHosting`.
+- **Nature** (`_common/nature/`) -- what it is -- owns the domains, the data plane and the
+  capability flags. `server/`: `Messaging` (a domain is a set of topics; the log only appends)
+  and `DocumentDatabase` (a database with its owner; no data plane yet) on `Server`. `file/`:
+  `FileStore` (staged data files under a root) and `ObjectStore` (under a bucket prefix).
+  `credential/`: `AiProvider`, `Application` and `Synthetic` (data generated on ingestion) on
+  `CredentialAccount`.
+
+The hosting writes the endpoint into the system meta and the nature reads only that meta. A
+nature paired with an attached hosting also supplies `complete_plan` (what it derives from the
+resolved options) and `probe_system` (whether the system answers), which create and status
+call. `hosting` and `nature` are also attributes of every system.
+
+**`SqlDatabaseContainerBackend`** (`_common/sql.py`) for the docker-container SQL databases -- mysql,
 postgres, oracle, db2, mssqlserver, clickhouse, starrocks. A subclass supplies only its dialect
 hooks: image and server flags, the readiness probe, the SQLAlchemy driver and identifier quote,
 the create/drop-domain SQL and the schema-listing query, and the server's own schemas that must
-never be read as domains. The container lifecycle, TCP admin over SQLAlchemy, per-domain
-provisioning, model and data loading and delta application live here once. A model is available
+never be read as domains. The container lifecycle comes from `SingleContainerHosting`; TCP admin over
+SQLAlchemy, per-domain provisioning, model and data loading and delta application live here once. A model is available
 for a system exactly when `<slug>/domain/models/<model>/<slug>.ddl` exists, which is what lets the
 generic `models`/`create-model`/`create-data`/`modify-data`/`delete-data`/`delete-model` serve
 every dialect. Two session hooks: `session_setup()` runs first on every data-plane connection
@@ -140,7 +165,7 @@ belongs to one database, and nothing can read it once that is gone. Rejected: le
 slot to its creator -- no suite has a step to drop one, so every teardown left the database
 and its slots behind.
 
-**`ManagedPostgres`** (`_common/managed_postgres.py`) for provider-managed PostgreSQL -- AWS RDS
+**`ManagedPostgres`** (`postgres/managed.py`) for provider-managed PostgreSQL -- AWS RDS
 (`awspostgres`), GCP Cloud SQL (`gcppostgres`), Azure Flexible Server (`azpostgres`). They differ
 in almost nothing the toolkit cares about: nothing runs locally, so `create` reads the connection
 from the `<SYSTEM>__` environment and probes it, and the master user is **not** a superuser, which

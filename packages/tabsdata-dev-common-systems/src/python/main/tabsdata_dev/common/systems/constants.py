@@ -143,7 +143,8 @@ RENDER_FORMATS = ("export", "unset", FMT_1P)
 # --format at all.
 
 # Every container the docker-backed systems create -- `docker run` ones
-# (`_common/sql.py`) and compose projects (`_common/containers.py`) -- is named
+# (`_common/hosting/container/single.py`) and compose stacks
+# (`_common/hosting/container/stack.py`) -- is named
 # `tdd_...`; `clean-docker` sweeps by this prefix, descriptors or not. Both
 # sides compose their names from this one constant, so the sweep can never
 # miss what the backends create.

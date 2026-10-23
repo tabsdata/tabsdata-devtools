@@ -20,34 +20,32 @@ from functools import cached_property
 
 from tabsdata_dev.common.systems import constants, options
 from tabsdata_dev.common.systems.errors import TdxError
+from tabsdata_dev.common.systems.systems._common.hosting.attached.remote import (
+    RemoteHosting,
+)
 
 
-class BigQuery:
-    is_container: bool = False
+class BigQuery(RemoteHosting):
+    nature: str = "sql_database"
     supports_purge: bool = True
     supports_models: bool = False
     supports_data: bool = False
     supports_changes: bool = False
     supports_trx_modes: bool = False
+    supports_table_capture: bool = False
 
     # Both planes go through google-cloud-bigquery / -storage.
-    sys_toolset = constants.TOOLSET_SYSTEMS
     dom_toolset = constants.TOOLSET_SYSTEMS
 
     slug = "bigquery"
     label = "BigQuery"
     kind = "file"
-    weight = 1
-    exclusive = False
     domain_word = "dataset"
     max_entity_name_length = 1024
     env_prefix = "BIGQUERY"
     _config_keys = ("PROJECT", "BUCKET", "SERVICE_ACCOUNT_KEY")
 
     _bound: dict[str, str] | None = None
-
-    def docker_images(self) -> list[tuple[str, str]]:
-        return []
 
     def options(self) -> tuple[options.Option, ...]:
         return (
@@ -148,30 +146,17 @@ class BigQuery:
 
     # ---- system lifecycle ----------------------------------------------
 
-    def plan_system(
-        self, name: str, overrides: dict[str, str] | None = None
-    ) -> dict[str, str]:
-        o = overrides or {}
-        root = (o.get("SYS_PATH") or "").strip("/")
-        meta = {key: o.get(key, "") for key in self._config_keys}
-        meta["SYS_PATH"] = root
-        meta["LOCATION"] = (
-            f"bigquery://{meta['PROJECT']} (staging gs://{meta['BUCKET']}/{root})"
+    def complete_plan(self, name: str, meta: dict[str, str]) -> dict[str, str]:
+        root = (meta.get("SYS_PATH") or "").strip("/")
+        planned = {key: meta.get(key, "") for key in self._config_keys}
+        planned["SYS_PATH"] = root
+        planned["LOCATION"] = (
+            f"bigquery://{planned['PROJECT']} (staging gs://{planned['BUCKET']}/{root})"
         )
-        self.configure(meta)
-        return meta
+        self.configure(planned)
+        return planned
 
-    def provision_system(
-        self, meta: dict[str, str], *, force: bool = False
-    ) -> dict[str, str]:
-        list(self._bq.list_datasets(max_results=1))  # BigQuery reachable
-        self._gcs_status()  # GCS reachable
-        return {}
-
-    def destroy_system(self, meta: dict[str, str]) -> None:
-        return None  # project/bucket are externally owned
-
-    def system_status(self, meta: dict[str, str]) -> tuple[bool, str]:
+    def probe_system(self, meta: dict[str, str]) -> tuple[bool, str]:
         try:
             list(self._bq.list_datasets(max_results=1))
             self._gcs_status()

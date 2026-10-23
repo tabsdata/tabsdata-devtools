@@ -60,7 +60,7 @@ from urllib.parse import urlencode
 from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.systems import console, constants, options
 from tabsdata_dev.common.systems.errors import TdxError
-from tabsdata_dev.common.systems.systems._common.sql import Admin
+from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
 from tabsdata_dev.common.systems.systems.postgres.backend import Postgres
 
 # libpq's modes, weakest first. The two that check the server's certificate are
@@ -105,6 +105,7 @@ PACKAGE = "tabsdata_dev.common.systems"
 
 class ManagedPostgres(Postgres):
     slug = ""
+    hosting = "managed"
     is_container = False
     # A container's outside plane is docker-only, but this one has nothing to
     # start and probes over SQL instead, so it needs the driver from the outside

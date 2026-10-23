@@ -7,7 +7,7 @@
 Config from the ``AZ__`` environment: ``AZ__ACCOUNT_NAME``, ``AZ__ACCOUNT_KEY``,
 ``AZ__CONTAINER``, plus ``AZ__SYS_PATH`` (staging-root prefix). Auth is the shared
 account key over the HTTPS blob endpoint. Only the Azure storage ops live here —
-the rest is :class:`CloudFileBackend`.
+the rest is :class:`ObjectStore`.
 """
 
 from __future__ import annotations
@@ -15,14 +15,19 @@ from __future__ import annotations
 from functools import cached_property
 
 from tabsdata_dev.common.systems import options
-from tabsdata_dev.common.systems.systems._common.files import (
-    CloudFileBackend,
+from tabsdata_dev.common.systems.systems._common.hosting.attached.remote import (
+    RemoteHosting,
+)
+from tabsdata_dev.common.systems.systems._common.nature.file._base import (
     normalise_prefix,
     walk_files,
 )
+from tabsdata_dev.common.systems.systems._common.nature.file.object import (
+    ObjectStore,
+)
 
 
-class Azureblob(CloudFileBackend):
+class Azureblob(RemoteHosting, ObjectStore):
     slug = "azureblob"
     label = "Azure Blob"
     env_prefix = "AZ"

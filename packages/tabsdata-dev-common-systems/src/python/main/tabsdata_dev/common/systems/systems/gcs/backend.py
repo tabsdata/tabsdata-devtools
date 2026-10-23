@@ -10,7 +10,7 @@ plus ``GCS__SYS_PATH`` (staging-root prefix). The S3-interop HMAC keys
 (``GCS__HMAC_ACCESS_KEY`` / ``GCS__HMAC_SECRET_KEY``) are carried in the descriptor
 for consumers that reach GCS over the S3 protocol (ClickHouse / StarRocks
 staging); the storage ops here use the service-account key. Only the GCS storage
-ops live here — the rest is :class:`CloudFileBackend`.
+ops live here — the rest is :class:`ObjectStore`.
 """
 
 from __future__ import annotations
@@ -19,14 +19,19 @@ import json
 from functools import cached_property
 
 from tabsdata_dev.common.systems import options
-from tabsdata_dev.common.systems.systems._common.files import (
-    CloudFileBackend,
+from tabsdata_dev.common.systems.systems._common.hosting.attached.remote import (
+    RemoteHosting,
+)
+from tabsdata_dev.common.systems.systems._common.nature.file._base import (
     normalise_prefix,
     walk_files,
 )
+from tabsdata_dev.common.systems.systems._common.nature.file.object import (
+    ObjectStore,
+)
 
 
-class GCS(CloudFileBackend):
+class GCS(RemoteHosting, ObjectStore):
     slug = "gcs"
     label = "GCS"
     env_prefix = "GCS"

@@ -15,8 +15,11 @@ from __future__ import annotations
 from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec
-from tabsdata_dev.common.systems.systems._common import container_info
-from tabsdata_dev.common.systems.systems._common.sql import Admin, SqlContainerBackend
+from tabsdata_dev.common.systems.systems._common.hosting.container import images
+from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
+from tabsdata_dev.common.systems.systems._common.sql import (
+    SqlDatabaseContainerBackend,
+)
 
 _SERVICE = "FREEPDB1"
 
@@ -25,7 +28,7 @@ _SERVICE = "FREEPDB1"
 PACKAGE = "tabsdata_dev.common.systems"
 
 
-class Oracle(SqlContainerBackend):
+class Oracle(SqlDatabaseContainerBackend):
     slug = "oracle"
     label = "Oracle Database Free"
     weight = 2  # slow to boot — schedule ahead of the light systems
@@ -34,8 +37,8 @@ class Oracle(SqlContainerBackend):
     max_entity_name_length = 128
     login_maxlen = 128
 
-    image = container_info.ORACLE.ref
-    image_platform = container_info.ORACLE.platform
+    image = images.ORACLE.ref
+    image_platform = images.ORACLE.platform
     internal_port = 1521
     root_user = "system"
     driver = "oracle+oracledb"

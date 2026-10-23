@@ -29,7 +29,9 @@ from tabsdata_dev.common.systems import (
 )
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import port_open
-from tabsdata_dev.common.systems.systems._common.host import DEFAULT_HOSTNAME
+from tabsdata_dev.common.systems.systems._common.hosting.endpoint import (
+    DEFAULT_HOSTNAME,
+)
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:

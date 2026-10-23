@@ -22,6 +22,10 @@ class Backend(Protocol):
     slug: str
     label: str
     kind: str  # SYSTEM_KIND baked into the descriptor (v1: sql/file/service/…)
+    # The system's two coordinates: where it runs (container / remote / managed
+    # / local) and what it is (sql_database / object_store / ai_provider / …).
+    hosting: str
+    nature: str
     domain_word: str
     max_entity_name_length: int
     weight: int  # 1..3 scheduling weight; batch runs the heaviest targets first
@@ -78,7 +82,7 @@ class Backend(Protocol):
         """Bind the hostname this create advertises instead of 127.0.0.1
         (``--sys-hostname``), so the endpoints ``plan_system`` records are usable
         from other machines. Only backends that publish one implement it (see
-        ``systems._common.host``)."""
+        ``systems._common.hosting.container.hostname``)."""
 
     # system lifecycle. `overrides` carries the resolved create options (see
     # `options`) — every declared option is present, so the backend reads its

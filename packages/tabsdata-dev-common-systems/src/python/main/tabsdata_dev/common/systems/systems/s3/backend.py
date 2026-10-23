@@ -7,7 +7,7 @@
 Config from the ``S3__`` environment: ``S3__BUCKET``, ``S3__REGION``,
 ``S3__ACCESS_KEY``, ``S3__SECRET_KEY`` (blank keys fall back to boto3's default
 credential chain), ``S3__SYS_PATH`` (staging-root prefix). Only the S3 storage
-ops live here — the rest is :class:`CloudFileBackend`.
+ops live here — the rest is :class:`ObjectStore`.
 """
 
 from __future__ import annotations
@@ -15,14 +15,19 @@ from __future__ import annotations
 from functools import cached_property
 
 from tabsdata_dev.common.systems import options
-from tabsdata_dev.common.systems.systems._common.files import (
-    CloudFileBackend,
+from tabsdata_dev.common.systems.systems._common.hosting.attached.remote import (
+    RemoteHosting,
+)
+from tabsdata_dev.common.systems.systems._common.nature.file._base import (
     normalise_prefix,
     walk_files,
 )
+from tabsdata_dev.common.systems.systems._common.nature.file.object import (
+    ObjectStore,
+)
 
 
-class S3(CloudFileBackend):
+class S3(RemoteHosting, ObjectStore):
     slug = "s3"
     label = "S3"
     env_prefix = "S3"

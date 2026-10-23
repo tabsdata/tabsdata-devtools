@@ -36,9 +36,16 @@ from tabsdata_dev.common.systems.shell import (
     gen_password,
     require_docker,
 )
-from tabsdata_dev.common.systems.systems._common import container_info
-from tabsdata_dev.common.systems.systems._common.host import DEFAULT_HOSTNAME
-from tabsdata_dev.common.systems.systems._common.sql import SqlContainerBackend
+from tabsdata_dev.common.systems.systems._common.hosting.container import images
+from tabsdata_dev.common.systems.systems._common.hosting.container.single import (
+    SingleContainerHosting,
+)
+from tabsdata_dev.common.systems.systems._common.hosting.endpoint import (
+    DEFAULT_HOSTNAME,
+)
+from tabsdata_dev.common.systems.systems._common.nature.server.messaging import (
+    Messaging,
+)
 from tabsdata_dev.common.systems.systems.redpanda import shape
 
 _REGISTRY_INTERNAL_PORT = 8081
@@ -63,17 +70,15 @@ def client_conf(brokers: str, user: str = "", password: str = "") -> dict:
     return conf
 
 
-class Redpanda(SqlContainerBackend):
+class Redpanda(SingleContainerHosting, Messaging):
     slug = "redpanda"
     label = "Redpanda"
     kind = "kafka"
     domain_word = "topic"
     max_entity_name_length = 249  # Kafka topic-name limit
-    supports_changes = True  # insert-only (a Kafka log only appends)
-    supports_trx_modes = False  # a batch is produced whole; no transactions to order
 
-    image = container_info.REDPANDA.ref
-    image_platform = container_info.REDPANDA.platform
+    image = images.REDPANDA.ref
+    image_platform = images.REDPANDA.platform
     internal_port = 9092
 
     def generate_password(self) -> str:

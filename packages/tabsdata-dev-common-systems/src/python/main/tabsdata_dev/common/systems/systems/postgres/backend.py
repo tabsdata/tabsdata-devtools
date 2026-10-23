@@ -42,16 +42,18 @@ from dataclasses import replace
 from typing import ClassVar
 from urllib.parse import quote
 
-from tabsdata_dev.common.systems.systems._common import container_info
-from tabsdata_dev.common.systems.systems._common.host import DEFAULT_HOSTNAME
+from tabsdata_dev.common.systems.systems._common.hosting.container import images
+from tabsdata_dev.common.systems.systems._common.hosting.endpoint import (
+    DEFAULT_HOSTNAME,
+    Admin,
+)
 from tabsdata_dev.common.systems.systems._common.sql import (
     LOCK_WAIT_SECONDS,
-    Admin,
-    SqlContainerBackend,
+    SqlDatabaseContainerBackend,
 )
 
 
-class Postgres(SqlContainerBackend):
+class Postgres(SqlDatabaseContainerBackend):
     slug = "postgres"
     label = "PostgreSQL"
     domain_word = "database"
@@ -59,8 +61,8 @@ class Postgres(SqlContainerBackend):
     max_entity_name_length = 63  # NAMEDATALEN - 1
     login_maxlen = 63  # the owner role is named after the database
 
-    image = container_info.POSTGRES.ref
-    image_platform = container_info.POSTGRES.platform
+    image = images.POSTGRES.ref
+    image_platform = images.POSTGRES.platform
     internal_port = 5432
     root_user = "postgres"
     driver = "postgresql+psycopg2"

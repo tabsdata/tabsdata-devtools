@@ -126,7 +126,9 @@ def test_clean_docker_lists_then_refuses_without_yes_and_sweeps_with_it(
 def test_every_system_type_owns_a_disjoint_port_slot_documented_in_docs_ports_md():
     import pathlib
 
-    from tabsdata_dev.common.systems.systems._common.ports import system_port_range
+    from tabsdata_dev.common.systems.systems._common.hosting.container.ports import (
+        system_port_range,
+    )
 
     order = systems.slot_order()
     assert sorted(order) == systems.all_slugs()
@@ -148,7 +150,7 @@ def test_port_range_mixin_walks_its_slot_without_repeating_or_leaving_it():
     import socket
 
     from tabsdata_dev.common.core.ports import find_free_port
-    from tabsdata_dev.common.systems.systems._common.ports import (
+    from tabsdata_dev.common.systems.systems._common.hosting.container.ports import (
         PortRangeMixin,
         system_port_range,
     )
@@ -355,7 +357,7 @@ def test_the_managed_three_differ_only_where_their_provider_does():
     """Same base, same block; each filters the service roles its own provider
     grants the master. The role filter is the load-bearing part: `purge` drops
     what a listing offers."""
-    from tabsdata_dev.common.systems.systems._common.managed_postgres import (
+    from tabsdata_dev.common.systems.systems.postgres.managed import (
         ManagedPostgres,
     )
 
@@ -564,7 +566,7 @@ def test_a_published_root_is_fetched_once_and_reaches_every_connection(monkeypat
     the TLS its system was created with."""
     from urllib.parse import parse_qs, urlsplit
 
-    from tabsdata_dev.common.systems.systems._common import managed_postgres as mp
+    from tabsdata_dev.common.systems.systems.postgres import managed as mp
 
     pem = "-----BEGIN CERTIFICATE-----\nMIIBpublished\n-----END CERTIFICATE-----\n"
 
@@ -967,7 +969,7 @@ def test_a_managed_domain_can_grant_the_cross_project_marker_onward():
     so `db upgrade` refuses with "a database administrator has to run ..." -- and
     on a managed instance we are that administrator. The marker is created once
     per server and handed to each domain WITH ADMIN OPTION."""
-    from tabsdata_dev.common.systems.systems._common.managed_postgres import (
+    from tabsdata_dev.common.systems.systems.postgres.managed import (
         ACROSS_PROJECTS_ROLE,
     )
 
@@ -989,7 +991,7 @@ def test_destroying_a_domain_leaves_the_shared_marker_alone():
     marker too, and dropping that would take every other domain's row-level
     security with it -- so the roles are matched by the domain's own name, which
     is what actually says a role belongs to it."""
-    from tabsdata_dev.common.systems.systems._common.managed_postgres import (
+    from tabsdata_dev.common.systems.systems.postgres.managed import (
         ACROSS_PROJECTS_ROLE,
     )
 
@@ -1220,19 +1222,21 @@ def test_db2cdc_deregisters_before_a_forced_recreate_drops_the_tables(monkeypatc
     the registrations are in ASN and outlive both, so each forced path
     deregisters first -- while the tables still exist, since CAPSTOP names
     them -- and only then hands over to the drop."""
-    from tabsdata_dev.common.systems.systems._common.sql import SqlContainerBackend
+    from tabsdata_dev.common.systems.systems._common.sql import (
+        SqlDatabaseContainerBackend,
+    )
     from tabsdata_dev.common.systems.systems.db2cdc.backend import Db2Cdc
 
     b = Db2Cdc()
     order: list[str] = []
     monkeypatch.setattr(b, "_deregister_schema", lambda meta: order.append("dereg"))
     monkeypatch.setattr(
-        SqlContainerBackend,
+        SqlDatabaseContainerBackend,
         "provision_domain",
         lambda self, s, e, d, force=False: order.append(f"provision force={force}"),
     )
     monkeypatch.setattr(
-        SqlContainerBackend,
+        SqlDatabaseContainerBackend,
         "install_schema",
         lambda self, m, model, force=False: order.append(f"install force={force}"),
     )
@@ -1826,7 +1830,9 @@ def test_every_model_carries_an_empty_sentinel_in_every_ddl():
     so create-data leaves it empty and modify-data never picks it."""
     import random
 
-    from tabsdata_dev.common.systems.systems._common.sql import SqlContainerBackend
+    from tabsdata_dev.common.systems.systems._common.sql import (
+        SqlDatabaseContainerBackend,
+    )
 
     sentinel = datagen.SENTINEL_ENTITY
     for model in datagen.list_models():
@@ -1840,7 +1846,10 @@ def test_every_model_carries_an_empty_sentinel_in_every_ddl():
     checked = 0
     for slug in systems.all_slugs():
         backend = systems.get(slug)
-        if not isinstance(backend, SqlContainerBackend) or not backend.supports_models:
+        if (
+            not isinstance(backend, SqlDatabaseContainerBackend)
+            or not backend.supports_models
+        ):
             continue
         for model in datagen.list_models():
             if not any(backend._ddl_dir(model).glob("*.ddl")):

@@ -6,7 +6,7 @@ connection draws from, so in the seconds between finding one and `docker run`
 binding it a docker pull or kubectl would routinely take it ("failed to bind
 host port 0.0.0.0:59718/tcp: address already in use"). Everything here lives
 below 32768: 20000-29999 belongs to the systems, a hundred ports each in a fixed
-slot per system type (`common.systems.systems._common.ports`), so two creates
+slot per system type (`common.systems.systems._common.hosting.container.ports`), so two creates
 never look at the same ports; PORT_RANGE is for everything else (an ssh tunnel's
 local end), walked from a random start so two tdd processes rarely meet. A
 candidate is checked with a plain bind -- no SO_REUSEADDR: a port in TIME_WAIT

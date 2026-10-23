@@ -6,7 +6,7 @@
 
 A domain is a SCHEMA inside the account's ``DATABASE``. Connection comes from the
 ``SNOWFLAKE__`` environment; the data plane is inherited from
-:class:`RemoteSqlBackend` over the ``snowflake`` SQLAlchemy dialect (PAT as the
+:class:`RemoteSqlDatabaseBackend` over the ``snowflake`` SQLAlchemy dialect (PAT as the
 URL password). Snowflake doesn't enforce foreign keys, so the employees model's
 parent deletes apply cleanly (rows just orphan).
 """
@@ -16,10 +16,10 @@ from __future__ import annotations
 from urllib.parse import quote_plus
 
 from tabsdata_dev.common.systems import options
-from tabsdata_dev.common.systems.systems._common.sql import RemoteSqlBackend
+from tabsdata_dev.common.systems.systems._common.sql import RemoteSqlDatabaseBackend
 
 
-class Snowflake(RemoteSqlBackend):
+class Snowflake(RemoteSqlDatabaseBackend):
     slug = "snowflake"
     label = "Snowflake"
     domain_word = "schema"

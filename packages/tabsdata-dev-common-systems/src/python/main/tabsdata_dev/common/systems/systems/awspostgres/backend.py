@@ -27,8 +27,8 @@ that path never reaches a descriptor's URIs.
 from __future__ import annotations
 
 from tabsdata_dev.common.systems import options
-from tabsdata_dev.common.systems.systems._common.managed_postgres import ManagedPostgres
 from tabsdata_dev.common.systems.systems.postgres.backend import Postgres
+from tabsdata_dev.common.systems.systems.postgres.managed import ManagedPostgres
 
 #: Every region's root in one file -- what AWS tells you to trust, and what an
 #: instance moved between regions keeps working against.

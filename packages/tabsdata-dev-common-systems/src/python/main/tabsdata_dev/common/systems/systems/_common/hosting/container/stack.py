@@ -2,16 +2,15 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""``ContainersBackend`` — a multi-container system driven by docker compose.
+"""``ContainerStackHosting`` -- several containers brought up together as one
+stack through ``docker compose``.
 
-Where a single-container system uses ``docker run``, a compose stack (e.g. Druid:
-zookeeper + coordinator/broker/historical/middleManager/router) is brought up
-through ``docker compose`` against an explicit project name so concurrent stacks
-stay isolated. ``plan_system`` picks the host ports up front (so the full
-descriptor is written before ``up``) and ``provision_system`` brings the stack up
-and waits for readiness, tearing it down on failure. Subclasses supply the
-compose file + image list and the ``plan_endpoints`` / ``compose_env`` /
-``wait_ready`` / ``system_health`` hooks (and their own domain plane).
+The stack runs against an explicit project name so concurrent stacks stay
+isolated. ``plan_system`` picks the host ports up front (so the full descriptor
+is written before ``up``) and ``provision_system`` brings the stack up and
+waits for readiness, tearing it down on failure. A system supplies the compose
+file and image list and the ``plan_endpoints`` / ``compose_env`` /
+``wait_ready`` / ``system_health`` hooks.
 """
 
 from __future__ import annotations
@@ -25,32 +24,12 @@ from tabsdata_dev.common.systems.shell import (
     docker_compose,
     require_docker,
 )
-from tabsdata_dev.common.systems.systems._common.host import HostMixin
-from tabsdata_dev.common.systems.systems._common.ports import PortRangeMixin
+from tabsdata_dev.common.systems.systems._common.hosting.container._base import (
+    ContainerHosting,
+)
 
 
-class ContainersBackend(PortRangeMixin, HostMixin):
-    is_container: bool = True
-    supports_purge: bool = True
-    supports_models: bool = False
-    supports_data: bool = False
-    supports_changes: bool = False
-    supports_trx_modes: bool = False
-    supports_table_capture: bool = False
-
-    # A compose stack driven by docker, administered over HTTP.
-    sys_toolset: str = constants.TOOLSET_SYSTEMS
-    dom_toolset: str = constants.TOOLSET_SYSTEMS
-
-    slug: str = ""
-    label: str = ""
-    kind: str = "containers"
-    weight: int = 1
-    exclusive: bool = False
-    domain_word: str = "domain"
-    max_entity_name_length: int = 255
-    ready_timeout: int = 300
-
+class ContainerStackHosting(ContainerHosting):
     compose_file: str = ""
     compose_images: tuple[tuple[str, str], ...] = ()
 

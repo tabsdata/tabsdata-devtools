@@ -4,11 +4,9 @@
 
 """MongoDB backend — a docker container; a domain is a database + dbOwner user.
 
-Reuses the container lifecycle from :class:`SqlContainerBackend` (docker run /
-readiness / destroy / restart via the env + mongosh hooks) but the domain plane
-is pymongo, not SQL. As in v1 there is no tdx data plane (MongoDB is schemaless
-and the connector-under-test loads its own documents), so only
-create / destroy / status / purge are exposed.
+The container lifecycle comes from :class:`SingleContainerHosting` (docker run /
+readiness / destroy / restart via the env + mongosh hooks) and the domain plane
+is pymongo.
 """
 
 from __future__ import annotations
@@ -16,26 +14,29 @@ from __future__ import annotations
 import contextlib
 
 from tabsdata_dev.common.systems.errors import TdxError
-from tabsdata_dev.common.systems.systems._common import container_info
-from tabsdata_dev.common.systems.systems._common.host import DEFAULT_HOSTNAME
-from tabsdata_dev.common.systems.systems._common.sql import Admin, SqlContainerBackend
+from tabsdata_dev.common.systems.systems._common.hosting.container import images
+from tabsdata_dev.common.systems.systems._common.hosting.container.single import (
+    SingleContainerHosting,
+)
+from tabsdata_dev.common.systems.systems._common.hosting.endpoint import (
+    DEFAULT_HOSTNAME,
+    Admin,
+)
+from tabsdata_dev.common.systems.systems._common.nature.server.document import (
+    DocumentDatabase,
+)
 
 _SYSTEM_DBS = frozenset({"admin", "local", "config"})
 
 
-class MongoDB(SqlContainerBackend):
+class MongoDB(SingleContainerHosting, DocumentDatabase):
     slug = "mongodb"
     label = "MongoDB"
     kind = "mongodb"
-    domain_word = "database"
     max_entity_name_length = 63
-    supports_models = False
-    supports_data = False
-    supports_changes = False
-    supports_trx_modes = False
 
-    image = container_info.MONGODB.ref
-    image_platform = container_info.MONGODB.platform
+    image = images.MONGODB.ref
+    image_platform = images.MONGODB.platform
     internal_port = 27017
     root_user = "root"
 

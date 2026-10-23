@@ -22,25 +22,35 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from tabsdata_dev.common.systems import datagen
+from tabsdata_dev.common.systems import constants, datagen
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import gen_password, http_ok
-from tabsdata_dev.common.systems.systems._common.containers import ContainersBackend
-from tabsdata_dev.common.systems.systems._common.host import DEFAULT_HOSTNAME
+from tabsdata_dev.common.systems.systems._common.hosting.container.stack import (
+    ContainerStackHosting,
+)
+from tabsdata_dev.common.systems.systems._common.hosting.endpoint import (
+    DEFAULT_HOSTNAME,
+)
 
 _ADMIN_USER = "admin"
 _SYS_DATASOURCES = frozenset({"wikipedia"})  # tutorial datasource, never a domain
 
 
-class Druid(ContainersBackend):
+class Druid(ContainerStackHosting):
     slug = "druid"
     label = "Apache Druid"
     kind = "druid"
     weight = 3  # multi-container compose stack — schedule first
     domain_word = "datasource"
     max_entity_name_length = 255
+    nature = "sql_database"
+    supports_purge = True
     supports_models = True  # records the model; no schema to create
     supports_data = False  # a datasource only materialises on ingestion
+    supports_changes = False
+    supports_trx_modes = False
+    supports_table_capture = False
+    dom_toolset = constants.TOOLSET_SYSTEMS
 
     compose_file = str(Path(__file__).parent / "druid-compose.yaml")
     compose_images = (

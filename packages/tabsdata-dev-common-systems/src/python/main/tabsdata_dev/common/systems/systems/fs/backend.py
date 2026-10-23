@@ -9,7 +9,7 @@ subdirectory holding the staged data files. Destroy leaves the root in place
 (it's externally owned); a force-recreate rmtree can never wipe a system path
 because the root is validated (absolute, not under a system directory, >= 2
 elements). Only the local-storage primitives live here — the rest is
-:class:`FileBackend`.
+:class:`FileStore`.
 """
 
 from __future__ import annotations
@@ -19,7 +19,10 @@ from pathlib import Path
 
 from tabsdata_dev.common.systems import options
 from tabsdata_dev.common.systems.errors import TdxError
-from tabsdata_dev.common.systems.systems._common.files import FileBackend
+from tabsdata_dev.common.systems.systems._common.hosting.attached.local import (
+    LocalHosting,
+)
+from tabsdata_dev.common.systems.systems._common.nature.file._base import FileStore
 
 _UNSAFE_ROOT_HEADS = frozenset(
     {
@@ -54,7 +57,7 @@ def validate_fs_root(root: str) -> None:
         raise TdxError(f"fs root must have at least 2 path elements (got: {root})")
 
 
-class Fs(FileBackend):
+class Fs(LocalHosting, FileStore):
     slug = "fs"
     label = "fs"
     domain_word = "folder"
@@ -71,11 +74,8 @@ class Fs(FileBackend):
             return f"target/backends/{sys_name}"
         raise TdxError(f"{self.slug}: no synth default for {name}")
 
-    def plan_system(
-        self, name: str, overrides: dict[str, str] | None = None
-    ) -> dict[str, str]:
-        o = overrides or {}
-        root = str(Path(o.get("SYS_PATH") or f"target/backends/{name}").absolute())
+    def complete_plan(self, name: str, meta: dict[str, str]) -> dict[str, str]:
+        root = str(Path(meta.get("SYS_PATH") or f"target/backends/{name}").absolute())
         validate_fs_root(root)
         return {"SYS_PATH": root}
 

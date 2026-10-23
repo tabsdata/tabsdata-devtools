@@ -176,7 +176,7 @@ def _expand(tool: str, verb: str, rest: list[str]) -> list[Task]:
             _BATCH_ONLY,
         )
         # No ports are handed down: every system type owns a fixed port slot
-        # (systems._common.ports), so parallel creates cannot compete.
+        # (systems._common.hosting.container.ports), so parallel creates cannot compete.
         for typ in types:
             argv = [
                 constants.V_CREATE,

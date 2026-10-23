@@ -13,17 +13,17 @@ dialect hooks live here.
 from __future__ import annotations
 
 from tabsdata_dev.common.systems.shell import docker_exec_check
-from tabsdata_dev.common.systems.systems._common import container_info
+from tabsdata_dev.common.systems.systems._common.hosting.container import images
+from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
 from tabsdata_dev.common.systems.systems._common.sql import (
     LOCK_WAIT_SECONDS,
-    Admin,
-    SqlContainerBackend,
+    SqlDatabaseContainerBackend,
 )
 
 _ODBC = "driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
 
 
-class Mssqlserver(SqlContainerBackend):
+class Mssqlserver(SqlDatabaseContainerBackend):
     slug = "mssqlserver"
     label = "Microsoft SQL Server"
     domain_word = "database"
@@ -31,8 +31,8 @@ class Mssqlserver(SqlContainerBackend):
     max_entity_name_length = 128  # sysname limit
     login_maxlen = 128
 
-    image = container_info.MSSQLSERVER.ref
-    image_platform = container_info.MSSQLSERVER.platform
+    image = images.MSSQLSERVER.ref
+    image_platform = images.MSSQLSERVER.platform
     internal_port = 1433
     root_user = "sa"
     driver = "mssql+pyodbc"

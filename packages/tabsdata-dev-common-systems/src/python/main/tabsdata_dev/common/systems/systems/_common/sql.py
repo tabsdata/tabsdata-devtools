@@ -2,15 +2,17 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""``SqlContainerBackend`` — the shared base for docker-container SQL databases.
+"""``SqlDatabaseContainerBackend`` — the shared base for docker-container SQL
+databases.
 
 A concrete SQL system (mysql, postgres, oracle, db2, mssqlserver, clickhouse,
 starrocks, …) subclasses this and supplies only its *dialect hooks*: the docker
 image and server flags, the readiness probe, the SQLAlchemy driver + identifier
 quote, the CREATE/DROP-domain SQL and the schema-listing query, and the set of
-the server's own schemas that must never be treated as domains. Everything else
-— the container lifecycle, TCP admin over SQLAlchemy, per-domain provisioning,
-model/data loading and delta application — lives here once.
+the server's own schemas that must never be treated as domains. The container
+lifecycle comes from :class:`SingleContainerHosting`; TCP admin over SQLAlchemy,
+per-domain provisioning, model/data loading and delta application live here
+once.
 
 The per-model DDL for a system lives beside its backend under
 ``<slug>/domain/models/<model>/<slug>.ddl`` (a model is available for the system
@@ -22,38 +24,26 @@ from __future__ import annotations
 
 import hashlib
 import inspect
-import platform
-import time
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar
 
 from tabsdata_dev.common.systems import constants, datagen, emit, options
 from tabsdata_dev.common.systems.diagnostics import db_failure
 from tabsdata_dev.common.systems.errors import TdxError
-from tabsdata_dev.common.systems.shell import (
-    container_exists,
-    container_failure,
-    container_id,
-    container_state,
-    docker_exec_check,
-    docker_pull,
-    docker_restart,
-    docker_rm,
-    docker_run,
-    docker_stop,
-    gen_password,
-    require_docker,
-    validate_name,
-)
+from tabsdata_dev.common.systems.shell import validate_name
 from tabsdata_dev.common.systems.sql_runner import (
     run_sql_schedule,
     run_sql_text,
     run_sql_transactions,
 )
-from tabsdata_dev.common.systems.systems._common.host import DEFAULT_HOSTNAME, HostMixin
-from tabsdata_dev.common.systems.systems._common.ports import PortRangeMixin
+from tabsdata_dev.common.systems.systems._common.hosting.container.single import (
+    SingleContainerHosting,
+)
+from tabsdata_dev.common.systems.systems._common.hosting.endpoint import (
+    DEFAULT_HOSTNAME,
+    Admin,
+)
+from tabsdata_dev.common.systems.systems._common.nature.server._base import Server
 
 # How long a statement of a concurrent schedule may wait for a row lock before
 # the dialect gives up on it (where the dialect has such a timeout). The
@@ -64,31 +54,10 @@ from tabsdata_dev.common.systems.systems._common.ports import PortRangeMixin
 LOCK_WAIT_SECONDS = 10
 
 
-@dataclass
-class Admin:
-    host: str
-    port: str
-    user: str
-    password: str
-    # The maintenance database this connection targets. Empty = the class's
-    # `admin_db`; a family that records the database in its meta (Postgres) puts
-    # it here, so a server whose default database is not the usual one is reached
-    # at the one it actually has.
-    db: str = ""
-    # TLS for this connection, where the dialect takes it on the URL and the
-    # setting is the system's rather than the class's (see ManagedPostgres);
-    # every container backend leaves these empty. `ca_pem` is the certificate
-    # itself -- `sslrootcert` is filled in with a path to it only for as long as
-    # a connection needs one.
-    sslmode: str = ""
-    sslrootcert: str = ""
-    ca_pem: str = ""
+class SqlDatabaseContainerBackend(SingleContainerHosting, Server):
+    nature: str = "sql_database"
 
-
-class SqlContainerBackend(PortRangeMixin, HostMixin):
     # ---- capability flags (drive verb availability in the dispatcher) ----
-    is_container: bool = True
-    supports_purge: bool = True
     supports_models: bool = True
     supports_data: bool = True
     supports_changes: bool = True
@@ -97,40 +66,23 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
     # subclass that has no multi-statement transactions, or that locks a whole
     # table for a write, says False.
     supports_trx_modes: bool = True
-    supports_table_capture: bool = False
     # The dialect's DELETE locks every row it scans, not only the rows it removes
     # (MySQL InnoDB, Db2): on a table with no key and no unique index it scans it
     # all, and waits on any row another open transaction wrote. Postgres reads row versions and waits only on the rows
     # its WHERE matches, so it says False.
     scan_locks: bool = False
 
-    # ---- managed venvs (see _venv) ----
-    # Starting and probing a container is docker-only (readiness runs as an
-    # in-container CLI), so the lifecycle needs no driver; everything that
-    # speaks SQL to it does.
-    sys_toolset: str = constants.TOOLSET_SYSTEMS
-    dom_toolset: str = constants.TOOLSET_SYSTEMS
-
     # ---- identity / shape (subclass sets these) ----
     slug: str = ""
     label: str = ""
     kind: str = "sql"
-    weight: int = 1
-    exclusive: bool = False
     domain_word: str = "database"
-    ready_timeout: int = 300
     max_entity_name_length: int = 63
     login_maxlen: int = 32
 
     # ---- dialect hooks (subclass overrides) ----
-    image: str = ""
-    internal_port: int = 0
-    root_user: str = ""
     driver: str = ""  # SQLAlchemy driver, e.g. "mysql+mysqlconnector"
     sql_quote: str = '"'
-    cmd_args: ClassVar[list[str]] = []  # server flags appended after the image
-    # docker-run flags before the image (db2: --privileged)
-    extra_run_flags: ClassVar[list[str]] = []
     system_schemas: frozenset[str] = frozenset()
     admin_db: str = ""  # maintenance DB the admin connection targets (pg: postgres)
     admin_autocommit: bool = False  # some DBs can't CREATE/DROP DATABASE in a txn
@@ -139,36 +91,13 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
     # multi-row VALUES). Higher = fewer round-trips where the dialect allows it.
     insert_batch: int = 500
 
-    image_platform = (
-        "linux/arm64" if platform.machine() in ("arm64", "aarch64") else "linux/amd64"
-    )
-
-    def options(self) -> tuple[options.Option, ...]:
-        return (
-            options.Option("PORT", "port", options.PORT, "a free host port"),
-            options.Option(
-                "PASSWORD",
-                "password",
-                options.RANDOM,
-                "a generated password",
-                secret=True,
-            ),
-        )
-
-    # ---- images / naming ------------------------------------------------
-
-    def docker_images(self) -> list[tuple[str, str]]:
-        return [(self.image, self.image_platform)]
+    # ---- naming ---------------------------------------------------------
 
     # The domain-meta keys holding the address tdx connects to and the domain's
     # own database. One endpoint and one word for a database need no qualifier,
     # so a domain says HOST and DB; a family that names its networks and spells
     # the word out points these at its own keys (see Postgres).
-    domain_host_key: str = "HOST"
     domain_db_key: str = "DB"
-
-    def container_name(self, sys_name: str) -> str:
-        return f"{constants.DOCKER_NAME_PREFIX}{sys_name}"
 
     def _login(self, name: str) -> str:
         # The owner user is named after the domain, capped at the dialect's
@@ -186,15 +115,6 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
 
     # ---- dialect hooks with defaults ------------------------------------
 
-    def generate_password(self) -> str:
-        """The system (admin) password. Overridden where the image mandates a
-        fixed one (e.g. StarRocks allin1 requires the empty root password)."""
-        return gen_password()
-
-    def post_provision(self, container: str, password: str) -> None:
-        """Run once the container is ready (e.g. create a shared database, tune a
-        server config). Default: nothing."""
-
     def session_setup(self) -> list[str]:
         """Statements run first on every data-plane connection (DDL install, load,
         modify-data) — e.g. Oracle sets NLS_*_FORMAT so the ISO date/timestamp
@@ -211,15 +131,6 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
         way. Default: nothing (Oracle: no timeout exists for a DML lock wait;
         its row locks do not block a scan, so only a shared target waits)."""
         return []
-
-    def env_vars(self, password: str) -> dict[str, str]:
-        """docker ``-e`` environment for the server container."""
-        raise NotImplementedError
-
-    def ready_exec_cmd(self, password: str) -> list[str]:
-        """``docker exec`` argv that returns 0 once the server accepts
-        connections (used by the default :meth:`check_ready`)."""
-        raise NotImplementedError
 
     def create_domain_sql(self, db: str, user: str, password: str) -> list[str]:
         """Admin statements that create the domain container + owner."""
@@ -244,114 +155,7 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
 
     # ---- system lifecycle ----------------------------------------------
 
-    def plan_system(
-        self, name: str, overrides: dict[str, str] | None = None
-    ) -> dict[str, str]:
-        o = overrides or {}
-        return {
-            "DOCKER_CONTAINER_NAME": self.container_name(name),
-            "IMAGE": self.image,
-            "HOST": self.hostname,
-            "PORT": o.get("PORT") or str(self.next_free_port()),
-            "USER": self.root_user,
-            "PASSWORD": o.get("PASSWORD") or self.generate_password(),
-        }
-
-    def provision_system(
-        self, meta: dict[str, str], *, force: bool = False
-    ) -> dict[str, str]:
-        require_docker()
-        container = meta["DOCKER_CONTAINER_NAME"]
-        password = meta["PASSWORD"]
-        port = int(meta["PORT"])
-        if container_exists(container):
-            if force:
-                docker_rm(container, force=True)
-                print(f">>> --force: removed existing container {container}")
-            else:
-                raise TdxError(f"container already exists: {container} (use --force)")
-        print(f">>> pulling docker image {self.image} …", flush=True)
-        docker_pull(self.image, self.image_platform)
-        print(f">>> starting container {container} from image {self.image}")
-        docker_run(self._docker_args(container, port, password))
-        print(f">>> waiting for {self.label} to become ready …")
-        self._wait_ready(container, password, self.ready_timeout)
-        self.post_provision(container, password)
-        cid = container_id(container)
-        return {"DOCKER_CONTAINER_ID": cid} if cid else {}
-
-    def _docker_args(self, container: str, host_port: int, password: str) -> list[str]:
-        args = [
-            "-d",
-            "-p",
-            f"{host_port}:{self.internal_port}",
-            "--name",
-            container,
-            "--platform",
-            self.image_platform,
-        ]
-        args.extend(self.extra_run_flags)
-        for key, value in self.env_vars(password).items():
-            args += ["-e", f"{key}={value}"]
-        args.append(self.image)
-        args.extend(self.cmd_args)
-        return args
-
-    def check_ready(self, container: str, password: str) -> bool:
-        return docker_exec_check(container, *self.ready_exec_cmd(password))
-
-    def _wait_ready(self, container: str, password: str, timeout: int) -> None:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if self.check_ready(container, password):
-                return
-            time.sleep(2)
-        # The container is up and refusing connections, so it is running the
-        # server and the server is saying why on its own stdout -- which is the
-        # one thing this message cannot say.
-        raise TdxError(
-            f"{self.label} did not become ready within {timeout}s "
-            f"(container {container} is up but not accepting connections)",
-            container_failure(container),
-        )
-
-    def destroy_system(self, meta: dict[str, str]) -> None:
-        cname = meta["DOCKER_CONTAINER_NAME"]
-        st = container_state(cname)
-        if st is None:
-            raise TdxError(f"container does not exist: {cname}")
-        if st == "running":
-            docker_stop(cname)
-        docker_rm(cname)
-
-    def system_status(self, meta: dict[str, str]) -> tuple[bool, str]:
-        cname = meta["DOCKER_CONTAINER_NAME"]
-        st = container_state(cname)
-        if st is None:
-            return False, f"container {cname} does not exist"
-        if st != "running":
-            return False, f"container {cname} is {st}"
-        if self.check_ready(cname, meta.get("PASSWORD", "")):
-            host = meta.get("HOST", DEFAULT_HOSTNAME)
-            return True, f"{self.label} on {host}:{meta.get('PORT', '')}"
-        return False, f"{self.label} container is up but not yet accepting connections"
-
-    def restart_system(self, meta: dict[str, str]) -> str:
-        cname = meta["DOCKER_CONTAINER_NAME"]
-        if container_state(cname) is None:
-            raise TdxError(f"container does not exist: {cname}")
-        docker_restart(cname)
-        return "restarted"
-
     # ---- domain lifecycle ----------------------------------------------
-
-    def _admin(self, sys_meta: dict[str, str]) -> Admin:
-        return Admin(
-            host=sys_meta.get("HOST", DEFAULT_HOSTNAME),
-            port=sys_meta.get("PORT", ""),
-            user=sys_meta.get("USER", self.root_user),
-            password=sys_meta.get("PASSWORD", ""),
-        )
 
     def _admin_url(self, admin: Admin) -> str:
         return self.sqlalchemy_url(
@@ -385,9 +189,6 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
             "SYS_ADMIN_USER": admin.user,
             "SYS_ADMIN_PASSWORD": admin.password,
         }
-
-    def new_domain_password(self) -> str:
-        return gen_password()
 
     def provision_domain(
         self,
@@ -427,17 +228,6 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
             password=domain_meta.get("SYS_ADMIN_PASSWORD", ""),
         )
         self._do_delete(admin, domain_meta[self.domain_db_key])
-
-    def domain_status(self, domain_meta: dict[str, str]) -> tuple[bool, str]:
-        from tabsdata_dev.common.systems.shell import port_open
-
-        host = domain_meta.get(self.domain_host_key, DEFAULT_HOSTNAME)
-        port = domain_meta.get("PORT", "")
-        ok = port.isdigit() and port_open(host, int(port))
-        return (
-            ok,
-            f"{self.label} at {host}:{port} {'reachable' if ok else 'unreachable'}",
-        )
 
     def list_domain_entities(self, sys_meta: dict[str, str]) -> list[str]:
         return self._do_list(self._admin(sys_meta))
@@ -690,10 +480,10 @@ class SqlContainerBackend(PortRangeMixin, HostMixin):
             engine.dispose()
 
 
-class RemoteSqlBackend(SqlContainerBackend):
+class RemoteSqlDatabaseBackend(SqlDatabaseContainerBackend):
     """A remote (non-container) SQL warehouse — snowflake, databricks, …
 
-    Reuses the whole :class:`SqlContainerBackend` data plane (install-schema /
+    Reuses the whole :class:`SqlDatabaseContainerBackend` data plane (install-schema /
     load / modify-data over SQLAlchemy) but has nothing to start: create reads the
     connection from the declared ``options()`` (env-sourced by default), bakes it
     into the descriptor and probes reachability, and a domain is a SCHEMA inside
@@ -703,6 +493,7 @@ class RemoteSqlBackend(SqlContainerBackend):
     per-domain setup (e.g. a Volume).
     """
 
+    hosting = "remote"
     is_container = False
     # A warehouse is no place for a concurrent schedule: Databricks has no
     # multi-statement transaction at all, and Snowflake's DML takes a lock on

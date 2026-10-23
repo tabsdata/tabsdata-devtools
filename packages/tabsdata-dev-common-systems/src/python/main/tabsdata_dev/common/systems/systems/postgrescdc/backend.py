@@ -35,8 +35,8 @@ from tabsdata_dev.common.systems import datagen
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec
 from tabsdata_dev.common.systems.sql_runner import run_sql_text
-from tabsdata_dev.common.systems.systems._common import container_info
-from tabsdata_dev.common.systems.systems._common.sql import Admin
+from tabsdata_dev.common.systems.systems._common.hosting.container import images
+from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
 from tabsdata_dev.common.systems.systems.postgres.backend import Postgres
 
 #: The domain meta key holding the domain's own replication slot.
@@ -82,7 +82,7 @@ class Postgrescdc(Postgres):
 
     @staticmethod
     def _pg_major() -> str:
-        return container_info.POSTGRES.version.split(".", 1)[0].split("-", 1)[0] or "17"
+        return images.POSTGRES.version.split(".", 1)[0].split("-", 1)[0] or "17"
 
     def post_provision(self, container: str, password: str) -> None:
         super().post_provision(container, password)
