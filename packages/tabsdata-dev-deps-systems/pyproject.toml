@@ -24,6 +24,7 @@ dependencies = [
     "ibm_db==3.3.0",
     "ibm_db_sa==0.4.4",
     "mysql-connector-python==26.10.0",
+    "obstore==0.12.0",
     "oracledb==26.0.1",
     "pandas==3.1.0",
     "polars==2.0.0",
