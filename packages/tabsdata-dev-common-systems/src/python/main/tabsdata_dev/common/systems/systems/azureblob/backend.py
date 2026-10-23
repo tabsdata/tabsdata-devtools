@@ -6,32 +6,25 @@
 
 Config from the ``AZ__`` environment: ``AZ__ACCOUNT_NAME``, ``AZ__ACCOUNT_KEY``,
 ``AZ__CONTAINER``, plus ``AZ__SYS_PATH`` (staging-root prefix). Auth is the shared
-account key over the HTTPS blob endpoint. Only the Azure storage ops live here —
-the rest is :class:`ObjectStore`.
+account key over the HTTPS blob endpoint. Only that config lives here; the
+storage ops are :class:`AzureStore`'s, shared with the local Azure emulator.
 """
 
 from __future__ import annotations
-
-from functools import cached_property
 
 from tabsdata_dev.common.systems import options
 from tabsdata_dev.common.systems.systems._common.hosting.attached.remote import (
     RemoteHosting,
 )
-from tabsdata_dev.common.systems.systems._common.nature.file._base import (
-    normalise_prefix,
-    walk_files,
-)
-from tabsdata_dev.common.systems.systems._common.nature.file.object import (
-    ObjectStore,
+from tabsdata_dev.common.systems.systems._common.nature.file.object.azure import (
+    AzureStore,
 )
 
 
-class Azureblob(RemoteHosting, ObjectStore):
+class Azureblob(RemoteHosting, AzureStore):
     slug = "azureblob"
     label = "Azure Blob"
     env_prefix = "AZ"
-    uri_scheme = "az"
 
     def options(self) -> tuple[options.Option, ...]:
         return (
@@ -48,51 +41,3 @@ class Azureblob(RemoteHosting, ObjectStore):
             ),
             options.Option("SYS_PATH", "sys-path", options.ENV, "env $AZ__SYS_PATH"),
         )
-
-    def _bucket(self) -> str:
-        return self._cfg("CONTAINER")
-
-    @cached_property
-    def _container(self):
-        from azure.storage.blob import BlobServiceClient
-
-        account = self._cfg("ACCOUNT_NAME")
-        service = BlobServiceClient(
-            account_url=f"https://{account}.blob.core.windows.net",
-            credential=self._cfg("ACCOUNT_KEY"),
-        )
-        return service.get_container_client(self._cfg("CONTAINER"))
-
-    def store_status(self, root: str) -> None:
-        self._container.get_container_properties()
-
-    def store_exists(self, dest: str) -> bool:
-        p = normalise_prefix(dest)
-        return (
-            next(iter(self._container.list_blobs(name_starts_with=p)), None) is not None
-        )
-
-    def store_children(self, root: str) -> list[str]:
-        p = normalise_prefix(root)
-        names: list[str] = []
-        for item in self._container.walk_blobs(name_starts_with=p, delimiter="/"):
-            if item.name.endswith("/"):  # a BlobPrefix (child "folder")
-                child = item.name[len(p) :].rstrip("/")
-                if child:
-                    names.append(child)
-        return sorted(names)
-
-    def store_clear(self, dest: str) -> None:
-        p = normalise_prefix(dest)
-        names = [b.name for b in self._container.list_blobs(name_starts_with=p)]
-        for i in range(0, len(names), 256):
-            self._container.delete_blobs(*names[i : i + 256])
-
-    def store_upload(self, dest: str, local_dir: str) -> int:
-        p = normalise_prefix(dest)
-        n = 0
-        for src, rel in walk_files(local_dir):
-            with open(src, "rb") as f:
-                self._container.upload_blob(name=p + rel, data=f, overwrite=True)
-            n += 1
-        return n

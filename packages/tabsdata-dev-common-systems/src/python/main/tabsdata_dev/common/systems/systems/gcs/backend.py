@@ -9,33 +9,23 @@ Config from the ``GCS__`` environment: ``GCS__BUCKET`` and
 plus ``GCS__SYS_PATH`` (staging-root prefix). The S3-interop HMAC keys
 (``GCS__HMAC_ACCESS_KEY`` / ``GCS__HMAC_SECRET_KEY``) are carried in the descriptor
 for consumers that reach GCS over the S3 protocol (ClickHouse / StarRocks
-staging); the storage ops here use the service-account key. Only the GCS storage
-ops live here — the rest is :class:`ObjectStore`.
+staging); the storage ops use the service-account key. Only that config lives
+here; the storage ops are :class:`GcsStore`'s, shared with the local GCS emulator.
 """
 
 from __future__ import annotations
-
-import json
-from functools import cached_property
 
 from tabsdata_dev.common.systems import options
 from tabsdata_dev.common.systems.systems._common.hosting.attached.remote import (
     RemoteHosting,
 )
-from tabsdata_dev.common.systems.systems._common.nature.file._base import (
-    normalise_prefix,
-    walk_files,
-)
-from tabsdata_dev.common.systems.systems._common.nature.file.object import (
-    ObjectStore,
-)
+from tabsdata_dev.common.systems.systems._common.nature.file.object.gcs import GcsStore
 
 
-class GCS(RemoteHosting, ObjectStore):
+class GCS(RemoteHosting, GcsStore):
     slug = "gcs"
     label = "GCS"
     env_prefix = "GCS"
-    uri_scheme = "gs"
 
     def options(self) -> tuple[options.Option, ...]:
         return (
@@ -70,45 +60,3 @@ class GCS(RemoteHosting, ObjectStore):
             ),
             options.Option("SYS_PATH", "sys-path", options.ENV, "env $GCS__SYS_PATH"),
         )
-
-    def _bucket(self) -> str:
-        return self._cfg("BUCKET")
-
-    @cached_property
-    def _client(self):
-        from google.cloud import storage  # type: ignore[import-untyped]
-
-        sa = self._cfg("SERVICE_ACCOUNT_KEY")
-        if sa.lstrip().startswith("{"):
-            return storage.Client.from_service_account_info(json.loads(sa))
-        return storage.Client.from_service_account_json(sa)
-
-    def store_status(self, root: str) -> None:
-        # Object-level probe (least-priv SAs may lack buckets.get).
-        next(iter(self._client.list_blobs(self._bucket(), max_results=1)), None)
-
-    def store_exists(self, dest: str) -> bool:
-        p = normalise_prefix(dest)
-        return any(self._client.list_blobs(self._bucket(), prefix=p, max_results=1))
-
-    def store_children(self, root: str) -> list[str]:
-        p = normalise_prefix(root)
-        it = self._client.list_blobs(self._bucket(), prefix=p, delimiter="/")
-        for _ in it:  # exhaust so `prefixes` is populated
-            pass
-        names = [cp[len(p) :].rstrip("/") for cp in it.prefixes]
-        return sorted(n for n in names if n)
-
-    def store_clear(self, dest: str) -> None:
-        p = normalise_prefix(dest)
-        for blob in list(self._client.list_blobs(self._bucket(), prefix=p)):
-            blob.delete()
-
-    def store_upload(self, dest: str, local_dir: str) -> int:
-        bucket = self._client.bucket(self._bucket())
-        p = normalise_prefix(dest)
-        n = 0
-        for src, rel in walk_files(local_dir):
-            bucket.blob(p + rel).upload_from_filename(str(src))
-            n += 1
-        return n

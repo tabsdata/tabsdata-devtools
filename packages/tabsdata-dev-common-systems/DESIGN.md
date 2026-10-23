@@ -113,7 +113,9 @@ bases, and each axis owns its own half of the backend contract, never the same m
   `database/`, on `Server`: `SqlDatabase` (below), `SqlWarehouse` (a SQL database whose domain is
   a schema inside the account's namespace: snowflake, databricks, bigquery) and
   `DocumentDatabase` (a database with its owner; no data plane yet). `file/`:
-  `FileStore` (staged data files under a root) and `ObjectStore` (under a bucket prefix).
+  `FileStore` (staged data files under a root) and `ObjectStore` (under a bucket prefix), whose
+  `object/` holds one store per protocol -- `S3Store`, `GcsStore`, `AzureStore` -- shared by
+  the real cloud system and its local emulator.
   `credential/`: `AiProvider`, `Application` and `Synthetic` (data generated on ingestion) on
   `CredentialAccount`.
 

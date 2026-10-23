@@ -16,7 +16,8 @@ nothing else. A nature paired with an attached hosting also supplies
 - ``database`` -- databases on such a server: SQL databases (``sql``), SQL
   warehouses (``warehouse``) and document databases (``document``).
 - ``file`` -- staged data files under a root: a local directory (``_base``) or
-  a bucket prefix (``object``).
+  a bucket prefix (``object``: one store per protocol, ``s3``, ``gcs``,
+  ``azure``).
 - ``credential`` -- accounts reached with credentials alone: AI providers
   (``ai``), applications (``application``) and synthetic data (``synthetic``).
 """
