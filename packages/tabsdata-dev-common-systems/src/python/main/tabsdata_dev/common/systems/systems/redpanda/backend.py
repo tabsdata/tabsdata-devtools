@@ -30,7 +30,6 @@ from tabsdata_dev.common.systems.shell import (
     container_exists,
     container_id,
     docker_exec,
-    docker_pull,
     docker_rm,
     docker_run,
     gen_password,
@@ -152,8 +151,7 @@ class Redpanda(SingleContainerHosting, Messaging):
                 print(f">>> --force: removed existing container {container}")
             else:
                 raise TdxError(f"container already exists: {container} (use --force)")
-        print(f">>> pulling docker image {self.image} …", flush=True)
-        docker_pull(self.image, self.image_platform)
+        self.fetch_images(set())
         print(f">>> starting container {container} from image {self.image}")
         docker_run(
             [

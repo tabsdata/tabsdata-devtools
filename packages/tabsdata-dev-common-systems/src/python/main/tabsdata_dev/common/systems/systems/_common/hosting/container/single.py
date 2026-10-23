@@ -26,7 +26,6 @@ from tabsdata_dev.common.systems.shell import (
     container_id,
     container_state,
     docker_exec_check,
-    docker_pull,
     docker_restart,
     docker_rm,
     docker_run,
@@ -109,7 +108,9 @@ class SingleContainerHosting(ContainerHosting):
             "IMAGE": self.image,
             "HOST": self.hostname,
             "PORT": o.get("PORT") or str(self.next_free_port()),
-            "USER": self.root_user,
+            # The nature's administrator login, where it has one (a server's);
+            # a hosting cannot default it without shadowing the nature's own.
+            "USER": getattr(self, "root_user", ""),
             "PASSWORD": o.get("PASSWORD") or self.generate_password(),
         }
 
@@ -128,8 +129,7 @@ class SingleContainerHosting(ContainerHosting):
                 raise TdxError(f"container already exists: {container} (use --force)")
         if self.volume_path:
             docker_volume_rm(container)
-        print(f">>> pulling docker image {self.image} …", flush=True)
-        docker_pull(self.image, self.image_platform)
+        self.fetch_images(set())
         print(f">>> starting container {container} from image {self.image}")
         docker_run(self._docker_args(container, port, password))
         print(f">>> waiting for {self.label} to become ready …")

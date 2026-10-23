@@ -57,6 +57,7 @@ _SLUGS: dict[str, tuple[str, str]] = {
     "typesafe": ("typesafe", "TypeSafe"),
     "s3local": ("s3local", "S3Local"),
     "azurebloblocal": ("azurebloblocal", "AzureBlobLocal"),
+    "gcslocal": ("gcslocal", "GcsLocal"),
 }
 
 

@@ -194,6 +194,28 @@ def docker_volume_rm(name: str) -> None:
         raise ToolError(f"could not remove volume {name}: {detail}")
 
 
+def image_exists(image: str) -> bool:
+    """Whether `image` is already in the local image store."""
+    cp = subprocess.run(
+        ["docker", "image", "inspect", image],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    return cp.returncode == 0
+
+
+def docker_build(context: str, tag: str, build_args: dict[str, str]) -> None:
+    """Build the Dockerfile in `context` as `tag`, for this machine's own
+    architecture, streaming docker's output."""
+    args = ["docker", "build", "-t", tag]
+    for key, value in build_args.items():
+        args += ["--build-arg", f"{key}={value}"]
+    args.append(context)
+    if subprocess.run(args, check=False).returncode != 0:
+        raise ToolError(f"docker build failed for image {tag}")
+
+
 def docker_pull(image: str, platform: str = "") -> None:
     """Pull `image`, streaming docker's own download progress to stdout/stderr."""
     args = ["docker", "pull"]

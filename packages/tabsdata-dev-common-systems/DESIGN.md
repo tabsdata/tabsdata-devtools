@@ -101,7 +101,9 @@ bases, and each axis owns its own half of the backend contract, never the same m
   system lifecycle: plan, provision, destroy, status, restart, images, ports. `container/`:
   `SingleContainerHosting` (one `docker run`: host port and password, image pull for the host's
   architecture, `linux/arm64` or `linux/amd64`, readiness wait) and `ContainerStackHosting` (a
-  docker-compose stack), both on `ContainerHosting`. Beside them, what only local containers need: `images` (every
+  docker-compose stack), both on `ContainerHosting`, which also gets a system's images onto the
+  machine (`fetch_images`: pulled from their registry, or built here for an image nobody
+  publishes -- `gcslocal`'s, tagged after its inputs so it is rebuilt only when they change). Beside them, what only local containers need: `images` (every
   container system's image, tag and platform), `hostname` (the hostname a create advertises)
   and `ports` (each system type's host-port slot). `attached/`: systems that exist on their
   own, which tdd attaches to but never runs -- `RemoteHosting` (a service it only calls),

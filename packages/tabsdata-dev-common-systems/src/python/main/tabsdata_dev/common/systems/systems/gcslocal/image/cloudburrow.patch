@@ -1,0 +1,110 @@
+# Copyright 2026 Tabsdata Inc.
+#
+# Our patch over cloudburrow (see Dockerfile): ListObjectsV2 continuation tokens
+# and x-goog-copy-source in the XML API. Text before the first diff is ignored
+# by git apply.
+
+diff --git a/internal/service/storage/xmlops.go b/internal/service/storage/xmlops.go
+index 0f11ec91..3a681fff 100644
+--- a/internal/service/storage/xmlops.go
++++ b/internal/service/storage/xmlops.go
+@@ -109,6 +109,10 @@ func xmlMeta(r *http.Request, name string) (uploadMeta, error) {
+ 
+ // xmlPutObject is PUT /{bucket}/{object}: a whole object in the body.
+ func (s *Server) xmlPutObject(w http.ResponseWriter, r *http.Request, bucket, name string) {
++	if src := r.Header.Get("X-Goog-Copy-Source"); src != "" {
++		s.xmlCopyObject(w, r, bucket, name, src)
++		return
++	}
+ 	meta, err := xmlMeta(r, name)
+ 	if err == nil {
+ 		err = s.bucketExists(bucket)
+@@ -141,6 +145,28 @@ func (s *Server) xmlPutObject(w http.ResponseWriter, r *http.Request, bucket, na
+ 	w.WriteHeader(http.StatusOK)
+ }
+ 
++// xmlCopyObject is PUT /{bucket}/{object} with x-goog-copy-source:
++// {srcBucket}/{srcObject}, served by the JSON API's objects.copy.
++func (s *Server) xmlCopyObject(w http.ResponseWriter, r *http.Request, bucket, name, src string) {
++	src, err := url.PathUnescape(strings.TrimPrefix(src, "/"))
++	srcBucket, srcObject, found := strings.Cut(src, "/")
++	if err != nil || !found || srcBucket == "" || srcObject == "" {
++		writeXMLError(w, http.StatusBadRequest, "InvalidArgument", "x-goog-copy-source must be {bucket}/{object}")
++		return
++	}
++	q := url.Values{}
++	for h, p := range map[string]string{"X-Goog-If-Generation-Match": "ifGenerationMatch", "X-Goog-If-Metageneration-Match": "ifMetagenerationMatch"} {
++		if v := r.Header.Get(h); v != "" {
++			q.Set(p, v)
++		}
++	}
++	jr := r.Clone(r.Context())
++	jr.Body = http.NoBody
++	jr.ContentLength = 0
++	s.viaJSON(w, jr, s.objectsCopy, jsonPrefix+"b/"+escape(srcBucket)+"/o/"+escape(srcObject)+
++		"/copyTo/b/"+escape(bucket)+"/o/"+escape(name), q, http.StatusOK)
++}
++
+ // viaJSON runs a JSON API handler for an XML request, at jsonPath with
+ // extra query parameters, and translates an error into the XML API's.
+ // ok is the status the XML API answers success with.
+@@ -165,6 +191,19 @@ func (s *Server) viaJSON(w http.ResponseWriter, r *http.Request, h http.HandlerF
+ func (s *Server) xmlList(w http.ResponseWriter, r *http.Request, bucket string) {
+ 	q := r.URL.Query()
+ 	prefix, delim, marker := q.Get("prefix"), q.Get("delimiter"), q.Get("marker")
++	v2 := q.Get("list-type") == "2"
++	token, startAfter := q.Get("continuation-token"), q.Get("start-after")
++	if v2 {
++		marker = startAfter
++		if token != "" {
++			raw, err := base64.RawURLEncoding.DecodeString(token)
++			if err != nil {
++				writeXMLError(w, http.StatusBadRequest, "InvalidArgument", "Invalid continuation-token")
++				return
++			}
++			marker = string(raw)
++		}
++	}
+ 	max := 1000
+ 	if v := q.Get("max-keys"); v != "" {
+ 		n, err := strconv.Atoi(v)
+@@ -193,15 +232,22 @@ func (s *Server) xmlList(w http.ResponseWriter, r *http.Request, bucket string)
+ 		XMLNS          string         `xml:"xmlns,attr"`
+ 		Name           string         `xml:"Name"`
+ 		Prefix         string         `xml:"Prefix"`
+-		Marker         string         `xml:"Marker"`
++		Marker         *string        `xml:"Marker"`
+ 		NextMarker     string         `xml:"NextMarker,omitempty"`
++		Continuation   string         `xml:"ContinuationToken,omitempty"`
++		StartAfter     string         `xml:"StartAfter,omitempty"`
++		KeyCount       *int           `xml:"KeyCount"`
++		NextToken      string         `xml:"NextContinuationToken,omitempty"`
+ 		Delimiter      string         `xml:"Delimiter,omitempty"`
+ 		MaxKeys        int            `xml:"MaxKeys"`
+ 		IsTruncated    bool           `xml:"IsTruncated"`
+ 		Contents       []content      `xml:"Contents"`
+ 		CommonPrefixes []commonPrefix `xml:"CommonPrefixes"`
+ 	}
+-	res := result{XMLNS: "http://doc.s3.amazonaws.com/2006-03-01", Name: bucket, Prefix: prefix, Marker: marker, Delimiter: delim, MaxKeys: max}
++	res := result{XMLNS: "http://doc.s3.amazonaws.com/2006-03-01", Name: bucket, Prefix: prefix, Delimiter: delim, MaxKeys: max}
++	if !v2 {
++		res.Marker = &marker
++	}
+ 	err := s.meta.View(func(tx Tx) error {
+ 		if _, ok, err := s.getBucket(tx, bucket); err != nil {
+ 			return err
+@@ -248,6 +294,14 @@ func (s *Server) xmlList(w http.ResponseWriter, r *http.Request, bucket string)
+ 		writeXMLFromError(w, r, err, bucket)
+ 		return
+ 	}
++	if v2 {
++		n := len(res.Contents) + len(res.CommonPrefixes)
++		res.KeyCount, res.Continuation, res.StartAfter = &n, token, startAfter
++		if res.IsTruncated {
++			res.NextToken = base64.RawURLEncoding.EncodeToString([]byte(res.NextMarker))
++			res.NextMarker = ""
++		}
++	}
+ 	w.Header().Set("Content-Type", "application/xml; charset=UTF-8")
+ 	_, _ = w.Write([]byte(xml.Header))
+ 	_ = xml.NewEncoder(w).Encode(res)

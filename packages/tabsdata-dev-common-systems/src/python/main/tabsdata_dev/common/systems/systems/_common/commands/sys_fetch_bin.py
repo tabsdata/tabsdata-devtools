@@ -2,7 +2,8 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""Pull the docker image(s) a system needs.
+"""Fetch the docker image(s) a system needs: pulled from their registry, or
+built here for a system whose image is not published.
 
 ``--type ALL`` pulls the images for every container system, ``--type a,b`` for
 the listed ones; the pulled images are de-duplicated across the selection.
@@ -17,7 +18,7 @@ from __future__ import annotations
 import argparse
 
 from tabsdata_dev.common.systems import cli, console, constants, systems
-from tabsdata_dev.common.systems.shell import docker_pull, require_docker
+from tabsdata_dev.common.systems.shell import require_docker
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -39,20 +40,16 @@ def _slugs(ctx: cli.Context) -> list[str]:
 
 def run(ctx: cli.Context) -> int:
     require_docker()
-    images: dict[str, str] = {}
+    done: set[str] = set()
     slugs: list[str] = []
     for slug in _slugs(ctx):
         if not getattr(systems.get_class(slug), "is_container", False):
             console.warn(f"{slug} runs no container — nothing to fetch")
             continue
         slugs.append(slug)
-        for image, plat in systems.get(slug).docker_images():
-            images[image] = plat
-    if not images:
+        systems.get(slug).fetch_images(done)
+    if not done:
         console.out("no docker images to fetch for the selected type(s)")
         return 0
-    for image, plat in images.items():
-        console.out(f">>> pulling {image} …")
-        docker_pull(image, plat)
     console.good(f"fetched images for {', '.join(slugs)}")
     return 0

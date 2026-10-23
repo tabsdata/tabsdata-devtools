@@ -3,12 +3,14 @@
 #
 
 """``ContainerHosting`` -- what every local-Docker system shares: the ``tdd_``
-names, the host port slot and hostname, the readiness timeout.
+names, the host port slot and hostname, the readiness timeout, and getting its
+images onto this machine.
 """
 
 from __future__ import annotations
 
 from tabsdata_dev.common.systems import constants
+from tabsdata_dev.common.systems.shell import docker_pull
 from tabsdata_dev.common.systems.systems._common.hosting.container.hostname import (
     HostMixin,
 )
@@ -31,3 +33,14 @@ class ContainerHosting(PortRangeMixin, HostMixin):
     sys_toolset: str = constants.TOOLSET_SYSTEMS
 
     ready_timeout: int = 300
+
+    def fetch_images(self, done: set[str]) -> None:
+        """Get this system's images onto this machine, skipping those in `done`
+        and adding what it fetched. Default: pull each from its registry; a
+        system whose image is built here, not published, builds it instead."""
+        for image, platform in self.docker_images():
+            if image in done:
+                continue
+            print(f">>> pulling docker image {image} …", flush=True)
+            docker_pull(image, platform)
+            done.add(image)

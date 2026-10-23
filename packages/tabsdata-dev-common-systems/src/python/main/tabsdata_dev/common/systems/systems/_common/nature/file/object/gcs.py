@@ -3,7 +3,12 @@
 #
 
 """``GcsStore`` -- the Google Cloud Storage protocol of an :class:`ObjectStore`
-(google-cloud-storage): the five storage primitives over a bucket."""
+(google-cloud-storage): the five storage primitives over a bucket.
+
+An ``ENDPOINT`` in the config points the client at a GCS-compatible server
+instead of Google, unauthenticated (``PROJECT`` names the project it files
+buckets under), and :meth:`storage_options` says the same to polars and
+obstore."""
 
 from __future__ import annotations
 
@@ -29,10 +34,51 @@ class GcsStore(ObjectStore):
     def _client(self):
         from google.cloud import storage  # type: ignore[import-untyped]
 
+        endpoint = self._cfg("ENDPOINT", required=False)
+        if endpoint:
+            from google.auth.credentials import AnonymousCredentials
+
+            return storage.Client(
+                project=self._cfg("PROJECT"),
+                credentials=AnonymousCredentials(),
+                client_options={"api_endpoint": endpoint},
+            )
         sa = self._cfg("SERVICE_ACCOUNT_KEY")
         if sa.lstrip().startswith("{"):
             return storage.Client.from_service_account_info(json.loads(sa))
         return storage.Client.from_service_account_json(sa)
+
+    def create_bucket(self) -> None:
+        """Create the configured bucket; one already there is fine."""
+        from google.api_core.exceptions import Conflict
+
+        try:
+            self._client.create_bucket(self._bucket())
+        except Conflict:
+            pass
+
+    def storage_options(self, meta: dict[str, str]) -> dict[str, str]:
+        endpoint = meta.get("ENDPOINT", "")
+        if endpoint:
+            # object_store reaches a GCS-compatible server through a service
+            # account that names its base URL and turns OAuth off.
+            account = {
+                "gcs_base_url": endpoint,
+                "disable_oauth": True,
+                "client_email": "",
+                "private_key": "",
+                "private_key_id": "",
+            }
+            return {
+                "google_service_account_key": json.dumps(account),
+                "allow_http": str(endpoint.startswith("http://")).lower(),
+            }
+        sa = meta.get("SERVICE_ACCOUNT_KEY", "")
+        if not sa:
+            return {}
+        if sa.lstrip().startswith("{"):
+            return {"google_service_account_key": sa}
+        return {"google_service_account": sa}
 
     def store_status(self, root: str) -> None:
         # Object-level probe (least-priv SAs may lack buckets.get).

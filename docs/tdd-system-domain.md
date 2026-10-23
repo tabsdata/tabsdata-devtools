@@ -12,9 +12,10 @@ As of 2026-10-14
 with a model and data. Every xp suite and every manual test against a database, object store, warehouse or Kafka broker
 starts from these two.
 
-- **System**: one platform with its connection details. 16 types run locally as docker containers (mysql, postgres,
+- **System**: one platform with its connection details. 17 types run locally as docker containers (mysql, postgres,
   mssqlserver, oracle, db2, starrocks, clickhouse, the three `*cdc` variants, mongodb, redpanda, redpandasasl, druid,
-  and the local twins of the object stores: s3local, served by RustFS, and azurebloblocal, served by Azurite).
+  and the local twins of the object stores: s3local, served by RustFS, azurebloblocal, served by Azurite, and
+  gcslocal, served by cloudburrow, built here from a pinned commit plus our patch).
   15 are remote: managed Postgres (aws, gcp, az), warehouses (snowflake, databricks, bigquery), object stores (s3, gcs,
   azureblob, plus a local `fs`) and credential-only services (anthropic, openai, typesafe, salesforce, dev).
 - **Domain**: an isolated container inside one system: a database, schema, folder, prefix, topic or dataset, whichever
