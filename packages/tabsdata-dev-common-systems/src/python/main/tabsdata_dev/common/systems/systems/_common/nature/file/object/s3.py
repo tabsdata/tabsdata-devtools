@@ -56,7 +56,6 @@ class S3Store(ObjectStore):
                 raise
 
     def storage_options(self, meta: dict[str, str]) -> dict[str, str]:
-        """The polars / obstore ``storage_options`` that reach this store."""
         options = {
             "aws_access_key_id": meta.get("ACCESS_KEY", ""),
             "aws_secret_access_key": meta.get("SECRET_KEY", ""),

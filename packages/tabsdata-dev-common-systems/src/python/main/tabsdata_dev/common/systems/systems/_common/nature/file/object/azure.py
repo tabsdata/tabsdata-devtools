@@ -3,7 +3,11 @@
 #
 
 """``AzureStore`` -- the Azure Blob Storage protocol of an :class:`ObjectStore`
-(azure-storage-blob): the five storage primitives over a container."""
+(azure-storage-blob): the five storage primitives over a container.
+
+An ``ENDPOINT`` in the config points the client at an Azure-compatible server
+instead of Azure (the account in the path, as such servers expect), and
+:meth:`storage_options` says the same to polars and obstore."""
 
 from __future__ import annotations
 
@@ -29,11 +33,43 @@ class AzureStore(ObjectStore):
         from azure.storage.blob import BlobServiceClient
 
         account = self._cfg("ACCOUNT_NAME")
-        service = BlobServiceClient(
-            account_url=f"https://{account}.blob.core.windows.net",
-            credential=self._cfg("ACCOUNT_KEY"),
-        )
+        endpoint = self._cfg("ENDPOINT", required=False)
+        if endpoint:
+            # The account rides in the path, not the host, so the client is told
+            # its name rather than reading it off the URL.
+            service = BlobServiceClient(
+                account_url=endpoint,
+                credential={
+                    "account_name": account,
+                    "account_key": self._cfg("ACCOUNT_KEY"),
+                },
+            )
+        else:
+            service = BlobServiceClient(
+                account_url=f"https://{account}.blob.core.windows.net",
+                credential=self._cfg("ACCOUNT_KEY"),
+            )
         return service.get_container_client(self._cfg("CONTAINER"))
+
+    def create_bucket(self) -> None:
+        """Create the configured container; one that exists is already there."""
+        from azure.core.exceptions import ResourceExistsError
+
+        try:
+            self._container.create_container()
+        except ResourceExistsError:
+            pass
+
+    def storage_options(self, meta: dict[str, str]) -> dict[str, str]:
+        options = {
+            "azure_storage_account_name": meta.get("ACCOUNT_NAME", ""),
+            "azure_storage_account_key": meta.get("ACCOUNT_KEY", ""),
+        }
+        endpoint = meta.get("ENDPOINT", "")
+        if endpoint:
+            options["azure_endpoint"] = endpoint
+            options["allow_http"] = str(endpoint.startswith("http://")).lower()
+        return {key: value for key, value in options.items() if value}
 
     def store_status(self, root: str) -> None:
         self._container.get_container_properties()

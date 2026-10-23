@@ -66,6 +66,7 @@ is consulted once they run out. Backends that need no ports never ask.
 | `redpandasasl` | 22700-22799 | container |
 | `typesafe` | 22800-22899 | no ports |
 | `s3local` | 22900-22999 | container |
+| `azurebloblocal` | 23000-23099 | container |
 
 ## Where in the code
 

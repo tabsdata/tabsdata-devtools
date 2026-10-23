@@ -18,6 +18,8 @@ and their ``uri_scheme`` (``s3`` / ``gs`` / ``az``).
 
 from __future__ import annotations
 
+import json
+
 from tabsdata_dev.common.systems.systems._common.nature.file._base import (
     FileStore,
     squash_slashes,
@@ -62,6 +64,25 @@ class ObjectStore(FileStore):
         self.configure(planned)  # so _bucket()/_cfg read the planned config
         planned["LOCATION"] = self._location(root)
         return planned
+
+    def plan_store(self, meta: dict[str, str]) -> dict[str, str]:
+        """Finish the plan of a store whose config its system builds itself (a
+        local store in a container): the store sits at the bucket's root, and
+        the polars / obstore ``STORAGE_OPTIONS`` (JSON) go with it."""
+        meta.update({"SYS_PATH": "", "ENV_PREFIX": self.env_prefix})
+        meta["STORAGE_OPTIONS"] = json.dumps(self.storage_options(meta))
+        self.configure(meta)
+        meta["LOCATION"] = self._location("")
+        return meta
+
+    def storage_options(self, meta: dict[str, str]) -> dict[str, str]:
+        """The polars / obstore ``storage_options`` that reach this store."""
+        raise NotImplementedError
+
+    def create_bucket(self) -> None:
+        """Create the configured bucket (a container on Azure), as a local store
+        must before it holds a domain; one already there is fine."""
+        raise NotImplementedError
 
     def domain_meta(
         self, sys_meta: dict[str, str], entity_name: str, password: str

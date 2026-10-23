@@ -74,6 +74,14 @@ CLICKHOUSE = Image(
 # --- object-store emulators -------------------------------------------------
 # Pinned by the digest of the multi-arch index, so every machine pulls the same
 # build for its own architecture (amd64 and arm64 are both published).
+AZURITE = Image(
+    "mcr.microsoft.com/azure-storage/azurite",
+    _tag(
+        "AZURITE_IMAGE_VERSION",
+        "3.37.0@sha256:830430c1da1a2d537e08f3e6764dd1f5ae00cf0346bcaf625b968ec3f0971fd5",
+    ),
+    NATIVE,
+)
 RUSTFS = Image(
     "rustfs/rustfs",
     _tag(

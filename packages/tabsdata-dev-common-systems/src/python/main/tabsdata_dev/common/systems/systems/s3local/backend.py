@@ -16,7 +16,6 @@ obstore ``STORAGE_OPTIONS`` (JSON), so a reader needs nothing else.
 
 from __future__ import annotations
 
-import json
 from typing import ClassVar
 
 from tabsdata_dev.common.systems.systems._common.hosting.container import images
@@ -69,14 +68,9 @@ class S3Local(SingleContainerHosting, S3Store):
                 "REGION": REGION,
                 "ACCESS_KEY": meta["USER"],
                 "SECRET_KEY": meta["PASSWORD"],
-                "SYS_PATH": "",
-                "ENV_PREFIX": self.env_prefix,
             }
         )
-        meta["STORAGE_OPTIONS"] = json.dumps(self.storage_options(meta))
-        self.configure(meta)
-        meta["LOCATION"] = self._location("")
-        return meta
+        return self.plan_store(meta)
 
     def provision_system(
         self, meta: dict[str, str], *, force: bool = False
