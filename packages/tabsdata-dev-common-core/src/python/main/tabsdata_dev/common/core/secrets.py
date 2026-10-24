@@ -21,6 +21,7 @@ from __future__ import annotations
 import importlib
 import json
 import shlex
+import uuid
 
 from . import resources
 from .errors import ToolError
@@ -78,6 +79,39 @@ def _ps_quote(value: str) -> str:
     """`value` as a PowerShell single-quoted string: nothing in it expands ($,
     backtick), it may span lines, and only quote characters need escaping."""
     return "'" + "".join(c * 2 if c in _PS_QUOTES else c for c in value) + "'"
+
+
+#: The workflow command GitHub Actions reads to hide a value in the job log.
+GITHUB_MASK = "::add-mask::"
+
+
+def github_env_lines(variables: dict[str, str]) -> str:
+    """`variables` as GitHub Actions reads them from `$GITHUB_ENV`, every one in
+    the delimiter form (`NAME<<delimiter`, the value, `delimiter`): the one
+    syntax that carries any value, a single line or a PEM alike, with no
+    quoting rules. The delimiter is random per variable, so no value can
+    contain it."""
+    blocks = []
+    for name, value in variables.items():
+        delimiter = f"ghadelimiter_{uuid.uuid4()}"
+        blocks.append(f"{name}<<{delimiter}\n{value}\n{delimiter}")
+    return "\n".join(blocks)
+
+
+def github_mask_lines(
+    variables: dict[str, str], unmasked: tuple[str, ...]
+) -> list[str]:
+    """One `::add-mask::` workflow command per non-empty line of every value
+    not named in `unmasked`: GitHub masks a value only as the exact string it
+    was given, so a multi-line value is masked line by line."""
+    lines = []
+    for name, value in variables.items():
+        if name in unmasked:
+            continue
+        for line in str(value).splitlines():
+            if line.strip():
+                lines.append(f"{GITHUB_MASK}{line}")
+    return lines
 
 
 # The personal key that encrypts the system and domain descriptors: its

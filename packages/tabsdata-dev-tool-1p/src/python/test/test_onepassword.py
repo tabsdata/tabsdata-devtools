@@ -8,6 +8,7 @@ the export lines that come back."""
 import json
 import pathlib
 import shlex
+import sys
 
 import pytest
 from tabsdata_dev.common.core import secrets, secrets_1p
@@ -393,6 +394,117 @@ def test_view_names_what_was_fetched_and_json_carries_the_values(
         ["--format", "view", "fetch", "--crypto"], monkeypatch, capsys
     )
     assert KEY not in out
+
+
+def _github_env(text: str) -> dict[str, str]:
+    """The $GITHUB_ENV lines as the runner reads them: every variable in the
+    delimiter form, nothing else there."""
+    out = {}
+    lines = text.splitlines()
+    while lines:
+        name, delimiter = lines.pop(0).split("<<", 1)
+        assert delimiter.startswith("ghadelimiter_")
+        value = []
+        while lines[0] != delimiter:
+            value.append(lines.pop(0))
+        lines.pop(0)
+        out[name] = "\n".join(value)
+    return out
+
+
+def test_github_streams_github_env_lines_and_masks_every_value_first(
+    op, monkeypatch, capsys
+):
+    """stdout is what a step appends to $GITHUB_ENV, every value in the
+    delimiter form (a PEM keeps its lines, nothing is quoted); stderr carries
+    one ::add-mask:: per line of every value before them, except the systems
+    list, which is no secret."""
+    pem = "-----BEGIN KEY-----\nline one\nline two\n-----END KEY-----"
+    op.fields[("Employee", "DevSecrets", "TD_BACKENDS_CRYPTO_KEY")] = KEY
+    monkeypatch.setitem(
+        secrets_1p.__dict__, "fetch", lambda vault: {"GCP__KEY": pem, "PG__HOST": "h"}
+    )
+    code, out, err = _stdout(
+        ["fetch", "--crypto", "--secrets", "--format", "github"], monkeypatch, capsys
+    )
+    assert code == 0
+    assert _github_env(out) == {
+        "_TDD_CRYPTO_KEY": KEY,
+        "GCP__KEY": pem,
+        "PG__HOST": "h",
+        "_TDD_SYSTEMS": "GCP PG",
+    }
+    assert "::add-mask::" not in out
+    masks = [line for line in err.splitlines() if line.startswith("::add-mask::")]
+    assert masks == [
+        f"::add-mask::{KEY}",
+        "::add-mask::-----BEGIN KEY-----",
+        "::add-mask::line one",
+        "::add-mask::line two",
+        "::add-mask::-----END KEY-----",
+        "::add-mask::h",
+    ]
+    assert (
+        "fetched 4 variable(s): _TDD_CRYPTO_KEY GCP__KEY PG__HOST _TDD_SYSTEMS" in err
+    )
+
+
+@pytest.mark.parametrize(
+    ("fmt", "suffix"),
+    [("export", ".sh"), ("github", ".env"), ("json", ".json"), ("view", ".txt")],
+)
+def test_device_file_writes_the_outcome_to_a_temp_file_and_prints_its_path(
+    op, monkeypatch, capsys, tmp_path, fmt, suffix
+):
+    """Every format has a file device: the same content the console would
+    get, in a new file of the system temp folder readable by the user alone,
+    and the path is the outcome -- the values never reach the console."""
+    monkeypatch.setattr(onepassword.tempfile, "gettempdir", lambda: str(tmp_path))
+    argv = ["fetch", "--crypto", "--secrets", "--format", fmt]
+    _, console, _ = _stdout(argv, monkeypatch, capsys)
+    code, out, err = _stdout([*argv, "--device", "file"], monkeypatch, capsys)
+    assert code == 0
+    # json renders its ok as an event, the path in it; the others print the path
+    told = json.loads(out)["message"] if fmt == "json" else out.strip()
+    path = pathlib.Path(told)
+    assert path.parent == tmp_path and path.name.startswith("tdd-1p-")
+    assert path.suffix == suffix
+    content = path.read_text(encoding="utf-8")
+    assert KEY not in out and KEY not in err.replace(f"::add-mask::{KEY}", "")
+    if fmt == "json":
+        assert json.loads(content)["_TDD_CRYPTO_KEY"] == KEY
+    elif fmt == "github":
+        assert _github_env(content) == _github_env(console)
+    else:
+        assert content == console
+    if hasattr(path, "stat") and not sys.platform.startswith("win"):
+        assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_device_file_in_json_names_the_path_and_keeps_the_values_in_the_file(
+    op, monkeypatch, capsys, tmp_path
+):
+    monkeypatch.setattr(onepassword.tempfile, "gettempdir", lambda: str(tmp_path))
+    code, events = _run(
+        ["fetch", "--crypto", "--format", "json", "--device", "file"],
+        monkeypatch,
+        capsys,
+    )
+    assert code == 0
+    ok = events[-1]
+    assert "values" not in ok and ok["names"] == ["_TDD_CRYPTO_KEY"]
+    assert ok["message"] == ok["path"]
+    assert json.loads(pathlib.Path(ok["path"]).read_text()) == {"_TDD_CRYPTO_KEY": KEY}
+
+
+def test_a_windows_export_file_is_a_ps1(op, monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(onepassword.tempfile, "gettempdir", lambda: str(tmp_path))
+    code, out, _ = _stdout(
+        ["fetch", "--crypto", "--platform", "windows", "--device", "file"],
+        monkeypatch,
+        capsys,
+    )
+    assert code == 0 and out.strip().endswith(".ps1")
 
 
 def test_push_has_nothing_to_export(op_items, tmp_path, monkeypatch, capsys):

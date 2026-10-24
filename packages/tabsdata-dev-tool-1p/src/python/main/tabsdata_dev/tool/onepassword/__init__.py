@@ -6,7 +6,7 @@
 
     tdd _1p fetch [--crypto [1p:VAULT] [--item ITEM] [--field FIELD]]
                   [--secrets [1p:VAULT]] [--pypi-twine [1p:VAULT]]
-                  [--format export|json|view]
+                  [--format export|github|json|view] [--device console|file]
     tdd _1p push --vault 1p:VAULT --entry PATH|-
 
 ``--crypto`` reads the one field that is the descriptor key
@@ -15,12 +15,16 @@ vault, every item's fields becoming ``<ITEM>__<FIELD>`` variables, plus
 ``_TDD_SYSTEMS``, the list of the prefixes it set; ``--pypi-twine`` reads the
 package-upload credentials next to the key and names them as twine reads them,
 ``TWINE_USERNAME``/``TWINE_PASSWORD``. Any mix, one call: the result is
-``export`` lines, printed as the outcome for the caller to apply.
+``export`` lines, printed as the outcome for the caller to apply -- or, as
+``github``, the same variables as a GitHub Actions step appends them to
+``$GITHUB_ENV``, every value first masked out of the job log.
 
-This is plumbing for ``tdd env set --crypto/--secrets/--pypi-twine``. A Python process
-cannot change the shell that runs it, so ``env`` -- a shell command -- runs this
-and applies the lines, and nothing is written to disk. The providers live in
-``common.core.secrets``; this tool only chooses what to read and checks it.
+This is plumbing for ``tdd env set --crypto/--secrets/--pypi-twine`` and for
+the CI step that loads the secrets of a run. A Python process cannot change
+the shell that runs it, so ``env`` -- a shell command -- runs this and applies
+the lines, and nothing is written to disk unless ``--device file`` asks for a
+file to carry. The providers live in ``common.core.secrets``; this tool only
+chooses what to read and checks it.
 
 ``push`` files one item in a vault, replacing what is filed under its title
 (delete, then create: a create alone duplicates) -- the other end of
@@ -34,6 +38,7 @@ import argparse
 import json
 import pathlib
 import sys
+import tempfile
 
 from tabsdata_dev.common.core import cli, render, secrets, secrets_1p
 from tabsdata_dev.common.core.errors import ToolError
@@ -47,8 +52,22 @@ DESCRIPTION = (
 FETCH = "fetch"
 PUSH = "push"
 ACTIONS = (FETCH, PUSH)
-#: `fetch`'s own rendering and the default: the lines a shell applies.
+#: `fetch`'s own renderings: the lines a shell applies (the default), and the
+#: lines a GitHub Actions step appends to $GITHUB_ENV.
 FMT_EXPORT = "export"
+FMT_GITHUB = "github"
+FMT_JSON = "json"
+FMT_VIEW = "view"
+#: Where `fetch`'s outcome goes: printed, or written to a new file in the
+#: system temp folder whose path is printed instead.
+DEVICE_CONSOLE = "console"
+DEVICE_FILE = "file"
+DEVICES = (DEVICE_CONSOLE, DEVICE_FILE)
+DEFAULT_DEVICE = DEVICE_CONSOLE
+FILE_PREFIX = "tdd-1p-"
+#: The variables the github rendering leaves unmasked: not secrets, and the
+#: words they hold (`PG S3`) would be hidden everywhere in the log.
+UNMASKED = (secrets.SYSTEMS_ENV,)
 # Where fetch reads from when --crypto / --secrets are given alone: the
 # Employee vault every user has (item DevSecrets, the field that item has
 # always had) and the team's shared vault. Literals: no variable of the
@@ -179,19 +198,71 @@ def _fetch(args: argparse.Namespace, out: render.Renderer) -> int:
     if args.secrets:
         out.debug(f"reading every item of {args.secrets}")
         found.update(secrets.with_systems_var(secrets.fetch(args.secrets)))
+    return _render(args, out, found)
+
+
+def _render(
+    args: argparse.Namespace, out: render.Renderer, found: dict[str, str]
+) -> int:
+    """The outcome of a fetch, by format and then by device: each format
+    renders `found` its own way, and the device says whether that rendering is
+    printed or filed (`_filed`) with its path printed instead."""
     names = list(found)
-    if args.format == FMT_EXPORT:
-        # The outcome IS the lines to apply: `tdd env` evaluates them on macOS
-        # and Linux; for Windows they are a file to carry and dot-source there.
-        export = secrets.render(found, FMT_EXPORT, args.platform)
-        return out.ok(export, names=names)
     summary = f"fetched {len(names)} variable(s): {' '.join(names)}"
-    if args.format == "json":
-        # JSON is asked for by name, by a program: the values travel, as they do
-        # in the export lines.
-        return out.ok(summary, names=names, values=found)
-    # view is for a person at a terminal: what was read, never the values.
-    return out.ok(summary, names=names)
+    match args.format:
+        case "export":
+            # The lines to apply: `tdd env` evaluates them on macOS and Linux;
+            # for Windows they are a file to carry and dot-source there.
+            lines = secrets.render(found, FMT_EXPORT, args.platform)
+            suffix = ".ps1" if args.platform == "windows" else ".sh"
+            match args.device:
+                case "console":
+                    return out.ok(lines, names=names)
+                case "file":
+                    return _filed(out, lines, suffix, names)
+        case "github":
+            # The masks go out first, as events -- stderr, where the runner
+            # reads workflow commands as it does on stdout -- so the job log
+            # hides every value before anything could show it; the outcome is
+            # the $GITHUB_ENV lines alone, for the step to append.
+            for line in secrets.github_mask_lines(found, UNMASKED):
+                out.info(line)
+            out.info(summary)
+            lines = secrets.github_env_lines(found)
+            match args.device:
+                case "console":
+                    return out.ok(lines, names=names)
+                case "file":
+                    return _filed(out, lines, ".env", names)
+        case "json":
+            # Asked for by name, by a program: the values travel, in the event
+            # or in the file.
+            match args.device:
+                case "console":
+                    return out.ok(summary, names=names, values=found)
+                case "file":
+                    return _filed(out, secrets.render(found, FMT_JSON), ".json", names)
+        case "view":
+            # For a person at a terminal: what was read, never the values.
+            match args.device:
+                case "console":
+                    return out.ok(summary, names=names)
+                case "file":
+                    return _filed(out, summary, ".txt", names)
+    raise ToolError(f"cannot render --format {args.format} on --device {args.device}")
+
+
+def _filed(out: render.Renderer, content: str, suffix: str, names: list[str]) -> int:
+    """`content` in a new file of the system temp folder, created readable by
+    the user alone (mkstemp's 0600), under a name of its own: the file holds
+    the values in clear, and nothing else must reuse or guess it. The path is
+    the outcome."""
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", prefix=FILE_PREFIX, suffix=suffix, delete=False
+    ) as handle:
+        handle.write(content + "\n")
+    path = pathlib.Path(handle.name)
+    return out.ok(str(path), names=names, path=str(path))
 
 
 def body(args: argparse.Namespace, out: render.Renderer) -> int:
@@ -241,8 +312,12 @@ def configure(p: argparse.ArgumentParser) -> None:
             "shared vault (--secrets) and/or the PyPI upload credentials "
             "(--pypi-twine) from 1Password. By default (--format export) "
             "they are printed as export lines, the outcome of the command, for a "
-            "shell to apply -- `tdd env set --crypto --secrets` does; view names "
-            "what was fetched without the values, json carries them."
+            "shell to apply -- `tdd env set --crypto --secrets` does; github "
+            "prints them as a GitHub Actions step appends them to $GITHUB_ENV, "
+            "after masking every value out of the job log (`... --format github "
+            '>> "$GITHUB_ENV"`); view names what was fetched without the values, '
+            "json carries them. --device file writes the outcome to a new file "
+            "in the system temp folder and prints its path instead."
         ),
     )
     fetch.add_argument(
@@ -295,12 +370,23 @@ def configure(p: argparse.ArgumentParser) -> None:
         "file to save and dot-source there (`> secrets.ps1`, then "
         "`. .\\secrets.ps1`) (default: %(default)s)",
     )
+    fetch.add_argument(
+        "--device",
+        choices=DEVICES,
+        default=DEFAULT_DEVICE,
+        help="where the outcome goes: console prints it; file writes it to a "
+        "new file in the system temp folder, readable by you alone, and prints "
+        "that file's path -- the file holds the values in clear, delete it once "
+        "applied (default: %(default)s)",
+    )
     _common(
         fetch,
         {
             FMT_EXPORT: "the variables to apply, written for --platform",
-            "view": "the names fetched, never the values",
-            "json": "JSON Lines, the values included",
+            FMT_GITHUB: "the variables as $GITHUB_ENV reads them, every value "
+            "masked out of the job log first (the masks go to stderr)",
+            FMT_VIEW: "the names fetched, never the values",
+            FMT_JSON: "JSON Lines, the values included",
         },
         FMT_EXPORT,
     )
@@ -329,7 +415,7 @@ def configure(p: argparse.ArgumentParser) -> None:
         metavar="PATH",
         help="the item JSON (`-` reads it from stdin)",
     )
-    _common(push, {"view": "one line", "json": "JSON Lines"}, "view")
+    _common(push, {FMT_VIEW: "one line", FMT_JSON: "JSON Lines"}, FMT_VIEW)
 
 
 def main() -> int:
@@ -338,7 +424,10 @@ def main() -> int:
         DESCRIPTION,
         body,
         configure=configure,
-        formats={FMT_EXPORT: "fetch's export, for a shell to apply"},
+        formats={
+            FMT_EXPORT: "fetch's export, for a shell to apply",
+            FMT_GITHUB: "fetch's $GITHUB_ENV lines, for a GitHub Actions step to append",
+        },
         default_format=FMT_EXPORT,
     )
 

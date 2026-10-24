@@ -343,6 +343,48 @@ def test_a_windows_export_gives_powershell_every_value_exactly(
     assert seen == {k: v for k, v in values.items() if k != "TD_EMPTY"}
 
 
+def test_github_env_lines_carry_any_value_and_masks_cover_every_line():
+    """What a GitHub Actions step appends to $GITHUB_ENV: the delimiter form
+    for every variable, a delimiter no value can contain, the value as it is;
+    and the masks that hide it, one per non-empty line, none for a name left
+    unmasked."""
+    from tabsdata_dev.common.core import secrets
+
+    values = {
+        "TD_PLAIN": "s3cret",
+        "TD_ODD": 'it\'s "q" $HOME `n = <<EOF',
+        "TD_PEM": "-----BEGIN KEY-----\nAAAA\n\nBBBB\n-----END KEY-----",
+        "TD_EMPTY": "",
+        "_TDD_SYSTEMS": "PG S3",
+    }
+    text = secrets.github_env_lines(values)
+    seen = {}
+    lines = text.split("\n")
+    while lines:
+        name, delimiter = lines.pop(0).split("<<")
+        assert delimiter.startswith("ghadelimiter_") and delimiter not in values[name]
+        body = []
+        while lines[0] != delimiter:
+            body.append(lines.pop(0))
+        lines.pop(0)
+        seen[name] = "\n".join(body)
+    assert seen == values
+    delimiters = {
+        line.split("<<")[1]
+        for line in text.split("\n")
+        if line.split("<<")[0] in values and "ghadelimiter_" in line
+    }
+    assert len(delimiters) == 5  # one of its own per variable
+    assert secrets.github_mask_lines(values, ("_TDD_SYSTEMS",)) == [
+        "::add-mask::s3cret",
+        '::add-mask::it\'s "q" $HOME `n = <<EOF',
+        "::add-mask::-----BEGIN KEY-----",
+        "::add-mask::AAAA",
+        "::add-mask::BBBB",
+        "::add-mask::-----END KEY-----",
+    ]
+
+
 def test_managedvenv_needs_a_venv_and_says_how_to_get_one(tmp_path, monkeypatch):
     from tabsdata_dev.common.core import managedvenv
     from tabsdata_dev.common.core.errors import ToolError
