@@ -18,7 +18,7 @@ dependencies = [
     # smoke: a local instance's processes, found by their command line, which
     # the standard library cannot read on Windows. salesforce's pin.
     "psutil==7.2.2",
-    "pytest==9.1.1",
+    "pytest==9.2.0",
 ]
 
 [tool.hatch.version]

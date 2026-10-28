@@ -18,7 +18,7 @@ dependencies = [
     "parquet-tools==0.2.16",
     # The suite definition.
     "pydantic==2.14.1",
-    "pytest==9.1.1",
+    "pytest==9.2.0",
     # The domain manifests xp writes for `tdd domain create --manifest`.
     "pyyaml==6.0.3",
 ]

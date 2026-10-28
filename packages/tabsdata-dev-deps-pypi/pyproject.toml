@@ -15,11 +15,11 @@ requires-python = ">=3.11"
 dependencies = [
     # S3 and CloudFront. The tool talks to AWS through boto3 alone, never the
     # aws CLI, so the plans it prints and the calls it makes cannot disagree.
-    "boto3==1.43.118",
+    "boto3==1.43.120",
     # PEP 440 comparison: which release is newest, and what a wheel's filename
     # says it is. Version parsing is not something to hand-roll.
     "packaging==26.3",
-    "pytest==9.1.1",
+    "pytest==9.2.0",
     # config/lanes.yaml and each tree's yanked.yaml.
     "pyyaml==6.0.3",
 ]
