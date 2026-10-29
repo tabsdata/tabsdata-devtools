@@ -68,6 +68,7 @@ is consulted once they run out. Backends that need no ports never ask.
 | `s3local` | 22900-22999 | container |
 | `azurebloblocal` | 23000-23099 | container |
 | `gcslocal` | 23100-23199 | container |
+| `postgresnative` | 23200-23299 | native |
 
 ## Where in the code
 

@@ -217,6 +217,7 @@ def test_the_crypto_key_is_one_variable_and_one_minimum_everywhere():
 POSTGRES_FAMILY = (
     "postgres",
     "postgrescdc",
+    "postgresnative",
     "awspostgres",
     "gcppostgres",
     "azpostgres",
@@ -239,6 +240,7 @@ INFO_BLOCK = (
 FAMILY_EXTRAS = {
     "postgres": {"DOCKER_CONTAINER_NAME", "IMAGE"},
     "postgrescdc": {"DOCKER_CONTAINER_NAME", "IMAGE"},
+    "postgresnative": {"NATIVE_DIR", "PGVECTOR_VERSION"},
     "awspostgres": {
         "SSLMODE",
         "SERVER_CA_CERT_PEM",
@@ -286,8 +288,8 @@ def test_the_five_postgres_types_record_one_info_block_and_their_own_group():
         meta = _plan(slug)
         assert set(INFO_BLOCK) <= set(meta), slug
         assert set(meta) - set(INFO_BLOCK) == FAMILY_EXTRAS[slug], slug
-    # docker has no certificate and no mode to choose
-    for slug in ("postgres", "postgrescdc"):
+    # docker has no certificate and no mode to choose, nor has a native server
+    for slug in ("postgres", "postgrescdc", "postgresnative"):
         assert not {"SSLMODE", "SERVER_CA_CERT_PEM"} & set(_plan(slug))
     # and every one of them can hold a model and its data
     for slug in POSTGRES_FAMILY:
@@ -346,11 +348,15 @@ def test_a_domain_carries_the_block_with_its_own_database_and_owner():
         assert backend._admin(backend._sys_admin_meta(dom)).db == "postgres"
         for plane in ("INTERNAL", "EXTERNAL"):
             assert dom[f"{plane}_URI"].endswith(
-                "/d1" if slug in ("postgres", "postgrescdc") else "/d1?sslmode=require"
+                "/d1"
+                if slug in ("postgres", "postgrescdc", "postgresnative")
+                else "/d1?sslmode=require"
             ), slug
         # the provider group comes through: not derivable from a host that may
         # be a bare IP, and a domain command never loads the system descriptor
-        assert FAMILY_EXTRAS[slug] - {"IMAGE"} <= set(dom) | {
+        # (a native system's directory is the system's alone: no domain verb
+        # acts on it)
+        assert FAMILY_EXTRAS[slug] - {"IMAGE", "NATIVE_DIR"} <= set(dom) | {
             "DOCKER_CONTAINER_NAME"
         }, slug
     gcp = systems.get("gcppostgres")
@@ -3069,6 +3075,7 @@ def test_only_the_transactional_sql_engines_take_a_trx_mode():
         "awspostgres",
         "gcppostgres",
         "azpostgres",
+        "postgresnative",
     }
     for slug in systems.all_slugs():
         assert isinstance(systems.get_class(slug).supports_trx_modes, bool), slug

@@ -77,15 +77,16 @@ def _where(meta: dict[str, str], name: str) -> str:
 def _bind_hostname(sysobj, raw: str | None) -> str:
     """Bind the advertised hostname for this create, returning what was bound
     (``""`` when the flag was not given, or the system has no endpoint of its own
-    to advertise). Only a container publishes a host port for tdx to name: an
-    object store or credential-only service has no endpoint at all, and a remote
-    warehouse has one it configures itself. Either way the flag is reported and
-    ignored rather than failing, so ``create --type ALL`` works."""
+    to advertise). Only a system with a port on this machine -- a container's
+    published one, a native server's -- has one for tdx to name: an object store
+    or credential-only service has no endpoint at all, and a remote warehouse has
+    one it configures itself. Either way the flag is reported and ignored rather
+    than failing, so ``create --type ALL`` works."""
     if raw is None:
         return ""
     hostname = cli.parse_hostname(raw)
     use_hostname = getattr(sysobj, "use_hostname", None)
-    if use_hostname is None or not getattr(sysobj, "is_container", False):
+    if use_hostname is None or not getattr(sysobj, "advertises_host", False):
         has_own = use_hostname is not None
         why = (
             "takes its host from its own configuration"

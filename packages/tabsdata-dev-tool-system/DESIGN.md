@@ -26,18 +26,19 @@ connection details kept as encrypted descriptors.
   `clean-docker [--yes|-y]` stops and deletes every `tdd_*` container and volume -- the
   prefix all docker-backed systems use, and the name a system's data volume takes from its
   container -- descriptor or not; it lists them and asks first unless `--yes`.
-- **The five postgres types are one shape** (`systems/postgres/dialect.py`, which the
-  container `Postgres` and `ManagedPostgres` each pair with their hosting): `postgres` and
-  `postgrescdc` are containers, `awspostgres`, `gcppostgres` and `azpostgres` managed
-  instances, and every one of them records the same block -- `INTERNAL_HOST`/`EXTERNAL_HOST`,
+- **The six postgres types are one shape** (`systems/postgres/dialect.py`, which the
+  container `Postgres`, the native `PostgresNative` and `ManagedPostgres` each pair with their
+  hosting): `postgres` and `postgrescdc` are containers, `postgresnative` a server run from
+  downloaded binaries in a directory of its own, `awspostgres`, `gcppostgres` and `azpostgres`
+  managed instances, and every one of them records the same block -- `INTERNAL_HOST`/`EXTERNAL_HOST`,
   `PORT`, `DATABASE`, `USER`, `PASSWORD`, `VERSION`
   (probed at create) and a `SQLALCHEMY_URI`/`URI` pair per plane -- plus only its own group
-  (`DOCKER_CONTAINER_NAME`/`_ID`, or `AWS_*` / `GCP_*` / `AZ_*`, and the TLS pair on the
-  managed three). Which plane a reader wants is the reader's property, not the instance's, so
+  (`DOCKER_CONTAINER_NAME`/`_ID`, `NATIVE_DIR`/`PGVECTOR_VERSION`, or `AWS_*` / `GCP_*` /
+  `AZ_*`, and the TLS pair on the managed three). Which plane a reader wants is the reader's property, not the instance's, so
   neither is unqualified; a container has one address and records it under both names.
   Everything tdd does itself -- probe, status, DDL, loading a model -- goes over the external
   plane, since that is where tdd is. A domain carries the block with its own database and owner
-  in it. All five hold models and data; the managed three borrow the plain system's DDL
+  in it. All six hold models and data; the managed three borrow the plain system's DDL
   (`ddl_from_slug`) and get the root certificate written to a temporary file for the length of
   a load (`data_plane_uri`, a context manager for exactly that reason).
 - **1Password is a shape, not an integration** (`common.systems.onepassword`). `tdd _1p fetch
@@ -60,9 +61,12 @@ connection details kept as encrypted descriptors.
 - Every descriptor read or write needs `_TDD_CRYPTO_KEY`; `create --force` replaces a descriptor
   an older key left unreadable.
 - **A verb exists when some type exposes it**, gated on a capability: `purge` on
-  `supports_purge`, `restart` and `connect` on `is_container`. `fetch-bin` is ungated on purpose,
-  so `--type ALL` is the handy way to pull every image at once and a type with none is warned and
-  skipped rather than failing the run. A verb aimed at a system that does not have it is rejected
+  `supports_purge`, `restart` on `supports_restart` (a container or a native server; a stopped
+  native one is started), `connect` on `is_container`. `fetch-bin` is ungated on purpose, so
+  `--type ALL` is the handy way to get every image and archive at once (`fetches_binaries`:
+  docker images, a native system's downloads into their cache) and a type with none is warned
+  and skipped rather than failing the run; docker is asked for only when a container is in the
+  selection. A verb aimed at a system that does not have it is rejected
   naming what that system does support.
 - **`purge` takes `--external-prefix` and has no default**: the containers in a system come from
   more than one naming scheme (`tdd domain`'s `d_<user>_<build>_`, xp's `<XP_SHORT_ID>_`), so

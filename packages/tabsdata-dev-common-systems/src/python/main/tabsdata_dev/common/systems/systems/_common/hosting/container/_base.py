@@ -22,6 +22,9 @@ from tabsdata_dev.common.systems.systems._common.hosting.container.ports import 
 class ContainerHosting(PortRangeMixin, HostMixin):
     hosting: str = "container"
     is_container: bool = True
+    supports_restart: bool = True
+    fetches_binaries: bool = True
+    advertises_host: bool = True
 
     slug: str = ""
     label: str = ""
@@ -33,6 +36,10 @@ class ContainerHosting(PortRangeMixin, HostMixin):
     sys_toolset: str = constants.TOOLSET_SYSTEMS
 
     ready_timeout: int = 300
+
+    def fetch_bin(self, done: set[str]) -> None:
+        """`fetch-bin`: a container system's binaries are its images."""
+        self.fetch_images(done)
 
     def fetch_images(self, done: set[str]) -> None:
         """Get this system's images onto this machine, skipping those in `done`

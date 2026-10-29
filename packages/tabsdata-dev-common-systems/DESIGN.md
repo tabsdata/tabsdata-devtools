@@ -87,12 +87,12 @@ run. Its own `create-model`, `create-data` and `modify-data` (`redpanda/domain/`
 
 ## The two backend bases
 
-All five postgres types hand a new domain's owner the `public` schema of its own database
+All six postgres types hand a new domain's owner the `public` schema of its own database
 (`ALTER SCHEMA public OWNER TO`, on a connection to that database). Creating a database owned by a
 role is not enough to let it put a table there: since PostgreSQL 15 `public` belongs to
 `pg_database_owner` -- implicitly the database's owner, which is why a stock server and Cloud SQL
 appear to need nothing -- while Azure Flexible Server's template gives it to `azure_pg_admin` and
-everyone else USAGE alone. Saying it outright makes the five behave alike on any server.
+everyone else USAGE alone. Saying it outright makes the six behave alike on any server.
 
 **Two coordinates per system.** Every system names its *hosting* and its *nature* as its two
 bases, and each axis owns its own half of the backend contract, never the same method:
@@ -108,7 +108,14 @@ bases, and each axis owns its own half of the backend contract, never the same m
   and `ports` (each system type's host-port slot). `attached/`: systems that exist on their
   own, which tdd attaches to but never runs -- `RemoteHosting` (a service it only calls),
   `ManagedHosting` (a provider-run instance) and `LocalHosting` (the host machine), all on
-  `AttachedHosting`.
+  `AttachedHosting`. `native/`: `NativeHosting`, a server tdd runs as a process on this
+  machine from binaries it downloads (`download`) -- the container's lifecycle, port slot and
+  `--sys-hostname`, with a directory per system where a container has its name (below). Three
+  capability flags say what a hosting can do, so no verb asks "is it a container" for
+  something a native server does too: `supports_restart` gates `restart`, `fetches_binaries`
+  `fetch-bin` (`fetch_bin`: a container's images, a native system's archives),
+  `advertises_host` `--sys-hostname`; `is_container` is left gating `connect`, which tunnels
+  to a container's descriptor.
 - **Nature** (`_common/nature/`) -- what it is -- owns the domains, the data plane and the
   capability flags. `server/`: `Server` (a process at HOST:PORT, administered as the login its
   hosting records) and `Messaging` (a domain is a set of topics; the log only appends).
@@ -175,6 +182,42 @@ goes too, a stream's own (`replication_slot_behavior="create"`) included: a logi
 belongs to one database, and nothing can read it once that is gone. Rejected: leaving such a
 slot to its creator -- no suite has a step to drop one, so every teardown left the database
 and its slots behind.
+
+**`postgresnative`** (`postgresnative/`, `NativeHosting` + `PostgresDialect`) is the `postgres`
+container without docker: the same options (port, password, `--sys-hostname`), the same server
+settings (`postgres.backend.SERVER_SETTINGS`, `-c` flags there, `tdd.conf` here), the same block
+and the plain system's DDL. Each system owns `<tdd_dir>/data/system-native/<system>/` -- its own
+`postgresql/` tree, `data/` (the cluster), the server's and pg_ctl's logs -- recorded as
+`NATIVE_DIR`, so two systems share nothing but the download cache and destroy is a stop and a
+removal. pg_ctl runs with its output in a file, never a pipe: the server it starts inherits what
+pg_ctl was given, and a pipe a server holds open is a read that never returns. The server listens
+on TCP alone (`unix_socket_directories = ''`: a socket in `/tmp` would live outside the system's
+directory, one inside it can pass the socket-path limit), on loopback unless `--sys-hostname`
+names another host, and every connection authenticates with SCRAM, the superuser's too.
+initdb uses the `builtin` provider's `C.UTF-8` (PostgreSQL 17+): code-point order and Unicode
+case mapping, the same on every machine, where a libc locale may be missing -- so text sorts as
+`C` here and as `en_US.utf8` in the container.
+
+The binaries (`postgresnative/binaries.py`) are theseus-rs's PostgreSQL build, fetched as
+tabsdata-os's `cache_postgresql.py` does into the same cache, `~/.theseus/postgresql`, under the
+same name and pin (`18.6.0`, `TD_POSTGRESQL_VERSION` overriding it): one download serves both.
+The target triple comes from the platform rather than `rustc`. A fresh download is checked
+against theseus's `.sha256`; a cached one is not, since that script rewrites the Linux archive in
+place to bundle its libraries -- which tdd does not do: the server runs on the machine that
+fetched it. pgvector (`PGVECTOR_VERSION`, `0.8.6`) is in every system's tree, installed the way
+theseus's `postgresql_extensions` installs one (libraries to `lib/`, `.control`/`.sql` to
+`share/extension/`, each file by its bare name). theseus builds none, and nobody publishes one
+build for the three systems at PostgreSQL 18, so each takes the build that reaches furthest on
+it: macOS Homebrew's bottle (by version tag from ghcr; the oldest macOS's, which every later one
+runs; checked against the digest it is named by), Linux the PostgreSQL project's own apt package
+for Ubuntu 22.04 (PGDG; libc only, at glibc 2.17 symbols -- read with the standard library, a
+`.deb` being an `ar` around a tarball), Windows `andreiramani/pgvector_pgsql_windows`'s release
+for the major. Rejected: Homebrew's Linux bottle, which needs glibc 2.38 (no Ubuntu 22.04, Debian
+12 or RHEL 9); portal-corp's `pgvector_compiled`, the source theseus's crate knows, which stops
+at PostgreSQL 16; building from source, which needs a compiler (MSVC on Windows) and runs
+downloaded code. A domain is created with pgvector off; `domain create --pgvector on` runs
+`CREATE EXTENSION vector` in its database as the superuser (pgvector is not a trusted
+extension) and records `PGVECTOR`, which `manifest` replays.
 
 **`ManagedPostgres`** (`postgres/managed.py`, `ManagedHosting` + `PostgresDialect`) for provider-managed PostgreSQL -- AWS RDS
 (`awspostgres`), GCP Cloud SQL (`gcppostgres`), Azure Flexible Server (`azpostgres`). They differ

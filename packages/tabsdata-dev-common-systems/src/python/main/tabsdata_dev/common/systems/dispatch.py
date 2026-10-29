@@ -164,7 +164,7 @@ _SYS_CATALOG: dict[str, tuple[str, str | None]] = {
     constants.V_DESTROY: ("sys_destroy", None),
     constants.V_STATUS: ("sys_status", None),
     constants.V_PURGE: ("sys_purge", "supports_purge"),
-    constants.V_RESTART: ("sys_restart", "is_container"),
+    constants.V_RESTART: ("sys_restart", "supports_restart"),
     constants.V_CONNECT: ("sys_connect", "is_container"),
     # Ungated on purpose: `fetch-bin --type ALL` is the handy way to pull every
     # image at once, so a system with none warns and is skipped rather than

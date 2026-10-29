@@ -22,6 +22,11 @@ from tabsdata_dev.common.systems.errors import TdxError
 class AttachedHosting:
     hosting: str = ""
     is_container: bool = False
+    # Nothing here runs, so nothing restarts, nothing is fetched and no port of
+    # this machine's is advertised.
+    supports_restart: bool = False
+    fetches_binaries: bool = False
+    advertises_host: bool = False
 
     slug: str = ""
     label: str = ""

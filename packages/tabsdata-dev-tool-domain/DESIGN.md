@@ -134,5 +134,7 @@ manifests so a test suite gets the same data on every backend.
   for the run. Without `TDD_DIR` there is nothing to dispatch through, and that is the error.
 - Implementations resolve per system: `systems/<slug>/<verb>.py` when a backend overrides one,
   else the shared `_common/commands`. redpanda's own add options: `create-model
-  --up-to-partitions N`, `create-data`/`modify-data --entity A,B` and `--schema-changes`
+  --up-to-partitions N`, `create-data`/`modify-data --entity A,B` and `--schema-changes`;
+  postgresnative's `create --pgvector on|off` (default off) creates the pgvector extension in
+  the domain's database and records `PGVECTOR`, a manifest entry's `pgvector: on` replaying it
   (common-systems' DESIGN.md).

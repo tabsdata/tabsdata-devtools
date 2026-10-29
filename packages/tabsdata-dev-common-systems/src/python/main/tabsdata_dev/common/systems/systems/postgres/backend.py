@@ -20,6 +20,19 @@ from tabsdata_dev.common.systems.systems._common.hosting.container.single import
 )
 from tabsdata_dev.common.systems.systems.postgres.dialect import PostgresDialect
 
+#: The server settings every postgres tdd runs boots with, in a container
+#: (``-c`` flags) or natively (its configuration file).
+#: Both knobs match what td-database's own embedded server boots with. The
+#: Rust db tests run 32-way parallel, each holding an admin, a serving and a
+#: teardown pool, which overruns the image default of 100 connections; and
+#: each builds a whole schema in one transaction, holding a lock per object
+#: until it commits, which the default lock-table sizing (64 per transaction)
+#: cannot seat concurrently -- it fails as "out of shared memory" (53200).
+SERVER_SETTINGS: dict[str, str] = {
+    "max_connections": "500",
+    "max_locks_per_transaction": "1024",
+}
+
 
 class Postgres(SingleContainerHosting, PostgresDialect):
     slug = "postgres"
@@ -29,17 +42,10 @@ class Postgres(SingleContainerHosting, PostgresDialect):
     image_platform = images.POSTGRES.platform
     internal_port = 5432
 
-    # Both knobs match what td-database's own embedded server boots with. The
-    # Rust db tests run 32-way parallel, each holding an admin, a serving and a
-    # teardown pool, which overruns the image default of 100 connections; and
-    # each builds a whole schema in one transaction, holding a lock per object
-    # until it commits, which the default lock-table sizing (64 per transaction)
-    # cannot seat concurrently -- it fails as "out of shared memory" (53200).
     cmd_args: ClassVar[list[str]] = [
-        "-c",
-        "max_connections=500",
-        "-c",
-        "max_locks_per_transaction=1024",
+        arg
+        for key, value in SERVER_SETTINGS.items()
+        for arg in ("-c", f"{key}={value}")
     ]
 
     def provider_meta(self, sys_meta: dict[str, str]) -> dict[str, str]:

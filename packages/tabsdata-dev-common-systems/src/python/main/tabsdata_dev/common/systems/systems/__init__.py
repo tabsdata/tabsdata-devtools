@@ -6,7 +6,7 @@
 
 A system is a ``systems/<slug>/`` package whose ``__init__`` exposes the backend
 class. The backend's capability flags (``supports_models`` / ``supports_data`` /
-``supports_changes`` / ``is_container`` / ``supports_purge``) decide which verbs
+``supports_changes`` / ``supports_restart`` / ``supports_purge``) decide which verbs
 the tool exposes for it (``supports_trx_modes``, which options of one: the
 interleaved and nested modes of modify-data); each verb runs the shared implementation in
 ``_common/commands`` unless the system ships its own ``<verb>.py`` override. A new
@@ -58,6 +58,7 @@ _SLUGS: dict[str, tuple[str, str]] = {
     "s3local": ("s3local", "S3Local"),
     "azurebloblocal": ("azurebloblocal", "AzureBlobLocal"),
     "gcslocal": ("gcslocal", "GcsLocal"),
+    "postgresnative": ("postgresnative", "PostgresNative"),
 }
 
 

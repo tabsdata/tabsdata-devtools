@@ -40,6 +40,15 @@ class Backend(Protocol):
 
     # capability flags — the dispatcher gates verb availability on these.
     is_container: bool
+    # restart: a system tdd runs (a container, a native process) and can start
+    # again after the machine or docker restarted.
+    supports_restart: bool
+    # fetch-bin: the system has binaries to get onto this machine ahead of a
+    # create -- a container's images, a native system's archives.
+    fetches_binaries: bool
+    # --sys-hostname: the system's port is on this machine, so another name for
+    # the machine is something its descriptor can advertise.
+    advertises_host: bool
     supports_purge: bool
     supports_models: bool
     supports_data: bool
@@ -52,6 +61,10 @@ class Backend(Protocol):
     supports_table_capture: bool
 
     def docker_images(self) -> list[tuple[str, str]]: ...
+
+    def fetch_bin(self, done: set[str]) -> None:
+        """Get the system's binaries onto this machine (``fetches_binaries``),
+        skipping what `done` names and adding what it fetched."""
 
     def configure(self, meta: dict[str, str]) -> None:
         """Bind a resolved descriptor's ``meta`` to the backend before its verb

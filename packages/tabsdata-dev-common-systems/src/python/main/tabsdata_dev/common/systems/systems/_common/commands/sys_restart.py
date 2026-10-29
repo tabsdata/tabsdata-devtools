@@ -2,7 +2,10 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""Restart a system's container (e.g. after a host or Docker restart)."""
+"""Restart a system tdd runs (e.g. after a host or Docker restart).
+
+A container is restarted; a native server is restarted when it runs and started
+when the machine's restart left it stopped."""
 
 from __future__ import annotations
 
@@ -25,6 +28,6 @@ def run(ctx: cli.Context) -> int:
         # tunnel, and bouncing that would not restart anything.
         console.warn(f"'{ctx.name}' is reached over an ssh tunnel — nothing to restart")
         return 0
-    ctx.system.restart_system(ctx.info.meta)
-    console.good(f"restarted system '{ctx.name}'")
+    done = ctx.system.restart_system(ctx.info.meta)
+    console.good(f"{done or 'restarted'} system '{ctx.name}'")
     return 0
