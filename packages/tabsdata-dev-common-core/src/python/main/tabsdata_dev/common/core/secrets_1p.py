@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from .errors import ToolError
@@ -29,6 +30,11 @@ from .errors import ToolError
 #: Checked on the title as 1Password shows it, before `_norm` -- which maps a
 #: leading `-` to `_` too, and would then hide items nobody meant to hide.
 PRIVATE_PREFIX = "_"
+
+#: Runs of one read before it counts as failed. A vault's items are read many at
+#: once, and 1Password turns some of a burst away; a missing item would only show
+#: later, as a system whose options have no value.
+READ_ATTEMPTS = 4
 
 
 def _norm(s: str) -> str:
@@ -53,18 +59,25 @@ def _require(cmd: str) -> None:
         )
 
 
+def _read(args: list[str]) -> subprocess.CompletedProcess:
+    """``op`` with `args`, run again while it fails, up to ``READ_ATTEMPTS``
+    times. Reads only: a create run twice files two items."""
+    for attempt in range(1, READ_ATTEMPTS + 1):
+        cp = subprocess.run(
+            ["op", *args], check=False, capture_output=True, encoding="utf-8"
+        )
+        if cp.returncode == 0 or attempt == READ_ATTEMPTS:
+            return cp
+        time.sleep(attempt)
+
+
 def fetch(vault: str) -> dict[str, str]:
     """Read every item/field in `vault` via ``op`` (items fetched concurrently),
     returning an ordered ``{<ITEM>__<FIELD>: value}`` dict. Skips items titled
-    ``_*``, null values, ``expires`` fields, and any item that can't be read.
-    Prints nothing."""
+    ``_*``, null values and ``expires`` fields; an item still unreadable after
+    ``READ_ATTEMPTS`` reads fails the fetch, by name. Prints nothing."""
     _require("op")
-    cp = subprocess.run(
-        ["op", "--vault", vault, "item", "list", "--format=json"],
-        check=False,
-        capture_output=True,
-        encoding="utf-8",
-    )
+    cp = _read(["--vault", vault, "item", "list", "--format=json"])
     if cp.returncode != 0:
         raise ToolError(
             f"failed to list items in vault '{vault}': "
@@ -85,24 +98,28 @@ def fetch(vault: str) -> dict[str, str]:
             f"means 'not config' — nothing to load"
         )
 
-    def get_item(title: str) -> dict | None:
-        cp = subprocess.run(
-            ["op", "--vault", vault, "item", "get", title, "--format=json"],
-            check=False,
-            capture_output=True,
-            encoding="utf-8",
-        )
-        if cp.returncode != 0:
-            return None
-        return json.loads(cp.stdout)
+    def get_item(title: str) -> dict | str:
+        cp = _read(["--vault", vault, "item", "get", title, "--format=json"])
+        if cp.returncode == 0:
+            return json.loads(cp.stdout)
+        return cp.stderr.strip() or cp.stdout.strip() or "op failed"
 
     with ThreadPoolExecutor(max_workers=16) as executor:
         datas = list(executor.map(get_item, titles))
 
+    unread = [
+        f"'{title}' ({data})"
+        for title, data in zip(titles, datas)
+        if isinstance(data, str)
+    ]
+    if unread:
+        raise ToolError(
+            f"could not read {len(unread)} item(s) of vault '{vault}' after "
+            f"{READ_ATTEMPTS} attempts: {'; '.join(unread)}"
+        )
+
     secrets: dict[str, str] = {}
     for title, data in zip(titles, datas):
-        if data is None:
-            continue
         title_norm = _norm(data.get("title", title))
         for field in data.get("fields", []) or []:
             fid = field.get("id", "")
@@ -121,9 +138,7 @@ def read_field(vault: str, item: str, field: str) -> str:
     to :func:`fetch`, which sweeps a whole shared vault."""
     _require("op")
     ref = f"op://{vault}/{item}/{field}"
-    cp = subprocess.run(
-        ["op", "read", ref], check=False, capture_output=True, encoding="utf-8"
-    )
+    cp = _read(["read", ref])
     if cp.returncode != 0:
         raise ToolError(
             f"could not read {ref}: {cp.stderr.strip() or cp.stdout.strip() or 'op failed'}"

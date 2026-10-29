@@ -238,24 +238,51 @@ def test_read_field_goes_through_op_read(monkeypatch):
 def test_read_field_reports_op_failures(monkeypatch, tmp_path):
     import subprocess
 
-    from tabsdata_dev.common.core import secrets
+    from tabsdata_dev.common.core import secrets, secrets_1p
+
+    reads = []
 
     def fake_run(argv, **kw):
         if argv[0] == "which":  # the `op` presence probe passes
             return subprocess.CompletedProcess(
                 argv, 0, stdout="/usr/bin/op\n", stderr=""
             )
+        reads.append(argv)
         return subprocess.CompletedProcess(
             argv, 1, stdout="", stderr="[ERROR] not signed in"
         )
 
     monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(secrets_1p.time, "sleep", lambda seconds: None)
     try:
         secrets.read_field("1p", "Employee", "DevSecrets", "X")
     except secrets.ToolError as exc:
         assert "not signed in" in str(exc)
+        assert len(reads) == secrets_1p.READ_ATTEMPTS
         return
     raise AssertionError("expected ToolError")
+
+
+def test_read_field_turned_away_is_read_again(monkeypatch):
+    import subprocess
+
+    from tabsdata_dev.common.core import secrets, secrets_1p
+
+    reads = []
+
+    def fake_run(argv, **kw):
+        reads.append(argv)
+        if len(reads) == 1:
+            return subprocess.CompletedProcess(
+                argv, 1, stdout="", stderr="[ERROR] Too many requests"
+            )
+        return subprocess.CompletedProcess(argv, 0, stdout="v4lue\n", stderr="")
+
+    monkeypatch.setattr(secrets_1p.shutil, "which", lambda cmd: cmd)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(secrets_1p.time, "sleep", lambda seconds: None)
+    assert secrets.read_field("1p", "Employee", "DevSecrets", "X") == "v4lue"
+    assert len(reads) == 2
 
 
 def _no_venv(monkeypatch):
@@ -871,6 +898,68 @@ def test_a_vault_sweep_skips_the_items_titled_for_the_reader(monkeypatch):
     vault[:] = [{"title": "_one"}, {"title": "_two"}]
     with pytest.raises(ToolError, match="nothing to load"):
         secrets_1p.fetch("dev_xp")
+
+
+def _flaky_vault(monkeypatch, refusals: dict[str, int]) -> dict[str, int]:
+    """A vault of `refusals`' items, each turned away that many times before
+    its read succeeds, and listed only at the second try; returns how often
+    each was read."""
+    import json as json_mod
+    import subprocess
+
+    from tabsdata_dev.common.core import secrets_1p
+
+    reads = dict.fromkeys(refusals, 0)
+
+    class _Done:
+        def __init__(self, returncode, out="", err=""):
+            self.returncode = returncode
+            self.stdout = out
+            self.stderr = err
+
+    listed = []
+
+    def fake_run(argv, **kwargs):
+        if "list" in argv:
+            listed.append(argv)
+            if len(listed) == 1:
+                return _Done(1, err="[ERROR] Too many requests")
+            return _Done(0, json_mod.dumps([{"title": t} for t in refusals]))
+        title = argv[argv.index("get") + 1]
+        reads[title] += 1
+        if reads[title] <= refusals[title]:
+            return _Done(1, err="[ERROR] Too many requests")
+        fields = [{"id": "key", "value": f"{title}-k"}]
+        return _Done(0, json_mod.dumps({"title": title, "fields": fields}))
+
+    monkeypatch.setattr(secrets_1p.shutil, "which", lambda cmd: cmd)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(secrets_1p.time, "sleep", lambda seconds: None)
+    return reads
+
+
+def test_a_1password_item_turned_away_is_read_again(monkeypatch):
+    from tabsdata_dev.common.core import secrets_1p
+
+    reads = _flaky_vault(monkeypatch, {"S3": 0, "BIGQUERY": 2})
+    found = secrets_1p.fetch("dev_xp")
+    assert found == {"S3__KEY": "S3-k", "BIGQUERY__KEY": "BIGQUERY-k"}
+    assert reads == {"S3": 1, "BIGQUERY": 3}
+
+
+def test_a_1password_item_never_read_fails_the_fetch_by_name(monkeypatch):
+    """Skipped, the item showed only later, as a system with no values."""
+    from tabsdata_dev.common.core import secrets_1p
+    from tabsdata_dev.common.core.errors import ToolError
+
+    attempts = secrets_1p.READ_ATTEMPTS
+    reads = _flaky_vault(monkeypatch, {"S3": 0, "BIGQUERY": attempts})
+    with pytest.raises(ToolError) as caught:
+        secrets_1p.fetch("dev_xp")
+    message = str(caught.value)
+    assert "'BIGQUERY' ([ERROR] Too many requests)" in message
+    assert "'S3'" not in message
+    assert reads["BIGQUERY"] == attempts
 
 
 def test_the_argv_mapping_covers_flags_lists_and_values():

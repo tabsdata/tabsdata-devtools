@@ -16,6 +16,7 @@ command (not SQL).
 from __future__ import annotations
 
 import re
+import time
 from typing import ClassVar
 
 from tabsdata_dev.common.core import resources
@@ -32,6 +33,12 @@ from tabsdata_dev.common.systems.systems._common.nature.database.sql import (
 )
 
 _XP_DB = "XP"  # the one shared database (<= 8 chars, Db2's DB-name limit)
+
+# Every domain is a schema of the one database, so domains created at once
+# change its catalog at once, and Db2 may pick one of their transactions to
+# roll back whole as a deadlock or lock timeout. Being whole, it runs again.
+_ROLLED_BACK = "SQL0911N"
+_ADMIN_ATTEMPTS = 5
 
 
 #: This package, whose resources hold the scripts it sends to its systems.
@@ -134,6 +141,16 @@ class Db2(SingleContainerHosting, SqlDatabase):
 
     def create_domain_sql(self, db: str, user: str, password: str) -> list[str]:
         return [f"CREATE SCHEMA {db}"]
+
+    def _run_admin(self, admin: Admin, statements: list[str]) -> None:
+        for attempt in range(1, _ADMIN_ATTEMPTS + 1):
+            try:
+                super()._run_admin(admin, statements)
+                return
+            except TdxError as error:
+                if attempt == _ADMIN_ATTEMPTS or _ROLLED_BACK not in str(error):
+                    raise
+                time.sleep(attempt)
 
     def _do_delete(self, admin: Admin, name: str) -> None:
         # Drop the schema's views + tables (FK order), then the empty schema.

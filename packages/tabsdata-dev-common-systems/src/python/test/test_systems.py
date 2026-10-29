@@ -1230,6 +1230,68 @@ def test_db2cdc_claims_every_cd_table_before_registering_and_names_the_owner(
     assert f"drop table ASN.{P}EMPLOYEES" in [c[1] for c in calls if c[0] == "sql"]
 
 
+def _db2_admin_failing(monkeypatch, errors: list[str]) -> list[list[str]]:
+    """Db2's admin SQL, failing with each of `errors` in turn and succeeding
+    once they run out; returns the batches it was given."""
+    from tabsdata_dev.common.systems.systems._common.nature.database.sql import (
+        SqlDatabase,
+    )
+    from tabsdata_dev.common.systems.systems.db2 import backend as db2
+
+    ran: list[list[str]] = []
+
+    def run_admin(self, admin, statements):
+        ran.append(statements)
+        if errors:
+            raise TdxError(errors.pop(0))
+
+    monkeypatch.setattr(SqlDatabase, "_run_admin", run_admin)
+    monkeypatch.setattr(db2.time, "sleep", lambda seconds: None)
+    return ran
+
+
+DB2_ROLLED_BACK = (
+    "IBM Db2 Community admin SQL failed: SQL0911N  The current transaction has "
+    'been rolled back because of a deadlock or timeout.  Reason code "2".'
+)
+
+
+@pytest.mark.parametrize("slug", ["db2", "db2cdc"])
+def test_db2_runs_admin_sql_again_when_db2_rolls_it_back(monkeypatch, slug):
+    """Domains created at once are schemas of the one database, and Db2 may roll
+    one of their transactions back whole; the batch runs again, entire."""
+    from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
+
+    ran = _db2_admin_failing(monkeypatch, [DB2_ROLLED_BACK, DB2_ROLLED_BACK])
+    admin = Admin(host="h", port="1", user="db2inst1", password="p")
+    systems.get(slug)._run_admin(admin, ["DROP SCHEMA D1 RESTRICT"])
+    assert ran == [["DROP SCHEMA D1 RESTRICT"]] * 3
+
+
+def test_db2_gives_up_on_admin_sql_rolled_back_every_time(monkeypatch):
+    from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
+    from tabsdata_dev.common.systems.systems.db2 import backend as db2
+
+    ran = _db2_admin_failing(monkeypatch, [DB2_ROLLED_BACK] * db2._ADMIN_ATTEMPTS)
+    admin = Admin(host="h", port="1", user="db2inst1", password="p")
+    with pytest.raises(TdxError, match="SQL0911N"):
+        systems.get("db2")._run_admin(admin, ["CREATE SCHEMA D1"])
+    assert len(ran) == db2._ADMIN_ATTEMPTS
+
+
+def test_db2_does_not_run_failing_admin_sql_again_for_any_other_error(monkeypatch):
+    """A table a foreign key still references is the delete's own retry, pass
+    by pass; anything but a rollback fails at once."""
+    from tabsdata_dev.common.systems.systems._common.hosting.endpoint import Admin
+
+    blocked = "IBM Db2 Community admin SQL failed: SQL0478N  DROP, ALTER ..."
+    ran = _db2_admin_failing(monkeypatch, [blocked])
+    admin = Admin(host="h", port="1", user="db2inst1", password="p")
+    with pytest.raises(TdxError, match="SQL0478N"):
+        systems.get("db2")._run_admin(admin, ["DROP TABLE D1.T"])
+    assert len(ran) == 1
+
+
 def test_db2cdc_deregisters_before_a_forced_recreate_drops_the_tables(monkeypatch):
     """`create --force` drops the schema, `create-model --force` its tables;
     the registrations are in ASN and outlive both, so each forced path

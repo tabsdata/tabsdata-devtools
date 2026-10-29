@@ -71,7 +71,12 @@ dependencies are declared as ranges; each toolset's lock pins them.
   `<ITEM_TITLE>__<FIELD_ID>`, normalised to valid env-var names, which is the `<PREFIX>__<KEY>`
   a system's env-sourced options read; plus `_TDD_SYSTEMS`, the prefix list). An item titled
   `_*` is skipped, and skipped before it is read: a shared vault is also where people keep notes
-  to themselves, and everything swept lands in the caller's shell as a variable. `set_item`
+  to themselves, and everything swept lands in the caller's shell as a variable. Items are
+  read 16 at a time and 1Password turns some of a burst away, so every read that fails (the
+  list, each item, `read_field`'s `op read`) is tried again -- writes are not, as a create run
+  twice files two items; an item still unreadable fails the fetch by name -- skipped, it showed
+  only later, as a system with options that have no value (a GA Windows run lost BigQuery that
+  way). `set_item`
   files one (delete, then create) and `for_upload` reduces an item to what a create may carry.
   The command over them is `tdd _1p` (`fetch`, `push`); `CRYPTO_KEY_ENV`/`CRYPTO_KEY_MIN_LEN` name the descriptor key and
   its minimum length for it, `common.systems.crypto` and both `env` scripts.
