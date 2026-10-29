@@ -15,7 +15,7 @@ import zipfile
 from typing import ClassVar
 
 import pytest
-from tabsdata_dev.common.systems import descriptor, dispatch, manifest, systems
+from tabsdata_dev.common.systems import descriptor, dispatch, manifest, store, systems
 from tabsdata_dev.common.systems.cli import UsageError
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.systems._common.commands import sys_create
@@ -550,3 +550,22 @@ def test_domain_create_takes_pgvector_and_a_manifest_replays_it():
         "domain", {"name": "d", "sys": "pn", "pgvector": "on"}, force=False
     )
     assert steps[0][-2:] == ["--pgvector", "on"]
+
+
+def test_help_names_the_options_of_the_targets_own_type(tdd_dir, monkeypatch):
+    """`domain create --sys S -h` is S's type's create; help needs no key and no
+    stored target, so without them it is the first type's, which has no
+    --pgvector."""
+    monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-key-for-the-test-only")
+    info = descriptor.SystemInfo(system=SLUG, name="pn", started="now", meta={})
+    descriptor.save(info, store.system_path("pn"))
+
+    def options(argv):
+        parser = dispatch._help_parser("domain", "create", [*argv, "-h"])
+        return {flag for a in parser._actions for flag in a.option_strings}
+
+    assert "--pgvector" in options(["--sys", "pn"])
+    assert "--pgvector" not in options(["--sys", "missing"])
+    assert "--pgvector" not in options(["--sys", "pn,missing"])
+    monkeypatch.delenv("_TDD_CRYPTO_KEY")
+    assert "--pgvector" not in options(["--sys", "pn"])

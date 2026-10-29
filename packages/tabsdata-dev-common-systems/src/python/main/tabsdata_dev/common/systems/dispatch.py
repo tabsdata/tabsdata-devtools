@@ -1485,17 +1485,7 @@ def dispatch(tool: str, argv: list[str]) -> int:
         raise TdxError(f"{tool}: unknown command '{verb}' (try `tdd {tool} -h`)")
     wants_help = any(a in constants.HELP_FLAGS for a in rest)
     if wants_help:
-        typed_create = verb == constants.V_CREATE and family == constants.SYS_TOOL
-        named_type = cli.peek(rest, constants.OPT_TYPE) if typed_create else None
-        help_slug = named_type or _default_slug(tool, verb)
-        module = _command_module(tool, help_slug, verb)
-        p = ArgumentParser(prog=f"tdd {tool} {verb}", description=_summary(module))
-        p.tdx_system = _system_or_none(
-            None if typed_create and not named_type else help_slug
-        )  # type: ignore[attr-defined]
-        module.add_arguments(p)
-        cli.add_format_verbose(p)
-        p.parse_args(rest)  # prints help and exits
+        _help_parser(tool, verb, rest).parse_args(rest)  # prints help and exits
         return 0
     batched = _maybe_batch(tool, verb, rest)
     if batched is not None:
@@ -1509,6 +1499,40 @@ def dispatch(tool: str, argv: list[str]) -> int:
     args = p.parse_args(rest)
     ctx = cli.Context(family, verb, slug, system, args, name, info, path, store_dir)
     return module.run(ctx) or 0
+
+
+def _help_parser(tool: str, verb: str, rest: list[str]) -> ArgumentParser:
+    """The parser `-h` prints. A type can add options to a verb (postgresnative's
+    ``domain create --pgvector``, redpanda's), so a named target -- ``--sys``,
+    ``--domain``, ``--type`` on a system create -- gets its own type's parser,
+    bound as the run binds it. Help needs no key and no target, though: one the
+    store lacks or cannot read, a batch, or none at all falls back to the first
+    type with the verb."""
+    if verb == constants.V_CREATE and _family(tool) == constants.SYS_TOOL:
+        named_type = cli.peek(rest, constants.OPT_TYPE)
+        return _unbound_parser(
+            tool, verb, named_type or _default_slug(tool, verb), named_type
+        )
+    try:
+        slug, _, info, _, _ = _resolve(tool, verb, rest)
+        _require_verb(tool, slug, verb)
+        return _verb_parser(tool, verb, slug, info)[0]
+    except TdxError:
+        slug = _default_slug(tool, verb)
+        return _unbound_parser(tool, verb, slug, slug)
+
+
+def _unbound_parser(
+    tool: str, verb: str, slug: str, system_slug: str | None
+) -> ArgumentParser:
+    """`slug`'s parser for a verb with no descriptor behind it; the system it
+    hands the options is `system_slug`'s, or none when that cannot load here."""
+    module = _command_module(tool, slug, verb)
+    p = ArgumentParser(prog=f"tdd {tool} {verb}", description=_summary(module))
+    p.tdx_system = _system_or_none(system_slug)  # type: ignore[attr-defined]
+    module.add_arguments(p)
+    cli.add_format_verbose(p)
+    return p
 
 
 def _verb_parser(tool: str, verb: str, slug: str, info):

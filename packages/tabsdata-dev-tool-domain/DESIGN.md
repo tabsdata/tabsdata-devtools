@@ -133,7 +133,9 @@ manifests so a test suite gets the same data on every backend.
   for it (`domain-sf` for salesforce) through `tdd-exe`, carrying `--format` so the child speaks
   for the run. Without `TDD_DIR` there is nothing to dispatch through, and that is the error.
 - Implementations resolve per system: `systems/<slug>/<verb>.py` when a backend overrides one,
-  else the shared `_common/commands`. redpanda's own add options: `create-model
+  else the shared `_common/commands`, and `-h` prints the named target's own (`--sys` on
+  create, `--domain` otherwise) -- the first type's when the store lacks it, cannot read it
+  without the key, or the selector is a batch, since help asks for neither. redpanda's own add options: `create-model
   --up-to-partitions N`, `create-data`/`modify-data --entity A,B` and `--schema-changes`;
   postgresnative's `create --pgvector on|off` (default off) creates the pgvector extension in
   the domain's database and records `PGVECTOR`, a manifest entry's `pgvector: on` replaying it
