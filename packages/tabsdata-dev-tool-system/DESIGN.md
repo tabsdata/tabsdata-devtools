@@ -82,7 +82,9 @@ connection details kept as encrypted descriptors.
   any child starts, the parent parses each child's argv with the parser that child builds (per
   type, bound to its descriptor): an option no target takes is one error, not a failure per
   child after the batch has begun. A target the store lacks, a verb its type lacks, or a type in
-  another toolset is left to its child, as before. Parallel
+  another toolset is left to its child, as before -- except in a manifest `destroy`, a
+  teardown run whether or not its setup created everything, where an entry the store lacks is
+  already destroyed: a warning, left out of the batch, not a failure. Parallel
   creates cannot compete for ports: every type owns a fixed slot, and `--ports` pins them.
 - The long verbs (`create`, `destroy`, `purge`) take `--latch FILE` so a background run is
   waitable, and their chatty detail goes to `<temp>/tdd-system-<verb>-...` while the console keeps

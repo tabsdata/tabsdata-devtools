@@ -34,7 +34,9 @@ manifests so a test suite gets the same data on every backend.
   teardown never fails on a half-made registration. Only `db2cdc` captures this way today.
 - **Batches are the normal case.** `--domain NAME|d1,d2|ALL` on any verb, `--sys` on `create`
   (one domain per system, named after it), `--manifest FILE` on `create` to replay a YAML
-  manifest (`--sync` reconciles the store to it) and on `destroy/status`. Targets run in parallel
+  manifest (`--sync` reconciles the store to it) and on `destroy/status`. A manifest `destroy`
+  is a teardown, run whether or not its setup created everything, so an entry the store lacks
+  is already destroyed: a warning, left out of the batch, not a failure. Targets run in parallel
   in their own `tdd-exe` children, heaviest first, bounded by `$TDD_PARALLELISM`, and their
   events are re-emitted by the parent; `--fail-fast` stops at the first failure and
   `--report FILE` writes a JSON run record. This is how `xp` provisions. A domain entry's

@@ -1410,6 +1410,37 @@ def test_a_valid_batch_starts_and_a_missing_target_is_left_to_its_child(
     assert [step[2] for step in small_store] == ["dev1", "fs1", "ghost"]
 
 
+def test_a_manifest_destroy_leaves_out_what_the_store_does_not_hold(
+    small_store, capfd, tmp_path
+):
+    """A teardown runs whether or not its setup got as far as creating
+    everything (GA destroys the test domains after a failed run): a name the
+    store lacks is already destroyed, not a failure."""
+    from tabsdata_dev.common.systems import main
+
+    listed = tmp_path / "listed.yaml"
+    listed.write_text("- name: dev1\n- name: ghost\n- name: fs1\n", encoding="utf-8")
+    capfd.readouterr()
+    rc = main.run(
+        constants.SYS_TOOL,
+        [constants.V_DESTROY, "--manifest", str(listed), "--format", "json"],
+    )
+    assert rc == 0
+    assert [step[2] for step in small_store] == ["dev1", "fs1"]
+    assert "ghost: not in the store" in "".join(capfd.readouterr())
+
+
+def test_a_manifest_destroy_of_nothing_the_store_holds_succeeds(
+    small_store, capsys, tmp_path
+):
+    gone = tmp_path / "gone.yaml"
+    gone.write_text("- name: ghost\n- name: phantom\n", encoding="utf-8")
+    rc, _ = _run_json(
+        capsys, constants.SYS_TOOL, constants.V_DESTROY, "--manifest", str(gone)
+    )
+    assert rc == 0 and small_store == []
+
+
 def test_a_rerouted_verb_hands_its_child_the_terminal_not_the_detail_log(
     tmp_path, monkeypatch
 ):

@@ -1313,6 +1313,21 @@ def _drop_flag(argv: list[str], flag: str) -> list[str]:
     return out
 
 
+def _in_store(tool: str, names: list[str], rest: list[str]) -> list[str]:
+    """The `names` the store holds. A manifest destroy is a teardown, run
+    whether or not its setup got as far as creating everything, so a name the
+    store lacks is already destroyed: said, and left out of the batch."""
+    if _is_domain_tool(tool):
+        path_fn, dir_opt = store.domain_path, cli.peek(rest, constants.OPT_DOMAIN_DIR)
+    else:
+        path_fn, dir_opt = store.system_path, cli.peek(rest, constants.OPT_SYS_DIR)
+    held = [name for name in names if descriptor.is_descriptor(path_fn(name, dir_opt))]
+    for name in names:
+        if name not in held:
+            console.warn(f"{name}: not in the store, nothing to destroy")
+    return held
+
+
 def _verb_from_manifest(tool: str, verb: str, rest: list[str]) -> int:
     entries = manifest.read(cli.peek(rest, constants.OPT_MANIFEST) or "")
     names = [str(e["name"]) for e in entries if e.get("name")]
@@ -1320,6 +1335,13 @@ def _verb_from_manifest(tool: str, verb: str, rest: list[str]) -> int:
     if not names:
         console.good(f"manifest lists no {role} to {verb}")
         return 0
+    if verb == constants.V_DESTROY:
+        names = _in_store(tool, names, rest)
+        if not names:
+            console.good(
+                f"none of the manifest's {role} is in the store: nothing to {verb}"
+            )
+            return 0
     selector = constants.OPT_DOMAIN if _is_domain_tool(tool) else constants.OPT_SYS
     new_rest = _drop_flag(rest, constants.OPT_MANIFEST) + [selector, ",".join(names)]
     return batch.run(tool, verb, new_rest, check=_check_child(tool))
