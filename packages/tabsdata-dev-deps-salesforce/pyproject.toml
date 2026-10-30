@@ -14,7 +14,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "cryptography==50.0.2",
     "cumulusci-plus==5.7.0",
-    "pydantic==2.14.1",
+    "pydantic==2.14.2",
     "pytest==9.2.0",
     "pyyaml==6.0.3",
     "simple-salesforce==1.12.9",

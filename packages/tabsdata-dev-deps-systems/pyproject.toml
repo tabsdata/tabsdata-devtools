@@ -12,14 +12,14 @@ requires-python = ">=3.12,<3.13"
 # snowflake <- snowflake-sqlalchemy, databricks <- databricks-sqlalchemy).
 # ibm_db builds against the IBM clidriver its install downloads -- natively on arm64 too.
 dependencies = [
-    "azure-storage-blob==12.31.0",
-    "boto3==1.43.120",
+    "azure-storage-blob==12.31.1",
+    "boto3==1.43.123",
     "clickhouse-connect==1.11.0",
-    "confluent-kafka==2.16.0",
+    "confluent-kafka==2.16.1",
     "cryptography==50.0.2",
     "databricks-sqlalchemy==2.0.10",
     "fastavro==1.13.1",
-    "google-cloud-bigquery==3.46.2",
+    "google-cloud-bigquery==3.47.0",
     "google-cloud-storage==3.17.1",
     "ibm_db==3.3.0",
     "ibm_db_sa==0.4.4",
@@ -31,7 +31,7 @@ dependencies = [
     "protobuf==7.36.2",
     "psycopg2-binary==2.9.13",
     "pyarrow==26.0.0",
-    "pydantic==2.14.1",
+    "pydantic==2.14.2",
     "pymongo==4.19.0",
     "pyodbc==5.3.0",
     "pytest==9.2.0",

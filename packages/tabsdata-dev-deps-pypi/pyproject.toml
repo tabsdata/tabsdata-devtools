@@ -15,7 +15,7 @@ requires-python = ">=3.11"
 dependencies = [
     # S3 and CloudFront. The tool talks to AWS through boto3 alone, never the
     # aws CLI, so the plans it prints and the calls it makes cannot disagree.
-    "boto3==1.43.120",
+    "boto3==1.43.123",
     # PEP 440 comparison: which release is newest, and what a wheel's filename
     # says it is. Version parsing is not something to hand-roll.
     "packaging==26.3",
