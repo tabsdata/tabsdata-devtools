@@ -184,8 +184,8 @@ def configure(p: argparse.ArgumentParser) -> None:
 
     index = sub.add_parser(
         "uv-index",
-        help="the URL a --uv-index value stands for: @dev, @prod, a URL; "
-        "nothing for an unknown @marker",
+        help="the URL a --uv-index value stands for: @dev, @dev:NAME, @prod, "
+        "a URL; nothing for an unknown @marker",
     )
     index.add_argument("--value", required=True)
 

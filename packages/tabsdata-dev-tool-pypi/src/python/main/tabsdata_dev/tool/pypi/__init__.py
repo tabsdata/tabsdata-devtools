@@ -11,7 +11,7 @@ be thrown away and rebuilt::
          │ generate
          ▼
     pypi-wheels/staging/        the local staging tree         committed, minus *.whl
-         │ push --lane staging  -> s3://td-pypi-staging
+         │ push --lane staging  -> s3://td-pypi-staging    [--at NAME: <base>/NAME/, yours]
          │ promote
          ▼
     pypi-wheels/prod/           the local prod tree            committed, minus *.whl
@@ -57,6 +57,7 @@ from . import push as push_mod
 from . import push_raw as push_raw_mod
 from . import repo
 from .config import (
+    DEFAULT_AT,
     DEFAULT_CONFIG,
     DEFAULT_PARALLEL,
     DEFAULT_RAW,
@@ -193,6 +194,14 @@ def configure(p: argparse.ArgumentParser) -> None:
     d.add_argument(
         "--lane", required=True, choices=LANES, help="raw: the archive; else a bucket"
     )
+    d.add_argument(
+        "--at",
+        metavar="NAME",
+        default=DEFAULT_AT,
+        help="serving lanes: push into namespace NAME, served at <domain>/NAME/ "
+        "beside the lane's own index, with files of its own and nobody else's "
+        f"objects touched -- a developer's index (default {DEFAULT_AT}: the lane's)",
+    )
     d.add_argument("--version", help="--lane raw: this release only (default: all)")
     d.add_argument(
         "--force",
@@ -285,6 +294,8 @@ def body(args: argparse.Namespace, out: Renderer) -> int:
         if args.lane == RAW:
             if args.full:
                 raise ToolError("--full does not apply to the raw lane")
+            if args.at != DEFAULT_AT:
+                raise ToolError("--at applies to the serving lanes only")
             return push_raw_mod.push_raw(
                 args.raw,
                 cfg,
@@ -307,7 +318,7 @@ def body(args: argparse.Namespace, out: Renderer) -> int:
         return push_mod.push(
             args.tree,
             cfg,
-            cfg.lane(args.lane),
+            cfg.lane(args.lane).with_at(args.at),
             dry_run=args.dry_run,
             assume_yes=args.yes,
             full=args.full,

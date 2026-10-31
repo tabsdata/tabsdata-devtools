@@ -59,8 +59,10 @@ crypto key, the 1Password secrets, tabsdata's `TD_*` settings and the Python ind
 
 ## Index markers
 
-`--py-idx` and `--py-default-idx` take `@dev` (`https://d3mm0r95u5i3hf.cloudfront.net/simple/`)
-and `@prod` (`https://pypi.tabsdata.com/simple/`) as well as a URL, resolved by
+`--py-idx` and `--py-default-idx` take `@dev` (`https://d3mm0r95u5i3hf.cloudfront.net/simple/`),
+`@dev:NAME` (`.../NAME/`, the namespace `tdd pypi push --lane staging --at NAME` publishes; an
+empty NAME is `simple`, a NAME push would refuse is refused here too) and `@prod`
+(`https://pypi.tabsdata.com/simple/`) as well as a URL, resolved by
 `_tdd_resolve_index` in the shared layer so every option that takes an index URL takes them --
 the smoke scripts' `--uv-index` does the same from their own engine, and a test holds the two
 definitions in step. An unknown `@marker` is refused rather than exported: passed on, it would

@@ -262,6 +262,17 @@ def test_lane_sync_prunes_and_force_refetches(tree, staging, monkeypatch, out):
     assert len(s3.gets) > 1
 
 
+def test_lane_leaves_the_namespaces_beside_it_alone(tree, staging, monkeypatch, out):
+    """`push --at NAME` objects sit beside the lane's own; they are a developer's,
+    never part of pypi-wheels/<lane>/."""
+    s3 = lane_bucket()
+    for rel in ("tucu/index.html", "tucu/files/x.whl", "tucu/index.json"):
+        s3.put_object(Bucket="td-pypi-staging", Key=f"pypi/{rel}", Body=b"ns")
+    run_lane(tree, s3, monkeypatch, out)
+    assert on_disk(staging) == sorted(OBJECTS)
+    assert not any("tucu" in k for k in s3.gets)
+
+
 def test_lane_empty_bucket_is_an_error(tree, monkeypatch, out):
     with pytest.raises(ToolError, match="nothing under"):
         run_lane(tree, FakeS3(), monkeypatch, out)
@@ -286,6 +297,8 @@ def test_cli_shapes():
     )
     assert parse("fetch --lane raw").parallel == 32
     assert parse("push --lane raw").parallel == 32
+    assert parse("push --lane staging").at == "simple"
+    assert parse("push --lane staging --at tucu").at == "tucu"
     a = parse("push --lane prod --full --dry-run --yes")
     assert (a.lane, a.full, a.dry_run, a.yes) == ("prod", True, True, True)
     a = parse("check --lane staging --local")
@@ -327,6 +340,8 @@ def test_cli_rejects_unknown_shapes(argv):
         ("push --lane staging --version 1", "--version applies to --lane raw only"),
         ("push --lane staging --force", "--force applies to --lane raw only"),
         ("push --lane staging --sync", "--sync applies to --lane raw only"),
+        ("push --lane raw --at tucu", "--at applies to the serving lanes only"),
+        ("push --lane staging --at files", "--at 'files': a namespace is"),
         ("fetch --lane staging --version 1", "--version applies to --lane raw only"),
     ],
 )

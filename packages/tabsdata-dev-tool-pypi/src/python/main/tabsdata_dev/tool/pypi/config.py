@@ -11,7 +11,8 @@ change and a review rather than a one-line config edit.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import yaml
@@ -46,6 +47,21 @@ POLICY: dict[str, Policy] = {
 RAW = "raw"
 LANES = (RAW, *POLICY)
 
+#: Where a serving lane's own pages live, <base_path>/simple/, and so the
+#: namespace `push --at` defaults to. Any other NAME is a developer's copy of the
+#: tree beside it, at <base_path>/NAME/ with its own files/ inside, so a push
+#: there touches nobody else's objects and a rebuilt wheel under an unchanged
+#: filename cannot replace another namespace's bytes.
+DEFAULT_AT = "simple"
+
+#: The first path segments of the lane's own tree. Every other directory at the
+#: lane's root is some namespace's, which a push or fetch of the lane leaves alone.
+TREE_DIRS = ("files", DEFAULT_AT)
+
+#: A namespace is one URL path segment; `files` is the lane's own wheel directory.
+_AT_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,62}")
+_AT_RESERVED = ("files",)
+
 #: Concurrent S3 transfers (HEADs, puts, deletes, downloads) unless --parallel
 #: says otherwise. The work is bandwidth-bound and boto3 clients are thread-safe.
 DEFAULT_PARALLEL = 32
@@ -60,14 +76,36 @@ class Lane:
     vanilla_domain: str
     domain: str
     policy: Policy
+    at: str = DEFAULT_AT
+
+    def with_at(self, name: str) -> Lane:
+        """This lane as namespace `name` (`push --at`)."""
+        if name in _AT_RESERVED or not _AT_NAME.fullmatch(name):
+            raise ToolError(
+                f"--at {name!r}: a namespace is lower-case letters, digits, '-' and "
+                f"'_', starting with a letter or digit, and not {', '.join(_AT_RESERVED)}"
+            )
+        return replace(self, at=name)
+
+    @property
+    def namespaced(self) -> bool:
+        return self.at != DEFAULT_AT
 
     def key(self, rel: str) -> str:
         """Tree-relative path -> S3 key."""
-        return f"{self.base_path}/{rel}" if self.base_path else rel
+        return f"{self.prefix}{rel}"
 
     @property
     def prefix(self) -> str:
-        return f"{self.base_path}/" if self.base_path else ""
+        base = f"{self.base_path}/" if self.base_path else ""
+        return f"{base}{self.at}/" if self.namespaced else base
+
+    def owns(self, key: str) -> bool:
+        """Whether an object under `prefix` is this lane's rather than a
+        namespace's: everything under a namespace's own prefix, and for the lane
+        itself its root files and its TREE_DIRS."""
+        rel = key[len(self.prefix) :]
+        return self.namespaced or "/" not in rel or rel.split("/", 1)[0] in TREE_DIRS
 
     @property
     def s3(self) -> str:
@@ -77,9 +115,9 @@ class Lane:
     def urls(self) -> list[str]:
         """Where consumers read this lane: the distribution's own name always, the
         custom domain when the lane has one ("-" or empty means it does not)."""
-        out = [f"https://{self.vanilla_domain}/simple/"]
+        out = [f"https://{self.vanilla_domain}/{self.at}/"]
         if self.domain and self.domain != "-":
-            out.append(f"https://{self.domain}/simple/")
+            out.append(f"https://{self.domain}/{self.at}/")
         return out
 
     def where(self, indent: str = "  ") -> str:

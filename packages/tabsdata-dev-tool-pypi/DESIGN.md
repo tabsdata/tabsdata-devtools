@@ -190,6 +190,31 @@ checked if the archive moves under it, so release the fix as a new version. `--f
 exactly those keys. Archived objects not in a MANIFEST here are left alone unless `--sync`, which
 warns by name before deleting a whole version.
 
+## Namespaces: push --at NAME
+
+**`push --at NAME` publishes a developer's own index beside the lane's.** The lane's pages are
+at `<base_path>/simple/`; namespace NAME is `<base_path>/NAME/` -- the project list at its root,
+each project's page beside it, its own `files/` and `index.json` inside -- so
+`https://<domain>/NAME/` is an index uv reads (`@dev:NAME` in `tdd env --py-idx` and the smoke
+scripts' `--uv-index`). `simple`, the default, is the lane itself. What goes up is
+`pypi-wheels/<lane>/` as it is; only its pages are rendered again, their hrefs one level nearer
+(`../files/`), into a temporary directory, and every wheel is read from the tree in place.
+
+**Files of its own, not the lane's `files/`.** A developer rebuilds a wheel under an unchanged
+filename; in a shared pool one namespace would replace the bytes another's pages pin by sha256,
+and a lane push pruning its orphans would delete the namespaces' wheels. So every mirror rule
+holds inside the namespace's prefix -- a push there, `--full` included, lists, prunes and writes
+nothing outside it -- and the other way round the lane's own push and fetch take only their root
+files, `files/` and `simple/` (`Lane.owns`): every other top-level directory is someone's
+namespace. A namespace push invalidates `/NAME/*` whole, files included, since rebuilt bytes are
+the usual case there. NAME is one URL segment, `[a-z0-9][a-z0-9_-]*` up to 63, never `files`.
+Prod takes `--at` too, behind the same gates.
+
+The edge needs nothing new: tabsdata-pi's `directory-index.js` turns any `.../` into
+`.../index.html`. Its 301 for a missing slash covers `/simple` only, which costs nothing because
+pip and uv always ask with the slash. Nothing removes a namespace yet; it is
+`aws s3 rm --recursive s3://<bucket>/<base_path>/NAME/` and an invalidation.
+
 ## fetch
 
 The mirror backwards, into `raw-wheels/` or a lane tree. The local index is removed first and taken

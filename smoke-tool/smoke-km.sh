@@ -49,8 +49,10 @@ options:
                       (uv --index, unsafe-best-match) and passed to tdkserver
                       quickstart --uv-index for the instance's pods
                       URI is a URL, or @dev for the development index
-                      (https://d3mm0r95u5i3hf.cloudfront.net/simple/) or @prod
-                      for the published one (https://pypi.tabsdata.com/simple/)
+                      (https://d3mm0r95u5i3hf.cloudfront.net/simple/), @dev:NAME
+                      for namespace NAME on it (.../NAME/, what tdd pypi push
+                      --at NAME publishes) or @prod for the published one
+                      (https://pypi.tabsdata.com/simple/)
                       (default: none -- whatever uv is already configured with)
   --xp-suites LIST    comma-separated xp suite selectors to run, one stage each;
                       <type>/<name> for one definition, <type> for every

@@ -130,8 +130,9 @@ stages; declaring them here would refuse an export on a machine that only wants 
 (`srv-database`); the other three run against a cluster that already exists. All four take
 `--name` and `--td-version`; the cluster three also require `--kube-config` and `--kube-context`.
 There is no sane default for which cluster to reach, so those are required and `common_help` paints
-`--uv-index` takes `@dev` (`https://d3mm0r95u5i3hf.cloudfront.net/simple/`) and `@prod`
-(`https://pypi.tabsdata.com/simple/`) as well as a URL, resolved once by
+`--uv-index` takes `@dev` (`https://d3mm0r95u5i3hf.cloudfront.net/simple/`), `@dev:NAME`
+(`.../NAME/`, the namespace `tdd pypi push --lane staging --at NAME` publishes; an empty NAME is
+`simple`) and `@prod` (`https://pypi.tabsdata.com/simple/`) as well as a URL, resolved once by
 `common_resolve_uv_index` as soon as tdd is loaded, before the banner, so the banner, the `uv
 pip install`, the `tabsdata.yaml` and tdkserver all see the URL and never the marker. The two
 URLs live in `tdd _smoke uv-index` (`indexes.py`), because every script, in either family, has

@@ -2,10 +2,12 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""push --lane staging|prod: pypi-wheels/<lane>/ -> that serving bucket, exactly."""
+"""push --lane staging|prod [--at NAME]: pypi-wheels/<lane>/ -> that serving
+bucket, exactly -- or into namespace NAME beside the lane's own tree."""
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 import boto3
@@ -16,6 +18,7 @@ from .cache import invalidate
 from .config import DEFAULT_PARALLEL, RELEASE_PATHS, Config, Lane
 from .dist import sha256_file
 from .git import assert_committed_and_pushed
+from .indexhtml import render_namespace
 from .plan import (
     DELETE,
     PUT,
@@ -40,6 +43,23 @@ def _local_files(tree: Path) -> dict[str, Local]:
         out[rel] = Local(path, path.stat().st_size, sha)
     idx = index_path(tree)
     out[INDEX] = Local(idx, idx.stat().st_size, sha256_file(idx))
+    return out
+
+
+def _namespace_files(tree: Path, stage: Path) -> dict[str, Local]:
+    """The tree as namespace NAME serves it: files/ and the index as they are,
+    the pages rendered for the namespace's layout into `stage`. Nothing of the
+    tree is copied -- a wheel's Local points at the tree's own file."""
+    out = {
+        rel: f
+        for rel, f in _local_files(tree).items()
+        if rel == INDEX or rel.startswith("files/")
+    }
+    for rel, text in render_namespace(load_index(tree)).items():
+        path = stage / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        out[rel] = Local(path, path.stat().st_size, sha256_file(path))
     return out
 
 
@@ -83,7 +103,7 @@ def push(
 ) -> int:
     tree = root / lane.name
     load_index(tree)  # refuses if the tree is incomplete
-    out.info(f"{tree}/ ->")
+    out.info(f"{tree}/ -> namespace {lane.at}" if lane.namespaced else f"{tree}/ ->")
     for line in lane.where("    ").splitlines():
         out.info(line)
 
@@ -96,50 +116,74 @@ def push(
     if lane.policy.require_archived:
         _assert_archived(s3, cfg, tree, parallel, out)
 
-    local = _local_files(tree)
-    remote = remote_objects(s3, lane.bucket, lane.prefix, parallel, with_sha=not full)
-    if full:
-        out.warn(
-            f"--full: everything under s3://{lane.bucket}/{lane.prefix} is deleted "
-            "first, then the whole tree is uploaded"
+    # A namespace's pages are rendered for it, into a directory that has to
+    # outlive the uploads; the lane's own push reads the tree as it is.
+    with tempfile.TemporaryDirectory(prefix="tdd-pypi-pages-") as stage:
+        local = (
+            _namespace_files(tree, Path(stage))
+            if lane.namespaced
+            else _local_files(tree)
         )
-    actions = plan_mirror(local, remote, lane, full=full)
-    report(actions, lane.bucket, out, lane.distribution)
-    wrote = execute(
-        actions,
-        lane.bucket,
-        s3,
-        dry_run=dry_run,
-        assume_yes=assume_yes,
-        require_yes=lane.policy.require_yes,
-        parallel=parallel,
-        out=out,
-    )
+        # lane.owns: the lane's own objects only, so a namespace beside them is
+        # neither compared, pruned nor --full deleted.
+        remote = remote_objects(
+            s3,
+            lane.bucket,
+            lane.prefix,
+            parallel,
+            with_sha=not full,
+            keep=lane.owns,
+        )
+        if full:
+            out.warn(
+                f"--full: everything under s3://{lane.bucket}/{lane.prefix} is "
+                "deleted first, then the whole tree is uploaded"
+                + ("" if lane.namespaced else " (namespaces beside it are kept)")
+            )
+        actions = plan_mirror(local, remote, lane, full=full)
+        report(actions, lane.bucket, out, lane.distribution)
+        wrote = execute(
+            actions,
+            lane.bucket,
+            s3,
+            dry_run=dry_run,
+            assume_yes=assume_yes,
+            require_yes=lane.policy.require_yes,
+            parallel=parallel,
+            out=out,
+        )
     if not wrote:
         return out.ok(
             f"{lane.name}: nothing written",
             lane=lane.name,
+            at=lane.at,
             bucket=lane.bucket,
             wrote=False,
             dry_run=dry_run,
         )
 
-    # Pages and the index are short-lived at the edge; files/ are cached for a
-    # year as immutable, so they are only cleared when a files/ URL stopped
-    # answering or started answering differently.
-    paths = ["/", "/index.html", "/index.json", "/simple/*"]
-    files_prefix = lane.key("files/")
-    if any(
-        a.key.startswith(files_prefix)
-        and (a.verb == DELETE or (a.verb == PUT and a.key in remote))
-        for a in actions
-    ):
-        paths.append("/files/*")
+    if lane.namespaced:
+        # The namespace whole, files/ included: rebuilding a wheel under an
+        # unchanged filename is the usual case for a developer's own index.
+        paths = [f"/{lane.at}/*"]
+    else:
+        # Pages and the index are short-lived at the edge; files/ are cached for
+        # a year as immutable, so they are only cleared when a files/ URL
+        # stopped answering or started answering differently.
+        paths = ["/", "/index.html", "/index.json", "/simple/*"]
+        files_prefix = lane.key("files/")
+        if any(
+            a.key.startswith(files_prefix)
+            and (a.verb == DELETE or (a.verb == PUT and a.key in remote))
+            for a in actions
+        ):
+            paths.append("/files/*")
     invalidate(lane, paths, reason="push")
     out.info(f"invalidated {' '.join(paths)}")
     return out.ok(
         f"{lane.name}: pushed — live in about a minute at {' and '.join(lane.urls)}",
         lane=lane.name,
+        at=lane.at,
         bucket=lane.bucket,
         wrote=True,
         invalidated=paths,

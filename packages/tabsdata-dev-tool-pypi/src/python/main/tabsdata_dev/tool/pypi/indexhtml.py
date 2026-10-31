@@ -65,14 +65,14 @@ def render_root(projects: set[str]) -> str:
     return _page("root", title="Simple index", projects=sorted(projects))
 
 
-def render_project(project: str, dists: list[Dist]) -> str:
+def render_project(project: str, dists: list[Dist], files: str = "../../files") -> str:
     rows = [
         {
             # Relative on purpose: resolves against the viewer URL, so the same
             # tree works at localhost, on a vanilla CloudFront domain, and at the
             # custom domain -- and is unaffected by the distribution's origin
             # path. quote() leaves nothing an attribute would need escaped.
-            "href": Markup(f"../../files/{quote(d.filename)}#sha256={d.sha256}"),
+            "href": Markup(f"{files}/{quote(d.filename)}#sha256={d.sha256}"),
             "requires_python": _escaped(d.requires_python or ""),
             "core_metadata": d.core_metadata_sha256 or "",
             # PEP 592. pip keeps resolving this file for anyone pinning the
@@ -85,16 +85,33 @@ def render_project(project: str, dists: list[Dist]) -> str:
     return _page("project", title=f"Links for {project}", rows=rows)
 
 
-def render_all(dists: list[Dist]) -> dict[str, str]:
-    """-> {tree-relative path: html}"""
+def _by_project(dists: list[Dist]) -> dict[str, list[Dist]]:
     by_project: dict[str, list[Dist]] = defaultdict(list)
     for d in dists:
         by_project[d.project].append(d)
+    return by_project
 
+
+def render_all(dists: list[Dist]) -> dict[str, str]:
+    """-> {tree-relative path: html}"""
+    by_project = _by_project(dists)
     pages = {
         "index.html": render_landing(),
         "simple/index.html": render_root(set(by_project)),
     }
     for project, group in by_project.items():
         pages[f"simple/{project}/index.html"] = render_project(project, group)
+    return pages
+
+
+def render_namespace(dists: list[Dist]) -> dict[str, str]:
+    """-> {namespace-relative path: html}, for `push --at NAME`: the project list
+    at the namespace's root and each project's page beside it, so pip finds
+    `<NAME>/<project>/` where the lane has `simple/<project>/`. The namespace keeps
+    its own files/, one level nearer than the lane's. No landing page: the bare
+    domain is the lane's."""
+    by_project = _by_project(dists)
+    pages = {"index.html": render_root(set(by_project))}
+    for project, group in by_project.items():
+        pages[f"{project}/index.html"] = render_project(project, group, "../files")
     return pages

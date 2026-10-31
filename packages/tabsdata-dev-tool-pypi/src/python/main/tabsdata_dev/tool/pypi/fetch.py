@@ -177,7 +177,13 @@ def fetch_lane(
     so an interrupted fetch leaves a tree that says so."""
     tree = root / lane.name
     s3 = boto3.client("s3", region_name=cfg.region)
-    remote = remote_index(s3, lane.bucket, lane.prefix)
+    # The lane's own objects: a namespace beside them (push --at) is a
+    # developer's, never part of pypi-wheels/<lane>/.
+    remote = {
+        k: v
+        for k, v in remote_index(s3, lane.bucket, lane.prefix).items()
+        if lane.owns(k)
+    }
     if not remote:
         raise ToolError(f"nothing under s3://{lane.bucket}/{lane.prefix}")
 

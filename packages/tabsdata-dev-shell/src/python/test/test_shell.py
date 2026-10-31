@@ -1155,6 +1155,18 @@ def test_the_index_options_take_the_markers_in_both_halves(resource_folder):
             )
             rc, value = _resolved(resource_folder, shell_bin, option, "@staging")
             assert rc == 1 and value == "", (shell_bin, option, rc, value)
+            # @dev:NAME is namespace NAME on the dev index (tdd pypi push --at)
+            for given, want in (
+                ("@dev:tucu", "https://d3mm0r95u5i3hf.cloudfront.net/tucu/"),
+                ("@dev:", INDEX_DEV),
+            ):
+                assert _resolved(resource_folder, shell_bin, option, given) == (
+                    0,
+                    want,
+                ), (shell_bin, option, given)
+            for bad in ("@dev:files", "@dev:Tucu", "@prod:tucu"):
+                rc, value = _resolved(resource_folder, shell_bin, option, bad)
+                assert rc == 1 and value == "", (shell_bin, option, bad, rc, value)
 
 
 def test_powershell_says_why_a_bare_marker_arrives_empty():

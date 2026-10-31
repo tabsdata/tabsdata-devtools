@@ -101,13 +101,31 @@ _TDD_INDEX_DEV="https://d3mm0r95u5i3hf.cloudfront.net/simple/"
 _TDD_INDEX_PROD="https://pypi.tabsdata.com/simple/"
 
 # Resolve an index marker into _TDD_INDEX_RESOLVED: `@dev` and `@prod` become
-# URLs, anything else passes through. Returns 1 for an unknown `@marker`, and
+# URLs, and so does `@dev:NAME`, namespace NAME on the dev index -- the one
+# `tdd pypi push --lane staging --at NAME` publishes, NAME in place of `simple`
+# (an empty NAME is `simple`). Anything else passes through. Returns 1 for an
+# unknown `@marker`, or a NAME that push would refuse, and
 # the caller reports it -- this sets a variable rather than printing, because
 # in `--format json` an error event goes to stdout and a $(...) around it would
 # capture the event instead of the value.
 _tdd_resolve_index() {
     case "$1" in
         @dev) _TDD_INDEX_RESOLVED="$_TDD_INDEX_DEV" ;;
+        @dev:*)
+            _tdd_ns="${1#@dev:}"
+            _tdd_ns="${_tdd_ns:-simple}"
+            # Spelled out rather than a-z: a range follows the locale's
+            # collation in bash 3.2, where it can take in upper case.
+            case "$_tdd_ns" in
+                files | [!abcdefghijklmnopqrstuvwxyz0123456789]* | \
+                    *[!abcdefghijklmnopqrstuvwxyz0123456789_-]*)
+                    unset _tdd_ns; _TDD_INDEX_RESOLVED=""; return 1 ;;
+            esac
+            if [ "${#_tdd_ns}" -gt 63 ]; then
+                unset _tdd_ns; _TDD_INDEX_RESOLVED=""; return 1
+            fi
+            _TDD_INDEX_RESOLVED="${_TDD_INDEX_DEV%simple/}$_tdd_ns/"
+            unset _tdd_ns ;;
         @prod) _TDD_INDEX_RESOLVED="$_TDD_INDEX_PROD" ;;
         @*) _TDD_INDEX_RESOLVED=""; return 1 ;;
         *) _TDD_INDEX_RESOLVED="$1" ;;

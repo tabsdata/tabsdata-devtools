@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,13 +111,18 @@ def remote_objects(
     prefix: str = "",
     parallel: int = DEFAULT_PARALLEL,
     with_sha: bool = True,
+    keep: Callable[[str], bool] | None = None,
 ) -> dict[str, Remote]:
     """The listing, plus one HEAD per object for its sha256 metadata.
 
     HEADs run `parallel` at a time; 600 objects take a couple of seconds.
     with_sha=False skips them for callers that will delete everything anyway.
+    `keep` narrows the listing before any HEAD: a lane's push lists its own
+    objects, not the namespaces beside them.
     """
     listed = remote_index(s3, bucket, prefix)
+    if keep is not None:
+        listed = {k: v for k, v in listed.items() if keep(k)}
     if not with_sha or not listed:
         return {k: Remote(etag, size, None) for k, (etag, size) in listed.items()}
 

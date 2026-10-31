@@ -900,6 +900,9 @@ def test_uv_index_markers_resolve_and_an_unknown_one_is_refused(resource_folder)
         "@prod": "https://pypi.tabsdata.com/simple/",
         "https://mine.example/simple/": "https://mine.example/simple/",
         "": "",
+        # namespace NAME on the dev index, what tdd pypi push --at NAME publishes
+        "@dev:tucu": "https://d3mm0r95u5i3hf.cloudfront.net/tucu/",
+        "@dev:": "https://d3mm0r95u5i3hf.cloudfront.net/simple/",
     }
     for given, want in cases.items():
         done = _engine(resource_folder, "common_resolve_uv_index", given)
@@ -909,7 +912,9 @@ def test_uv_index_markers_resolve_and_an_unknown_one_is_refused(resource_folder)
     done = _engine(resource_folder, "common_resolve_uv_index", "@staging")
     assert done.returncode == 1
     assert "unknown --uv-index marker: @staging" in done.stderr
-    assert "@dev, @prod, or a URL" in done.stderr
+    assert "@dev, @dev:NAME, @prod, or a URL" in done.stderr
+    for bad in ("@dev:files", "@dev:Tucu", "@dev:a/b", "@prod:tucu"):
+        assert _engine(resource_folder, "common_resolve_uv_index", bad).returncode == 1
 
 
 def test_every_script_resolves_the_uv_index_before_it_uses_it():
@@ -933,6 +938,7 @@ def test_every_script_resolves_the_uv_index_before_it_uses_it():
         assert uses, script.name
         assert resolved < min(uses), (script.name, resolved, min(uses))
         assert "@dev for the development index" in text, script.name
+        assert "@dev:NAME" in text, script.name
         assert "https://d3mm0r95u5i3hf.cloudfront.net/simple/" in text, script.name
         assert "@prod" in text and "https://pypi.tabsdata.com/simple/" in text, (
             script.name

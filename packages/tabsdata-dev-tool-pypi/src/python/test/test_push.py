@@ -29,14 +29,15 @@ from tabsdata_dev.tool.pypi.tree import INDEX, load_index
 LANE = make_cfg().lanes["staging"]
 
 
-def run(tree, s3, monkeypatch, out, lane="staging", **kw):
+def run(tree, s3, monkeypatch, out, lane="staging", lane_at="simple", **kw):
     monkeypatch.setattr(push_mod.boto3, "client", lambda *a, **k: s3)
     monkeypatch.setattr(
         push_mod, "assert_committed_and_pushed", lambda *a, **k: "abc123def456"
     )
     kw.setdefault("dry_run", False)
     kw.setdefault("assume_yes", True)
-    return push_mod.push(tree, make_cfg(), make_cfg().lanes[lane], out=out, **kw)
+    target = make_cfg().lanes[lane].with_at(lane_at)
+    return push_mod.push(tree, make_cfg(), target, out=out, **kw)
 
 
 def verbs(actions):
@@ -498,6 +499,102 @@ def test_lane_urls_skip_a_dash_domain():
         "https://dxxxx.cloudfront.net/simple/",
         "https://pypi-prod.tabsdata.com/simple/",
     ]
+
+
+# ------------------------------------------------------------------ --at NAME
+
+
+def test_a_namespace_is_its_own_tree_beside_the_lanes(
+    raw, tree, staging, monkeypatch, events, out
+):
+    """`--at tucu`: pages at <base>/tucu/ where the lane has simple/, its own
+    files/ inside, and nothing of the lane's touched."""
+    from urllib.parse import urljoin
+
+    release(raw, "0.9.6")
+    generate(raw, staging, out)
+    s3 = FakeS3()
+    run(tree, s3, monkeypatch, out)
+    lanes = dict(s3.objects)
+    s3.puts.clear()
+    s3.invalidations.clear()
+
+    run(tree, s3, monkeypatch, out, lane_at="tucu")
+    assert s3.deletes == []
+    assert {k: v for k, v in s3.objects.items() if k in lanes} == lanes
+    d = load_index(staging)[0]
+    ns = sorted(k for k in s3.objects if k not in lanes)
+    assert ns == sorted(
+        [
+            "pypi/tucu/index.html",
+            "pypi/tucu/index.json",
+            f"pypi/tucu/files/{d.filename}",
+            f"pypi/tucu/files/{d.filename}.metadata",
+            "pypi/tucu/tabsdata/index.html",
+        ]
+    )
+    assert s3.puts[-1]["Key"] == "pypi/tucu/index.json"
+    assert s3.metadata[f"pypi/tucu/files/{d.filename}"] == {"sha256": d.sha256}
+    page = s3.bodies["pypi/tucu/tabsdata/index.html"].decode()
+    href = page.split('href="', 1)[1].split('"', 1)[0]
+    url = urljoin("https://dxxxx.cloudfront.net/tucu/tabsdata/", href)
+    assert url.startswith(f"https://dxxxx.cloudfront.net/tucu/files/{d.filename}#")
+    assert 'href="tabsdata/"' in s3.bodies["pypi/tucu/index.html"].decode()
+    paths = s3.invalidations[0]["InvalidationBatch"]["Paths"]["Items"]
+    assert paths == ["/tucu/*"]
+    assert "live in about a minute at https://dxxxx.cloudfront.net/tucu/ and" in (
+        events.text
+    )
+
+
+def test_the_lane_and_each_namespace_prune_only_their_own(
+    raw, tree, staging, monkeypatch, out
+):
+    import shutil
+
+    release(raw, "0.9.6")
+    release(raw, "0.9.7")
+    generate(raw, staging, out)
+    s3 = FakeS3()
+    run(tree, s3, monkeypatch, out)
+    run(tree, s3, monkeypatch, out, lane_at="tucu")
+    run(tree, s3, monkeypatch, out, lane_at="ana")
+    s3.deletes.clear()
+
+    shutil.rmtree(raw / "0.9.7")
+    generate(raw, staging, out)
+    run(tree, s3, monkeypatch, out, lane_at="tucu")
+    assert s3.deletes and all(k.startswith("pypi/tucu/") for k in s3.deletes)
+    assert any("0.9.7" in k for k in s3.objects if k.startswith("pypi/ana/"))
+
+    s3.deletes.clear()
+    run(tree, s3, monkeypatch, out)
+    assert s3.deletes
+    assert not any(k.startswith(("pypi/tucu/", "pypi/ana/")) for k in s3.deletes)
+    assert any("0.9.7" in k for k in s3.objects if k.startswith("pypi/ana/"))
+
+    s3.deletes.clear()
+    s3.heads.clear()
+    run(tree, s3, monkeypatch, out, full=True)
+    assert not any(k.startswith(("pypi/tucu/", "pypi/ana/")) for k in s3.deletes)
+    assert "pypi/ana/index.json" in s3.objects
+
+
+def test_a_namespace_name_is_one_url_segment_and_not_the_lanes():
+    from conftest import make_lane
+
+    lane = make_lane()
+    assert not lane.with_at("simple").namespaced
+    assert lane.with_at("simple").prefix == "pypi/"
+    tucu = lane.with_at("tucu-2_b")
+    assert tucu.prefix == "pypi/tucu-2_b/" and tucu.key("x") == "pypi/tucu-2_b/x"
+    assert tucu.urls[0] == "https://dxxxx.cloudfront.net/tucu-2_b/"
+    for bad in ("files", "Tucu", "-x", "a/b", "a.b", "", "x" * 64):
+        with pytest.raises(ToolError, match="a namespace is"):
+            lane.with_at(bad)
+    assert lane.owns("pypi/index.json") and lane.owns("pypi/simple/x/index.html")
+    assert lane.owns("pypi/files/a.whl") and not lane.owns("pypi/tucu/index.json")
+    assert tucu.owns("pypi/tucu/files/a.whl")
 
 
 # ----------------------------------------------------------------- prod gates

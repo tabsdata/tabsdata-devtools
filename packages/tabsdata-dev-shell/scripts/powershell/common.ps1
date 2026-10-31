@@ -124,13 +124,26 @@ $global:_TDD_INDEX_DEV = 'https://d3mm0r95u5i3hf.cloudfront.net/simple/'
 $global:_TDD_INDEX_PROD = 'https://pypi.tabsdata.com/simple/'
 
 # Resolve an index marker into $_TDD_INDEX_RESOLVED: `@dev` and `@prod` become
-# URLs, anything else passes through. Returns $false for an unknown `@marker`,
+# URLs, and so does `@dev:NAME`, namespace NAME on the dev index -- the one
+# `tdd pypi push --lane staging --at NAME` publishes, NAME in place of `simple`
+# (an empty NAME is `simple`). Anything else passes through. Returns $false for
+# an unknown `@marker`, or a NAME that push would refuse,
 # and the caller reports it -- the value goes in a variable rather than out of
 # the function, because a function that emits an event cannot also return one.
 function _tdd_resolve_index {
     param([string]$Value)
     switch -Regex ($Value) {
         '^@dev$' { $global:_TDD_INDEX_RESOLVED = $global:_TDD_INDEX_DEV; return $true }
+        '^@dev:' {
+            $name = $Value.Substring(5)
+            if (-not $name) { $name = 'simple' }
+            if ($name -ceq 'files' -or $name -cnotmatch '^[a-z0-9][a-z0-9_-]{0,62}$') {
+                $global:_TDD_INDEX_RESOLVED = ''
+                return $false
+            }
+            $global:_TDD_INDEX_RESOLVED = ($global:_TDD_INDEX_DEV -creplace 'simple/$', '') + "$name/"
+            return $true
+        }
         '^@prod$' { $global:_TDD_INDEX_RESOLVED = $global:_TDD_INDEX_PROD; return $true }
         '^@' { $global:_TDD_INDEX_RESOLVED = ''; return $false }
     }
