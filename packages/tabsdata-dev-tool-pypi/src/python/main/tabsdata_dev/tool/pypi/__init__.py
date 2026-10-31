@@ -50,6 +50,7 @@ from . import aws_check as aws_check_mod
 from . import cache as cache_mod
 from . import check as check_mod
 from . import config as config_mod
+from . import delete as delete_mod
 from . import fetch as fetch_mod
 from . import generate as generate_mod
 from . import promote as promote_mod
@@ -231,6 +232,32 @@ def configure(p: argparse.ArgumentParser) -> None:
     )
     _parallel(d)
 
+    rm = sub.add_parser(
+        "delete",
+        help="--lane staging: delete the lane's own tree, or with --at NAME that "
+        "namespace, from the bucket and the edge; staging only",
+    )
+    rm.add_argument(
+        "--lane",
+        required=True,
+        choices=("staging",),
+        help="staging: the published index is never deleted",
+    )
+    rm.add_argument(
+        "--at",
+        metavar="NAME",
+        default=DEFAULT_AT,
+        help="the namespace `push --at NAME` made; the lane's own tree, its "
+        f"namespaces kept, when {DEFAULT_AT} (default {DEFAULT_AT})",
+    )
+    rm.add_argument(
+        "--dry-run", action="store_true", help="print the plan, delete nothing"
+    )
+    rm.add_argument(
+        "--yes", "-y", action="store_true", help="do not ask before deleting"
+    )
+    _parallel(rm)
+
     f = sub.add_parser(
         "fetch",
         help="--lane raw: the archive -> raw-wheels/; "
@@ -258,7 +285,7 @@ def configure(p: argparse.ArgumentParser) -> None:
 
     # Every subcommand also takes the common options, so they work on either
     # side of the subcommand word (see _common).
-    for spec in (g, pr, ac, s_, c, cc, d, f):
+    for spec in (g, pr, ac, s_, c, cc, d, rm, f):
         _common(spec)
 
     p.epilog = "example: tdd pypi push --lane staging --dry-run"
@@ -322,6 +349,15 @@ def body(args: argparse.Namespace, out: Renderer) -> int:
             dry_run=args.dry_run,
             assume_yes=args.yes,
             full=args.full,
+            parallel=args.parallel,
+            out=out,
+        )
+    if args.cmd == "delete":
+        return delete_mod.delete(
+            cfg,
+            cfg.lane(args.lane).with_at(args.at),
+            dry_run=args.dry_run,
+            assume_yes=args.yes,
             parallel=args.parallel,
             out=out,
         )

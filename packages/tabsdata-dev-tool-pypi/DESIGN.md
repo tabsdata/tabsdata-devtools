@@ -4,7 +4,7 @@ Copyright 2026 Tabsdata Inc.
 
 # pypi
 
-`tdd pypi generate|promote|push|fetch|check|serve|cache-clean|aws-check`: build and publish
+`tdd pypi generate|promote|push|delete|fetch|check|serve|cache-clean|aws-check`: build and publish
 `pypi.tabsdata.com`, a public, anonymous-read Python index serving only Tabsdata's own wheels --
 static HTML on S3 behind CloudFront, no server, nothing to patch. Ported from `tdi-pypi` in
 `tabsdata-infra/pypi`, which was a standalone package with a venv of its own and two verifier
@@ -26,7 +26,8 @@ the tool.
   `indexhtml` (pages), `tree` (raw and lane trees, the root index), `yanked`. The frame: `config`
   (`lanes.yaml` + `POLICY`), `repo` (the guard), `git` (the release gate). The S3 engines: `plan`
   (plan/report/execute, shared by every lane of push), `pull` (shared by every lane of fetch).
-  The verbs: `generate`, `promote`, `check`, `cache`, `push`, `push_raw`, `fetch`, `aws_check`.
+  The verbs: `generate`, `promote`, `check`, `cache`, `push`, `push_raw`, `delete`, `fetch`,
+  `aws_check`.
 - Every subcommand also takes the common options, so `--pypi-repo`, `--format` and `--verbose`
   work on either side of the subcommand word (argparse only accepts a top-level option before it;
   the guidelines say everything after the command word belongs to the command). `SUPPRESS` on the
@@ -212,8 +213,18 @@ Prod takes `--at` too, behind the same gates.
 
 The edge needs nothing new: tabsdata-pi's `directory-index.js` turns any `.../` into
 `.../index.html`. Its 301 for a missing slash covers `/simple` only, which costs nothing because
-pip and uv always ask with the slash. Nothing removes a namespace yet; it is
-`aws s3 rm --recursive s3://<bucket>/<base_path>/NAME/` and an invalidation.
+pip and uv always ask with the slash. `delete --lane staging --at NAME` is how one ends.
+
+## delete
+
+`delete --lane staging [--at NAME]` takes namespace NAME out of the bucket, or with the default
+the lane's own tree, its namespaces kept (`Lane.owns` again). Staging only, by the parser's
+choices: prod is the published index, and taking it down is not a verb. The same engine as push:
+the plan is reported before anything goes, `--dry-run` stops there, `--yes` or the prompt
+confirms, and the index goes first and alone, so from the first delete on the target says it is
+incomplete, as a push that stopped halfway would. Then the edge: `/NAME/*`, or the lane's pages
+and `files/*`. An empty target is not an error -- there is nothing to do, and a script's
+teardown may run it twice.
 
 ## fetch
 
