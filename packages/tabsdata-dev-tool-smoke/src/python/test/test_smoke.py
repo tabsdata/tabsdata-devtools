@@ -902,7 +902,11 @@ def test_uv_index_markers_resolve_and_an_unknown_one_is_refused(resource_folder)
         "": "",
         # namespace NAME on the dev index, what tdd pypi push --at NAME publishes
         "@dev:tucu": "https://d3mm0r95u5i3hf.cloudfront.net/tucu/",
-        "@dev:": "https://d3mm0r95u5i3hf.cloudfront.net/simple/",
+        # tdd pypi serve on this machine: PORT 8000 and NAME simple by default
+        "@local": "http://localhost:8000/simple/",
+        "@local:tucu": "http://localhost:8000/tucu/",
+        "@local::9000": "http://localhost:9000/simple/",
+        "@local::9000:tucu": "http://localhost:9000/tucu/",
     }
     for given, want in cases.items():
         done = _engine(resource_folder, "common_resolve_uv_index", given)
@@ -912,9 +916,37 @@ def test_uv_index_markers_resolve_and_an_unknown_one_is_refused(resource_folder)
     done = _engine(resource_folder, "common_resolve_uv_index", "@staging")
     assert done.returncode == 1
     assert "unknown --uv-index marker: @staging" in done.stderr
-    assert "@dev, @dev:NAME, @prod, or a URL" in done.stderr
-    for bad in ("@dev:files", "@dev:Tucu", "@dev:a/b", "@prod:tucu"):
+    assert "@dev, @dev:NAME, @local[::PORT][:NAME], @prod, or a URL" in done.stderr
+    for bad in (
+        "@dev:",
+        "@local:",
+        "@local::",
+        "@local::9000:",
+        "@dev:files",
+        "@dev:Tucu",
+        "@dev:a/b",
+        "@prod:tucu",
+        "@localx",
+        "@local::0",
+        "@local::65536",
+        "@local:a:b",
+    ):
         assert _engine(resource_folder, "common_resolve_uv_index", bad).returncode == 1
+
+
+def test_a_cluster_run_refuses_local_indexes(resource_folder):
+    """A cluster script's index goes to its pods, for which localhost is
+    themselves: --no-local refuses every @local, good or bad, and nothing else."""
+    for local in ("@local", "@local::9000:tucu", "@local:Bad"):
+        done = _engine(resource_folder, "common_resolve_uv_index", local, "--no-local")
+        assert done.returncode == 1, local
+        assert "@local is not for a cluster run" in done.stderr, local
+    done = _engine(
+        resource_folder, "common_resolve_uv_index", "@dev:tucu", "--no-local"
+    )
+    assert done.stdout == "https://d3mm0r95u5i3hf.cloudfront.net/tucu/"
+    done = _engine(resource_folder, "common_resolve_uv_index", "@x", "--no-local")
+    assert "(@dev, @dev:NAME, @prod, or a URL)" in done.stderr
 
 
 def test_every_script_resolves_the_uv_index_before_it_uses_it():
@@ -939,6 +971,12 @@ def test_every_script_resolves_the_uv_index_before_it_uses_it():
         assert resolved < min(uses), (script.name, resolved, min(uses))
         assert "@dev for the development index" in text, script.name
         assert "@dev:NAME" in text, script.name
+        # kminus runs here; the others' index goes to a cluster's pods
+        if script.name == "smoke-km.sh":
+            assert "@local[::PORT][:NAME]" in text, script.name
+        else:
+            assert 'common_resolve_uv_index "$UV_INDEX_URI" --no-local' in text
+            assert "not @local" in text, script.name
         assert "https://d3mm0r95u5i3hf.cloudfront.net/simple/" in text, script.name
         assert "@prod" in text and "https://pypi.tabsdata.com/simple/" in text, (
             script.name

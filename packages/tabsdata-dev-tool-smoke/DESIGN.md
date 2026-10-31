@@ -131,8 +131,12 @@ stages; declaring them here would refuse an export on a machine that only wants 
 `--name` and `--td-version`; the cluster three also require `--kube-config` and `--kube-context`.
 There is no sane default for which cluster to reach, so those are required and `common_help` paints
 `--uv-index` takes `@dev` (`https://d3mm0r95u5i3hf.cloudfront.net/simple/`), `@dev:NAME`
-(`.../NAME/`, the namespace `tdd pypi push --lane staging --at NAME` publishes; an empty NAME is
-`simple`) and `@prod` (`https://pypi.tabsdata.com/simple/`) as well as a URL, resolved once by
+(`.../NAME/`, the namespace `tdd pypi push --lane staging --at NAME` publishes),
+`@local[::PORT][:NAME]` (`http://localhost:PORT/NAME/`, `tdd pypi serve` on this machine, PORT
+8000 and NAME `simple` when left out; `smoke-km` only -- the cluster scripts pass
+`--no-local` and refuse it, their index going to pods, for which localhost is themselves) and
+`@prod` (`https://pypi.tabsdata.com/simple/`) as
+well as a URL; a NAME or PORT written empty (`@dev:`, `@local::`) is refused. Resolved once by
 `common_resolve_uv_index` as soon as tdd is loaded, before the banner, so the banner, the `uv
 pip install`, the `tabsdata.yaml` and tdkserver all see the URL and never the marker. The two
 URLs live in `tdd _smoke uv-index` (`indexes.py`), because every script, in either family, has

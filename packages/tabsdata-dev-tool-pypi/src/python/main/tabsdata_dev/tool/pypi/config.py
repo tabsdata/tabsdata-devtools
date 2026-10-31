@@ -62,6 +62,17 @@ TREE_DIRS = ("files", DEFAULT_AT)
 _AT_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,62}")
 _AT_RESERVED = ("files",)
 
+
+def check_at(name: str) -> str:
+    """`name` when it can be a namespace (`--at`), else the refusal."""
+    if name in _AT_RESERVED or not _AT_NAME.fullmatch(name):
+        raise ToolError(
+            f"--at {name!r}: a namespace is lower-case letters, digits, '-' and "
+            f"'_', starting with a letter or digit, and not {', '.join(_AT_RESERVED)}"
+        )
+    return name
+
+
 #: Concurrent S3 transfers (HEADs, puts, deletes, downloads) unless --parallel
 #: says otherwise. The work is bandwidth-bound and boto3 clients are thread-safe.
 DEFAULT_PARALLEL = 32
@@ -80,12 +91,7 @@ class Lane:
 
     def with_at(self, name: str) -> Lane:
         """This lane as namespace `name` (`push --at`)."""
-        if name in _AT_RESERVED or not _AT_NAME.fullmatch(name):
-            raise ToolError(
-                f"--at {name!r}: a namespace is lower-case letters, digits, '-' and "
-                f"'_', starting with a letter or digit, and not {', '.join(_AT_RESERVED)}"
-            )
-        return replace(self, at=name)
+        return replace(self, at=check_at(name))
 
     @property
     def namespaced(self) -> bool:

@@ -130,8 +130,8 @@ options:
   --crypto  _TDD_CRYPTO_KEY, the key that encrypts the system and domain descriptors; read only when the variable is not already set, unless --force (or --value, which reads nothing)
   --secrets  every <PREFIX>__<KEY> secret of a shared vault, plus _TDD_SYSTEMS, the prefix list that `unset --secrets` reads back
   --pypi-twine  the PyPI upload credentials, for twine: the fields PYPI_TWINE_USERNAME and PYPI_TWINE_PASSWORD of item DevSecrets (the crypto key's item and vault) exported as TWINE_USERNAME and TWINE_PASSWORD, the names `twine upload` reads. Fetched every time, set or not
-  --py-idx URL  the extra Python package index: UV_INDEX and PIP_EXTRA_INDEX_URL, plus UV_INDEX_STRATEGY=unsafe-best-match so uv considers it. URL is a URL, or @dev for the development index (https://d3mm0r95u5i3hf.cloudfront.net/simple/), @dev:NAME for namespace NAME on it (https://d3mm0r95u5i3hf.cloudfront.net/NAME/, what tdd pypi push --at NAME publishes) or @prod for the published one (https://pypi.tabsdata.com/simple/)
-  --py-default-idx URL  the default Python package index: UV_DEFAULT_INDEX and PIP_INDEX_URL. Takes @dev, @dev:NAME and @prod too
+  --py-idx URL  the extra Python package index: UV_INDEX and PIP_EXTRA_INDEX_URL, plus UV_INDEX_STRATEGY=unsafe-best-match so uv considers it. URL is a URL, or @dev for the development index (https://d3mm0r95u5i3hf.cloudfront.net/simple/), @dev:NAME for namespace NAME on it (https://d3mm0r95u5i3hf.cloudfront.net/NAME/, what tdd pypi push --at NAME publishes), @local[::PORT][:NAME] for tdd pypi serve on this machine (http://localhost:PORT/NAME/, PORT 8000 and NAME simple unless given) or @prod for the published one (https://pypi.tabsdata.com/simple/)
+  --py-default-idx URL  the default Python package index: UV_DEFAULT_INDEX and PIP_INDEX_URL. Takes @dev, @dev:NAME, @local[::PORT][:NAME] and @prod too
   --vault 1p:VAULT  the vault to read from, as a provider ref (1p is the only provider today). Defaults: --crypto and --pypi-twine 1p:Employee, --secrets 1p:dev_xp
   --item ITEM  --crypto: the item in the vault (default: DevSecrets)
   --field FIELD  --crypto: the field of that item (default: TD_BACKENDS_CRYPTO_KEY)
@@ -245,7 +245,7 @@ _tdd_vars_set() {
             --py-idx | --py-idx=*)
                 _tdd_optval "$@" || { _tdd_error "--py-idx needs a URL"; return 1; }
                 _tdd_resolve_index "$_TDD_OPTVAL" \
-                    || { _tdd_error "unknown --py-idx marker: $_TDD_OPTVAL (@dev, @dev:NAME, @prod, or a URL)"; return 1; }
+                    || { _tdd_error "unknown --py-idx marker: $_TDD_OPTVAL (@dev, @dev:NAME, @local[::PORT][:NAME], @prod, or a URL)"; return 1; }
                 # An empty value is refused here rather than falling through to
                 # "nothing selected", which names the wrong problem.
                 [ -n "$_TDD_INDEX_RESOLVED" ] || { _tdd_error "--py-idx needs a URL"; return 1; }
@@ -253,7 +253,7 @@ _tdd_vars_set() {
             --py-default-idx | --py-default-idx=*)
                 _tdd_optval "$@" || { _tdd_error "--py-default-idx needs a URL"; return 1; }
                 _tdd_resolve_index "$_TDD_OPTVAL" \
-                    || { _tdd_error "unknown --py-default-idx marker: $_TDD_OPTVAL (@dev, @dev:NAME, @prod, or a URL)"; return 1; }
+                    || { _tdd_error "unknown --py-default-idx marker: $_TDD_OPTVAL (@dev, @dev:NAME, @local[::PORT][:NAME], @prod, or a URL)"; return 1; }
                 # An empty value is refused here rather than falling through to
                 # "nothing selected", which names the wrong problem.
                 [ -n "$_TDD_INDEX_RESOLVED" ] || { _tdd_error "--py-default-idx needs a URL"; return 1; }

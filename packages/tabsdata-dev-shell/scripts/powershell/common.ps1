@@ -122,30 +122,58 @@ function _tdd_failed {
 # of tdd's; a test holds the files in step.
 $global:_TDD_INDEX_DEV = 'https://d3mm0r95u5i3hf.cloudfront.net/simple/'
 $global:_TDD_INDEX_PROD = 'https://pypi.tabsdata.com/simple/'
+# `tdd pypi serve`'s own default port, which `@local` means unless told.
+$global:_TDD_INDEX_LOCAL_PORT = '8000'
+
+# _tdd_index_namespace NAME -- $true when NAME is one `tdd pypi push --at`
+# takes: one URL segment, not empty, not the index's own `files`.
+function _tdd_index_namespace {
+    param([string]$Name)
+    $Name -cne 'files' -and $Name -cmatch '^[a-z0-9][a-z0-9_-]{0,62}$'
+}
 
 # Resolve an index marker into $_TDD_INDEX_RESOLVED: `@dev` and `@prod` become
-# URLs, and so does `@dev:NAME`, namespace NAME on the dev index -- the one
-# `tdd pypi push --lane staging --at NAME` publishes, NAME in place of `simple`
-# (an empty NAME is `simple`). Anything else passes through. Returns $false for
-# an unknown `@marker`, or a NAME that push would refuse,
-# and the caller reports it -- the value goes in a variable rather than out of
-# the function, because a function that emits an event cannot also return one.
+# URLs, and so do
+#   @dev:NAME               namespace NAME on the dev index, the one `tdd pypi
+#                           push --lane staging --at NAME` publishes
+#   @local[::PORT][:NAME]   `tdd pypi serve [--port PORT] [--at NAME]` here
+# NAME is `simple` and PORT 8000 when left out; written empty (`@dev:`,
+# `@local::`), either is refused. Anything else passes
+# through. Returns $false for an unknown `@marker`, or a NAME or PORT that names
+# no index, and the caller reports it -- the value goes in a variable rather
+# than out of the function, because a function that emits an event cannot also
+# return one.
 function _tdd_resolve_index {
     param([string]$Value)
+    $global:_TDD_INDEX_RESOLVED = ''
     switch -Regex ($Value) {
         '^@dev$' { $global:_TDD_INDEX_RESOLVED = $global:_TDD_INDEX_DEV; return $true }
         '^@dev:' {
             $name = $Value.Substring(5)
-            if (-not $name) { $name = 'simple' }
-            if ($name -ceq 'files' -or $name -cnotmatch '^[a-z0-9][a-z0-9_-]{0,62}$') {
-                $global:_TDD_INDEX_RESOLVED = ''
-                return $false
-            }
+            if (-not (_tdd_index_namespace $name)) { return $false }
             $global:_TDD_INDEX_RESOLVED = ($global:_TDD_INDEX_DEV -creplace 'simple/$', '') + "$name/"
             return $true
         }
+        '^@local(:|$)' {
+            $rest = $Value.Substring(6)
+            $port = $global:_TDD_INDEX_LOCAL_PORT
+            $name = 'simple'
+            if ($rest.StartsWith('::')) {
+                $parts = $rest.Substring(2).Split(':', 2)
+                $port = $parts[0]
+                if ($parts.Count -gt 1) { $name = $parts[1] }
+            } elseif ($rest) {
+                $name = $rest.Substring(1)
+            }
+            if ($port -cnotmatch '^[1-9][0-9]{0,4}$' -or [int]$port -gt 65535 -or
+                -not (_tdd_index_namespace $name)) {
+                return $false
+            }
+            $global:_TDD_INDEX_RESOLVED = "http://localhost:$port/$name/"
+            return $true
+        }
         '^@prod$' { $global:_TDD_INDEX_RESOLVED = $global:_TDD_INDEX_PROD; return $true }
-        '^@' { $global:_TDD_INDEX_RESOLVED = ''; return $false }
+        '^@' { return $false }
     }
     $global:_TDD_INDEX_RESOLVED = $Value
     return $true

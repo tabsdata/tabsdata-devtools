@@ -184,10 +184,16 @@ def configure(p: argparse.ArgumentParser) -> None:
 
     index = sub.add_parser(
         "uv-index",
-        help="the URL a --uv-index value stands for: @dev, @dev:NAME, @prod, "
-        "a URL; nothing for an unknown @marker",
+        help="the URL a --uv-index value stands for: @dev, @dev:NAME, "
+        "@local[::PORT][:NAME], @prod, a URL; nothing for an unknown @marker",
     )
     index.add_argument("--value", required=True)
+    index.add_argument(
+        "--no-local",
+        action="store_true",
+        help="refuse @local: the index goes to a cluster's pods, for which "
+        "localhost is themselves",
+    )
 
 
 def _forward_options(p: argparse.ArgumentParser) -> None:
@@ -309,6 +315,12 @@ def body(args: argparse.Namespace, out: render.Renderer) -> int:
         tty = args.tty or sys.stdout.isatty()
         return out.ok(screen.paint_help(text, required, tty))
     if args.action == "uv-index":
+        if args.no_local and indexes.is_local(args.value):
+            return out.error(
+                f"--uv-index {args.value}: @local is not for a cluster run -- the "
+                "index goes to the pods, for which localhost is themselves; serve "
+                "it from a namespace instead (tdd pypi push --at NAME, @dev:NAME)"
+            )
         url = indexes.resolve(args.value)
         return out.ok(url or "", known=url is not None)
     return out.error("no action given (see --help)")

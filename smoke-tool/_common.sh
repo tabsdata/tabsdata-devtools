@@ -583,20 +583,23 @@ common_k8s_report() {
     echo "================ end kubernetes"
 }
 
-# common_resolve_uv_index VALUE -- print the URL VALUE stands for (`tdd _smoke
-# uv-index`, where the named ones live, so every script means the same by @dev):
-# `@dev`, `@dev:NAME` (namespace NAME on the dev index) and `@prod` resolve,
-# anything else passes through, and empty stays empty (no index asked for). An
-# unknown `@marker` is refused here rather than passed on: uv would take it for
-# a URL and fail several stages later, in a message about a failed install that
-# says nothing about the option that caused it.
+# common_resolve_uv_index VALUE [--no-local] -- print the URL VALUE stands for
+# (`tdd _smoke uv-index`, where the named ones live, so every script means the
+# same by @dev): `@dev`, `@dev:NAME` (namespace NAME on the dev index),
+# `@local[::PORT][:NAME]` (tdd pypi serve here) and `@prod` resolve, anything
+# else passes through, and empty stays empty (no index asked for). An unknown
+# `@marker` is refused here rather than passed on: uv would take it for a URL
+# and fail several stages later, in a message about a failed install that says
+# nothing about the option that caused it. --no-local refuses `@local` too: a
+# cluster script's index goes to pods, for which localhost is themselves.
 common_resolve_uv_index() {
-    local url
-    url="$(tdd _smoke uv-index --value "$1")" || return 1
+    local url markers="@dev, @dev:NAME, @local[::PORT][:NAME], @prod, or a URL"
+    [ "${2:-}" = "--no-local" ] && markers="@dev, @dev:NAME, @prod, or a URL"
+    url="$(tdd _smoke uv-index --value "$1" ${2:+"$2"})" || return 1
     if [ -n "$1" ] && [ -z "$url" ]; then
         # `.sh` stripped: this stands beside the scripts' own option
         # errors, which name themselves without it.
-        echo "$(basename "$0" .sh): unknown --uv-index marker: $1 (@dev, @dev:NAME, @prod, or a URL)" >&2
+        echo "$(basename "$0" .sh): unknown --uv-index marker: $1 ($markers)" >&2
         return 1
     fi
     printf '%s' "$url"

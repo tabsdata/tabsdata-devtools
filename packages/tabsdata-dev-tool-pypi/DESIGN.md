@@ -26,7 +26,7 @@ the tool.
   `indexhtml` (pages), `tree` (raw and lane trees, the root index), `yanked`. The frame: `config`
   (`lanes.yaml` + `POLICY`), `repo` (the guard), `git` (the release gate). The S3 engines: `plan`
   (plan/report/execute, shared by every lane of push), `pull` (shared by every lane of fetch).
-  The verbs: `generate`, `promote`, `check`, `cache`, `push`, `push_raw`, `delete`, `fetch`,
+  The verbs: `generate`, `promote`, `check`, `cache`, `push`, `push_raw`, `delete`, `serve`, `fetch`,
   `aws_check`.
 - Every subcommand also takes the common options, so `--pypi-repo`, `--format` and `--verbose`
   work on either side of the subcommand word (argparse only accepts a top-level option before it;
@@ -52,7 +52,10 @@ raw-wheels/  ⇄  push/fetch --lane raw  ⇄  s3://td-raw-wheels   the archive
 ```
 
 One direction, and every arrow rebuilds its target from scratch. `serve` runs `http.server` on a
-local tree, so the index can be tested with a real pip before any credential is involved.
+local tree, so the index can be tested with a real pip before any credential is involved; with
+`--at NAME` it also serves the tree at `/NAME/` as that namespace serves it (below), so the
+index a `push --at NAME` would publish can be tried first -- `@local[::PORT][:NAME]` in
+`tdd env --py-idx` and the smoke scripts' `--uv-index` is that URL.
 
 ## Three ideas the rest follows from
 

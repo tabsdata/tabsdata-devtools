@@ -33,8 +33,6 @@ and `config --show` for where that is set.
 from __future__ import annotations
 
 import argparse
-import functools
-import http.server
 import os
 from pathlib import Path
 
@@ -57,6 +55,7 @@ from . import promote as promote_mod
 from . import push as push_mod
 from . import push_raw as push_raw_mod
 from . import repo
+from . import serve as serve_mod
 from .config import (
     DEFAULT_AT,
     DEFAULT_CONFIG,
@@ -67,21 +66,9 @@ from .config import (
     POLICY,
     RAW,
 )
-from .tree import lane_tree, load_index
+from .tree import lane_tree
 
 SERVING = tuple(POLICY)  # staging, prod
-
-
-def _serve(tree: Path, port: int, out: Renderer) -> int:
-    load_index(tree)  # refuses if the tree is incomplete
-    handler = functools.partial(
-        http.server.SimpleHTTPRequestHandler, directory=str(tree)
-    )
-    out.info(f"serving {tree}/ at http://localhost:{port}/simple/   (ctrl-c to stop)")
-    # Blocks until interrupted; cli.run() turns the KeyboardInterrupt into the
-    # one error line. There is no `ok` on this path -- nothing completed.
-    http.server.ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
-    return 0
 
 
 def _common(sub: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -165,6 +152,13 @@ def configure(p: argparse.ArgumentParser) -> None:
         help="which tree (default staging)",
     )
     s_.add_argument("--port", type=int, default=8000, help="default 8000")
+    s_.add_argument(
+        "--at",
+        metavar="NAME",
+        default=DEFAULT_AT,
+        help="also serve the tree at /NAME/ as namespace NAME serves it once "
+        f"`push --at NAME` publishes it (default {DEFAULT_AT}: the tree alone)",
+    )
 
     c = sub.add_parser("check", help="is the index there? (complete generate/push)")
     c.add_argument("--lane", required=True, choices=SERVING, help="which lane")
@@ -305,7 +299,12 @@ def body(args: argparse.Namespace, out: Renderer) -> int:
             lane_tree(args.tree, "staging"), lane_tree(args.tree, "prod"), out
         )
     if args.cmd == "serve":
-        return _serve(lane_tree(args.tree, args.lane), args.port, out)
+        return serve_mod.serve(
+            lane_tree(args.tree, args.lane),
+            args.port,
+            config_mod.check_at(args.at),
+            out,
+        )
     if args.cmd == "check" and args.local:
         return check_mod.check_local(lane_tree(args.tree, args.lane), out)
 

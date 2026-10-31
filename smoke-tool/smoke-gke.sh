@@ -94,8 +94,9 @@ options:
                       URI is a URL, or @dev for the development index
                       (https://d3mm0r95u5i3hf.cloudfront.net/simple/), @dev:NAME
                       for namespace NAME on it (.../NAME/, what tdd pypi push
-                      --at NAME publishes) or @prod for the published one
-                      (https://pypi.tabsdata.com/simple/)
+                      --at NAME publishes) or @prod for the published
+                      one (https://pypi.tabsdata.com/simple/); not @local,
+                      since the pods would read localhost as themselves
                       (default: none -- whatever uv is already configured with)
   --xp-suites LIST    comma-separated xp suite selectors, one stage each;
                       ALL for every suite dir
@@ -211,7 +212,7 @@ if [ ! -r "$TDD_DIR_OPT/tdd-source.sh" ]; then
 fi
 # shellcheck disable=SC1090
 . "$TDD_DIR_OPT/tdd-source.sh"
-UV_INDEX_URI="$(common_resolve_uv_index "$UV_INDEX_URI")" || exit 1
+UV_INDEX_URI="$(common_resolve_uv_index "$UV_INDEX_URI" --no-local)" || exit 1
 
 case "$VENV_TYPE" in uv | pyenv | conda) ;; *) echo "smoke-gke: --venv-type must be uv, pyenv or conda" >&2; exit 1 ;; esac
 missing=""

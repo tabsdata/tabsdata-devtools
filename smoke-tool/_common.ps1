@@ -478,7 +478,7 @@ function common_resolve_uv_index {
     param([string]$Value)
     $url = (common_smoke uv-index --value $Value) -join ''
     if ($Value -and -not $url) {
-        [Console]::Error.WriteLine("$($script:COMMON_SCRIPT): unknown --uv-index marker: $Value (@dev, @dev:NAME, @prod, or a URL)")
+        [Console]::Error.WriteLine("$($script:COMMON_SCRIPT): unknown --uv-index marker: $Value (@dev, @dev:NAME, @local[::PORT][:NAME], @prod, or a URL)")
         exit 1
     }
     $url

@@ -1158,13 +1158,30 @@ def test_the_index_options_take_the_markers_in_both_halves(resource_folder):
             # @dev:NAME is namespace NAME on the dev index (tdd pypi push --at)
             for given, want in (
                 ("@dev:tucu", "https://d3mm0r95u5i3hf.cloudfront.net/tucu/"),
-                ("@dev:", INDEX_DEV),
+                # @local[::PORT][:NAME] is tdd pypi serve on this machine
+                ("@local", "http://localhost:8000/simple/"),
+                ("@local:tucu", "http://localhost:8000/tucu/"),
+                ("@local::9000", "http://localhost:9000/simple/"),
+                ("@local::9000:tucu", "http://localhost:9000/tucu/"),
             ):
                 assert _resolved(resource_folder, shell_bin, option, given) == (
                     0,
                     want,
                 ), (shell_bin, option, given)
-            for bad in ("@dev:files", "@dev:Tucu", "@prod:tucu"):
+            for bad in (
+                "@dev:",
+                "@local:",
+                "@local::",
+                "@local::9000:",
+                "@dev:files",
+                "@dev:Tucu",
+                "@prod:tucu",
+                "@localx",
+                "@local::0",
+                "@local::65536",
+                "@local::x",
+                "@local:a:b",
+            ):
                 rc, value = _resolved(resource_folder, shell_bin, option, bad)
                 assert rc == 1 and value == "", (shell_bin, option, bad, rc, value)
 
