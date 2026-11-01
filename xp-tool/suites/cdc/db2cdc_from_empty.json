@@ -71,7 +71,7 @@
         "collection": "db2cdc_from_empty",
         "table": "xp_sentinel_changes",
         "wait_for_key": "before-stream",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },
@@ -141,7 +141,7 @@
         "collection": "db2cdc_from_empty",
         "table": "xp_sentinel_changes",
         "wait_for_key": "after-changes",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },

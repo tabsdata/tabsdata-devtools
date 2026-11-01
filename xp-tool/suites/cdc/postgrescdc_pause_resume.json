@@ -64,7 +64,7 @@
         "collection": "postgrescdc_pause_resume",
         "table": "xp_sentinel_changes",
         "wait_for_key": "after-create-data",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },
@@ -167,7 +167,7 @@
         "collection": "postgrescdc_pause_resume",
         "table": "xp_sentinel_changes",
         "wait_for_key": "paused-1",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },
@@ -270,7 +270,7 @@
         "collection": "postgrescdc_pause_resume",
         "table": "xp_sentinel_changes",
         "wait_for_key": "paused-2",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },
@@ -373,7 +373,7 @@
         "collection": "postgrescdc_pause_resume",
         "table": "xp_sentinel_changes",
         "wait_for_key": "paused-3",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },
@@ -425,7 +425,7 @@
         "collection": "postgrescdc_pause_resume",
         "table": "xp_sentinel_changes",
         "wait_for_key": "after-changes",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },

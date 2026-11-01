@@ -293,10 +293,12 @@ def kafka_registry_dead(rows: TableFramesSpec) -> TableFrameSpec:
 
 
 # TRIGGERS. Three publishers over the same topic, each in a group of its own,
-# whose only difference is what may stage a batch before a 10-minute clock: the
-# time threshold is 10 minutes, so a batch staged
+# whose only difference is what may stage a batch before a 30-minute clock: the
+# time threshold is 30 minutes, so a batch staged
 # within minutes was staged by the byte or row count. The control has neither,
-# and must stage nothing for those 10 minutes.
+# and must stage nothing for those 30 minutes. 30, not 10: under a full run a
+# staged batch took 13-15 minutes to commit, so the check waits up to 20m, and the
+# clock must outlast that wait.
 _SLOW = {
     "tabsdata.kafka.poll.max_secs": 2,
     "kafka.connect_timeout_secs": 10,
@@ -311,7 +313,7 @@ _SLOW = {
         # ~130 bytes a message: a few dozen messages fill it.
         src_cfg=_SLOW,
     ),
-    batch_max_secs=600,
+    batch_max_secs=1800,
     batch_max_bytes=4096,
     output_tables=["kafka_by_bytes"],
 )
@@ -326,7 +328,7 @@ def kafka_by_bytes(rows: TableFramesSpec) -> TableFrameSpec:
         schema=_schema("employees"),
         src_cfg=_SLOW,
     ),
-    batch_max_secs=600,
+    batch_max_secs=1800,
     batch_max_rows=50,
     output_tables=["kafka_by_rows"],
 )
@@ -341,7 +343,7 @@ def kafka_by_rows(rows: TableFramesSpec) -> TableFrameSpec:
         schema=_schema("employees"),
         src_cfg=_SLOW,
     ),
-    batch_max_secs=600,
+    batch_max_secs=1800,
     output_tables=["kafka_by_time"],
 )
 def kafka_by_time(rows: TableFramesSpec) -> TableFrameSpec:

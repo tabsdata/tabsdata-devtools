@@ -322,6 +322,14 @@ comment). Kinds repeat, in any order the dependencies allow:
   (still a guess, and slow every time); `tdk stream list` (tdk 2.3 only, and it reports the
   orchestrator's trigger worker, not the plugin's slot or binlog reader); waiting on the stream's
   own output (an attached stream publishes nothing until a change arrives).
+- **A stream suite's waits allow for a full run**: the cdc sentinels and the kafka checks wait up
+  to 20m (they were 5m). A wait ends when its key or message arrives, so the bound costs only a
+  lane that fails. Under `--suite ALL` (about 100 lanes) a postgres stream that attached in 35s
+  had its first flush triggered 45s later and committed 10.5 min after that, its function busy
+  throughout, so every 5m wait over it failed. `kafka_multi_topic_live` waits 30m: its
+  publisher's batches run one at a time, and its last pass committed 20m26s into the check.
+  `kafka_triggers` checks that its control publisher stages nothing before its clock, so the
+  clock went from 10 to 30 minutes (`batch_max_secs=1800`) when its checks went from 4m to 20m.
 - **Durations** -- a sentinel's or monitor's `time_out`, a probe's `every`, a `sleep`'s or
   `timeout`'s `time` -- are `"<VALUE><UNIT>"` with unit `s`, `m` or `h` (`"90s"`, `"2m"`,
   `"1.5h"`), and nothing else: a bare number is refused when the suite is read, since nothing in

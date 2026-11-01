@@ -1,7 +1,7 @@
 [
   {
     "_copyright": "Copyright 2026 Tabsdata Inc.",
-    "_comment": "CAPABILITY suite: what STAGES a Kafka batch. Three publishers over <prefix>.employees (functions/caps_kafka_topics.py), each in a collection and consumer group of its own, whose only difference is what may stage a batch before a 10-minute clock -- batch_max_secs=600 on all three: kafka_by_bytes (batch_max_bytes=4096, a few dozen messages), kafka_by_rows (batch_max_rows=50), kafka_by_time (neither -- the control). A batch is never staged sooner than batch_min_secs (60s) after the last one, so the byte and row triggers show as a batch at that mark rather than at 10 minutes. STAGES: (1) the domain, the xs seed (100 employees) appended to ${xp:dir}/ops.jsonl; (2) collections and (3) functions; (4) actions, tagged check -- scripts/verify_kafka.py: kafka_by_bytes and kafka_by_rows each hold every employees message within 4m, which their 10-minute clock could not have staged; then kafka_by_time holds NO row, its clock not yet run out (the whole check takes well under 10 minutes); (5) monitor. Run: `tdd xp one-shot --suite kafka/kafka_triggers --keep`."
+    "_comment": "CAPABILITY suite: what STAGES a Kafka batch. Three publishers over <prefix>.employees (functions/caps_kafka_topics.py), each in a collection and consumer group of its own, whose only difference is what may stage a batch before a 30-minute clock -- batch_max_secs=1800 on all three: kafka_by_bytes (batch_max_bytes=4096, a few dozen messages), kafka_by_rows (batch_max_rows=50), kafka_by_time (neither -- the control). A batch is never staged sooner than batch_min_secs (60s) after the last one, so the byte and row triggers show as a batch at that mark rather than at 30 minutes. STAGES: (1) the domain, the xs seed (100 employees) appended to ${xp:dir}/ops.jsonl; (2) collections and (3) functions; (4) actions, tagged check -- scripts/verify_kafka.py: kafka_by_bytes and kafka_by_rows each hold every employees message within 20m (a full run took 13-15 minutes to commit a staged batch), which their 30-minute clock could not have staged; then kafka_by_time holds NO row, its clock not yet run out (the whole check takes well under 30 minutes); (5) monitor. Run: `tdd xp one-shot --suite kafka/kafka_triggers --keep`."
   },
   {
     "domain-manifest": {
@@ -83,7 +83,7 @@
                   "--expect",
                   "kafka_by_bytes=employees",
                   "--time-out",
-                  "4m",
+                  "20m",
                   "--profile",
                   "${td:profile}"
                 ]
@@ -99,7 +99,7 @@
                   "--expect",
                   "kafka_by_rows=employees",
                   "--time-out",
-                  "4m",
+                  "20m",
                   "--profile",
                   "${td:profile}"
                 ]

@@ -142,13 +142,13 @@
         "collection": "postgrescdc_initial_load_live_mix",
         "table": "xp_sentinel_changes",
         "wait_for_key": "after-create-data",
-        "time_out": "5m"
+        "time_out": "20m"
       },
       {
         "collection": "postgrescdc_initial_load_live_mix",
         "table": "xp_sentinel_changes",
         "wait_for_key": "after-churn",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },

@@ -61,6 +61,17 @@ QUIET_PASSES = 3
 SCANNED = "readings"
 SCANNED_REST = ["accounts", "ledger", "devices", "audit"]
 PAUSES = 3
+# A tail stream sees only what is written after it attached, which takes as long as
+# the instance takes to start its streamer: seconds alone, minutes under a full run.
+# So it is waited for, not guessed: probes every ATTACH_PROBE until one arrives.
+ATTACH_KEY = "attached"
+ATTACH_PROBE = "20s"
+ATTACH_TIME_OUT = "20m"
+# How long a sentinel waits for its key. A bound for a failure, not a pace: a key that
+# arrives ends the wait. Under a full run (`--suite ALL`, about 100 lanes) a stream's
+# first flush was triggered 45s after its manifest and committed 10.5 min later (the
+# function busy all the while), so 5m failed lanes whose stream was fine.
+SENTINEL_TIME_OUT = "20m"
 
 
 class Source:
@@ -229,9 +240,10 @@ def comment(text: str) -> dict:
     return {"_comment": text}
 
 
-def manifest(domain: str, system: str, data: str) -> dict:
-    """A seeded domain, through one `tdd domain create --manifest`."""
-    entry = {"name": domain, "system": system, "model": MODEL, "data": data}
+def manifest(domain: str, system: str, size: int) -> dict:
+    """A seeded domain, through one `tdd domain create --manifest`; `size` is
+    `create-data --size` (~size x 100 rows)."""
+    entry = {"name": domain, "system": system, "model": MODEL, "size": size}
     return {"domain-manifest": {"emit_ops": OPS, "domains": [entry]}}
 
 
@@ -313,7 +325,25 @@ def actions(*entries: dict) -> dict:
     return {"actions": list(entries)}
 
 
-def sentinel(collection: str, *keys: str, time_out: str = "5m") -> dict:
+def attached(domain: str, *collections: str) -> dict:
+    """A sentinel per stream, holding until it has attached: xp writes a fresh
+    `attached-<n>-<random>` sentinel into the domain every ATTACH_PROBE, onto the
+    trail like every other change, until one arrives (the probe)."""
+    return {
+        "sentinel": [
+            {
+                "collection": c,
+                "table": "xp_sentinel_changes",
+                "wait_for_key": ATTACH_KEY,
+                "time_out": ATTACH_TIME_OUT,
+                "probe": {"domain": domain, "every": ATTACH_PROBE, "emit_ops": OPS},
+            }
+            for c in collections
+        ]
+    }
+
+
+def sentinel(collection: str, *keys: str, time_out: str = SENTINEL_TIME_OUT) -> dict:
     return {
         "sentinel": [
             {
@@ -408,7 +438,7 @@ def initial_load(src: Source) -> list:
             f"it one by one, in the same transactions, each with its whole before-image and "
             f"the row it leaves; nothing of {', '.join(UNTRACKED)}; (9) monitor. {_run(name)}"
         ),
-        manifest(d, src.system, "xs"),
+        manifest(d, src.system, 1),
         actions(sentinel_data("sentinel", d, "after-create-data")),
         collections(src, d, [name]),
         functions([(name, src.initial_load)]),
@@ -503,7 +533,7 @@ def initial_load_live(src: Source, mode: str) -> list:
             f"does; {keyless}; nothing of {', '.join(UNTRACKED)}; "
             f"(8) monitor. {_run(name)}"
         ),
-        manifest(d, src.system, "m"),
+        manifest(d, src.system, 100),
         actions(sentinel_data("sentinel-loaded", d, "after-create-data"), churn),
         collections(src, d, [name]),
         functions([(name, src.initial_load_live)]),
@@ -540,7 +570,7 @@ def quiet_table(src: Source) -> list:
             f"initial-load: every change one by one in its transaction, nothing of "
             f"{', '.join(UNTRACKED)}; monitor. {_run(name)}"
         ),
-        manifest(d, src.system, "xs"),
+        manifest(d, src.system, 1),
         actions(sentinel_data("sentinel", d, "after-create-data")),
         collections(src, d, [name]),
         functions([(name, src.initial_load)]),
@@ -580,24 +610,27 @@ def keys(src: Source) -> list:
             f"{colls[2]} (columns_format=struct, flatten_columns=False), {colls[3]} "
             f"(columns_format=map). STAGES: (1) domains -- create the {src.system} domain, "
             f"install {MODEL}, load the xs seed; (2) collections and (3) functions -- "
-            f"registering a stream publisher STARTS it; (4) actions, tagged live -- a 30s "
-            f"pause for the tail streams to attach (a change before that is not theirs to "
-            f"see), one `modify-data --ops Mix --sets 30` pass (inserts, updates -- accounts' "
-            f"moving its key, ledger's by both columns of its key, devices' by its unique "
-            f"index, readings' by every column -- and deletes), then `sentinel-data --key "
-            f"after-changes`; (5) sentinel -- hold until after-changes is in {checked[0]} and "
-            f"{checked[1]}; (6) actions, tagged check -- {VERIFY} checks {checked[0]} from the "
+            f"registering a stream publisher STARTS it; (4) sentinel -- hold until {checked[0]} "
+            f"and {checked[1]} have attached (a change before that is not theirs to see): a "
+            f"probe writes `sentinel-data --key {ATTACH_KEY}-<n>-<random>` every "
+            f"{ATTACH_PROBE}, at most {ATTACH_TIME_OUT}, until one arrives in each; (5) "
+            f"actions, tagged live -- one `modify-data --ops Mix --sets 30` pass (inserts, "
+            f"updates -- accounts' moving its key, ledger's by both columns of its key, "
+            f"devices' by its unique index, readings' by every column -- and deletes), then "
+            f"`sentinel-data --key after-changes`; (6) sentinel -- hold until after-changes "
+            f"is in {checked[0]} and {checked[1]}; (7) actions, tagged check -- {VERIFY} "
+            f"checks {checked[0]} from the "
             f"tail and {checked[1]} {src.head_note}, one change at a time with its whole "
             f"before-image and the row it leaves, nothing "
             f"of {', '.join(UNTRACKED)} (each its own lane: one failing does not hide the "
             f"other); {colls[2]} and {colls[3]} run over the same changes, unchecked: their "
-            f"rows nest the values the check reads flat; (7) monitor. {_run(name)}"
+            f"rows nest the values the check reads flat; (8) monitor. {_run(name)}"
         ),
-        manifest(d, src.system, "xs"),
+        manifest(d, src.system, 1),
         collections(src, d, colls),
         functions(list(src.keys.items())),
+        attached(d, *checked),
         actions(
-            {"sleep": {"name": "attach", "tags": ["live"], "time": "30s"}},
             modify("change", d, 30),
             sentinel_data("sentinel-changed", d, "after-changes"),
         ),
@@ -633,7 +666,7 @@ def pause_resume(src: Source) -> list:
             f"too few; nothing of {', '.join(UNTRACKED)}; monitor. The tdk steps and the "
             f"check take {PROFILE}: the run's --profile, or tdk's default. {_run(name)}"
         ),
-        manifest(d, src.system, "xs"),
+        manifest(d, src.system, 1),
         actions(sentinel_data("sentinel", d, "after-create-data")),
         collections(src, d, [name]),
         functions([(name, src.initial_load)]),

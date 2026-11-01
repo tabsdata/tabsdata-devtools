@@ -2232,6 +2232,30 @@ def test_a_probe_that_never_arrives_says_how_many_were_written(xp_root, monkeypa
     assert len(written) == 3 and all("--emit-ops" not in a for a in written)
 
 
+@pytest.mark.parametrize("source", ["mysqlcdc", "postgrescdc", "db2cdc"])
+def test_a_cdc_keys_suite_waits_for_its_tail_streams_to_attach(xp_root, source):
+    """The bundled keys suites change the database only once the checked
+    streams have attached -- a probing sentinel, not a fixed pause -- and the
+    probes go onto the trail the check reads."""
+    from tabsdata_dev.tool.xp import suites
+    from tabsdata_dev.tool.xp.models import build_instance
+
+    path = suites.suites_dir(None) / "cdc" / f"{source}_keys.json"
+    inst = build_instance(f"{source}_keys", path)
+    kinds = [st.kind for st in inst.stages]
+    attach = inst.stages[kinds.index("sentinel")]
+    assert kinds.index("sentinel") < kinds.index("actions")
+    assert [(s.collection, s.wait_for_key) for s in attach.sentinel] == [
+        (f"{source}_in", "attached"),
+        (f"{source}_head", "attached"),
+    ]
+    for s in attach.sentinel:
+        assert s.probe.domain.endswith("_employeescdc_xs")  # its own run's
+        assert "${" not in s.probe.domain
+        assert s.probe.emit_ops == "${xp:dir}/ops.jsonl"
+    assert all(a.kind != "sleep" for a in inst.actions)
+
+
 def test_a_sentinel_that_never_arrives_fails_at_its_time_out(xp_root, monkeypatch):
     from tabsdata_dev.common.core import render
     from tabsdata_dev.tool.xp import project, state

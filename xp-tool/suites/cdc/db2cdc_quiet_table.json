@@ -64,7 +64,7 @@
         "collection": "db2cdc_quiet_table",
         "table": "xp_sentinel_changes",
         "wait_for_key": "after-create-data",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },
@@ -118,7 +118,7 @@
         "collection": "db2cdc_quiet_table",
         "table": "xp_sentinel_changes",
         "wait_for_key": "quiet-1",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },
@@ -181,7 +181,7 @@
         "collection": "db2cdc_quiet_table",
         "table": "xp_sentinel_changes",
         "wait_for_key": "quiet-2",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },
@@ -235,7 +235,7 @@
         "collection": "db2cdc_quiet_table",
         "table": "xp_sentinel_changes",
         "wait_for_key": "quiet-3",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },
@@ -309,7 +309,7 @@
         "collection": "db2cdc_quiet_table",
         "table": "xp_sentinel_changes",
         "wait_for_key": "after-changes",
-        "time_out": "5m"
+        "time_out": "20m"
       }
     ]
   },
