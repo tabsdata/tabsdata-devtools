@@ -22,5 +22,5 @@ its status back.
 - **PATH is searched without this venv's scripts dir.** Under tdd that dir is first on PATH and
   holds this tool's own entry point, also called `jq`: found there, the launcher would run
   itself forever.
-- A non-zero exit is one error event carrying `status`, and tdd exits 1: the launcher contract
-  (`tdk`'s). `jq -e`'s distinction between 1 and 5 lives in `status`, not the exit code.
+- A non-zero exit is one error event carrying `status`, and tdd exits 1, with no failure log:
+  the launcher contract (`tdk`'s). `jq -e`'s distinction between 1 and 5 lives in `status`, not the exit code.

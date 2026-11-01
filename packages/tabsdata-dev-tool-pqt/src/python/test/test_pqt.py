@@ -36,6 +36,7 @@ def test_every_argument_reaches_parquet_tools(
     assert pqt.main() == 1
     out, err = capfd.readouterr()
     assert "pqt got: fail" in out and "parquet-tools exited with status 1" in err
+    assert "details:" not in err  # the program spoke for itself: no failure log
 
 
 def test_parquet_tools_is_the_toolsets_not_the_paths(

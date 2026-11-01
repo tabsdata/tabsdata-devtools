@@ -15,7 +15,9 @@ command behaves unexpectedly. A launcher has no options of its own: every argume
 `--format` and `--version` included, belongs to the program, which is the one
 deliberate exception to docs/command-cli-guidelines.md. Only what happens
 before the program runs -- no venv, or the program missing from it -- is ours,
-and is reported as one error event the guidelines' way.
+and is reported as one error event the guidelines' way. The program's own
+non-zero exit is one error event carrying its `status` and exit 1, but no
+failure log (`exited`).
 
 `run_program` is the same contract for a program that is not tabsdata's --
 parquet-tools, jq -- found where it is installed once for everyone: pinned by
@@ -78,9 +80,7 @@ def run(cmd: str, description: str, argv: list[str] | None = None) -> int:
             out.warn(f"{cmd} interrupted")
             return 1
         if done.returncode != 0:
-            return out.error(
-                f"{cmd} exited with status {done.returncode}", status=done.returncode
-            )
+            return exited(out, cmd, done.returncode)
         return 0
 
     # The parser sees no arguments: they are all the program's.
@@ -114,13 +114,26 @@ def run_program(
             out.warn(f"{program} interrupted")
             return 1
         if done.returncode != 0:
-            return out.error(
-                f"{program} exited with status {done.returncode}",
-                status=done.returncode,
-            )
+            return exited(out, program, done.returncode)
         return 0
 
     return cli.run(cmd, description, body, argv=[])
+
+
+def exited(out: render.Renderer, program: str, status: int) -> int:
+    """The program ran and exited non-zero: one error event carrying `status`,
+    exit 1 -- and no failure log. The program wrote straight to the terminal,
+    not through us, so a log could hold nothing but this line; `tdd tdk` alone,
+    tdk's usage and its exit 2, left a `details:` file saying only that."""
+    out.emit(
+        render.Event(
+            out.command,
+            "error",
+            f"{program} exited with status {status}",
+            {"status": status},
+        )
+    )
+    return 1
 
 
 def _find(program: str, *, pinned: bool) -> str | None:

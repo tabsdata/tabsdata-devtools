@@ -19,7 +19,7 @@ and say first which venv that is, and why.
 
 - No options of its own: **every** argument, `--help`/`--format`/`--version` included, goes to
   the program -- the one sanctioned exception to the CLI guidelines.
-- Fails with "a venv act- **The venv last activated wins** (`managedvenv.select`), because two venvs with two tabsdata
+- **The venv last activated wins** (`managedvenv.select`), because two venvs with two tabsdata
   versions is exactly when it matters which one ran. `tdd venv activate` really activates, so the
   venv the shell has active -- `VIRTUAL_ENV`, else a conda env other than base -- is the latest:
   the managed one tdd entered, a project venv entered on top of it by hand, or the venv a smoke
@@ -44,11 +44,13 @@ and say first which venv that is, and why.
   path with its directories first is all it takes. `<bin>` is asked of the venv, not the platform
   (`bin/`, or `Scripts\` with `tdk.exe` for one built on Windows; a Windows conda env adds its
   root and `Library\bin`), as `tddsrc.ps1` does.
- true`: with no options of its own there is nothing to configure, so it
+- `[tool.tdd] launcher = true`: with no options of its own there is nothing to configure, so it
   owns no `<command>.toml` and has no `config` action (invariant 11). The program runs in the
   cwd the user is in.
 - Only what happens *before* the program runs is the launcher's, and it is reported the
-  guidelines' way: a non-zero exit comes back as one error event carrying `status`, and Ctrl-C --
-  how a server is stopped -- is one warning and exit 1, with no failure log, because a log for a
-  deliberate interrupt is noise.
+  guidelines' way. The program's own non-zero exit comes back as one error event carrying
+  `status` and exit 1, with no failure log: the program wrote to the terminal itself, so a log
+  could only repeat that line (`tdd tdk` alone, tdk's usage and exit 2, left one saying only
+  that). Ctrl-C -- how a server is stopped -- is one warning and exit 1, with no failure log,
+  because a log for a deliberate interrupt is noise.
 - `tdk` refuses to run under an AI agent (it checks `CLAUDECODE`); an agent runs it only when the user asks, with that variable unset.

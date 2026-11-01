@@ -25,5 +25,5 @@ Copyright 2026 Tabsdata Inc.
   on another pandas -- does not stand in for the pinned one.
 - **The name is `pqt`**, short for parquet-tools; `parquet-tools` itself would shadow the
   program in the toolset's scripts dir, both being entry points there.
-- A non-zero exit is one error event carrying `status`, and tdd exits 1: the launcher contract
-  (`tdk`'s). The program's own stdout is untouched, so `tdd pqt csv F | ...` pipes.
+- A non-zero exit is one error event carrying `status`, and tdd exits 1, with no failure log:
+  the launcher contract (`tdk`'s). The program's own stdout is untouched, so `tdd pqt csv F | ...` pipes.

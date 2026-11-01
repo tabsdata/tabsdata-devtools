@@ -46,6 +46,7 @@ def test_every_argument_reaches_the_program(
     assert tdkserver.main() == 1
     out, err = capfd.readouterr()
     assert "tdkserver got: fail" in out and "tdkserver exited with status 1" in err
+    assert "details:" not in err  # the program spoke for itself: no failure log
 
 
 def test_refuses_when_the_program_is_missing_from_the_venv(

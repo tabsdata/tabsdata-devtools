@@ -40,6 +40,7 @@ def test_runs_the_paths_jq_never_itself(
     assert jq.main() == 1
     out, err = capfd.readouterr()
     assert "jq got: fail" in out and "jq exited with status 1" in err
+    assert "details:" not in err  # the program spoke for itself: no failure log
 
 
 def test_refuses_when_the_machine_has_no_jq(
