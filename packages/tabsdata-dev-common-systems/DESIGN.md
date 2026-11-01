@@ -71,6 +71,13 @@ run. Its own `create-model`, `create-data` and `modify-data` (`redpanda/domain/`
   each row as sent, so a check reads what the consumer was given. The shared create-data takes the
   reshaping as a `prepare` function from the system's own module rather than a backend hook: a dry
   run must not reach the system, and a test pins that it does not.
+- **A topic the broker will not delete is an error**, naming each one and why; the rest are
+  still deleted, and one already gone counts as deleted. Destroy, a create-data reload and
+  `drop_all_tables` all delete this way, so a failed destroy keeps the domain's descriptor and
+  can be run again (`--force` warns and removes it anyway). The deletes were best-effort and
+  silent: the domain went, its topics stayed, and a broker full of them refused new partitions
+  ("Can not increase partition count due to memory limit"), which failed eight of the ten kafka
+  lanes of a full xp run.
 - **The `redpandasasl` type** is a broker every Kafka client authenticates to, as one user
   (`tdd`, SCRAM-SHA-256, a generated password in the descriptor and in every domain made from it):
   the user is created, made a superuser and SASL then enabled through the admin API, which SASL

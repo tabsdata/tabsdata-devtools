@@ -169,6 +169,87 @@ def test_create_model_creates_every_topic_with_its_partitions(
     assert shape.partitions_of(descriptor.load(path).meta)["dept_emp"] == 3
 
 
+class _Deleting:
+    """An admin client whose deletes fail as `errors` says: topic -> the
+    exception its future raises."""
+
+    def __init__(self, errors=None):
+        self.errors, self.asked = errors or {}, []
+
+    def delete_topics(self, topics):
+        self.asked.extend(topics)
+        return {t: _Future(self.errors.get(t)) for t in topics}
+
+
+class _Future:
+    def __init__(self, error):
+        self.error = error
+
+    def result(self):
+        if self.error is not None:
+            raise self.error
+
+
+class _KafkaError:
+    def __init__(self, name):
+        self._name = name
+
+    def name(self):
+        return self._name
+
+    def __str__(self):
+        return f"KafkaError{{{self._name}}}"
+
+
+def _destroy(tmp_path, monkeypatch, admin, force=False):
+    from tabsdata_dev.common.systems.systems._common.commands import dom_destroy
+    from tabsdata_dev.common.systems.systems.redpanda import backend
+
+    path = _domain(tmp_path, monkeypatch)
+    system = backend.Redpanda()
+    monkeypatch.setattr(system, "_admin_client", lambda meta: admin)
+    topics = ["pfx", "pfx.employees", "pfx.salaries", "other", "pfx2.x"]
+    monkeypatch.setattr(system, "_topics", lambda client: topics)
+    ctx = _ctx(path, tmp_path, "destroy", system, dry_run=False, force=force)
+    return path, lambda: dom_destroy.run(ctx)
+
+
+def test_destroy_deletes_the_domain_topic_and_its_entities_only(tmp_path, monkeypatch):
+    admin = _Deleting()
+    path, destroy = _destroy(tmp_path, monkeypatch, admin)
+    assert destroy() == 0
+    assert admin.asked == ["pfx", "pfx.employees", "pfx.salaries"]
+    assert not path.exists()
+
+
+def test_destroy_names_the_topics_it_could_not_delete_and_keeps_the_domain(
+    tmp_path, monkeypatch
+):
+    """A topic left on the broker was invisible: the domain went, its topics
+    stayed, and a broker full of them refused new partitions."""
+    refused = Exception(_KafkaError("POLICY_VIOLATION"))
+    gone = Exception(_KafkaError("UNKNOWN_TOPIC_OR_PART"))
+    admin = _Deleting({"pfx.salaries": refused, "pfx.employees": gone})
+    path, destroy = _destroy(tmp_path, monkeypatch, admin)
+    with pytest.raises(TdxError) as err:
+        destroy()
+    assert str(err.value) == (
+        "kafka could not delete 1 of 3 topic(s): "
+        "pfx.salaries (KafkaError{POLICY_VIOLATION})"
+    )
+    assert admin.asked == ["pfx", "pfx.employees", "pfx.salaries"]
+    assert path.exists()
+
+
+def test_a_forced_destroy_removes_the_domain_whatever_its_topics_did(
+    tmp_path, monkeypatch
+):
+    admin = _Deleting({"pfx": Exception(_KafkaError("REQUEST_TIMED_OUT"))})
+    path, destroy = _destroy(tmp_path, monkeypatch, admin, force=True)
+    assert destroy() == 0
+    assert not path.exists()
+
+
 def test_messages_are_keyed_and_carry_the_fields_a_row_has(kafka):
     from tabsdata_dev.common.systems import emit
     from tabsdata_dev.common.systems.systems.redpanda import backend

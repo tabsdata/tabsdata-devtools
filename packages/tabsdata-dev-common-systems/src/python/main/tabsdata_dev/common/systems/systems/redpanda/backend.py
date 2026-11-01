@@ -19,7 +19,6 @@ still exists; ``modify-data`` is insert-only (a Kafka log only appends).
 
 from __future__ import annotations
 
-import contextlib
 import json
 from contextlib import contextmanager
 from urllib.parse import quote, unquote
@@ -67,6 +66,14 @@ def client_conf(brokers: str, user: str = "", password: str = "") -> dict:
             "sasl.password": password,
         }
     return conf
+
+
+def _already_gone(exc: Exception) -> bool:
+    """Whether a delete failed because the topic no longer exists -- by the
+    error's name, so no `confluent_kafka` import is needed to tell."""
+    error = exc.args[0] if exc.args else None
+    name = getattr(error, "name", None)
+    return callable(name) and name() == "UNKNOWN_TOPIC_OR_PART"
 
 
 class Redpanda(SingleContainerHosting, Messaging):
@@ -247,6 +254,11 @@ class Redpanda(SingleContainerHosting, Messaging):
             raise TdxError(f"kafka list topics failed: {exc}") from exc
 
     def _delete_topics(self, client, name: str, *, include_root: bool = True) -> None:
+        """Delete `name`'s topics, every one attempted; those the broker would
+        not delete are reported together. A topic left behind is invisible
+        otherwise, and a broker full of them refuses new partitions ("Can not
+        increase partition count due to memory limit"). One already gone is
+        deleted."""
         targets = [
             t
             for t in self._topics(client)
@@ -255,9 +267,18 @@ class Redpanda(SingleContainerHosting, Messaging):
         if not targets:
             return
         futures = client.delete_topics(targets)
+        failed = []
         for t in targets:
-            with contextlib.suppress(Exception):  # best-effort; report nothing
+            try:
                 futures[t].result()
+            except Exception as exc:  # noqa: BLE001 -- every failure is reported
+                if not _already_gone(exc):
+                    failed.append(f"{t} ({exc})")
+        if failed:
+            raise TdxError(
+                f"kafka could not delete {len(failed)} of {len(targets)} topic(s): "
+                + "; ".join(failed)
+            )
 
     def domain_meta(
         self, sys_meta: dict[str, str], entity_name: str, password: str
