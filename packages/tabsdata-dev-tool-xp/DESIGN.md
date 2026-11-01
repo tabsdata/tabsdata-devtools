@@ -307,9 +307,25 @@ comment). Kinds repeat, in any order the dependencies allow:
   "unable to find column" and the stage timed out saying "0 version(s) read": a version that
   cannot be read is retried, and the time-out now counts those and gives the last error. A
   table with no such column at all fails at once. It runs under `run-suite` (so one-shot); no phase verb takes it and `bench` ignores it.
-- **Durations** -- a sentinel's or monitor's `time_out`, a `sleep`'s or `timeout`'s `time` -- are
-  `"<VALUE><UNIT>"` with unit `s`, `m` or `h` (`"90s"`, `"2m"`, `"1.5h"`), and nothing else: a
-  bare number is refused when the suite is read, since nothing in it says what it counts.
+- **A probing sentinel waits for a stream to attach** (`probe: {domain, every, emit_ops}`):
+  until its key arrives, xp writes it into `domain` with `tdd domain sentinel-data` every
+  `every`, each time as a new key, `<key>-<n>-<random>` -- a SQL backend refuses a key twice,
+  and the random part keeps a rerun over the same domain clear of the first run's -- appended to
+  the `emit_ops` trail like any change, and any one of them arriving is the key (`IN (...)`).
+  A later sentinel on the same key in the lane (the same stream read by another collection)
+  looks for the keys already written before it writes one. A stream from its tail sees only what
+  is written after it attached, and nothing tells when that was: the CDC keys suites paused 30s,
+  and on a busy instance the streamer started minutes later (registered 19:08, pod 19:11:54,
+  replication slot 19:12:05 -- after the change and the sentinel), so nothing arrived and the
+  sentinel timed out. A check from the tail pairs the trail from the first transaction the
+  stream delivered, so probes written before the attach cost nothing. Rejected: a longer pause
+  (still a guess, and slow every time); `tdk stream list` (tdk 2.3 only, and it reports the
+  orchestrator's trigger worker, not the plugin's slot or binlog reader); waiting on the stream's
+  own output (an attached stream publishes nothing until a change arrives).
+- **Durations** -- a sentinel's or monitor's `time_out`, a probe's `every`, a `sleep`'s or
+  `timeout`'s `time` -- are `"<VALUE><UNIT>"` with unit `s`, `m` or `h` (`"90s"`, `"2m"`,
+  `"1.5h"`), and nothing else: a bare number is refused when the suite is read, since nothing in
+  it says what it counts.
 - **A run has a working dir**, `<scratch>/work`, made on first use and kept with the scratch dir.
   A suite names it `${xp:dir}` -- in a domain call's options and an action's options or
   params -- and the run's project `${xp:project}`; they are

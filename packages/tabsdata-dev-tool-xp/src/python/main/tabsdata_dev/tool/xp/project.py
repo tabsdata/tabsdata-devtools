@@ -12,15 +12,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import pathlib
+import secrets
 import subprocess
 import time
 from datetime import UTC, datetime
 
 from tabsdata_dev.common.core import proc
 
-from . import conn, ids, lanes, pointers, shell, state, suites
+from . import conn, ids, lanes, pointers, shell, state, suites, work
 from .models import Monitor, Sentinel, build_instance
 from .reporter import fs_token, rep, reporting, say
 
@@ -775,6 +777,10 @@ SENTINEL_POLL = 5.0
 #: The column `tdd domain sentinel-data` writes the key into; a table carrying
 #: the sentinel entity downstream keeps the name.
 SENTINEL_KEY_COLUMN = "sentinel_key"
+#: Every key a probe wrote in this process, by the sentinel key it stands for:
+#: any of them arriving is that key, so a second sentinel on the same key --
+#: the same stream read by another collection -- counts the first one's.
+_probe_keys: dict[str, list[str]] = {}
 
 
 def wait_sentinels(project: str, sentinels: list[Sentinel]) -> None:
@@ -800,9 +806,14 @@ def _wait_sentinel(project: str, s: Sentinel) -> None:
     entity as ``SENTINEL_KEY``, and tdk's SQL matches a column's case. It is
     then quoted, as it is spelled."""
     where = ["--proj", project, "--coll", s.collection, "--name", s.table]
-    key = s.wait_for_key.replace("'", "''")
     versions_args = ["table", "versions", *where, "--max-result", "0"]
     if state.run.dry_run:
+        if s.probe is not None:
+            _write_probe(project, s)
+            shell.dry_text(
+                f"# probe: a new {s.wait_for_key}-<n>-<random> every {s.probe.every} "
+                "until one arrives"
+            )
         shell.dry_echo(shell.tdk_argv(*versions_args, "--format", "json"))
         shell.dry_text(
             f"# sentinel: every {SENTINEL_POLL:g}s, each new version of {s.table} "
@@ -813,7 +824,20 @@ def _wait_sentinel(project: str, s: Sentinel) -> None:
     read: set[str] = set()
     unreadable: dict[str, str] = {}  # version -> why, until it is read
     column: str | None = None
+    # When the last probe was written: never, unless an earlier sentinel on the
+    # key wrote some -- those are looked for first, the next written after a pace.
+    probed = (
+        time.monotonic()
+        if s.probe is not None and _probe_keys.get(s.wait_for_key)
+        else -math.inf
+    )
     while True:
+        now = time.monotonic()
+        # not at the deadline itself: a probe written then could not arrive
+        if s.probe is not None and now - probed >= s.probe.seconds and now < deadline:
+            _write_probe(project, s)
+            probed = now
+        keys = _probe_keys.get(s.wait_for_key, []) if s.probe else [s.wait_for_key]
         for version in shell.tdk(versions_args, check=False) or []:
             vid = str(version.get("id") or "")
             if not vid or vid in read:
@@ -833,7 +857,7 @@ def _wait_sentinel(project: str, s: Sentinel) -> None:
                     read.add(vid)
                     unreadable.pop(vid, None)
                     continue
-            sql = f'SELECT "{column}" FROM {s.table} WHERE "{column}" = \'{key}\''
+            sql = _key_sql(s.table, column, keys)
             rows, why = shell.tdk_read(
                 ["table", "data", *where, "--version", vid, "--sql", sql, "--len", "1"]
             )
@@ -853,12 +877,40 @@ def _wait_sentinel(project: str, s: Sentinel) -> None:
             if unreadable:
                 last = next(reversed(unreadable.values())) or "no error output"
                 unread = f"; {len(unreadable)} could not be read: {last}"
+            if s.probe is not None:
+                unread += f"; {len(keys)} probe(s) written to {s.probe.domain}"
             state.die(
                 f"sentinel {s.wait_for_key!r} not in any version of "
                 f"{s.collection}/{s.table} after {s.time_out} "
                 f"({len(read)} version(s) read{unread})"
             )
         time.sleep(min(SENTINEL_POLL, left))
+
+
+def _write_probe(project: str, s: Sentinel) -> None:
+    """Write the sentinel's key once more, as a key of its own (a SQL backend
+    refuses one twice; the random part keeps a second run over the same domain
+    from meeting the first's), and remember it. A version already read was
+    committed before this key existed, so none needs reading again."""
+    assert s.probe is not None
+    keys = _probe_keys.setdefault(s.wait_for_key, [])
+    key = f"{s.wait_for_key}-{len(keys) + 1}-{secrets.token_hex(3)}"
+    args = ["sentinel-data", "--domain", s.probe.domain, "--key", key]
+    if s.probe.emit_ops:
+        args += ["--emit-ops", work.expand(s.probe.emit_ops, project)]
+    shell.domain(args)
+    keys.append(key)
+    rep().log(f"probe {key!r} written to {s.probe.domain}")
+
+
+def _key_sql(table: str, column: str, keys: list[str]) -> str:
+    """The query that finds any of `keys` in a version of `table`."""
+    quoted = ["'" + k.replace("'", "''") + "'" for k in keys]
+    if len(quoted) == 1:
+        match = f"= {quoted[0]}"
+    else:
+        match = f"IN ({', '.join(quoted)})"
+    return f'SELECT "{column}" FROM {table} WHERE "{column}" {match}'
 
 
 def _key_column(s: Sentinel, schema) -> str | None:

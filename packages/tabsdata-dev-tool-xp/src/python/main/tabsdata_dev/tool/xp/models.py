@@ -29,8 +29,9 @@ A suite JSON is an ordered LIST of stages, run in that order by `run-suite`
   is one script, so a background block keeps running through the stages after
   it and a later wait finds it (see ``actions``);
 * ``sentinel`` -- latches: each holds until a key shows up in some version of
-  a project table (``tdd domain sentinel-data`` wrote it at the source), or
-  fails when its ``time_out`` runs out;
+  a project table (``tdd domain sentinel-data`` wrote it at the source, or
+  the sentinel's ``probe`` does, until a stream has attached), or fails when
+  its ``time_out`` runs out;
 
 A suite is resolved as it is read, for the suite run it is read for (see
 ``ids``): ``${xp:name(x)}`` becomes ``<XP_ID>_x`` -- how a suite names a domain
@@ -42,7 +43,7 @@ name the run's working dir and project, and are filled in when used (see
 ``work``).
 
 A duration -- a ``sleep``'s or ``timeout``'s ``time``, a sentinel's or
-monitor's ``time_out`` -- is
+monitor's ``time_out``, a probe's ``every`` -- is
 ``"<VALUE><UNIT>"`` with unit ``s``, ``m`` or ``h`` (``"90s"``, ``"2m"``,
 ``"1.5h"``); a bare number is refused, since nothing says what it counts.
 
@@ -232,11 +233,43 @@ class Monitor(BaseModel):
         return seconds_of(self.time_out, "time_out")
 
 
+class Probe(BaseModel):
+    """How a sentinel finds out that a stream has attached: until the key
+    arrives, `tdd domain sentinel-data` writes it into ``domain`` afresh every
+    ``every`` -- as ``<key>-<n>-<random>``, a SQL backend refusing a key twice
+    -- and any one of them arriving is the key. A stream from its tail sees
+    only what is written after it attached, and nothing says when that was:
+    a fixed pause is a guess, wrong when the instance is busy. ``emit_ops``
+    names the trail the probes are appended to (``--emit-ops``), as every
+    data command's are, so a check finds the ones that arrived there."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    domain: str
+    every: Any  # "<VALUE><UNIT>", checked by `seconds_of` (see `sleep`)
+    emit_ops: str | None = None
+
+    @model_validator(mode="after")
+    def _a_domain_and_a_pace(self) -> Probe:
+        if not self.domain.strip():
+            raise ValueError("probe names no domain")
+        seconds_of(self.every, "probe: every")
+        for text in (self.domain, self.emit_ops or ""):
+            _refuse_unknown_tokens(text, "probe")
+        return self
+
+    @property
+    def seconds(self) -> float:
+        return seconds_of(self.every, "every")
+
+
 class Sentinel(BaseModel):
     """A latch: hold until ``wait_for_key`` is in some version of ``table`` in
     ``collection``, or fail once ``time_out`` has passed. Every version is
     looked at, not only the latest: a stream publisher writes each flush as a
-    version of its own, holding only that flush's rows."""
+    version of its own, holding only that flush's rows. With a ``probe`` the
+    sentinel writes the key itself, again and again, until one arrives (see
+    `Probe`)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -244,10 +277,16 @@ class Sentinel(BaseModel):
     table: str
     wait_for_key: str
     time_out: Any  # "<VALUE><UNIT>", checked by `seconds_of` (see `sleep`)
+    probe: Probe | None = None
 
     @model_validator(mode="after")
     def _a_duration(self) -> Sentinel:
-        seconds_of(self.time_out, f"sentinel {self.wait_for_key!r}: time_out")
+        what = f"sentinel {self.wait_for_key!r}"
+        seconds = seconds_of(self.time_out, f"{what}: time_out")
+        if self.probe is not None and not 0 < self.probe.seconds < seconds:
+            raise ValueError(
+                f"{what}: probe every is more than 0 and less than time_out"
+            )
         return self
 
     @property

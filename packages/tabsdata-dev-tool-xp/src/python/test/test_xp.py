@@ -94,6 +94,9 @@ def xp_root(tmp_path, monkeypatch, resource_folder):
     monkeypatch.setenv("TDD_DIR", str(tmp_path / "tdd"))
     monkeypatch.delenv("_TDD_XP_SCRATCH", raising=False)
     monkeypatch.delenv("_TDD_XP_PARENT", raising=False)
+    from tabsdata_dev.tool.xp import project
+
+    monkeypatch.setattr(project, "_probe_keys", {})
     _run_the_clock(monkeypatch)
     return root
 
@@ -2021,6 +2024,24 @@ def test_a_sentinel_stage_reads_and_sleep_takes_a_unit(xp_root):
             [{"actions": [{"sleep": {"name": "x", "secs": 30}}]}],
             "secs\n  Extra inputs are not permitted",
         ),
+        (
+            _sentinel_suite(probe={"domain": "d", "every": "5m"}),
+            "probe every is more than 0 and less than time_out",
+        ),
+        (
+            _sentinel_suite(probe={"domain": "d", "every": "20"}),
+            "probe: every: '20' is not <VALUE><UNIT>",
+        ),
+        (
+            _sentinel_suite(probe={"domain": "d", "every": "20s", "emit": "f"}),
+            "emit\n  Extra inputs are not permitted",
+        ),
+        (
+            _sentinel_suite(
+                probe={"domain": "d", "every": "20s", "emit_ops": "${xp:nope}/f"}
+            ),
+            "nope",
+        ),
     ],
 )
 def test_a_bad_sentinel_or_duration_is_refused_when_read(xp_root, doc, why):
@@ -2130,6 +2151,85 @@ def test_a_sentinel_reads_the_key_column_as_the_database_spells_it(
     project.wait_sentinels("p", [s])
     [(_, _, sql)] = [c for c in calls if c[0] == "data"]
     assert sql == 'SELECT "SENTINEL_KEY" FROM t WHERE "SENTINEL_KEY" = \'k\''
+
+
+def _fake_probe_clock(monkeypatch):
+    """project's monotonic clock, from 0, moved only by its sleeps; and
+    shell.domain recording each call. Returns the calls."""
+    import subprocess
+
+    from tabsdata_dev.tool.xp import project, shell
+
+    now = [0.0]
+    monkeypatch.setattr(project.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(project.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
+    written: list = []
+
+    def domain(args, check=True):
+        written.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(shell, "domain", domain)
+    return written
+
+
+def test_a_probe_writes_the_key_afresh_until_one_arrives(xp_root, monkeypatch):
+    """A stream from its tail sees only what is written after it attached, and
+    nothing says when that was: a probing sentinel writes its key as a new one
+    (a SQL backend refuses a key twice) every `every`, onto the trail, until
+    any of them arrives. Found when the 30s pause before a CDC keys suite's
+    changes ran out minutes before a busy instance started the streamer."""
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import project, state
+    from tabsdata_dev.tool.xp.models import Probe, Sentinel
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    calls = _fake_sentinel_tdk(
+        monkeypatch, [[], [], [], [], [], [{"id": "v1"}]], found_in={"v1"}
+    )
+    written = _fake_probe_clock(monkeypatch)
+    probe = Probe(domain="d", every="20s", emit_ops="${xp:project}/ops.jsonl")
+    s = Sentinel(
+        collection="c", table="t", wait_for_key="attached", time_out="5m", probe=probe
+    )
+    project.wait_sentinels("p", [s])
+    # looks at 0, 5, 10, 15, 20, 25s: a probe at 0 and at 20, found at 25
+    keys = [a[a.index("--key") + 1] for a in written]
+    assert [a[:3] + a[5:] for a in written] == [
+        ["sentinel-data", "--domain", "d", "--emit-ops", "p/ops.jsonl"]
+    ] * 2
+    assert [k.rsplit("-", 1)[0] for k in keys] == ["attached-1", "attached-2"]
+    assert all(len(k.rsplit("-", 1)[1]) == 6 for k in keys)
+    [(_, _, sql)] = [c for c in calls if c[0] == "data"]
+    assert sql == (
+        f'SELECT "sentinel_key" FROM t WHERE "sentinel_key" IN (\'{keys[0]}\', '
+        f"'{keys[1]}')"
+    )
+
+    # the same stream read by another collection: the keys written are looked
+    # for first, and the next probe waits its pace
+    written.clear()
+    calls = _fake_sentinel_tdk(monkeypatch, [[{"id": "w1"}]], found_in={"w1"})
+    _fake_probe_clock(monkeypatch)
+    project.wait_sentinels("p", [s.model_copy(update={"collection": "c2"})])
+    assert written == [] and len([c for c in calls if c[0] == "data"]) == 1
+
+
+def test_a_probe_that_never_arrives_says_how_many_were_written(xp_root, monkeypatch):
+    from tabsdata_dev.common.core import render
+    from tabsdata_dev.tool.xp import project, state
+    from tabsdata_dev.tool.xp.models import Probe, Sentinel
+
+    state.bind(render.Renderer(state.TOOL), argparse_ns())
+    _fake_sentinel_tdk(monkeypatch, [[]])
+    written = _fake_probe_clock(monkeypatch)
+    probe = Probe(domain="d", every="20s")
+    s = Sentinel(
+        collection="c", table="t", wait_for_key="k", time_out="1m", probe=probe
+    )
+    with pytest.raises(state.XpError, match=r"; 3 probe\(s\) written to d\)$"):
+        project.wait_sentinels("p", [s])
+    assert len(written) == 3 and all("--emit-ops" not in a for a in written)
 
 
 def test_a_sentinel_that_never_arrives_fails_at_its_time_out(xp_root, monkeypatch):
