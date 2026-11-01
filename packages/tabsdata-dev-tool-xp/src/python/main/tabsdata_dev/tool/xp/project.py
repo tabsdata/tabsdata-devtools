@@ -483,7 +483,9 @@ def create_collections(inst, project: str, collections: list) -> None:
                 # the domain descriptors and could print resolved values).
                 if not state.run.dry_run:
                     conn_yaml = conn.prepare_conn(
-                        template, shell.collection_descriptor(inst, c)
+                        template,
+                        shell.collection_descriptor(inst, c),
+                        owner=f"{project}/{c.name}",
                     )
             shell.tdk(cmd, want_json=False, stdin_text=conn_yaml)
             step["note"] = c.type

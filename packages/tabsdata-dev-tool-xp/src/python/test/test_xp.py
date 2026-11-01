@@ -243,6 +243,41 @@ def test_connection_prep_resolves_secrets_and_interpolates(xp_root, monkeypatch)
         conn.interpolate("${D0__NOPE}", {}, "here")
 
 
+def test_a_mysql_cdc_connection_gets_a_server_id_of_its_runs_own(xp_root):
+    """MySQL admits one replica per server id: a fixed id per template met the
+    replica of an earlier run's kept project, and each disconnected the other."""
+    import yaml
+    from tabsdata_dev.tool.xp import conn
+
+    tpl = xp_root / "connections" / "mysql_cdc.yaml"
+
+    def server_id(owner):
+        doc = yaml.safe_load(conn.prepare_conn(tpl, {"D0__URI": "u"}, owner=owner))
+        return doc["spec"]["server_id"]
+
+    this = server_id("xp_a_20261031T190343_cdc_keys/mysqlcdc_in")
+    assert conn.SERVER_ID_FLOOR <= this < conn.SERVER_ID_CEIL
+    # the same for the run's life, so a stream re-enabled reattaches as itself
+    assert this == server_id("xp_a_20261031T190343_cdc_keys/mysqlcdc_in")
+    others = {
+        server_id("xp_a_20261031T163038_cdc_keys/mysqlcdc_in"),  # an earlier run
+        server_id("xp_a_20261031T190343_cdc_keys/mysqlcdc_in_head"),  # a sibling
+        server_id("xp_a_20261031T190343_medallion/mysql_cdc"),  # another suite
+    }
+    assert this not in others and len(others) == 3
+    # with no owner, and for any other connector, the template stands
+    assert (
+        yaml.safe_load(conn.prepare_conn(tpl, {"D0__URI": "u"}))["spec"]["server_id"]
+        == 512
+    )
+    local = conn.prepare_conn(
+        xp_root / "connections" / "local_file_in.yaml",
+        {"D0__TOKEN": "t", "D0__DB": "d", "D0__BASE_PATH": "/b"},
+        owner="p/c",
+    )
+    assert "server_id" not in local
+
+
 def test_a_runs_domain_is_named_by_its_ids_and_a_fixed_one_as_written(xp_root):
     """`${xp:name(x)}` is the run's domain, `<XP_ID>_x` in the store and
     `<XP_SHORT_ID>_x` in the system -- short, because a system's identifiers

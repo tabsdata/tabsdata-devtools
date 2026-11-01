@@ -9,10 +9,14 @@ inline ``secret:VALUE`` and the document is piped to ``tdk collection create
 --conn-file -``; nothing is written to disk. A ``${D<n>__KEY}`` -- in a template
 or in a function's source -- is interpolated PLAIN, for a value that is a name,
 not a credential (the D0 domain's in-system name, say).
+
+A MySQL CDC connection gets a ``server_id`` of the run's own, whatever the
+template says (`mysql_server_id`): MySQL admits one replica per id, server-wide.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import pathlib
 import re
@@ -30,6 +34,11 @@ SECRET_RE = re.compile(r"\$secret:(.+)")  # a whole-value $secret:KEY ref
 # function source. A reference this tool owns always names a backing domain.
 VALUE_RE = re.compile(r"\$\{(D\d+__[A-Za-z_][A-Za-z0-9_]*)\}")
 FILE_CONN_TYPES = ("conn.localfile:", "conn.s3:", "conn.gcs:", "conn.azureblob:")
+MYSQL_CDC_TYPE = ":MySQLCdcStreamSrcConn"
+# Clear of the small ids people pick by hand (the server's own is usually 1, the
+# templates' 512-1012) and of the sign bit, for a client that packs it signed.
+SERVER_ID_FLOOR = 1 << 24
+SERVER_ID_CEIL = (1 << 31) - 1
 _WIN_DRIVE_ABS_RE = re.compile(r"[A-Za-z]:[/\\]")
 
 
@@ -148,8 +157,24 @@ def _normalize_base_paths(node) -> None:
             _normalize_base_paths(v)
 
 
-def prepare_conn(template: pathlib.Path, descriptor: dict) -> str:
-    """Resolve a connection template into a ready-to-create YAML doc."""
+def mysql_server_id(owner: str) -> int:
+    """The replica id for the collection `owner` (``<project>/<collection>``)
+    names: the same for the run's life -- a stream disabled and enabled again
+    reattaches as itself -- and different from every other run's. A fixed id
+    per template met the replica of a run whose failed lane kept its project:
+    each attach disconnected the other (MySQL error 1236), both exited 75 and
+    restarted, and neither saw a change. One in 2**31 - 2**24 ids; a hundred
+    streams at once collide about once in half a million runs."""
+    digest = hashlib.sha256(owner.encode()).digest()
+    span = SERVER_ID_CEIL - SERVER_ID_FLOOR
+    return SERVER_ID_FLOOR + int.from_bytes(digest[:8], "big") % span
+
+
+def prepare_conn(
+    template: pathlib.Path, descriptor: dict, owner: str | None = None
+) -> str:
+    """Resolve a connection template into a ready-to-create YAML doc; `owner`,
+    ``<project>/<collection>``, picks a MySQL CDC connection's server id."""
     values = dict(os.environ)
     values.update({k: str(v) for k, v in descriptor.items() if v is not None})
     # On the RAW text, before parsing: a reference may be part of a longer value.
@@ -169,5 +194,7 @@ def prepare_conn(template: pathlib.Path, descriptor: dict) -> str:
         )
         if base:
             doc.setdefault("spec", {})["base_path"] = base
+    if owner and str(doc.get("type", "")).endswith(MYSQL_CDC_TYPE):
+        doc.setdefault("spec", {})["server_id"] = mysql_server_id(owner)
     _normalize_base_paths(doc)
     return yaml.safe_dump(doc, sort_keys=False, allow_unicode=True)

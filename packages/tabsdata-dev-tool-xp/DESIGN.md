@@ -42,8 +42,8 @@ times the phases, `--dry-run` prints the commands.
   under churn whose transactions run `--trx-mode serial|interleaved|nested|mix`, a tracked
   table left quiet for several rollovers, every key shape, the publisher disabled and enabled
   three times -- written by `cdc/gen_suites.py` for each of postgrescdc, mysqlcdc and db2cdc
-  (a `Source` each: its publishers, its connections -- one MySQL server_id per collection that
-  may run beside another -- what its log carries and how its head start is checked). Every one changes a table its
+  (a `Source` each: its publishers, its connections -- one MySQL connection per collection that
+  may run beside another, each attaching its own replica -- what its log carries and how its head start is checked). Every one changes a table its
   stream does not track (`employeescdc`'s `audit`). `kafka` holds every Kafka stream
   source suite over a redpanda domain -- the connector's variants, the two examples
   (`kafka_src`, `kafka_registry`, hand-written, so the examples generator never knew them)
@@ -94,8 +94,7 @@ times the phases, `--dry-run` prints the commands.
   standard library only, so the functions build from it and the check reads it. Both are in
   a directory of their own because a suite dir's lanes are its own files, not its subdirs':
   a bare `--suite dataquality` -- what the smoke runs take, on clusters with no mysqlcdc --
-  stays the quick, self-contained lanes; the mysqlcdc suite's collection's `server_id` is
-  1012. `blogs-material` holds suites written for blog posts: a function file is the code a
+  stays the quick, self-contained lanes. `blogs-material` holds suites written for blog posts: a function file is the code a
   post shows, and the suite proves it runs. `blogs-material/dataqualitytrends/salesforce-dq-trends`
   (with `functions/sf_leads_plan.py`, `functions/dq_salesforce_leads.py` and
   `scripts/verify_dq_salesforce.py`) is a publisher of a Salesforce Lead Lifetime report, a
@@ -197,6 +196,17 @@ times the phases, `--dry-run` prints the commands.
   --conn-file -` -- a credential is never written to disk. `${D<n>__KEY}`, in a template or in a
   function's source, interpolates plain, for a value that is a name rather than a secret (the D0
   domain's in-system name, say).
+- **A MySQL CDC connection's `server_id` is the run's, not the template's**
+  (`conn.mysql_server_id`): a hash of `<project>/<collection>` in [2^24, 2^31). MySQL admits one
+  replica per id across the whole server, and every stream publisher attaches one. The ids
+  were fixed per template (512-1012), which kept the suites of one run apart but not two runs:
+  a lane that fails keeps its project, so its streamer runs on, and the next run's stream on
+  the same template disconnected it and was disconnected back (error 1236; the streamer exits
+  75 and restarts, with a growing pause) -- neither saw a change, and every mysqlcdc lane of
+  `--suite ALL` failed. The same project and collection always get the same id, so a stream
+  disabled and enabled again reattaches as itself. The templates keep their numbers for use by
+  hand. Rejected: an id per run counter (two xp processes would count alike); requiring the
+  leftover projects to be destroyed first (one forgotten run breaks every later one).
 
 ## Run identity and names
 

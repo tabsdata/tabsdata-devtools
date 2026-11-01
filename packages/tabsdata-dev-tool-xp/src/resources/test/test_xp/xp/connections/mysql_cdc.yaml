@@ -1,0 +1,9 @@
+#
+# Copyright 2026 Tabsdata Inc.
+#
+kind: connectionDef
+apiVersion: '1.0'
+type: tabsdatak.conn.mysql:MySQLCdcStreamSrcConn
+spec:
+  uri: '$secret:D0__URI'
+  server_id: 512

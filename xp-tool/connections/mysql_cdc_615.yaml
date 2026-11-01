@@ -35,6 +35,8 @@ spec:
 
   # optional (default: 512)
   #
+  # xp replaces this with an id of the run and collection (xp conn.mysql_server_id), so a
+  # leftover stream from another run cannot hold it; the value here is for using it by hand.
   server_id: 615
   # entity_whitelist  (optional, default: none) -- a list
   # entity_whitelist: []
