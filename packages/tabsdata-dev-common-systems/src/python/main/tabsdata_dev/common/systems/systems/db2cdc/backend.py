@@ -82,6 +82,11 @@ _CAPTURE_MEMORY_LIMIT_MB = 1024
 PACKAGE = "tabsdata_dev.common.systems"
 
 
+class CaptureBusyError(TdxError):
+    """asncap runs and has not taken the CAPSTOP of tables whose registrations
+    were to go: they are left in place, and so is whatever was to follow."""
+
+
 def _script(name: str, **values) -> str:
     """The container script db2cdc/<name>.sh, filled with `values` and the
     database and capture schema every one of them names."""
@@ -489,6 +494,7 @@ class Db2Cdc(Db2):
         tables: list[str],
         *,
         after: list[str] | None = None,
+        source_gone: bool = False,
     ) -> None:
         """CAPSTOP, then the registrations' rows, triggers and CD tables: what a
         deregistration and a reclaim both take away. The source tables' own
@@ -501,9 +507,16 @@ class Db2Cdc(Db2):
         the container, as :meth:`_wait_until` does), the removal, `after`, and
         the check that the CD tables are gone. CAPSTOP comes first and is waited
         on: dropping a CD table under a still-capturing registration fails its
-        next insert (SQLCODE -42704) and takes the capture program down. A
-        capture program already down never takes them; the wait then runs out
-        and the registrations go regardless."""
+        next insert (SQLCODE -42704) and takes the capture program down -- for
+        every domain on the system, since one asncap serves them all. So the
+        removal waits until every source's latest stop is taken, not until none
+        is pending: a stop whose insert failed is never pending, and was never
+        taken. Stops not all taken while asncap runs leave everything in place
+        and are an error (the removal can be run again once asncap has caught
+        up); a capture program that is down never takes them, and there the
+        registrations go regardless -- on its next start it reads only those
+        left. `source_gone` (a reclaim) removes regardless too: a registration
+        whose source table is gone receives no change to insert."""
         if not tables:
             return
         stagings = self._registered_stagings(container, schema, tables)
@@ -511,13 +524,13 @@ class Db2Cdc(Db2):
         names = _sql_list(tables)
         # Only each source's latest stop counts: an older one sent while the
         # capture program was down is never consumed.
-        pending = (
+        taken = (
             f"select count(*) from (select signal_state, row_number() over "
             f"(partition by signal_input_in order by signal_time desc) as latest "
             f"from {_ASN}.ibmsnap_signal where signal_type = 'CMD' and "
             f"signal_subtype = 'CAPSTOP' and signal_input_in in "
             f"({_sql_list(sources)})) as stops "
-            f"where latest = 1 and signal_state <> 'C'"
+            f"where latest = 1 and signal_state = 'C'"
         )
         removal = (
             [
@@ -536,14 +549,23 @@ class Db2Cdc(Db2):
         body = _script(
             "remove_registrations",
             sources=sources,
-            pending=pending,
+            taken=taken,
             removal=removal,
             stagings=_sql_list(stagings),
             marker=_SECTION,
             timeout=_WAIT_TIMEOUT_S,
             poll=_WAIT_POLL_S,
+            require=not source_gone,
         )
         out = self._run(container, body, ignore_failure=True)
+        if _SECTION + "held" in out:
+            raise CaptureBusyError(
+                f"CDC: asncap has not taken the CAPSTOP of {', '.join(sources)} "
+                f"within {_WAIT_TIMEOUT_S}s; their registrations and CD tables are "
+                f"left in place, since dropping a CD table asncap still writes to "
+                f"stops it for every domain. Run this again once asncap has "
+                f"caught up."
+            )
         _, _, tail = out.partition(_SECTION + "left")
         left = {
             line.strip()
@@ -634,7 +656,10 @@ class Db2Cdc(Db2):
         Deregistering first is what keeps the system reusable. It has to happen
         BEFORE the schema goes: :meth:`deregister_table` sends CAPSTOP for
         ``schema.table`` and clears the source table's ``DATA CAPTURE`` flag,
-        neither of which is possible once the table is gone.
+        neither of which is possible once the table is gone. When asncap is
+        running and has not taken those stops, nothing goes and the destroy
+        fails (:class:`CaptureBusyError`), so it can be run again; ``--force``
+        drops the descriptor anyway and leaves the schema.
 
         """
         self._deregister_schema(domain_meta)
@@ -700,6 +725,9 @@ class Db2Cdc(Db2):
         print(f">>> CDC: deregistering {len(tables)} table(s) from ASN capture …")
         try:
             self._deregister_tables(container, schema, tables)
+        except CaptureBusyError:
+            # The schema has to stay too: asncap still holds its tables.
+            raise
         except TdxError as exc:
             print(f"    WARNING: {schema} not fully deregistered: {exc}")
 
@@ -849,7 +877,7 @@ class Db2Cdc(Db2):
                 f"    reclaiming {self.cd_table(schema, table)} from {owner}.{table}, "
                 f"whose source table is gone …"
             )
-            self._remove_registrations(container, owner, [table])
+            self._remove_registrations(container, owner, [table], source_gone=True)
         self._remove_registrations(container, schema, own)
         if not blockers:
             return

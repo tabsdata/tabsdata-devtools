@@ -2421,6 +2421,47 @@ def test_db2cdc_waits_only_for_the_latest_stop_of_each_table(db2cdc):
     assert "row_number() over" in call and "latest = 1" in call
 
 
+def test_db2cdc_waits_until_every_stop_is_taken_not_until_none_is_pending(db2cdc):
+    """A stop whose insert failed is never pending, and was never taken: the
+    wait counts the taken ones up to the number of sources."""
+    db2cdc._remove_registrations("C", "S", ["A", "B"])
+    [call] = [c for c in db2cdc.calls if "'CAPSTOP'" in c]
+    assert "signal_state = 'C'" in call and "signal_state <> 'C'" not in call
+    assert '[ "$got" = "2" ]' in call
+
+
+def test_db2cdc_keeps_what_a_running_capture_still_holds(db2cdc):
+    """Stops not all taken while asncap runs: nothing is removed -- its next
+    insert into a dropped CD table would stop it for every domain."""
+    db2cdc._remove_registrations("C", "S", ["A"])
+    [call] = [c for c in db2cdc.calls if "'CAPSTOP'" in c]
+    guard = call.index("asnccmd capture_server=XP capture_schema=ASN status")
+    assert call.index("while") < guard < call.index("delete from ASN.ibmsnap_register")
+    assert "ASN0506E" in call[guard:] and "held'" in call[guard:]
+
+
+def test_db2cdc_a_reclaim_removes_whatever_capture_took(db2cdc):
+    """A registration whose source table is gone receives no change to insert."""
+    db2cdc._remove_registrations("C", "S", ["A"], source_gone=True)
+    [call] = [c for c in db2cdc.calls if "'CAPSTOP'" in c]
+    assert "asnccmd" not in call and "drop table" in call
+
+
+def test_db2cdc_a_held_removal_is_an_error_and_fails_the_destroy(db2cdc):
+    from tabsdata_dev.common.systems.systems.db2cdc import backend
+
+    db2cdc._run = lambda container, body, **kwargs: f"{backend._SECTION}held\n"
+    with pytest.raises(
+        backend.CaptureBusyError, match="has not taken the CAPSTOP of S.A"
+    ):
+        db2cdc._remove_registrations("C", "S", ["A"])
+    # a destroy deregisters best-effort, but not past a capture that holds them
+    db2cdc._container_and_schema = lambda meta: ("C", "S")
+    db2cdc._registered_tables = lambda container, schema: ["A"]
+    with pytest.raises(backend.CaptureBusyError):
+        db2cdc._deregister_schema({})
+
+
 def test_db2cdc_a_deregistration_clears_data_capture_and_drops_its_sources(db2cdc):
     db2cdc._deregister_tables("C", "S", ["A"], drop=True)
     [call] = [c for c in db2cdc.calls if "'CAPSTOP'" in c]
