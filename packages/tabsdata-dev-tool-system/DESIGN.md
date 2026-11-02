@@ -26,10 +26,12 @@ connection details kept as encrypted descriptors.
   `clean-docker [--yes|-y]` stops and deletes every `tdd_*` container and volume -- the
   prefix all docker-backed systems use, and the name a system's data volume takes from its
   container -- descriptor or not; it lists them and asks first unless `--yes`.
-- **The six postgres types are one shape** (`systems/postgres/dialect.py`, which the
+- **The eight postgres types are one shape** (`systems/postgres/dialect.py`, which the
   container `Postgres`, the native `PostgresNative` and `ManagedPostgres` each pair with their
-  hosting): `postgres` and `postgrescdc` are containers, `postgresnative` a server run from
-  downloaded binaries in a directory of its own, `awspostgres`, `gcppostgres` and `azpostgres`
+  hosting): `postgres`, `postgrescdc` and `postgrespgvector` are containers, `postgresnative`
+  and `postgresnativepgvector` servers run from downloaded binaries in a directory of their own
+  (the two `*pgvector` types are the plain ones with pgvector installed, created in no
+  database), `awspostgres`, `gcppostgres` and `azpostgres`
   managed instances, and every one of them records the same block -- `INTERNAL_HOST`/`EXTERNAL_HOST`,
   `PORT`, `DATABASE`, `USER`, `PASSWORD`, `VERSION`
   (probed at create) and a `SQLALCHEMY_URI`/`URI` pair per plane -- plus only its own group
@@ -38,7 +40,7 @@ connection details kept as encrypted descriptors.
   neither is unqualified; a container has one address and records it under both names.
   Everything tdd does itself -- probe, status, DDL, loading a model -- goes over the external
   plane, since that is where tdd is. A domain carries the block with its own database and owner
-  in it. All six hold models and data; the managed three borrow the plain system's DDL
+  in it. All eight hold models and data; the managed three borrow the plain system's DDL
   (`ddl_from_slug`) and get the root certificate written to a temporary file for the length of
   a load (`data_plane_uri`, a context manager for exactly that reason).
 - **1Password is a shape, not an integration** (`common.systems.onepassword`). `tdd _1p fetch

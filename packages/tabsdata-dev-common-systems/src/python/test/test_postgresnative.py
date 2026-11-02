@@ -2,9 +2,10 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""postgresnative: the binaries it picks for a machine, how it installs pgvector
-into a system's own tree, the configuration it writes and the domain's
-``--pgvector`` -- nothing that downloads or starts a server."""
+"""postgresnative and postgresnativepgvector: the binaries they pick for a
+machine, how the latter installs pgvector into a system's own tree, the
+configuration they write, and the pgvector types' (postgrespgvector too)
+``domain create --pgvector`` -- nothing that downloads or starts a server."""
 
 import hashlib
 import io
@@ -24,6 +25,11 @@ from tabsdata_dev.common.systems.systems.postgresnative import backend as native
 from tabsdata_dev.common.systems.systems.postgresnative import binaries
 
 SLUG = "postgresnative"
+SLUG_PGVECTOR = "postgresnativepgvector"
+#: The types with pgvector installed, and so with `domain create --pgvector`.
+PGVECTOR_SLUGS = ("postgrespgvector", SLUG_PGVECTOR)
+#: The types without it, whose `domain create` is the shared one.
+PLAIN_SLUGS = ("postgres", "postgrescdc", SLUG)
 
 
 @pytest.fixture
@@ -104,7 +110,8 @@ def test_a_bottle_is_the_one_for_the_platform_and_the_oldest_macos(resource_fold
 
 def test_archives_are_fetched_into_the_shared_cache_once(tdd_dir, monkeypatch):
     """theseus's archive is checked against the checksum published beside it;
-    a bottle against the digest it is named by; a cached file is used as is."""
+    a bottle against the digest it is named by, and only for a system that
+    installs pgvector; a cached file is used as is."""
     reads, fetches = [], []
     index = {
         "manifests": [
@@ -131,7 +138,8 @@ def test_archives_are_fetched_into_the_shared_cache_once(tdd_dir, monkeypatch):
     monkeypatch.setattr(download, "read", read)
     monkeypatch.setattr(download, "fetch", fetch)
     target = "aarch64-apple-darwin"
-    binaries.fetch_all("18.6.0", target)
+    _, vector = binaries.fetch_all("18.6.0", target, pgvector=False)
+    assert vector is None
     assert fetches == [
         (
             (
@@ -141,6 +149,10 @@ def test_archives_are_fetched_into_the_shared_cache_once(tdd_dir, monkeypatch):
             "postgresql-18.6.0-aarch64-apple-darwin.tar.gz",
             "CAFE",
         ),
+    ]
+    fetches.clear()
+    binaries.fetch_all("18.6.0", target, pgvector=True)
+    assert fetches == [
         (
             "https://ghcr.io/v2/homebrew/core/pgvector/blobs/sha256:ab12",
             "pgvector-0.8.6-aarch64-apple-darwin.bottle.tar.gz",
@@ -150,7 +162,7 @@ def test_archives_are_fetched_into_the_shared_cache_once(tdd_dir, monkeypatch):
     assert reads[1] == "https://ghcr.io/v2/homebrew/core/pgvector/manifests/0.8.6"
     # cached now: nothing is read or fetched again
     reads.clear(), fetches.clear()
-    binaries.fetch_all("18.6.0", target)
+    binaries.fetch_all("18.6.0", target, pgvector=True)
     assert reads == [] and fetches == []
 
 
@@ -342,11 +354,34 @@ def test_a_system_lives_in_its_own_directory_on_its_types_port_slot(tdd_dir):
     assert meta["NATIVE_DIR"] == str(tdd_dir / "data" / "system-native" / "pn1")
     assert 23200 <= int(meta["PORT"]) <= 23299
     assert meta["EXTERNAL_HOST"] == meta["INTERNAL_HOST"] == "127.0.0.1"
-    assert meta["PGVECTOR_VERSION"] == binaries.PGVECTOR_VERSION
+    assert "PGVECTOR_VERSION" not in meta
     assert meta["DATABASE"] == "postgres" and meta["USER"] == "postgres"
     assert not b.listens_everywhere(meta)
     b.use_hostname("box.example")
     assert b.listens_everywhere(b.plan_system("pn2", {"PORT": "23250"}))
+
+
+def test_a_pgvector_system_records_the_pgvector_its_tree_carries(tdd_dir):
+    meta = systems.get(SLUG_PGVECTOR).plan_system("pv1", {})
+    assert meta["NATIVE_DIR"] == str(tdd_dir / "data" / "system-native" / "pv1")
+    assert 23400 <= int(meta["PORT"]) <= 23499
+    assert meta["PGVECTOR_VERSION"] == binaries.PGVECTOR_VERSION
+
+
+def test_only_a_pgvector_system_installs_it_in_its_tree(tdd_dir, monkeypatch):
+    built = []
+    monkeypatch.setattr(
+        binaries,
+        "build_tree",
+        lambda version, target, tree, *, pgvector: built.append(pgvector),
+    )
+    for slug in (SLUG, SLUG_PGVECTOR):
+        b = systems.get(slug)
+        for step in ("_initdb", "_configure", "_start"):
+            monkeypatch.setattr(b, step, lambda *args: None)
+        monkeypatch.setattr(b, "_probe_version", lambda meta: "18.6")
+        b.provision_system(b.plan_system(slug, {}))
+    assert built == [False, True]
 
 
 def test_its_capabilities_are_a_run_systems_without_a_container():
@@ -421,7 +456,9 @@ def test_an_existing_directory_is_kept_unless_forced(tdd_dir, monkeypatch):
     steps = []
     monkeypatch.setattr(b, "_stop", lambda r: steps.append(("stop", r)))
     monkeypatch.setattr(
-        binaries, "build_tree", lambda v, t, tree: steps.append(("tree", tree))
+        binaries,
+        "build_tree",
+        lambda v, t, tree, *, pgvector: steps.append(("tree", tree)),
     )
     monkeypatch.setattr(
         b, "_initdb", lambda r, m, major: steps.append(("initdb", major))
@@ -487,14 +524,16 @@ def test_libpq_variables_never_reach_the_servers_programs(monkeypatch):
 
 
 def _sys_meta(b):
-    return b.plan_system("pn", {"PORT": "23220", "PASSWORD": "pw"})
+    return b.plan_system("pn", {"PORT": "23420", "PASSWORD": "pw"})
 
 
-def test_a_domain_records_its_pgvector_choice_off_by_default(tdd_dir):
-    b = systems.get(SLUG)
+@pytest.mark.parametrize("slug", PGVECTOR_SLUGS)
+def test_a_domain_records_its_pgvector_choice_off_by_default(tdd_dir, slug):
+    """Installed on the server is all a pgvector system promises: a domain's
+    database has the extension created only when its create asked."""
+    b = systems.get(slug)
     dom = b.domain_meta(_sys_meta(b), "d1", "secret")
     assert dom["PGVECTOR"] == "off"
-    assert dom["PGVECTOR_VERSION"] == binaries.PGVECTOR_VERSION
     assert "NATIVE_DIR" not in dom
     b.use_pgvector("on")
     assert b.domain_meta(_sys_meta(b), "d1", "secret")["PGVECTOR"] == "on"
@@ -502,11 +541,26 @@ def test_a_domain_records_its_pgvector_choice_off_by_default(tdd_dir):
         b.use_pgvector("yes")
 
 
+def test_a_native_pgvector_domain_carries_its_systems_pgvector_version(tdd_dir):
+    b = systems.get(SLUG_PGVECTOR)
+    dom = b.domain_meta(_sys_meta(b), "d1", "secret")
+    assert dom["PGVECTOR_VERSION"] == binaries.PGVECTOR_VERSION
+
+
+@pytest.mark.parametrize("slug", PLAIN_SLUGS)
+def test_a_plain_domain_says_nothing_of_pgvector(tdd_dir, slug):
+    b = systems.get(slug)
+    dom = b.domain_meta(_sys_meta(b), "d1", "secret")
+    assert not {"PGVECTOR", "PGVECTOR_VERSION"} & set(dom)
+    assert not hasattr(b, "use_pgvector")
+
+
+@pytest.mark.parametrize("slug", PGVECTOR_SLUGS)
 @pytest.mark.parametrize("choice", ["on", "off"])
 def test_pgvector_on_creates_the_extension_in_the_domains_database(
-    tdd_dir, monkeypatch, choice
+    tdd_dir, monkeypatch, slug, choice
 ):
-    b = systems.get(SLUG)
+    b = systems.get(slug)
     ran = []
     monkeypatch.setattr(b, "_do_list", lambda admin: [])
     monkeypatch.setattr(b, "_run_admin", lambda admin, sql: ran.append((admin.db, sql)))
@@ -518,20 +572,23 @@ def test_pgvector_on_creates_the_extension_in_the_domains_database(
     assert ran[0][0] == "postgres"  # the database itself, from the maintenance db
 
 
-def test_domain_create_takes_pgvector_and_a_manifest_replays_it():
-    module = dispatch._command_module("domain", SLUG, "create")
+def _create_options(slug):
     parser = dispatch.ArgumentParser(prog="x")
-    module.add_arguments(parser)
+    dispatch._command_module("domain", slug, "create").add_arguments(parser)
+    return parser
+
+
+@pytest.mark.parametrize("slug", PGVECTOR_SLUGS)
+def test_domain_create_takes_pgvector_and_a_manifest_replays_it(slug):
+    parser = _create_options(slug)
     assert parser.parse_args(["--sys", "s"]).pgvector == "off"
     assert parser.parse_args(["--sys", "s", "--pgvector", "on"]).pgvector == "on"
     with pytest.raises(UsageError, match="invalid choice: 'maybe'"):
         parser.parse_args(["--sys", "s", "--pgvector", "maybe"])
-    # only the native system takes it: the plain postgres create is the shared one
-    assert dispatch._command_module("domain", "postgres", "create") is not module
 
     def info(pgvector):
         return descriptor.DomainInfo(
-            system=SLUG,
+            system=slug,
             name="d",
             started="2026-10-29T00:00:00Z",
             sys_name="pn",
@@ -552,19 +609,28 @@ def test_domain_create_takes_pgvector_and_a_manifest_replays_it():
     assert steps[0][-2:] == ["--pgvector", "on"]
 
 
+@pytest.mark.parametrize("slug", PLAIN_SLUGS)
+def test_a_server_without_pgvector_offers_no_pgvector_to_create(slug):
+    """CREATE EXTENSION could only fail there: the files are not installed."""
+    with pytest.raises(UsageError, match="unrecognized arguments: --pgvector"):
+        _create_options(slug).parse_args(["--sys", "s", "--pgvector", "on"])
+
+
 def test_help_names_the_options_of_the_targets_own_type(tdd_dir, monkeypatch):
     """`domain create --sys S -h` is S's type's create; help needs no key and no
     stored target, so without them it is the first type's, which has no
     --pgvector."""
     monkeypatch.setenv("_TDD_CRYPTO_KEY", "a-key-for-the-test-only")
-    info = descriptor.SystemInfo(system=SLUG, name="pn", started="now", meta={})
-    descriptor.save(info, store.system_path("pn"))
+    for name, slug in (("pn", SLUG_PGVECTOR), ("plain", SLUG)):
+        info = descriptor.SystemInfo(system=slug, name=name, started="now", meta={})
+        descriptor.save(info, store.system_path(name))
 
     def options(argv):
         parser = dispatch._help_parser("domain", "create", [*argv, "-h"])
         return {flag for a in parser._actions for flag in a.option_strings}
 
     assert "--pgvector" in options(["--sys", "pn"])
+    assert "--pgvector" not in options(["--sys", "plain"])
     assert "--pgvector" not in options(["--sys", "missing"])
     assert "--pgvector" not in options(["--sys", "pn,missing"])
     monkeypatch.delenv("_TDD_CRYPTO_KEY")

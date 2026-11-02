@@ -47,6 +47,13 @@ MYSQL = Image(
 # 18.6 matches the POSTGRESQL_VERSION td-database pins its embedded server to,
 # so the Rust db tests run against the version the product ships.
 POSTGRES = Image("postgres", _tag("POSTGRES_IMAGE_VERSION", "18.6"), NATIVE)
+# pgvector's build of that image: the same 18.6 with pgvector 0.8.6 installed
+# (the pair a postgresnativepgvector tree carries) and created in no database.
+POSTGRESPGVECTOR = Image(
+    "pgvector/pgvector",
+    _tag("POSTGRESPGVECTOR_IMAGE_VERSION", "0.8.6-pg18"),
+    NATIVE,
+)
 MSSQLSERVER = Image(
     "mcr.microsoft.com/mssql/server",
     _tag("MSSQL_IMAGE_VERSION", "2022-CU14-ubuntu-22.04"),

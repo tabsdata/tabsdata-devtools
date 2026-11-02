@@ -59,6 +59,8 @@ _SLUGS: dict[str, tuple[str, str]] = {
     "azurebloblocal": ("azurebloblocal", "AzureBlobLocal"),
     "gcslocal": ("gcslocal", "GcsLocal"),
     "postgresnative": ("postgresnative", "PostgresNative"),
+    "postgrespgvector": ("postgrespgvector", "Postgrespgvector"),
+    "postgresnativepgvector": ("postgresnativepgvector", "PostgresNativePgvector"),
 }
 
 

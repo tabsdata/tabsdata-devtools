@@ -2,7 +2,7 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""``PostgresDialect`` -- the PostgreSQL shape all six share, on any hosting.
+"""``PostgresDialect`` -- the PostgreSQL shape all eight share, on any hosting.
 
 A domain is a database with a dedicated owner role of the same name. Admin runs
 as the ``postgres`` superuser against the ``postgres`` maintenance database;
@@ -10,17 +10,18 @@ as the ``postgres`` superuser against the ``postgres`` maintenance database;
 executed in autocommit.
 
 **The info block.** ``postgres``, ``postgrescdc``, ``postgresnative``,
-``awspostgres``, ``gcppostgres`` and ``azpostgres`` all speak this dialect (the
-container ``Postgres``, the native ``PostgresNative`` and ``ManagedPostgres``
-each pair it with their hosting), so the vocabulary a descriptor speaks is
-defined once, here, and every one of the six reads alike::
+``postgrespgvector``, ``postgresnativepgvector``, ``awspostgres``,
+``gcppostgres`` and ``azpostgres`` all speak this dialect (the container
+``Postgres``, the native ``PostgresNative`` and ``ManagedPostgres`` each pair it
+with their hosting), so the vocabulary a descriptor speaks is defined once, here,
+and every one of the eight reads alike::
 
     INTERNAL_HOST  EXTERNAL_HOST  PORT  DATABASE  USER  PASSWORD  VERSION
     INTERNAL_SQLALCHEMY_URI  EXTERNAL_SQLALCHEMY_URI
     INTERNAL_URI             EXTERNAL_URI
 
 on top of which each adds only what its provider has: the docker keys here, the
-native system's directory and pgvector version, the
+native system's directory (and the pgvector version its tree carries), the
 ``AWS_*`` / ``GCP_*`` / ``AZ_*`` groups and the TLS pair on the managed three.
 
 **Two networks, always named.** A managed instance answers on a public address
@@ -28,7 +29,7 @@ and on a private one inside its VPC, and which is usable is a property of the
 reader rather than of the instance -- tdx runs on a laptop and reaches it at
 ``EXTERNAL_HOST``, a workload in the cluster has no route to that and reaches it
 at ``INTERNAL_HOST``. A container has one address and records it under both
-names: the split costs it nothing and buys every reader of any of the six one
+names: the split costs it nothing and buys every reader of any of the eight one
 set of keys to look for. ``URI`` is the credentials-free twin of
 ``SQLALCHEMY_URI`` for each plane -- what a connector under test is handed
 beside its own ``USER`` / ``PASSWORD``.
@@ -74,7 +75,7 @@ class PostgresDialect(SqlDatabase):
     domain_host_key = "EXTERNAL_HOST"
     domain_db_key = "DATABASE"
 
-    # ---- the shared info block (all six) ---------------------------------
+    # ---- the shared info block (all eight) -------------------------------
 
     def sqlalchemy_url(
         self, host: str, port: str, db: str = "", user: str = "", password: str = ""
@@ -227,7 +228,7 @@ class PostgresDialect(SqlDatabase):
         bare `permission denied for schema public`.
 
         Taking ownership rather than granting CREATE says the same thing about
-        every one of the six, on any server and whatever its template does: the
+        every one of the eight, on any server and whatever its template does: the
         database exists for this domain, so the domain owns what is in it. It
         needs its own connection -- to the new database rather than the
         maintenance one -- which is why it is here and not another line of

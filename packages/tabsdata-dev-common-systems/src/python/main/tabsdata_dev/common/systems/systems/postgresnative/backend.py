@@ -3,40 +3,36 @@
 #
 
 """PostgreSQL run natively -- the dialect (:class:`PostgresDialect`) on this
-machine, from theseus-rs's binaries, with pgvector installed beside them.
+machine, from theseus-rs's binaries.
 
 The ``postgres`` container's twin: the same options (port, password,
 ``--sys-hostname``), the same server settings (``SERVER_SETTINGS``), the same
 info block and models -- its DDL is the plain system's -- but no docker. Each
 system owns ``<tdd_dir>/data/system-native/<system>/``::
 
-    postgresql/       its own copy of the binaries, pgvector installed in it
+    postgresql/       its own copy of the binaries
     data/             the cluster (initdb), tdd.conf and pg_hba.conf in it
     postgresql.log    the server's log
     pg_ctl.log        what pg_ctl said, for a start that failed
 
 so two systems share nothing but the download cache. The server is driven with
 the tree's own ``pg_ctl`` and listens on TCP alone; the superuser authenticates
-like everyone else.
-
-A domain is created with pgvector off; ``domain create --pgvector on`` runs
-``CREATE EXTENSION vector`` in its database (as the superuser: pgvector is not a
-trusted extension) and records ``PGVECTOR`` in the domain's meta.
+like everyone else. ``postgresnativepgvector`` is this with pgvector installed
+in the tree (:attr:`PostgresNative.pgvector`).
 """
 
 from __future__ import annotations
 
 import os
 import subprocess
-from dataclasses import replace
 from pathlib import Path
+from typing import ClassVar
 
 from tabsdata_dev.common.core import resources
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import port_open
 from tabsdata_dev.common.systems.systems._common.hosting.endpoint import (
     DEFAULT_HOSTNAME,
-    Admin,
 )
 from tabsdata_dev.common.systems.systems._common.hosting.native._base import (
     EXE_SUFFIX,
@@ -50,12 +46,8 @@ from tabsdata_dev.common.systems.systems.postgresnative import binaries
 #: This package, whose resources hold the configuration it writes.
 PACKAGE = "tabsdata_dev.common.systems"
 
-#: The system meta key holding the pgvector its tree carries.
+#: The system meta key holding the pgvector its tree carries, when it does.
 PGVECTOR_VERSION_KEY = "PGVECTOR_VERSION"
-#: The domain meta key saying whether its database has pgvector.
-PGVECTOR_KEY = "PGVECTOR"
-PGVECTOR_ON = "on"
-PGVECTOR_OFF = "off"
 
 # The directory's parts (see the module docstring).
 TREE = "postgresql"
@@ -74,8 +66,8 @@ class PostgresNative(NativeHosting, PostgresDialect):
     label = "PostgreSQL (native)"
     ddl_from_slug = "postgres"
 
-    # What `domain create --pgvector` chose for the domain it is creating.
-    _pgvector: str = PGVECTOR_OFF
+    #: Whether the tree gets pgvector installed (postgresnativepgvector).
+    pgvector: ClassVar[bool] = False
 
     # ---- paths ----------------------------------------------------------
 
@@ -186,17 +178,18 @@ class PostgresNative(NativeHosting, PostgresDialect):
             "PASSWORD": o.get("PASSWORD") or self.generate_password(),
             "VERSION": "",  # filled in by the probe once the server is up
             NATIVE_DIR_KEY: str(self.native_dir(name)),
-            PGVECTOR_VERSION_KEY: binaries.PGVECTOR_VERSION,
         }
+        if self.pgvector:
+            meta[PGVECTOR_VERSION_KEY] = binaries.PGVECTOR_VERSION
         self._plane_keys(meta, self.admin_db, meta["USER"], meta["PASSWORD"])
         return meta
 
     def fetch_bin(self, done: set[str]) -> None:
         version, target = binaries.resolve_version(), binaries.target_triple()
-        key = f"postgresql-{version}-{target}"
+        key = f"postgresql-{version}-{target}" + ("-pgvector" if self.pgvector else "")
         if key in done:
             return
-        binaries.fetch_all(version, target)
+        binaries.fetch_all(version, target, pgvector=self.pgvector)
         done.add(key)
 
     def provision_system(
@@ -210,7 +203,7 @@ class PostgresNative(NativeHosting, PostgresDialect):
             self.remove_dir(root)
             print(f">>> --force: removed {root}")
         version, target = binaries.resolve_version(), binaries.target_triple()
-        binaries.build_tree(version, target, root / TREE)
+        binaries.build_tree(version, target, root / TREE, pgvector=self.pgvector)
         self._initdb(root, meta, binaries.major_of(version))
         self._configure(root, meta)
         self._start(root)
@@ -306,38 +299,7 @@ class PostgresNative(NativeHosting, PostgresDialect):
 
     # ---- domains ----------------------------------------------------------
 
-    def use_pgvector(self, choice: str) -> None:
-        """Bind ``--pgvector`` for the domain this create makes (on or off)."""
-        if choice not in (PGVECTOR_ON, PGVECTOR_OFF):
-            raise TdxError(
-                f"--pgvector takes {PGVECTOR_ON} or {PGVECTOR_OFF}, not {choice!r}"
-            )
-        self._pgvector = choice
-
     def provider_meta(self, sys_meta: dict[str, str]) -> dict[str, str]:
+        if not self.pgvector:
+            return {}
         return {PGVECTOR_VERSION_KEY: sys_meta.get(PGVECTOR_VERSION_KEY, "")}
-
-    def domain_meta(
-        self, sys_meta: dict[str, str], entity_name: str, password: str
-    ) -> dict[str, str]:
-        meta = super().domain_meta(sys_meta, entity_name, password)
-        meta[PGVECTOR_KEY] = self._pgvector
-        return meta
-
-    def provision_domain(
-        self,
-        sys_meta: dict[str, str],
-        entity_name: str,
-        domain_meta: dict[str, str],
-        *,
-        force: bool = False,
-    ) -> None:
-        super().provision_domain(sys_meta, entity_name, domain_meta, force=force)
-        if domain_meta.get(PGVECTOR_KEY) == PGVECTOR_ON:
-            self._enable_pgvector(self._admin(sys_meta), entity_name)
-
-    def _enable_pgvector(self, admin: Admin, db: str) -> None:
-        print(f">>> pgvector: CREATE EXTENSION vector in '{db}'")
-        self._run_admin(
-            replace(admin, db=db), ["CREATE EXTENSION IF NOT EXISTS vector"]
-        )

@@ -139,6 +139,7 @@ manifests so a test suite gets the same data on every backend.
   create, `--domain` otherwise) -- the first type's when the store lacks it, cannot read it
   without the key, or the selector is a batch, since help asks for neither. redpanda's own add options: `create-model
   --up-to-partitions N`, `create-data`/`modify-data --entity A,B` and `--schema-changes`;
-  postgresnative's `create --pgvector on|off` (default off) creates the pgvector extension in
-  the domain's database and records `PGVECTOR`, a manifest entry's `pgvector: on` replaying it
-  (common-systems' DESIGN.md).
+  `postgrespgvector`'s and `postgresnativepgvector`'s `create --pgvector on|off` (default off,
+  pgvector installed on the server and created in no database) creates the pgvector extension
+  in the domain's database and records `PGVECTOR`, a manifest entry's `pgvector: "on"` replaying
+  it -- quoted, since YAML reads a bare `on` as a boolean (common-systems' DESIGN.md).

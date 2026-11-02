@@ -94,12 +94,12 @@ run. Its own `create-model`, `create-data` and `modify-data` (`redpanda/domain/`
 
 ## The two backend bases
 
-All six postgres types hand a new domain's owner the `public` schema of its own database
+All eight postgres types hand a new domain's owner the `public` schema of its own database
 (`ALTER SCHEMA public OWNER TO`, on a connection to that database). Creating a database owned by a
 role is not enough to let it put a table there: since PostgreSQL 15 `public` belongs to
 `pg_database_owner` -- implicitly the database's owner, which is why a stock server and Cloud SQL
 appear to need nothing -- while Azure Flexible Server's template gives it to `azure_pg_admin` and
-everyone else USAGE alone. Saying it outright makes the six behave alike on any server.
+everyone else USAGE alone. Saying it outright makes the eight behave alike on any server.
 
 **Two coordinates per system.** Every system names its *hosting* and its *nature* as its two
 bases, and each axis owns its own half of the backend contract, never the same method:
@@ -211,7 +211,8 @@ same name and pin (`18.6.0`, `TD_POSTGRESQL_VERSION` overriding it): one downloa
 The target triple comes from the platform rather than `rustc`. A fresh download is checked
 against theseus's `.sha256`; a cached one is not, since that script rewrites the Linux archive in
 place to bundle its libraries -- which tdd does not do: the server runs on the machine that
-fetched it. pgvector (`PGVECTOR_VERSION`, `0.8.6`) is in every system's tree, installed the way
+fetched it. pgvector (`PGVECTOR_VERSION`, `0.8.6`) is in a `postgresnativepgvector` system's
+tree, and only there, installed the way
 theseus's `postgresql_extensions` installs one (libraries to `lib/`, `.control`/`.sql` to
 `share/extension/`, each file by its bare name). theseus builds none, and nobody publishes one
 build for the three systems at PostgreSQL 18, so each takes the build that reaches furthest on
@@ -222,9 +223,22 @@ for Ubuntu 22.04 (PGDG; libc only, at glibc 2.17 symbols -- read with the standa
 for the major. Rejected: Homebrew's Linux bottle, which needs glibc 2.38 (no Ubuntu 22.04, Debian
 12 or RHEL 9); portal-corp's `pgvector_compiled`, the source theseus's crate knows, which stops
 at PostgreSQL 16; building from source, which needs a compiler (MSVC on Windows) and runs
-downloaded code. A domain is created with pgvector off; `domain create --pgvector on` runs
-`CREATE EXTENSION vector` in its database as the superuser (pgvector is not a trusted
-extension) and records `PGVECTOR`, which `manifest` replays.
+downloaded code.
+
+**pgvector is a system type, the extension a domain's choice.** pgvector is installed on a
+server, for every database in it; it is created in one database, which others on the same
+server need not share. So the two `*pgvector` types are the plain ones with the files installed
+-- `postgrespgvector` the container on `pgvector/pgvector` (`images.POSTGRESPGVECTOR`, 18.6 with
+pgvector 0.8.6, the pair the native tree carries), `postgresnativepgvector` the native server
+with them in its tree -- and installed is all they promise, as a DBA who only installed the
+package would: creating the extension is the product's job and its tests'. A domain is
+therefore created with pgvector off; `domain create --pgvector on` (`postgres/pgvector.py`,
+`PgvectorDomains`) stands for the DBA who also created it, running `CREATE EXTENSION vector` in
+its database as the superuser (pgvector is not a trusted extension) and recording `PGVECTOR`,
+which `manifest` replays. The plain `postgres`, `postgrescdc` and `postgresnative` have no
+`--pgvector`: the extension cannot be created where it is not installed. Rejected: pgvector in
+every postgres -- a test of the product's own install path could then never see a server
+without it.
 
 **`ManagedPostgres`** (`postgres/managed.py`, `ManagedHosting` + `PostgresDialect`) for provider-managed PostgreSQL -- AWS RDS
 (`awspostgres`), GCP Cloud SQL (`gcppostgres`), Azure Flexible Server (`azpostgres`). They differ

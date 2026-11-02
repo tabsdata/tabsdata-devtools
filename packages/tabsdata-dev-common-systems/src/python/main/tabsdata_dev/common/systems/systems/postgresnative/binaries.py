@@ -2,8 +2,8 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""The PostgreSQL and pgvector binaries a ``postgresnative`` system runs, for this
-machine's platform.
+"""The PostgreSQL binaries a ``postgresnative`` system runs, and the pgvector a
+``postgresnativepgvector`` one installs in them, for this machine's platform.
 
 **PostgreSQL** is theseus-rs's build (``postgresql-binaries``), fetched the way
 tabsdata-os's ``devutils/automation/tasks/makers/td-scripts/cache_postgresql.py``
@@ -70,7 +70,8 @@ RELEASE_DOWNLOAD = (
     "/{version}/postgresql-{version}-{target}.tar.gz"
 )
 
-#: The pgvector every native system installs. Both sources must publish it for
+#: The pgvector a postgresnativepgvector system installs: the one in the
+#: postgrespgvector container's image (images.POSTGRESPGVECTOR). Both sources must publish it for
 #: the PostgreSQL major in use: Homebrew's bottle tags and the Windows releases.
 PGVECTOR_VERSION = "0.8.6"
 HOMEBREW_PGVECTOR = "https://ghcr.io/v2/homebrew/core/pgvector"
@@ -333,19 +334,25 @@ def install_pgvector(archive: Path, major: str, tree: Path) -> list[Path]:
     return placed
 
 
-def fetch_all(version: str, target: str) -> tuple[Path, Path]:
-    """Both archives a system needs, from the cache or downloaded into it."""
+def fetch_all(version: str, target: str, *, pgvector: bool) -> tuple[Path, Path | None]:
+    """The archives a system needs, from the cache or downloaded into it:
+    PostgreSQL's, and pgvector's when the system installs it."""
     return (
         postgresql_archive(version, target),
-        pgvector_archive(PGVECTOR_VERSION, major_of(version), target),
+        pgvector_archive(PGVECTOR_VERSION, major_of(version), target)
+        if pgvector
+        else None,
     )
 
 
-def build_tree(version: str, target: str, tree: Path) -> None:
-    """A system's own PostgreSQL tree at `tree`, pgvector installed in it."""
-    pg, vector = fetch_all(version, target)
+def build_tree(version: str, target: str, tree: Path, *, pgvector: bool) -> None:
+    """A system's own PostgreSQL tree at `tree`, with pgvector installed in it
+    when `pgvector`."""
+    pg, vector = fetch_all(version, target, pgvector=pgvector)
     print(f">>> expanding {pg.name} into {tree}")
     expand_postgresql(pg, tree)
+    if vector is None:
+        return
     try:
         installed = install_pgvector(vector, major_of(version), tree)
     except BaseException:

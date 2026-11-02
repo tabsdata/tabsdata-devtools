@@ -218,9 +218,19 @@ POSTGRES_FAMILY = (
     "postgres",
     "postgrescdc",
     "postgresnative",
+    "postgrespgvector",
+    "postgresnativepgvector",
     "awspostgres",
     "gcppostgres",
     "azpostgres",
+)
+# The ones tdd runs itself, in a container or natively.
+LOCAL_POSTGRES = (
+    "postgres",
+    "postgrescdc",
+    "postgresnative",
+    "postgrespgvector",
+    "postgresnativepgvector",
 )
 # The block every one of the five records, whatever is behind it.
 INFO_BLOCK = (
@@ -240,7 +250,9 @@ INFO_BLOCK = (
 FAMILY_EXTRAS = {
     "postgres": {"DOCKER_CONTAINER_NAME", "IMAGE"},
     "postgrescdc": {"DOCKER_CONTAINER_NAME", "IMAGE"},
-    "postgresnative": {"NATIVE_DIR", "PGVECTOR_VERSION"},
+    "postgresnative": {"NATIVE_DIR"},
+    "postgrespgvector": {"DOCKER_CONTAINER_NAME", "IMAGE"},
+    "postgresnativepgvector": {"NATIVE_DIR", "PGVECTOR_VERSION"},
     "awspostgres": {
         "SSLMODE",
         "SERVER_CA_CERT_PEM",
@@ -289,7 +301,7 @@ def test_the_five_postgres_types_record_one_info_block_and_their_own_group():
         assert set(INFO_BLOCK) <= set(meta), slug
         assert set(meta) - set(INFO_BLOCK) == FAMILY_EXTRAS[slug], slug
     # docker has no certificate and no mode to choose, nor has a native server
-    for slug in ("postgres", "postgrescdc", "postgresnative"):
+    for slug in LOCAL_POSTGRES:
         assert not {"SSLMODE", "SERVER_CA_CERT_PEM"} & set(_plan(slug))
     # and every one of them can hold a model and its data
     for slug in POSTGRES_FAMILY:
@@ -349,7 +361,7 @@ def test_a_domain_carries_the_block_with_its_own_database_and_owner():
         for plane in ("INTERNAL", "EXTERNAL"):
             assert dom[f"{plane}_URI"].endswith(
                 "/d1"
-                if slug in ("postgres", "postgrescdc", "postgresnative")
+                if slug in LOCAL_POSTGRES
                 else "/d1?sslmode=require"
             ), slug
         # the provider group comes through: not derivable from a host that may
@@ -3148,6 +3160,8 @@ def test_only_the_transactional_sql_engines_take_a_trx_mode():
         "gcppostgres",
         "azpostgres",
         "postgresnative",
+        "postgrespgvector",
+        "postgresnativepgvector",
     }
     for slug in systems.all_slugs():
         assert isinstance(systems.get_class(slug).supports_trx_modes, bool), slug

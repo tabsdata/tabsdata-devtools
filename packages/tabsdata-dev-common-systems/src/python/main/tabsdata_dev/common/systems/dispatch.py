@@ -1524,8 +1524,8 @@ def dispatch(tool: str, argv: list[str]) -> int:
 
 
 def _help_parser(tool: str, verb: str, rest: list[str]) -> ArgumentParser:
-    """The parser `-h` prints. A type can add options to a verb (postgresnative's
-    ``domain create --pgvector``, redpanda's), so a named target -- ``--sys``,
+    """The parser `-h` prints. A type can add options to a verb (the pgvector
+    types' ``domain create --pgvector``, redpanda's), so a named target -- ``--sys``,
     ``--domain``, ``--type`` on a system create -- gets its own type's parser,
     bound as the run binds it. Help needs no key and no target, though: one the
     store lacks or cannot read, a batch, or none at all falls back to the first

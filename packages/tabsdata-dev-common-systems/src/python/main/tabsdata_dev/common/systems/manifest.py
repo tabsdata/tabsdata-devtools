@@ -105,7 +105,7 @@ def domain_entry(info: descriptor.DomainInfo) -> dict:
         entry["model"] = info.model
     if info.data:
         entry["size"] = info.data
-    # A create option a type adds: postgresnative's `--pgvector on`. Off is the
+    # A create option a type adds: the pgvector types' `--pgvector on`. Off is the
     # default, so only on is worth replaying.
     if info.meta.get("PGVECTOR") == "on":
         entry["pgvector"] = "on"
