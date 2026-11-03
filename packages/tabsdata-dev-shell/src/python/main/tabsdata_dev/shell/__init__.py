@@ -60,4 +60,4 @@ def scripts_dir(family: str = UNIX) -> pathlib.Path:
 
 def source_template(family: str = UNIX) -> str:
     """The family's loader template, with __TDD_DIR__ still unsubstituted."""
-    return (_root() / TEMPLATES[family]).read_text()
+    return (_root() / TEMPLATES[family]).read_text(encoding="utf-8")
