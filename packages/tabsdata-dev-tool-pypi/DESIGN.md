@@ -37,7 +37,7 @@ the tool.
 
 ```
 raw-wheels/<VERSION>/       the wheels + a MANIFEST        gitignored, yours
-     │ generate
+     │ generate [--version V]   (every release, or V alone)
      ▼
 pypi-wheels/staging/        the local staging tree         committed, minus *.whl
      │ push --lane staging  -> s3://td-pypi-staging
@@ -56,6 +56,16 @@ local tree, so the index can be tested with a real pip before any credential is 
 `--at NAME` it also serves the tree at `/NAME/` as that namespace serves it (below), so the
 index a `push --at NAME` would publish can be tried first -- `@local[::PORT][:NAME]` in
 `tdd env --py-idx` and the smoke scripts' `--uv-index` is that URL.
+
+`generate --version V` builds the staging tree from `raw-wheels/V/` alone, from scratch like the
+full generate -- the other releases under `raw-wheels/` are not read, and whatever the tree held
+is gone -- so the tree is that one release and a push makes its target exactly that. For the
+lane's own index that means the other releases' objects are deleted (the plan says so before
+anything is written); for `push --at NAME` it is the point: a developer's index holding the one
+release being tried, without every other release's wheels fetched, hashed and uploaded first.
+Rejected: keeping the other releases as the tree's index records them, a tree partly
+`raw-wheels/` and partly its own previous self -- not a function of the source of truth, and not
+the one release asked for.
 
 ## Three ideas the rest follows from
 

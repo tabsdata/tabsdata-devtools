@@ -151,6 +151,43 @@ def test_generate_with_no_releases_is_an_error(raw, staging, out):
         generate(raw, staging, out)
 
 
+def test_generate_version_builds_a_tree_of_that_release_alone_from_scratch(
+    raw, staging, events, out
+):
+    """`--version V` reads raw-wheels/V/ only: the other releases on disk are
+    not in the tree, and neither is anything the tree held before -- a push
+    then makes its target exactly this one release."""
+    release(raw, "0.9.6")
+    release(raw, "0.9.7")
+    generate(raw, staging, out)
+    assert sorted({d.release for d in load_index(staging)}) == ["0.9.6", "0.9.7"]
+    old = [wheel_path(staging, d.filename) for d in load_index(staging)]
+
+    generate(raw, staging, out, version="0.9.7")
+
+    dists = load_index(staging)
+    assert [d.release for d in dists] == ["0.9.7"]
+    assert wheel_path(staging, dists[0].filename).exists()
+    assert not any(p.exists() for p in old if "0.9.6" in p.name)
+    page = (staging / "simple" / "tabsdata" / "index.html").read_text()
+    assert "0.9.6" not in page and dists[0].filename in page
+    assert json.loads((staging / INDEX).read_text())["releases"] == ["0.9.7"]
+    assert "1 release(s)" in events.text
+
+    # a release that is not there is refused before the tree is cleared
+    with pytest.raises(ToolError, match="does not exist"):
+        generate(raw, staging, out, version="9.9.9")
+    assert [d.release for d in load_index(staging)] == ["0.9.7"]
+
+
+def test_the_version_option_reaches_generate():
+    from tabsdata_dev.tool.pypi import build_parser
+
+    args = build_parser().parse_args(["generate", "--version", "0.9.8"])
+    assert args.cmd == "generate" and args.version == "0.9.8"
+    assert build_parser().parse_args(["generate"]).version is None
+
+
 def test_load_index_says_what_a_missing_index_means(staging):
     with pytest.raises(ToolError, match="not a complete tree"):
         load_index(staging)

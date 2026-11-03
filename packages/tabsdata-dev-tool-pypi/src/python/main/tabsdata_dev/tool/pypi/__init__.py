@@ -8,7 +8,7 @@
 be thrown away and rebuilt::
 
     raw-wheels/<VERSION>/       the wheels + a MANIFEST        gitignored, yours
-         │ generate
+         │ generate [--version V]   (every release, or V alone)
          ▼
     pypi-wheels/staging/        the local staging tree         committed, minus *.whl
          │ push --lane staging  -> s3://td-pypi-staging    [--at NAME: <base>/NAME/, yours]
@@ -132,6 +132,12 @@ def configure(p: argparse.ArgumentParser) -> None:
         "generate",
         help="raw-wheels/ -> pypi-wheels/staging/, from scratch (staging/yanked.yaml "
         "kept and applied); index.json last (no AWS)",
+    )
+    g.add_argument(
+        "--version",
+        help="raw-wheels/<VERSION> only: a tree holding that one release, built "
+        "from scratch like the full one -- what a push then makes the lane, or "
+        "with --at NAME a developer's index of it (default: every release)",
     )
     pr = sub.add_parser(
         "promote",
@@ -293,7 +299,9 @@ def body(args: argparse.Namespace, out: Renderer) -> int:
     # Local-only commands do not read lanes.yaml, so they work before any AWS
     # resource or config exists.
     if args.cmd == "generate":
-        return generate_mod.generate(args.raw, lane_tree(args.tree, "staging"), out)
+        return generate_mod.generate(
+            args.raw, lane_tree(args.tree, "staging"), out, version=args.version
+        )
     if args.cmd == "promote":
         return promote_mod.promote(
             lane_tree(args.tree, "staging"), lane_tree(args.tree, "prod"), out
@@ -337,7 +345,8 @@ def body(args: argparse.Namespace, out: Renderer) -> int:
             if getattr(args, flag):
                 raise ToolError(
                     f"--{flag} applies to --lane raw only; a serving lane always "
-                    "becomes exactly the local tree"
+                    "becomes exactly the local tree (generate --version builds a "
+                    "one-release tree)"
                 )
         # assume_yes is never inferred from a non-tty: that would let a CI run
         # satisfy the prod lane's require_yes without anyone typing --yes.

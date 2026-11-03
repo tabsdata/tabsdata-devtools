@@ -2,7 +2,8 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""raw-wheels/ -> pypi-wheels/staging/, from scratch every time. No AWS."""
+"""raw-wheels/ -> pypi-wheels/staging/, from scratch every time -- every
+release under raw-wheels/, or one. No AWS."""
 
 from __future__ import annotations
 
@@ -27,15 +28,17 @@ from .tree import (
 from .yanked import YANKED, apply, load_masks
 
 
-def generate(raw: Path, tree: Path, out: Renderer) -> int:
-    """Rebuild the staging tree from raw-wheels/, the source of truth.
+def generate(raw: Path, tree: Path, out: Renderer, version: str | None = None) -> int:
+    """Rebuild the staging tree from raw-wheels/, the source of truth -- every
+    release under it, or with `version` that one release alone.
 
     The tree is deleted first and the root index is written last, so at no
     point does a half-built tree look complete: no index.json means generation
     did not finish, and every consumer of the tree (serve, promote, push, check)
-    refuses on that.
+    refuses on that. A one-release tree is built the same way, from scratch:
+    what the tree held before is gone, and a push makes its target exactly it.
     """
-    dirs = version_dirs(raw)
+    dirs = version_dirs(raw, version)  # a named release that is absent refuses here
     if not dirs:
         raise ToolError(f"no version directories under {raw}/")
 
