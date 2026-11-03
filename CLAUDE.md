@@ -22,6 +22,12 @@ reach a project's dependencies. This file is the working contract; the design li
 - `.claude/DECISIONS.md` (every decision, why, what was rejected — do not relitigate without a
   reason), `.claude/VERIFIED.md` (proven facts; re-testing is waste), `.claude/OPEN.md` (gaps).
 
+## Cross-platform compatibility
+
+Every change and every review follows the shared cross-platform rules, hosted in the ee sibling
+checkout (import is skipped when ee is absent):
+@../tabsdata-ee/variant/devutils/agents/CROSSOS.md
+
 ## Shape
 
 ```
