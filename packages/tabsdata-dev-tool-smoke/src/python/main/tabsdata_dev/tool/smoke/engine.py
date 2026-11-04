@@ -30,6 +30,7 @@ from . import (
     display,
     eks,
     forward,
+    gke,
     indexes,
     instances,
     screen,
@@ -50,6 +51,10 @@ NOT_READY = "not ready"
 #: What `archived-logs` answers when waiting cannot change its no, so the
 #: script stops retrying.
 FAILED = "failed"
+
+#: What `gke-has-binding` answers: an absent binding is to be added, not an error.
+PRESENT = "present"
+ABSENT = "absent"
 
 #: Where `fill-placeholder` and `fill-pem` read their value: a credential, a
 #: PEM, never a command-line argument.
@@ -262,6 +267,42 @@ def configure(p: argparse.ArgumentParser) -> None:
     role.add_argument("--trust", required=True, help="the trust policy's file")
     role.add_argument("--permissions", required=True, help="the permissions' file")
 
+    sub.add_parser(
+        "gke-cluster",
+        help="the GKE project, location and cluster, `PROJECT LOCATION CLUSTER`, "
+        "of the `kubectl config view --minify --output json` read from stdin",
+    )
+
+    bucket = sub.add_parser(
+        "gke-log-bucket",
+        help="the bucket the Tabsdata container logs land in, `BUCKET LOCATION`",
+    )
+    bucket.add_argument(
+        "--sinks",
+        required=True,
+        help="a file: `gcloud logging sinks list --format json`",
+    )
+    bucket.add_argument(
+        "--buckets",
+        required=True,
+        help="a file: `gcloud logging buckets list --format json`",
+    )
+
+    account = sub.add_parser(
+        "gke-service-account",
+        help="the id of an instance's apiserver Google service account",
+    )
+    account.add_argument("--namespace", required=True, help="the instance's")
+
+    held = sub.add_parser(
+        "gke-has-binding",
+        help="present when the IAM policy read from stdin grants ROLE to MEMBER "
+        "(under exactly EXPRESSION, if given); absent otherwise",
+    )
+    held.add_argument("--role", required=True)
+    held.add_argument("--member", required=True)
+    held.add_argument("--expression", help="the binding's condition")
+
     index = sub.add_parser(
         "uv-index",
         help="the URL a --uv-index value stands for: @dev, @dev:NAME, "
@@ -435,6 +476,30 @@ def body(args: argparse.Namespace, out: render.Renderer) -> int:
             json.dumps(permissions, indent=2) + "\n"
         )
         return out.ok(f"{args.trust} {args.permissions}")
+    if args.action == "gke-cluster":
+        try:
+            project, location, name = gke.cluster(sys.stdin.read())
+        except ValueError as e:
+            raise errors.ToolError(str(e)) from e
+        return out.ok(
+            f"{project} {location} {name}",
+            project=project,
+            location=location,
+            cluster=name,
+        )
+    if args.action == "gke-log-bucket":
+        name, location = gke.log_bucket(
+            pathlib.Path(args.sinks).read_text(),
+            pathlib.Path(args.buckets).read_text(),
+        )
+        return out.ok(f"{name} {location}", bucket=name, location=location)
+    if args.action == "gke-service-account":
+        return out.ok(gke.service_account(args.namespace))
+    if args.action == "gke-has-binding":
+        present = gke.has_binding(
+            sys.stdin.read(), args.role, args.member, args.expression
+        )
+        return out.ok(PRESENT if present else ABSENT, present=present)
     if args.action == "uv-index":
         if args.no_local and indexes.is_local(args.value):
             return out.error(

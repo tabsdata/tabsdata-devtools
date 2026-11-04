@@ -1,0 +1,6 @@
+{
+  "bindings": [
+    {"role": "roles/iam.workloadIdentityUser", "members": ["serviceAccount:tabsdata-dev.svc.id.goog[sm-fixture/aut-apiserver]"]}
+  ],
+  "etag": "BwYkFake="
+}

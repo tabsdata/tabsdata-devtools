@@ -1,0 +1,5 @@
+[
+  {"name": "_Default", "destination": "logging.googleapis.com/projects/tabsdata-dev/locations/global/buckets/_Default", "filter": "NOT LOG_ID(\"cloudaudit.googleapis.com/activity\")"},
+  {"name": "_Required", "destination": "logging.googleapis.com/projects/tabsdata-dev/locations/global/buckets/_Required", "filter": "LOG_ID(\"cloudaudit.googleapis.com/activity\")"},
+  {"name": "to-bigquery", "destination": "bigquery.googleapis.com/projects/tabsdata-dev/datasets/audit", "filter": "severity>=ERROR"}
+]

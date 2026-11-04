@@ -387,9 +387,56 @@ def test_the_eks_smoke_sets_up_worker_logs_and_skips_their_check_without_them():
     assert cleanup.index("delete namespace") < guard
 
 
+def test_the_gke_smoke_sets_up_worker_logs_and_skips_their_check_without_them():
+    """The service account, view and grants are made or found before init,
+    which only then annotates the service account; a binding is read first and
+    written only when missing, so a setup an admin made is reused read-only;
+    and the cleanup undoes only what the run made."""
+    text = (smoke.scripts_dir() / "smoke-gke.sh").read_text()
+    stages = _stages(text)
+    assert stages.index("namespace") + 1 == stages.index("worker-logs-setup")
+    assert stages.index("worker-logs-setup") + 1 == stages.index("init")
+    assert stages[-3:] == ["worker-logs", "cleanup", "cleanup"], stages
+    names = text.split("STAGE_NAMES=(", 1)[1].split("\n. ", 1)[0]
+    assert "namespace worker-logs-setup init" in names
+    assert 'STAGE_NAMES[${#STAGE_NAMES[@]}]="worker-logs"' in names
+    assert "common_stage --continue worker-logs-setup " in text
+    assert "    WORKER_LOGS=1\n" in text
+
+    init = text.split("common_stage init ", 1)[1].split("common_stage ", 1)[0]
+    guarded = init.split('if [ -n "$WORKER_LOGS" ]; then', 1)[1].split("\nfi\n", 1)[0]
+    assert 'annotations.\\"iam.gke.io/gcp-service-account\\"=$GKE_GSA_EMAIL' in guarded
+    assert '[ "$GKE_BUCKET" = _Default ] || ' in guarded
+    assert '[ "$GKE_BUCKET_LOCATION" = global ] || ' in guarded
+    assert '"${INIT_CONFIG[@]}"' in init
+
+    for function in ("gke_view_grant", "gke_workload_binding"):
+        body = text.split(f"{function}() {{", 1)[1].split("\n}\n", 1)[0]
+        assert body.index("get-iam-policy") < body.index("add-iam-policy-binding")
+        assert 'if [ "$state" = present ]; then' in body
+
+    check = text.split("common_stage --continue worker-logs ", 1)[1]
+    check = check.split("\nfi\n", 1)[0]
+    assert 'if [ -z "$WORKER_LOGS" ]; then\n    common_stage_skip ' in check
+    assert check.index("common_worker_pods_gone") < check.index(
+        "common_worker_logs_archived"
+    )
+    assert "cloud-logging" in check.split("common_worker_logs_archived", 1)[1]
+
+    cleanup = text.split('common_stage cleanup "destroy', 1)[1]
+    for flag, command in [
+        ("GKE_GRANT_ADDED", "gcloud projects remove-iam-policy-binding"),
+        ("GKE_GSA_CREATED", "gcloud iam service-accounts delete"),
+        ("GKE_WI_ADDED", "gcloud iam service-accounts remove-iam-policy-binding"),
+        ("GKE_VIEW_CREATED", "gcloud logging views delete"),
+    ]:
+        guard = cleanup.index(f'[ -n "${flag}" ]')
+        assert cleanup.index("delete namespace") < guard < cleanup.index(command)
+
+
 @pytest.mark.parametrize(
     "script, archive",
-    [("eks", "cloudwatch")],
+    [("eks", "cloudwatch"), ("gke", "cloud-logging")],
 )
 def test_a_cloud_smoke_compares_the_archived_logs_with_the_live_ones(script, archive):
     """The live log is read while the pods are there, the archive's once they

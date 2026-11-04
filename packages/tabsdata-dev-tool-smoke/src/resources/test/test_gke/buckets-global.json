@@ -1,0 +1,4 @@
+[
+  {"name": "projects/tabsdata-dev/locations/global/buckets/_Default", "retentionDays": 30},
+  {"name": "projects/tabsdata-dev/locations/global/buckets/_Required", "retentionDays": 400}
+]

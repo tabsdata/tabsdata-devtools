@@ -138,6 +138,16 @@ options:
 
 The drivers added to the instance's fn and ag venvs (tdkserver venv update):
   mysql-connector-python==9.6.0  psycopg2-binary==2.9.12  oracledb==3.2.0
+
+Worker logs: the run gives the apiserver the Google service account
+td-<namespace>-apiserver and the log view tabsdata-<namespace> (each reused if
+it exists, an IAM binding added only if missing), runs test/test, reads its
+workers' logs while their pods are there, and checks the copies Cloud Logging
+returns once the pods are gone match them line for line. It needs gcloud
+with an account that can make what is missing (roles/logging.configWriter for the
+view, roles/iam.serviceAccountAdmin for the service account and its Workload
+Identity binding, project IAM admin for the view grant) and the cluster's
+Workload Identity. If that setup fails, the run says why and skips the check.
 HELP
 }
 
@@ -263,8 +273,13 @@ STORAGE_DOMAIN="${BASE}__${STORAGE_SYSTEM}"
 LLM_DOMAIN="${LLM_SYSTEM:+${BASE}__${LLM_SYSTEM}}"
 XP_PROJECTS=""           # the xp instance/project names this run creates, for --keep and failures
 SMOKE_DOMAINS=""         # domains this run creates, appended as each one is (common_tabsdata_setup_info lists them)
+LOGS_PROJECT="${BASE}__logs"   # the worker-logs stage's own xp run, kept until its logs are read
+LOGS_SETUP=""            # 1 once that run is set up: the cleanup removes its domains
+WORKER_LOGS=""           # 1 once worker-logs-setup has the service account and view: init annotates with them
+WORKER_LOGS_WHY=""       # why worker-logs-setup stopped, for the remark that says so
 EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
 LOG="${LOG:-$COMMON_TMP/smoke-$INSTANCE-$STAMP.log}"
+LOGS_DIR="${LOG%.log}-worker-logs"   # the live and archived copies the worker-logs check compares
 WORK="$(mktemp -d "$COMMON_TMP/smoke-$INSTANCE-$STAMP.XXXX")"
 SERVER="http://127.0.0.1:$FORWARD_PORT"
 TABSDATA_SPEC="tabsdata[$TD_EXTRAS]==$TD_VERSION"
@@ -281,6 +296,19 @@ cp "$KUBECONFIG_OPT" "$RUN_KUBECONFIG"
 kubectl --kubeconfig "$RUN_KUBECONFIG" config use-context "$CONTEXT" >/dev/null
 export KUBECONFIG="$RUN_KUBECONFIG"
 KUBECTL=(kubectl --kubeconfig "$RUN_KUBECONFIG" --context "$CONTEXT")
+# The apiserver reads a removed pod's log from Cloud Logging as a Google service
+# account of its own, through a view of its namespace alone, as the dguide's GKE
+# worker logs page makes them by hand. What this run adds it removes; what it
+# finds is reused and left.
+GKE_GSA="$(tdd _smoke gke-service-account --namespace "$NAMESPACE" 2>/dev/null)"
+GKE_GSA_EMAIL=""
+GKE_VIEW="tabsdata-$NAMESPACE"
+GKE_VIEW_PATH=""
+GKE_CONDITION=""         # the view grant's IAM condition: this view only
+GKE_VIEW_CREATED=""      # 1 for each thing this run made: only those does the cleanup undo
+GKE_GSA_CREATED=""
+GKE_GRANT_ADDED=""
+GKE_WI_ADDED=""
 SUITE_LIST=()
 for suite in $(printf '%s' "$SUITES" | tr ',' ' '); do SUITE_LIST[${#SUITE_LIST[@]}]="$suite"; done
 if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
@@ -289,8 +317,10 @@ if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
 fi
 STAGE_NAMES=(unset-td unset-pypi set-crypto cluster systems pycache clean-previous create-venv install)
 [ "$TD_VERSION" = "2.0.2" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="cdc-driver"
-for stage in domains namespace init configure create start-1 pods-1 forward-1 login-1 stop-1 venv-update start-2 pods-2 forward-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
+for stage in domains namespace worker-logs-setup init configure create start-1 pods-1 forward-1 login-1; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
+for stage in stop-1 venv-update start-2 pods-2 forward-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
 for suite in "${SUITE_LIST[@]}"; do STAGE_NAMES[${#STAGE_NAMES[@]}]="xp-$(printf '%s' "$suite" | tr '/' '_')"; done
+STAGE_NAMES[${#STAGE_NAMES[@]}]="worker-logs"
 STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
 
 # shellcheck disable=SC1091
@@ -331,7 +361,177 @@ common_on_stage_failed() {
         # reason is in the pod it left behind
         common_indented "cluster    the failed pods' logs and the namespace's events are in the log"
     fi
+    gke_left common_indented
     common_k8s_report "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"
+}
+
+# What worker-logs-setup made, each with the command that undoes it -- for a
+# failed or --keep run, which leaves them.
+gke_left() {
+    local emit="$1" scope="--bucket $GKE_BUCKET --location $GKE_BUCKET_LOCATION --project $GKE_PROJECT"
+    [ -z "$GKE_GRANT_ADDED" ] ||
+        "$emit" "iam grant  roles/logging.viewAccessor on $GKE_VIEW -- gcloud projects remove-iam-policy-binding $GKE_PROJECT --member serviceAccount:$GKE_GSA_EMAIL --role roles/logging.viewAccessor --condition='expression=$GKE_CONDITION,title=$GKE_VIEW-only'"
+    if [ -n "$GKE_GSA_CREATED" ]; then
+        "$emit" "gsa        $GKE_GSA_EMAIL -- gcloud iam service-accounts delete $GKE_GSA_EMAIL --project $GKE_PROJECT"
+    elif [ -n "$GKE_WI_ADDED" ]; then
+        "$emit" "iam grant  roles/iam.workloadIdentityUser on $GKE_GSA_EMAIL -- gcloud iam service-accounts remove-iam-policy-binding $GKE_GSA_EMAIL --project $GKE_PROJECT --role roles/iam.workloadIdentityUser --member 'serviceAccount:$GKE_PROJECT.svc.id.goog[$NAMESPACE/aut-apiserver]'"
+    fi
+    [ -z "$GKE_VIEW_CREATED" ] ||
+        "$emit" "log view   $GKE_VIEW -- gcloud logging views delete $GKE_VIEW $scope"
+}
+
+# The steps of worker-logs-setup, each a stage command: a failure records why
+# for the remark, since the stage's own lines are gone once it closes.
+gke_why() {
+    WORKER_LOGS_WHY="$1"
+    echo "$1"
+    return 1
+}
+
+# gke_retry CMD... -- IAM takes a moment to see a service account just made,
+# and a project policy written by someone else meanwhile refuses ours once.
+gke_retry() {
+    local attempt=1
+    until "$@"; do
+        [ "$attempt" -lt 6 ] || return 1
+        echo "attempt $attempt/6 failed; retrying in 5s"
+        attempt=$((attempt + 1))
+        sleep 5
+    done
+}
+
+gke_provider() {
+    [ "$PROVIDER" = gke ] ||
+        gke_why "--provider $PROVIDER: only the gke provider's tabsdata.yaml has worker_logs" || return 1
+    [ -n "$GKE_GSA" ] || gke_why "no service account id for namespace $NAMESPACE" || return 1
+}
+
+gke_gcloud_identity() {
+    local account
+    command -v gcloud >/dev/null 2>&1 || gke_why "no gcloud on the PATH" || return 1
+    account="$(gcloud auth list --filter=status:ACTIVE --format='value(account)')" ||
+        gke_why "gcloud auth list failed" || return 1
+    [ -n "$account" ] || gke_why "gcloud has no active account: gcloud auth login" || return 1
+    echo "gcloud account: $account"
+}
+
+gke_cluster() {
+    local found
+    found="$("${KUBECTL[@]}" config view --minify --output json | tdd _smoke gke-cluster)" ||
+        gke_why "no GKE project, location and cluster in context $CONTEXT" || return 1
+    read -r GKE_PROJECT GKE_LOCATION GKE_CLUSTER <<<"$found"
+    GKE_GSA_EMAIL="$GKE_GSA@$GKE_PROJECT.iam.gserviceaccount.com"
+    echo "cluster $GKE_CLUSTER in $GKE_LOCATION, project $GKE_PROJECT"
+}
+
+gke_workload_identity() {
+    local pool
+    pool="$(gcloud container clusters describe "$GKE_CLUSTER" --location "$GKE_LOCATION" --project "$GKE_PROJECT" \
+        --format='value(workloadIdentityConfig.workloadPool)')" ||
+        gke_why "gcloud container clusters describe $GKE_CLUSTER failed" || return 1
+    [ "$pool" = "$GKE_PROJECT.svc.id.goog" ] ||
+        gke_why "cluster $GKE_CLUSTER has no Workload Identity pool; once per cluster: gcloud container clusters update $GKE_CLUSTER --location $GKE_LOCATION --project $GKE_PROJECT --workload-pool=$GKE_PROJECT.svc.id.goog, and GKE_METADATA on its node pools" ||
+        return 1
+    echo "workload pool: $pool"
+}
+
+# The view goes in the bucket the logs land in: a sink of the dguide's that
+# routes Tabsdata pods to a bucket of their own, else _Default, wherever it is.
+gke_log_bucket() {
+    local found
+    gcloud logging sinks list --project "$GKE_PROJECT" --format json >"$WORK/sinks.json" &&
+        gcloud logging buckets list --project "$GKE_PROJECT" --format json >"$WORK/buckets.json" ||
+        gke_why "gcloud logging sinks list / buckets list failed in $GKE_PROJECT" || return 1
+    found="$(tdd _smoke gke-log-bucket --sinks "$WORK/sinks.json" --buckets "$WORK/buckets.json")" ||
+        gke_why "the log buckets of $GKE_PROJECT could not be read" || return 1
+    read -r GKE_BUCKET GKE_BUCKET_LOCATION <<<"$found"
+    GKE_VIEW_PATH="projects/$GKE_PROJECT/locations/$GKE_BUCKET_LOCATION/buckets/$GKE_BUCKET/views/$GKE_VIEW"
+    GKE_CONDITION="resource.name == \"$GKE_VIEW_PATH\""
+    echo "the logs land in bucket $GKE_BUCKET ($GKE_BUCKET_LOCATION): view $GKE_VIEW_PATH"
+}
+
+gke_view() {
+    local filter current scope=(--bucket "$GKE_BUCKET" --location "$GKE_BUCKET_LOCATION" --project "$GKE_PROJECT")
+    filter="resource.type=\"k8s_container\" AND resource.labels.namespace_name=\"$NAMESPACE\""
+    if current="$(gcloud logging views describe "$GKE_VIEW" "${scope[@]}" --format='value(filter)' 2>/dev/null)"; then
+        if [ "$current" = "$filter" ]; then
+            echo "view $GKE_VIEW exists with this namespace's filter: reused"
+            return 0
+        fi
+        echo "view $GKE_VIEW exists with another filter ($current): reused, its filter set"
+        gcloud logging views update "$GKE_VIEW" "${scope[@]}" --log-filter="$filter" ||
+            gke_why "gcloud logging views update $GKE_VIEW failed" || return 1
+        return 0
+    fi
+    gcloud logging views create "$GKE_VIEW" "${scope[@]}" --log-filter="$filter" \
+        --description="tdd smoke $BASE: the container logs of namespace $NAMESPACE" ||
+        gke_why "gcloud logging views create $GKE_VIEW failed: the account may lack roles/logging.configWriter" || return 1
+    GKE_VIEW_CREATED=1
+}
+
+gke_service_account() {
+    if gcloud iam service-accounts describe "$GKE_GSA_EMAIL" --project "$GKE_PROJECT" >/dev/null 2>&1; then
+        echo "service account $GKE_GSA_EMAIL exists: reused"
+        return 0
+    fi
+    gcloud iam service-accounts create "$GKE_GSA" --project "$GKE_PROJECT" \
+        --display-name="tdd smoke $BASE apiserver ($NAMESPACE)" ||
+        gke_why "gcloud iam service-accounts create $GKE_GSA failed: the account may lack roles/iam.serviceAccountAdmin" ||
+        return 1
+    GKE_GSA_CREATED=1
+}
+
+# Each binding is read first and written only when it is missing, so a setup an
+# admin made once is reused by an account that can only read IAM. A service
+# account this run just made has none, so its policies are not read.
+gke_view_grant() {
+    local member="serviceAccount:$GKE_GSA_EMAIL" state
+    if [ -z "$GKE_GSA_CREATED" ]; then
+        state="$(gcloud projects get-iam-policy "$GKE_PROJECT" --format json |
+            tdd _smoke gke-has-binding --role roles/logging.viewAccessor --member "$member" --expression "$GKE_CONDITION")" ||
+            gke_why "gcloud projects get-iam-policy $GKE_PROJECT failed" || return 1
+        if [ "$state" = present ]; then
+            echo "$GKE_GSA_EMAIL already has roles/logging.viewAccessor on $GKE_VIEW"
+            return 0
+        fi
+    fi
+    gke_retry gcloud projects add-iam-policy-binding "$GKE_PROJECT" --member "$member" \
+        --role roles/logging.viewAccessor --condition="expression=$GKE_CONDITION,title=$GKE_VIEW-only" \
+        --quiet >/dev/null ||
+        gke_why "gcloud projects add-iam-policy-binding $GKE_PROJECT failed: the account may not change the project's IAM policy" ||
+        return 1
+    GKE_GRANT_ADDED=1
+}
+
+gke_workload_binding() {
+    local member="serviceAccount:$GKE_PROJECT.svc.id.goog[$NAMESPACE/aut-apiserver]" state
+    if [ -z "$GKE_GSA_CREATED" ]; then
+        state="$(gcloud iam service-accounts get-iam-policy "$GKE_GSA_EMAIL" --project "$GKE_PROJECT" --format json |
+            tdd _smoke gke-has-binding --role roles/iam.workloadIdentityUser --member "$member")" ||
+            gke_why "gcloud iam service-accounts get-iam-policy $GKE_GSA_EMAIL failed" || return 1
+        if [ "$state" = present ]; then
+            echo "$NAMESPACE/aut-apiserver already acts as $GKE_GSA_EMAIL"
+            return 0
+        fi
+    fi
+    gke_retry gcloud iam service-accounts add-iam-policy-binding "$GKE_GSA_EMAIL" --project "$GKE_PROJECT" \
+        --role roles/iam.workloadIdentityUser --member "$member" --quiet >/dev/null ||
+        gke_why "gcloud iam service-accounts add-iam-policy-binding $GKE_GSA_EMAIL failed: the account may lack roles/iam.serviceAccountAdmin" ||
+        return 1
+    GKE_WI_ADDED=1
+}
+
+# The apiserver names the view it reads once it runs as a Google service
+# account; without one it has no Cloud Logging reader at all.
+gke_apiserver_reads_view() {
+    local out
+    out="$("${KUBECTL[@]}" --namespace "$NAMESPACE" logs deployment/srv-apiserver --all-containers=true)" || return 1
+    if printf '%s\n' "$out" | grep -F "Cloud Logging view '$GKE_VIEW_PATH'"; then
+        return 0
+    fi
+    echo "the apiserver names no Cloud Logging view '$GKE_VIEW_PATH'; what it says of one:"
+    printf '%s\n' "$out" | grep -F "Cloud Logging" || echo "  nothing: it does not run as $GKE_GSA_EMAIL"
+    return 1
 }
 
 common_screen "smoke-gke: effective options"
@@ -362,6 +562,7 @@ common_screen "  --tdd-dir           $TDD_DIR_OPT"
 common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "no (rolling window of $WINDOW log lines)")"
 common_screen "  server              $SERVER through kubectl port-forward service/net-apiserver $FORWARD_PORT:$PORT"
 common_screen "  drivers for fn/ag   $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
+common_screen "  worker logs         service account $GKE_GSA and view $GKE_VIEW, then test/test as $LOGS_PROJECT, read live, then back from Cloud Logging once its pods are gone, and compared"
 common_xp_expand_all
 
 common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"
@@ -479,8 +680,28 @@ common_stage namespace "create the namespace $NAMESPACE and point the run's kube
 common_run "${KUBECTL[@]}" create namespace "$NAMESPACE"
 common_run "${KUBECTL[@]}" config set-context "$CONTEXT" --namespace "$NAMESPACE"
 
-common_stage init "tdkserver init --provider $PROVIDER --instance $INSTANCE (the editable config folder)"
-common_run tdd tdkserver init --provider "$PROVIDER" --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}"
+common_stage --continue worker-logs-setup "the apiserver's service account $GKE_GSA and log view $GKE_VIEW, to read worker logs from Cloud Logging (continue on error)"
+common_run_shown "--provider $PROVIDER has worker_logs" gke_provider &&
+    common_run_shown "gcloud auth list" gke_gcloud_identity &&
+    common_run_shown "kubectl config view --minify: the GKE project, location and cluster" gke_cluster &&
+    common_run_shown "gcloud container clusters describe: the Workload Identity pool" gke_workload_identity &&
+    common_run_shown "gcloud logging sinks list; gcloud logging buckets list: where the logs land" gke_log_bucket &&
+    common_run_shown "gcloud logging views describe (or create) $GKE_VIEW" gke_view &&
+    common_run_shown "gcloud iam service-accounts describe (or create) $GKE_GSA" gke_service_account &&
+    common_run_shown "gcloud projects get-iam-policy (add-iam-policy-binding if missing): roles/logging.viewAccessor on $GKE_VIEW" gke_view_grant &&
+    common_run_shown "gcloud iam service-accounts get-iam-policy (add-iam-policy-binding if missing): roles/iam.workloadIdentityUser for $NAMESPACE/aut-apiserver" gke_workload_binding &&
+    WORKER_LOGS=1
+[ -n "$WORKER_LOGS" ] || common_remark "worker logs not checked: ${WORKER_LOGS_WHY:-the setup failed} (see the log)"
+
+common_stage init "tdkserver init --provider $PROVIDER --instance $INSTANCE (the editable config folder${WORKER_LOGS:+, with the apiserver service account})"
+# bucket and location stay empty for _Default in global, as the dguide says
+INIT_CONFIG=()
+if [ -n "$WORKER_LOGS" ]; then
+    INIT_CONFIG=(--config "tabsdata:pods.service.apiserver.service_account.annotations.\"iam.gke.io/gcp-service-account\"=$GKE_GSA_EMAIL")
+    [ "$GKE_BUCKET" = _Default ] || INIT_CONFIG+=(--config "tabsdata:pods.service.apiserver.worker_logs.bucket=$GKE_BUCKET")
+    [ "$GKE_BUCKET_LOCATION" = global ] || INIT_CONFIG+=(--config "tabsdata:pods.service.apiserver.worker_logs.location=$GKE_BUCKET_LOCATION")
+fi
+common_run tdd tdkserver init --provider "$PROVIDER" --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}" "${INIT_CONFIG[@]}"
 common_run test -d "$CONFIGS"
 
 common_stage configure "fill the config files from the domains: database, storage, LLM key, uv index, function pod sizing"
@@ -574,6 +795,20 @@ for suite in "${SUITE_LIST[@]}"; do
     common_run tdd xp one-shot --suite "$suite" --suite-run "$project" --project "$project" --profile "$PROFILE" ${KEEP:+--keep}
 done
 
+common_stage --continue worker-logs "run test/test as $LOGS_PROJECT, read its workers' live logs, then their copies from Cloud Logging once their pods are gone, line for line (continue on error)"
+if [ -z "$WORKER_LOGS" ]; then
+    common_stage_skip "worker-logs-setup did not complete"
+else
+    XP_PROJECTS="$XP_PROJECTS $LOGS_PROJECT"
+    common_kubeportforward_ensure &&
+        common_run_retry 6 10 gke_apiserver_reads_view &&
+        common_run tdd xp one-shot --suite test/test --suite-run "$LOGS_PROJECT" --project "$LOGS_PROJECT" --profile "$PROFILE" --keep &&
+        LOGS_SETUP=1 &&
+        common_run_retry 5 3 common_worker_logs_live "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE" "$PROFILE" "$LOGS_PROJECT" "$LOGS_DIR" &&
+        common_run_retry 30 10 common_worker_pods_gone "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE" "$PROFILE" "$LOGS_PROJECT" &&
+        common_run_retry 36 10 common_worker_logs_archived "$PROFILE" "$LOGS_PROJECT" cloud-logging "$LOGS_DIR"
+fi
+
 if [ -n "$KEEP" ]; then
     common_stage cleanup "keeping the whole setup as it is (--keep; the port-forward is stopped)"
     common_kubeportforward_stop
@@ -581,6 +816,7 @@ if [ -n "$KEEP" ]; then
     common_note "then: export _TDD_VENV=$VENV; tdd tdk login --profile $PROFILE --server $SERVER --user admin --password ***"
     common_note "your kubeconfig was not touched; the run's copy is $RUN_KUBECONFIG ($CONTEXT, namespace $NAMESPACE)"
     common_tabsdata_setup_info common_note
+    gke_left common_note
 else
     common_stage cleanup "destroy the domains, delete the instance, the namespace $NAMESPACE and the venv"
     common_kubeportforward_stop
@@ -591,8 +827,29 @@ else
     common_run tdd domain destroy --domain "$DB_DOMAIN" --force
     # delete works here: the cluster is external, so it survives the workload
     # and configmap removal (unlike kminus, where delete stops the cluster first)
+    # the worker-logs run was kept to read its logs: its domains and suite run are ours too
+    if [ -n "$LOGS_SETUP" ]; then
+        common_run tdd xp destroy-domains --suite-run "$LOGS_PROJECT"
+        common_run tdd xp destroy-instance --suite-run "$LOGS_PROJECT"
+    fi
     common_run tdd tdkserver delete --instance "$INSTANCE" --trash true "${TDK_OPTS[@]}"
     common_run "${KUBECTL[@]}" delete namespace "$NAMESPACE" --wait=true --timeout=300s
+    # only what worker-logs-setup made; what it found stays. The entries
+    # themselves expire with the bucket: Cloud Logging deletes no single one.
+    if [ -n "$GKE_GRANT_ADDED" ]; then
+        common_run gcloud projects remove-iam-policy-binding "$GKE_PROJECT" --member "serviceAccount:$GKE_GSA_EMAIL" \
+            --role roles/logging.viewAccessor --condition="expression=$GKE_CONDITION,title=$GKE_VIEW-only" --quiet
+    fi
+    if [ -n "$GKE_GSA_CREATED" ]; then
+        common_run gcloud iam service-accounts delete "$GKE_GSA_EMAIL" --project "$GKE_PROJECT" --quiet
+    elif [ -n "$GKE_WI_ADDED" ]; then
+        common_run gcloud iam service-accounts remove-iam-policy-binding "$GKE_GSA_EMAIL" --project "$GKE_PROJECT" \
+            --role roles/iam.workloadIdentityUser --member "serviceAccount:$GKE_PROJECT.svc.id.goog[$NAMESPACE/aut-apiserver]" --quiet
+    fi
+    if [ -n "$GKE_VIEW_CREATED" ]; then
+        common_run gcloud logging views delete "$GKE_VIEW" --bucket "$GKE_BUCKET" --location "$GKE_BUCKET_LOCATION" \
+            --project "$GKE_PROJECT" --quiet
+    fi
     common_run tdd venv deactivate
     common_run tdd venv delete --name "$VENV"
 fi

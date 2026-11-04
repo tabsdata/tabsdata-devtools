@@ -62,8 +62,9 @@ the config edits (`set-uv-index`, `set-fn-resources`, `fill-placeholder`, `fill-
 (`event-field`), masking a command line (`display`, ~30 calls a run), reading `tdkserver
 status` (`instance-state`, `pods-ready`), reading a project's workers, their pods and their logs
 (`finished-workers`, `worker-pods-gone`, `live-workers`, `live-log`, `archived-logs`), what
-the EKS smoke needs for its apiserver's IAM role (`eks-cluster`, `eks-role-documents`), a local
-instance's processes (`instance-pids`,
+the EKS smoke needs for its apiserver's IAM role (`eks-cluster`, `eks-role-documents`), the GKE
+smoke for its service account and view (`gke-cluster`, `gke-log-bucket`, `gke-service-account`,
+`gke-has-binding`), a local instance's processes (`instance-pids`,
 `instance-stop`, `instance-gone`) and the screen beyond the stage lines (`window`, `pointers`,
 `paint-help`). A call costs ~100 ms, nothing beside a stage. So a script loads tdd first,
 before its own checks and its banner; `--help`, read with the options, has `common_help` load
@@ -213,6 +214,28 @@ order, passes it too. Only lines still missing, an empty archive, or a refusal w
 or misplaced line, a split container or any other refusal is `failed`, and the probe exits
 `COMMON_FINAL` (97), on which `common_run_retry` stops at that attempt. The pod runner's check,
 judged by shape, is never `failed`: its log is not compared with a live one.
+
+`smoke-gke` does the same against Cloud Logging, after the dguide's GKE worker logs page. GKE
+grants on the resource, not the identity, so `worker-logs-setup` has more to make: the view
+`tabsdata-<namespace>` (namespace filter) in the bucket the logs land in -- the bucket of an
+enabled sink routing pods labelled part of tabsdata, else `_Default` wherever it is (`tdd
+_smoke gke-log-bucket`) -- the service account `td-<namespace>-apiserver` (cut short with a
+hash past the 30 characters an id may have), `roles/logging.viewAccessor` on the project under
+a condition naming that view alone, and `roles/iam.workloadIdentityUser` on the service account
+for `aut-apiserver`. First it checks `--provider` is gke (only that template has
+`worker_logs`), gcloud has an account, the context names `gke_<project>_<location>_<cluster>`
+(`tdd _smoke gke-cluster`) and the cluster has a Workload Identity pool. Everything found is
+reused: a view's filter is set only if it differs, and each binding is read (`get-iam-policy`,
+`tdd _smoke gke-has-binding`) and added only if missing, so a setup an admin made once is
+reused by an account that can only read IAM. A service account this run just made has no
+bindings, so they are added without the read, retried for IAM to see it. `init` passes the
+`iam.gke.io/gcp-service-account` annotation, plus `worker_logs.bucket`/`location` when they
+are not `_Default`/`global`. The stage checks the apiserver names that view (`Cloud Logging
+view '...'` in its log), then captures and compares the logs as on EKS with `--archive
+cloud-logging`: the reader starts 30s before `started_on`, so the log may begin at
+`0040-begin-execution`, which the rule allows. The cleanup removes only what the run added -- grant, service account (or
+only its binding, when reused), view -- after the namespace; the entries expire with their
+bucket, since Cloud Logging deletes no single one.
 
 `smoke-km` hands the `--llm-domain` key to quickstart as `--config <system>-key=env:LLM__API_KEY`:
 `tdd domain info --format export` exports it into the script's shell and tdkserver reads it from

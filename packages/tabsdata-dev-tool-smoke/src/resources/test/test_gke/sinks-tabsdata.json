@@ -1,0 +1,5 @@
+[
+  {"name": "_Default", "destination": "logging.googleapis.com/projects/tabsdata-dev/locations/global/buckets/_Default", "filter": "NOT LOG_ID(\"cloudaudit.googleapis.com/activity\")", "exclusions": [{"name": "tabsdata", "filter": "labels.\"k8s-pod/app_kubernetes_io/part-of\"=\"tabsdata\""}]},
+  {"name": "tabsdata-old", "disabled": true, "destination": "logging.googleapis.com/projects/tabsdata-dev/locations/us-east1/buckets/old", "filter": "labels.\"k8s-pod/app_kubernetes_io/part-of\"=\"tabsdata\""},
+  {"name": "tabsdata-logs", "destination": "logging.googleapis.com/projects/tabsdata-dev/locations/europe-west1/buckets/tabsdata-logs", "filter": "(log_id(\"stdout\") OR log_id(\"stderr\")) AND labels.\"k8s-pod/app_kubernetes_io/part-of\"=\"tabsdata\""}
+]

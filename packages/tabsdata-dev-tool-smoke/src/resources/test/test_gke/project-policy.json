@@ -1,0 +1,9 @@
+{
+  "bindings": [
+    {"role": "roles/logging.viewAccessor", "members": ["serviceAccount:td-sm-fixture-apiserver@tabsdata-dev.iam.gserviceaccount.com"], "condition": {"expression": "resource.name == \"projects/tabsdata-dev/locations/global/buckets/_Default/views/tabsdata-sm-fixture\"", "title": "tabsdata-sm-fixture-only"}},
+    {"role": "roles/logging.viewAccessor", "members": ["serviceAccount:td-sm-other-apiserver@tabsdata-dev.iam.gserviceaccount.com"], "condition": {"expression": "resource.name == \"projects/tabsdata-dev/locations/global/buckets/_Default/views/tabsdata-sm-other\"", "title": "tabsdata-sm-other-only"}},
+    {"role": "roles/viewer", "members": ["user:dev@tabsdata.com"]}
+  ],
+  "etag": "BwYkFake=",
+  "version": 3
+}
