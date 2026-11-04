@@ -412,6 +412,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pytest" },
     { name = "pyyaml" },
+    { name = "thrift" },
 ]
 
 [package.metadata]
@@ -420,6 +421,7 @@ requires-dist = [
     { name = "pydantic", specifier = "==2.14.2" },
     { name = "pytest", specifier = "==9.2.0" },
     { name = "pyyaml", specifier = "==6.0.3" },
+    { name = "thrift", specifier = "==0.16.0" },
 ]
 
 [[package]]

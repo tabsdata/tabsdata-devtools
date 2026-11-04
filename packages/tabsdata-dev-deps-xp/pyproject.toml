@@ -19,6 +19,7 @@ dependencies = [
     # The suite definition.
     "pydantic==2.14.2",
     "pytest==9.2.0",
+    "thrift==0.16.0",
     # The domain manifests xp writes for `tdd domain create --manifest`.
     "pyyaml==6.0.3",
 ]

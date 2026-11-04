@@ -1013,6 +1013,8 @@ source = { editable = "../tabsdata-dev-deps-salesforce" }
 dependencies = [
     { name = "cryptography" },
     { name = "cumulusci-plus" },
+    { name = "docutils" },
+    { name = "keyring" },
     { name = "pydantic" },
     { name = "pytest" },
     { name = "pyyaml" },
@@ -1025,6 +1027,8 @@ dependencies = [
 requires-dist = [
     { name = "cryptography", specifier = "==50.0.2" },
     { name = "cumulusci-plus", specifier = "==5.7.0" },
+    { name = "docutils", specifier = "==0.21.2" },
+    { name = "keyring", specifier = "==23.0.1" },
     { name = "pydantic", specifier = "==2.14.2" },
     { name = "pytest", specifier = "==9.2.0" },
     { name = "pyyaml", specifier = "==6.0.3" },
