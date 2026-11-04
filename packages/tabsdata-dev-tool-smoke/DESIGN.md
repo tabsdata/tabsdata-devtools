@@ -168,9 +168,20 @@ run in a real cluster and inherit nothing from the machine the script was launch
 why they write the value into `tabsdata.yaml` instead. Drop the stage when tdkserver hands its
 own `--uv-index` to the pods.
 
-`smoke-eks` ends with `worker-logs`, a `--continue` stage that checks a worker's log outlives its
-pod, reading it back from CloudWatch. It sets the stage up itself, because the apiserver reads
-CloudWatch only with an IAM role of its own, per namespace. `worker-logs-setup`, a `--continue` stage between `namespace` and `init`, follows the dguide's EKS worker logs page:
+`smoke-km` ends with `worker-logs`, a `--continue` stage that checks a worker's log outlives its
+pod. kminus deletes a worker's pod as soon as it finishes (`ttlSecondsAfterFinished: 0`), so
+`tdk worker logs` can only answer from the pod runner's archive (`/getPodLogs`, through the
+apiserver). The xp stages remove their projects, and the workers with them, so the stage runs
+`test/test` itself as `sm_<NAME>__logs` with `--keep`, then `common_worker_logs_archived` reads
+the finished workers (`tdd _smoke finished-workers`) and each one's log, retried 12 times 5s
+apart: ready when every log has the pod runner's `POD STARTED` line -- the live Kubernetes log
+never does -- and holds a `1000-` container (a pod's last) and at least one earlier container,
+and none of the readers' refusals (`tdd _smoke archived-logs`). The cleanup destroys that run's
+domains and suite run; `--keep` leaves them, like every other xp setup.
+
+`smoke-eks` has the same stage, reading from CloudWatch, and sets it up itself, because the
+apiserver reads CloudWatch only with an IAM role of its own, per namespace. `worker-logs-setup`,
+a `--continue` stage between `namespace` and `init`, follows the dguide's EKS worker logs page:
 the `aws` identity (one that can manage IAM, not the kubeconfig's), the cluster and region from
 the context's `aws eks get-token` arguments (`tdd _smoke eks-cluster`; the region falls back to
 the server's host name), the cluster's OIDC provider in IAM, then the role
@@ -214,7 +225,7 @@ order, passes it too. Only lines still missing, an empty archive, or a refusal w
 (`no logs found`, `no access to` -- an Azure grant takes up to 15 minutes) are retried: an extra
 or misplaced line, a split container or any other refusal is `failed`, and the probe exits
 `COMMON_FINAL` (97), on which `common_run_retry` stops at that attempt. The pod runner's check,
-judged by shape, is never `failed`: its log is not compared with a live one.
+judged by shape, keeps retrying as it always has.
 
 `smoke-gke` does the same against Cloud Logging, after the dguide's GKE worker logs page. GKE
 grants on the resource, not the identity, so `worker-logs-setup` has more to make: the view

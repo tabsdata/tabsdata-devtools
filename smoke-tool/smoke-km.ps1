@@ -178,6 +178,8 @@ $STAMP = Get-Date -Format 'yyyyMMdd-HHmmss'
 $LLM_DOMAIN = if ($LLM_SYSTEM) { "${BASE}__${LLM_SYSTEM}" } else { '' }
 $XP_PROJECTS = [Collections.Generic.List[string]]::new()
 $SMOKE_DOMAINS = [Collections.Generic.List[string]]::new()
+$LOGS_PROJECT = "${BASE}__logs"   # the worker-logs stage's own xp run, kept until its logs are read
+$LOGS_SETUP = $false              # true once that run is set up: the cleanup removes its domains
 $EXPECT_POD_LIST = @($EXPECT_PODS -split ',' | Where-Object { $_ })
 $LOG = if ($LOG_OPT) { $LOG_OPT } else { Join-Path $COMMON_TMP "smoke-$INSTANCE-$STAMP.log" }
 $WORK = Join-Path $COMMON_TMP "smoke-$INSTANCE-$STAMP.$([IO.Path]::GetRandomFileName().Substring(0, 4))"
@@ -196,6 +198,7 @@ if ($TD_VERSION -eq '2.0.2') { $STAGE_NAMES.Add('cdc-driver') }
 if ($LLM_SYSTEM) { $STAGE_NAMES.Add('llm-domain') }
 foreach ($s in 'quickstart', 'pods-1', 'login-1', 'stop-1', 'venv-update', 'start', 'pods-2', 'login-2') { $STAGE_NAMES.Add($s) }
 foreach ($suite in $SUITE_LIST) { $STAGE_NAMES.Add("xp-$($suite -replace '/', '_')") }
+$STAGE_NAMES.Add('worker-logs')
 $STAGE_NAMES.Add('cleanup')
 
 $INSTANCE_DIR = Join-Path (Join-Path (Join-Path $HOME '.tabsdata') 'instances') $INSTANCE
@@ -227,6 +230,7 @@ common_screen "  --td-extras   $TD_EXTRAS   -> installs $TABSDATA_SPEC"
 common_screen "  --port              $PORT   -> server $SERVER"
 common_screen "  --uv-index          $(common_display $(if ($UV_INDEX_URI) { $UV_INDEX_URI } else { '(none)' }))"
 common_screen "  --xp-suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
+common_screen "  worker logs         test/test as $LOGS_PROJECT, read back from the pod runner once its pods are gone"
 common_screen "  --llm-domain        $(if ($LLM_SYSTEM) { "$LLM_SYSTEM   -> domain $LLM_DOMAIN" } else { '(none)' })"
 common_screen "  --expect-pods       $EXPECT_PODS"
 common_screen "  --force             $(if ($FORCE) { 'yes (replace an existing venv/instance)' } else { 'no (an existing venv/instance is an error)' })"
@@ -371,6 +375,16 @@ foreach ($suite in $SUITE_LIST) {
     common_run tdd xp one-shot --suite $suite --suite-run $project --project $project --profile $PROFILE_NAME @keepOpt
 }
 
+# A worker's pod is deleted as soon as it finishes on kminus, so its log must
+# come back from the pod runner's archive (see smoke-km.sh).
+$XP_PROJECTS.Add($LOGS_PROJECT)
+common_stage --continue worker-logs "run test/test as $LOGS_PROJECT, then read its workers' logs back from the pod runner (continue on error)"
+common_run tdd xp one-shot --suite test/test --suite-run $LOGS_PROJECT --project $LOGS_PROJECT --profile $PROFILE_NAME --keep
+if ($LASTEXITCODE -eq 0) {
+    $LOGS_SETUP = $true
+    common_run_retry 12 5 common_worker_logs_archived $PROFILE_NAME $LOGS_PROJECT pod-runner
+}
+
 if ($KEEP) {
     common_stage cleanup 'keeping the whole setup as it is (--keep)'
     common_note "logged in as admin on $SERVER; tdd xp one-shot --suite test/test --profile $PROFILE_NAME works as is"
@@ -379,6 +393,11 @@ if ($KEEP) {
     common_stage cleanup "destroy the domains, stop and trash the instance $INSTANCE, delete the venv $VENV"
     # xp (no --keep) destroyed its own domains; what is left is ours
     if ($LLM_DOMAIN) { common_run tdd domain destroy --domain $LLM_DOMAIN --force }
+    # the worker-logs run was kept to read its logs: its domains and suite run are ours too
+    if ($LOGS_SETUP) {
+        common_run tdd xp destroy-domains --suite-run $LOGS_PROJECT
+        common_run tdd xp destroy-instance --suite-run $LOGS_PROJECT
+    }
     # `tdkserver delete` cannot remove a kminus instance (see smoke-km.sh):
     # stop it ourselves, then trash the folder.
     common_run tdd tdkserver stop --instance $INSTANCE @TDK_OPTS

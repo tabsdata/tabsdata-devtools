@@ -174,6 +174,8 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 LLM_DOMAIN="${LLM_SYSTEM:+${BASE}__${LLM_SYSTEM}}"
 XP_PROJECTS=""           # the xp instance/project names this run creates, for --keep and failures
 SMOKE_DOMAINS=""         # domains this run creates outside xp, appended as each one is (common_tabsdata_setup_info lists them)
+LOGS_PROJECT="${BASE}__logs"   # the worker-logs stage's own xp run, kept until its logs are read
+LOGS_SETUP=""            # 1 once that run is set up: the cleanup removes its domains
 EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
 LOG="${LOG:-$COMMON_TMP/smoke-$INSTANCE-$STAMP.log}"
 WORK="$(mktemp -d "$COMMON_TMP/smoke-$INSTANCE-$STAMP.XXXX")"
@@ -194,6 +196,7 @@ for stage in systems pycache clean-previous create-venv install; do STAGE_NAMES[
 [ -n "$LLM_SYSTEM" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="llm-domain"
 for stage in quickstart pods-1 login-1 stop-1 venv-update start pods-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
 for suite in "${SUITE_LIST[@]}"; do STAGE_NAMES[${#STAGE_NAMES[@]}]="xp-$(printf '%s' "$suite" | tr '/' '_')"; done
+STAGE_NAMES[${#STAGE_NAMES[@]}]="worker-logs"
 STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
 
 # shellcheck disable=SC1091
@@ -226,6 +229,7 @@ common_screen "  --td-extras   $TD_EXTRAS   -> installs $TABSDATA_SPEC"
 common_screen "  --port              $PORT   -> server $SERVER"
 common_screen "  --uv-index          $(common_display "${UV_INDEX_URI:-(none)}")"
 common_screen "  --xp-suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
+common_screen "  worker logs         test/test as $LOGS_PROJECT, read back from the pod runner once its pods are gone"
 common_screen "  --llm-domain        ${LLM_SYSTEM:-(none)}${LLM_SYSTEM:+   -> domain $LLM_DOMAIN}"
 common_screen "  --expect-pods       $EXPECT_PODS"
 common_screen "  --force             $([ -n "$FORCE" ] && echo "yes (replace an existing venv/instance)" || echo "no (an existing venv/instance is an error)")"
@@ -385,6 +389,17 @@ for suite in "${SUITE_LIST[@]}"; do
     common_run tdd xp one-shot --suite "$suite" --suite-run "$project" --project "$project" --profile "$PROFILE" ${KEEP:+--keep}
 done
 
+# A worker's pod is deleted as soon as it finishes (ttlSecondsAfterFinished: 0
+# on kminus), so its log must come back from the pod runner's archive
+# (/getPodLogs), whole, through `tdk worker logs`. The xp stages remove their
+# projects and the workers with them, so this one runs test/test itself and
+# keeps it until the logs are read; the cleanup removes it.
+XP_PROJECTS="$XP_PROJECTS $LOGS_PROJECT"
+common_stage --continue worker-logs "run test/test as $LOGS_PROJECT, then read its workers' logs back from the pod runner (continue on error)"
+common_run tdd xp one-shot --suite test/test --suite-run "$LOGS_PROJECT" --project "$LOGS_PROJECT" --profile "$PROFILE" --keep &&
+    LOGS_SETUP=1 &&
+    common_run_retry 12 5 common_worker_logs_archived "$PROFILE" "$LOGS_PROJECT" pod-runner
+
 if [ -n "$KEEP" ]; then
     common_stage cleanup "keeping the whole setup as it is (--keep)"
     common_note "logged in as admin on $SERVER; tdd xp one-shot --suite test/test --profile $PROFILE works as is"
@@ -393,6 +408,11 @@ else
     common_stage cleanup "destroy the domains, stop and trash the instance $INSTANCE, delete the venv $VENV"
     # xp (no --keep) destroyed its own domains; what is left is ours
     [ -z "$LLM_DOMAIN" ] || common_run tdd domain destroy --domain "$LLM_DOMAIN" --force
+    # the worker-logs run was kept to read its logs: its domains and suite run are ours too
+    if [ -n "$LOGS_SETUP" ]; then
+        common_run tdd xp destroy-domains --suite-run "$LOGS_PROJECT"
+        common_run tdd xp destroy-instance --suite-run "$LOGS_PROJECT"
+    fi
     # `tdkserver delete` cannot remove a kminus instance: it stops the kminus
     # cluster first and then tries to delete the workload remnants THROUGH the
     # API it just stopped (`client error (Connect)`, running or not). `trash`
