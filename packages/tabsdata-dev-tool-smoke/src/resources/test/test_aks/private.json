@@ -1,0 +1,8 @@
+{
+  "kind": "Config",
+  "apiVersion": "v1",
+  "current-context": "private",
+  "contexts": [{"name": "private", "context": {"cluster": "private", "user": "private"}}],
+  "clusters": [{"name": "private", "cluster": {"server": "https://tabsdata-private-a1b2c3d4.0f1e2d3c.privatelink.spaincentral.azmk8s.io:443"}}],
+  "users": [{"name": "private", "user": {}}]
+}

@@ -1,0 +1,25 @@
+[
+  {
+    "id": "/subscriptions/9dd049b8-201a-41da-88e5-d6123d9f157a/resourceGroups/tabsdata-dev/providers/Microsoft.OperationalInsights/workspaces/tabsdata-aks-dev-logs/providers/Microsoft.Authorization/roleAssignments/aaaaaaaa-0000-0000-0000-000000000001",
+    "principalId": "22222222-2222-2222-2222-222222222222",
+    "principalType": "ServicePrincipal",
+    "roleDefinitionId": "/subscriptions/9dd049b8-201a-41da-88e5-d6123d9f157a/providers/Microsoft.Authorization/roleDefinitions/3b03c2da-16b3-4a49-8834-0f8130efdd3b",
+    "condition": "((!(ActionMatches{'Microsoft.OperationalInsights/workspaces/tables/data/read'})) OR (@Resource[Microsoft.OperationalInsights/workspaces/tables:name] StringEquals 'ContainerLogV2' AND @Resource[Microsoft.OperationalInsights/workspaces/tables/record:PodNamespace<$key_case_sensitive$>] StringEquals 'sm-fixture'))",
+    "conditionVersion": "2.0"
+  },
+  {
+    "id": "/subscriptions/9dd049b8-201a-41da-88e5-d6123d9f157a/resourceGroups/tabsdata-dev/providers/Microsoft.OperationalInsights/workspaces/tabsdata-aks-dev-logs/providers/Microsoft.Authorization/roleAssignments/aaaaaaaa-0000-0000-0000-000000000002",
+    "principalId": "33333333-3333-3333-3333-333333333333",
+    "principalType": "ServicePrincipal",
+    "roleDefinitionId": "/subscriptions/9dd049b8-201a-41da-88e5-d6123d9f157a/providers/Microsoft.Authorization/roleDefinitions/3b03c2da-16b3-4a49-8834-0f8130efdd3b",
+    "condition": "((!(ActionMatches{'Microsoft.OperationalInsights/workspaces/tables/data/read'})) OR (@Resource[Microsoft.OperationalInsights/workspaces/tables:name] StringEquals 'ContainerLogV2' AND @Resource[Microsoft.OperationalInsights/workspaces/tables/record:PodNamespace<$key_case_sensitive$>] StringEquals 'sm-other'))",
+    "conditionVersion": "2.0"
+  },
+  {
+    "id": "/subscriptions/9dd049b8-201a-41da-88e5-d6123d9f157a/resourceGroups/tabsdata-dev/providers/Microsoft.OperationalInsights/workspaces/tabsdata-aks-dev-logs/providers/Microsoft.Authorization/roleAssignments/aaaaaaaa-0000-0000-0000-000000000003",
+    "principalId": "44444444-4444-4444-4444-444444444444",
+    "principalType": "ServicePrincipal",
+    "roleDefinitionId": "/subscriptions/9dd049b8-201a-41da-88e5-d6123d9f157a/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7",
+    "condition": null
+  }
+]

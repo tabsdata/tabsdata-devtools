@@ -142,6 +142,18 @@ options:
 
 The drivers added to the instance's fn and ag venvs (tdkserver venv update):
   mysql-connector-python==9.6.0  psycopg2-binary==2.9.12  oracledb==3.2.0
+
+Worker logs: the run gives the apiserver the managed identity td-<namespace>-apiserver
+in the cluster's resource group, its federated credential and a Log Analytics Data
+Reader assignment on the Container Insights workspace limited to the namespace's
+rows (each reused if it exists, written only if missing), runs test/test, reads
+its workers' logs while their pods are there, and checks the copies Log Analytics
+returns once the pods are gone match them line for line. It needs az
+signed in to an account that can make what is missing (Managed Identity
+Contributor on the group; roleAssignments/write on the workspace for the
+assignment), the cluster's Workload Identity and Container Insights. If that
+setup fails, the run says why and skips the check. az never installs an
+extension during the run.
 HELP
 }
 
@@ -278,8 +290,13 @@ STORAGE_DOMAIN="${BASE}__${STORAGE_SYSTEM}"
 LLM_DOMAIN="${LLM_SYSTEM:+${BASE}__${LLM_SYSTEM}}"
 XP_PROJECTS=""           # the xp instance/project names this run creates, for --keep and failures
 SMOKE_DOMAINS=""         # domains this run creates, appended as each one is (common_tabsdata_setup_info lists them)
+LOGS_PROJECT="${BASE}__logs"   # the worker-logs stage's own xp run, kept until its logs are read
+LOGS_SETUP=""            # 1 once that run is set up: the cleanup removes its domains
+WORKER_LOGS=""           # 1 once worker-logs-setup has the identity and its assignment: init annotates with them
+WORKER_LOGS_WHY=""       # why worker-logs-setup stopped, for the remark that says so
 EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
 LOG="${LOG:-$COMMON_TMP/smoke-$INSTANCE-$STAMP.log}"
+LOGS_DIR="${LOG%.log}-worker-logs"   # the live and archived copies the worker-logs check compares
 WORK="$(mktemp -d "$COMMON_TMP/smoke-$INSTANCE-$STAMP.XXXX")"
 SERVER="http://127.0.0.1:$FORWARD_PORT"
 TABSDATA_SPEC="tabsdata[$TD_EXTRAS]==$TD_VERSION"
@@ -296,6 +313,24 @@ cp "$KUBECONFIG_OPT" "$RUN_KUBECONFIG"
 kubectl --kubeconfig "$RUN_KUBECONFIG" config use-context "$CONTEXT" >/dev/null
 export KUBECONFIG="$RUN_KUBECONFIG"
 KUBECTL=(kubectl --kubeconfig "$RUN_KUBECONFIG" --context "$CONTEXT")
+# The apiserver reads a removed pod's log from Log Analytics as a managed
+# identity of its own, limited to its namespace's rows, as the dguide's AKS
+# worker logs page makes it by hand. What this run adds it removes; what it
+# finds is reused and left. Every az call names the cluster's subscription --
+# `az account set` is never run -- and az may not install an extension on its
+# own: one once arrived unasked from a command that wanted it.
+export AZURE_EXTENSION_USE_DYNAMIC_INSTALL=no
+AKS_ID="td-$NAMESPACE-apiserver"
+AKS_FC="aut-apiserver"   # the federated credential, named after the service account
+AKS_SUBSCRIPTION=""
+AKS_GROUP=""
+AKS_WORKSPACE=""         # the workspace GUID the apiserver queries (customerId)
+AKS_WORKSPACE_ID=""      # its resource id, the assignment's scope
+AKS_CLIENT_ID=""
+AKS_PRINCIPAL_ID=""
+AKS_ID_CREATED=""        # set for each thing this run made: only those does the cleanup undo
+AKS_FC_ADDED=""
+AKS_RA_ADDED=""          # the assignment's id
 SUITE_LIST=()
 for suite in $(printf '%s' "$SUITES" | tr ',' ' '); do SUITE_LIST[${#SUITE_LIST[@]}]="$suite"; done
 if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
@@ -304,8 +339,10 @@ if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
 fi
 STAGE_NAMES=(unset-td unset-pypi set-crypto cluster systems pycache clean-previous create-venv install)
 [ "$TD_VERSION" = "2.0.2" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="cdc-driver"
-for stage in domains namespace init configure create start-1 pods-1 forward-1 login-1 stop-1 venv-update start-2 pods-2 forward-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
+for stage in domains namespace worker-logs-setup init configure create start-1 pods-1 forward-1 login-1; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
+for stage in stop-1 venv-update start-2 pods-2 forward-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
 for suite in "${SUITE_LIST[@]}"; do STAGE_NAMES[${#STAGE_NAMES[@]}]="xp-$(printf '%s' "$suite" | tr '/' '_')"; done
+STAGE_NAMES[${#STAGE_NAMES[@]}]="worker-logs"
 STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
 
 # shellcheck disable=SC1091
@@ -346,7 +383,167 @@ common_on_stage_failed() {
         # reason is in the pod it left behind
         common_indented "cluster    the failed pods' logs and the namespace's events are in the log"
     fi
+    aks_left common_indented
     common_k8s_report "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"
+}
+
+# What worker-logs-setup made, each with the command that undoes it -- for a
+# failed or --keep run, which leaves them. The assignment goes first: one whose
+# identity is gone lingers as an unknown principal.
+aks_left() {
+    local emit="$1" scope="--subscription $AKS_SUBSCRIPTION --resource-group $AKS_GROUP"
+    [ -z "$AKS_RA_ADDED" ] ||
+        "$emit" "azure role Log Analytics Data Reader for $AKS_ID -- az role assignment delete --ids $AKS_RA_ADDED"
+    if [ -n "$AKS_ID_CREATED" ]; then
+        "$emit" "identity   $AKS_ID -- az identity delete $scope --name $AKS_ID"
+    elif [ -n "$AKS_FC_ADDED" ]; then
+        "$emit" "credential $AKS_FC on $AKS_ID -- az identity federated-credential delete $scope --identity-name $AKS_ID --name $AKS_FC --yes"
+    fi
+}
+
+# The steps of worker-logs-setup, each a stage command: a failure records why
+# for the remark, since the stage's own lines are gone once it closes.
+aks_why() {
+    WORKER_LOGS_WHY="$1"
+    echo "$1"
+    return 1
+}
+
+# aks_retry CMD... -- a managed identity just made is not yet a principal Azure
+# RBAC can assign to.
+aks_retry() {
+    local attempt=1
+    until "$@"; do
+        [ "$attempt" -lt 6 ] || return 1
+        echo "attempt $attempt/6 failed; retrying in 10s" >&2   # stdout is the caller's value
+        attempt=$((attempt + 1))
+        sleep 10
+    done
+}
+
+aks_provider() {
+    [ "$PROVIDER" = aks ] ||
+        aks_why "--provider $PROVIDER: only the aks provider's tabsdata.yaml has worker_logs" || return 1
+}
+
+aks_az_identity() {
+    local account
+    command -v az >/dev/null 2>&1 || aks_why "no az on the PATH" || return 1
+    account="$(az account show --query user.name --output tsv)" ||
+        aks_why "az account show failed: az login" || return 1
+    echo "az account: $account"
+}
+
+# The kubeconfig names no subscription or resource group, and the cluster need
+# not be in az's default subscription: it is the cluster, in any subscription
+# the account sees, whose API server the context talks to.
+aks_cluster() {
+    local subscriptions sub found=""
+    "${KUBECTL[@]}" config view --minify --output json >"$WORK/kubeview.json" ||
+        aks_why "kubectl config view failed for context $CONTEXT" || return 1
+    subscriptions="$(az account list --query '[].id' --output tsv)" ||
+        aks_why "az account list failed" || return 1
+    for sub in $subscriptions; do
+        az aks list --subscription "$sub" --output json >"$WORK/aks-$sub.json" 2>/dev/null || continue
+        found="$(tdd _smoke aks-cluster --clusters "$WORK/aks-$sub.json" <"$WORK/kubeview.json")" ||
+            aks_why "the AKS clusters of subscription $sub could not be read" || return 1
+        [ -z "$found" ] || break
+    done
+    [ -n "$found" ] ||
+        aks_why "no AKS cluster in a subscription az sees has the API server of context $CONTEXT" || return 1
+    read -r AKS_SUBSCRIPTION AKS_GROUP AKS_CLUSTER AKS_ISSUER AKS_WI AKS_WORKSPACE_ID <<<"$found"
+    echo "cluster $AKS_CLUSTER in group $AKS_GROUP, subscription $AKS_SUBSCRIPTION"
+}
+
+aks_workload_identity() {
+    [ "$AKS_WI" = true ] && [ "$AKS_ISSUER" != - ] ||
+        aks_why "cluster $AKS_CLUSTER has no Workload Identity; once per cluster: az aks update --subscription $AKS_SUBSCRIPTION --resource-group $AKS_GROUP --name $AKS_CLUSTER --enable-oidc-issuer --enable-workload-identity" ||
+        return 1
+    echo "OIDC issuer: $AKS_ISSUER"
+}
+
+aks_workspace() {
+    local found resource_only
+    [ "$AKS_WORKSPACE_ID" != - ] ||
+        aks_why "cluster $AKS_CLUSTER runs no Container Insights: the dguide's AKS worker logs page, step 4.2" || return 1
+    found="$(az monitor log-analytics workspace show --ids "$AKS_WORKSPACE_ID" \
+        --query '[customerId, features.enableLogAccessUsingOnlyResourcePermissions]' --output tsv)" ||
+        aks_why "az monitor log-analytics workspace show $AKS_WORKSPACE_ID failed" || return 1
+    read -r AKS_WORKSPACE resource_only <<<"$(printf '%s' "$found" | tr '\n' ' ')"
+    [ "$resource_only" = true ] ||
+        aks_why "workspace $AKS_WORKSPACE_ID requires workspace permissions: the namespace condition would not apply" ||
+        return 1
+    echo "workspace $AKS_WORKSPACE ($AKS_WORKSPACE_ID)"
+}
+
+aks_managed_identity() {
+    local found scope=(--subscription "$AKS_SUBSCRIPTION" --resource-group "$AKS_GROUP" --name "$AKS_ID")
+    if found="$(az identity show "${scope[@]}" --query '[clientId, principalId]' --output tsv 2>/dev/null)"; then
+        echo "identity $AKS_ID exists: reused"
+    else
+        found="$(az identity create "${scope[@]}" --query '[clientId, principalId]' --output tsv)" ||
+            aks_why "az identity create $AKS_ID failed: the account may lack Managed Identity Contributor on $AKS_GROUP" ||
+            return 1
+        AKS_ID_CREATED=1
+    fi
+    read -r AKS_CLIENT_ID AKS_PRINCIPAL_ID <<<"$(printf '%s' "$found" | tr '\n' ' ')"
+    echo "identity $AKS_ID: client $AKS_CLIENT_ID, principal $AKS_PRINCIPAL_ID"
+}
+
+# Read first and written only when missing or pointing elsewhere, so a setup an
+# admin made once is reused by an account that can only read it.
+aks_federated_credential() {
+    local found subject="system:serviceaccount:$NAMESPACE:aut-apiserver"
+    local scope=(--subscription "$AKS_SUBSCRIPTION" --resource-group "$AKS_GROUP" --identity-name "$AKS_ID" --name "$AKS_FC")
+    local spec=(--issuer "$AKS_ISSUER" --subject "$subject" --audiences api://AzureADTokenExchange)
+    if found="$(az identity federated-credential show "${scope[@]}" --query '[issuer, subject]' --output tsv 2>/dev/null)"; then
+        if [ "$(printf '%s' "$found" | tr '\n' ' ')" = "$AKS_ISSUER $subject" ]; then
+            echo "credential $AKS_FC on $AKS_ID already trusts $subject"
+            return 0
+        fi
+        echo "credential $AKS_FC on $AKS_ID trusts another issuer or subject: set to $subject"
+        az identity federated-credential update "${scope[@]}" "${spec[@]}" >/dev/null ||
+            aks_why "az identity federated-credential update $AKS_FC failed" || return 1
+        return 0
+    fi
+    az identity federated-credential create "${scope[@]}" "${spec[@]}" >/dev/null ||
+        aks_why "az identity federated-credential create $AKS_FC failed" || return 1
+    AKS_FC_ADDED=1
+}
+
+aks_role_assignment() {
+    local condition answer state
+    condition="$(tdd _smoke aks-condition --namespace "$NAMESPACE")" || return 1
+    answer="$(az role assignment list --scope "$AKS_WORKSPACE_ID" --output json |
+        tdd _smoke aks-has-assignment --principal "$AKS_PRINCIPAL_ID" --namespace "$NAMESPACE")" ||
+        aks_why "az role assignment list on $AKS_WORKSPACE_ID failed" || return 1
+    state="${answer%% *}"
+    if [ "$state" = present ]; then
+        echo "$AKS_ID already reads the workspace under this namespace's condition"
+        return 0
+    fi
+    [ "$state" = absent ] ||
+        aks_why "$AKS_ID has a Log Analytics Data Reader assignment on the workspace with another condition; not adding a second (Azure grants the sum)" ||
+        return 1
+    AKS_RA_ADDED="$(aks_retry az role assignment create --assignee-object-id "$AKS_PRINCIPAL_ID" \
+        --assignee-principal-type ServicePrincipal --role 3b03c2da-16b3-4a49-8834-0f8130efdd3b \
+        --scope "$AKS_WORKSPACE_ID" --condition "$condition" --condition-version 2.0 --query id --output tsv)" ||
+        aks_why "az role assignment create failed: the account may lack Microsoft.Authorization/roleAssignments/write on the workspace (the dguide's AKS page, step 5.2)" ||
+        return 1
+    echo "assignment $AKS_RA_ADDED (it can take up to 15 minutes to apply)"
+}
+
+# The apiserver names the workspace it queries once it has both the identity
+# and the workspace; without either it has no Log Analytics reader at all.
+aks_apiserver_reads_workspace() {
+    local out
+    out="$("${KUBECTL[@]}" --namespace "$NAMESPACE" logs deployment/srv-apiserver --container 1000-apiserver)" || return 1
+    if printf '%s\n' "$out" | grep -F "Log Analytics workspace '$AKS_WORKSPACE'"; then
+        return 0
+    fi
+    echo "the apiserver names no Log Analytics workspace '$AKS_WORKSPACE'; what it says of one:"
+    printf '%s\n' "$out" | grep -F "Log Analytics" || echo "  nothing: it does not run as $AKS_ID"
+    return 1
 }
 
 common_screen "smoke-aks: effective options"
@@ -377,6 +574,7 @@ common_screen "  --tdd-dir           $TDD_DIR_OPT"
 common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "no (rolling window of $WINDOW log lines)")"
 common_screen "  server              $SERVER through kubectl port-forward service/net-apiserver $FORWARD_PORT:$PORT"
 common_screen "  drivers for fn/ag   $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
+common_screen "  worker logs         managed identity $AKS_ID, then test/test as $LOGS_PROJECT, read live, then back from Log Analytics once its pods are gone, and compared"
 common_xp_expand_all
 
 common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"
@@ -499,8 +697,25 @@ common_stage namespace "create the namespace $NAMESPACE and point the run's kube
 common_run "${KUBECTL[@]}" create namespace "$NAMESPACE"
 common_run "${KUBECTL[@]}" config set-context "$CONTEXT" --namespace "$NAMESPACE"
 
-common_stage init "tdkserver init --provider $PROVIDER --instance $INSTANCE (the editable config folder)"
-common_run tdd tdkserver init --provider "$PROVIDER" --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}"
+common_stage --continue worker-logs-setup "the apiserver's managed identity $AKS_ID and its Log Analytics access (continue on error)"
+common_run_shown "--provider $PROVIDER has worker_logs" aks_provider &&
+    common_run_shown "az account show" aks_az_identity &&
+    common_run_shown "az account list; az aks list: the cluster of context $CONTEXT" aks_cluster &&
+    common_run_shown "the cluster's Workload Identity and OIDC issuer" aks_workload_identity &&
+    common_run_shown "az monitor log-analytics workspace show: the Container Insights workspace" aks_workspace &&
+    common_run_shown "az identity show (or create) $AKS_ID" aks_managed_identity &&
+    common_run_shown "az identity federated-credential show (create if missing): $AKS_FC" aks_federated_credential &&
+    common_run_shown "az role assignment list (create if missing): Log Analytics Data Reader for $NAMESPACE's rows" aks_role_assignment &&
+    WORKER_LOGS=1
+[ -n "$WORKER_LOGS" ] || common_remark "worker logs not checked: ${WORKER_LOGS_WHY:-the setup failed} (see the log)"
+
+common_stage init "tdkserver init --provider $PROVIDER --instance $INSTANCE (the editable config folder${WORKER_LOGS:+, with the apiserver identity})"
+INIT_CONFIG=()
+if [ -n "$WORKER_LOGS" ]; then
+    INIT_CONFIG=(--config "tabsdata:pods.service.apiserver.service_account.annotations.\"azure.workload.identity/client-id\"=$AKS_CLIENT_ID"
+        --config "tabsdata:pods.service.apiserver.worker_logs.workspace=$AKS_WORKSPACE")
+fi
+common_run tdd tdkserver init --provider "$PROVIDER" --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}" "${INIT_CONFIG[@]}"
 common_run test -d "$CONFIGS"
 
 common_stage configure "fill the config files from the domains: database, storage, LLM key, uv index, function pod sizing"
@@ -595,6 +810,22 @@ for suite in "${SUITE_LIST[@]}"; do
     common_run tdd xp one-shot --suite "$suite" --suite-run "$project" --project "$project" --profile "$PROFILE" ${KEEP:+--keep}
 done
 
+common_stage --continue worker-logs "run test/test as $LOGS_PROJECT, read its workers' live logs, then their copies from Log Analytics once their pods are gone, line for line (continue on error)"
+if [ -z "$WORKER_LOGS" ]; then
+    common_stage_skip "worker-logs-setup did not complete"
+else
+    XP_PROJECTS="$XP_PROJECTS $LOGS_PROJECT"
+    # the Jobs live 180s after they finish, and rows reach the workspace 1-3
+    # minutes after they are written
+    common_kubeportforward_ensure &&
+        common_run_retry 6 10 aks_apiserver_reads_workspace &&
+        common_run tdd xp one-shot --suite test/test --suite-run "$LOGS_PROJECT" --project "$LOGS_PROJECT" --profile "$PROFILE" --keep &&
+        LOGS_SETUP=1 &&
+        common_run_retry 5 3 common_worker_logs_live "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE" "$PROFILE" "$LOGS_PROJECT" "$LOGS_DIR" &&
+        common_run_retry 36 10 common_worker_pods_gone "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE" "$PROFILE" "$LOGS_PROJECT" &&
+        common_run_retry 48 10 common_worker_logs_archived "$PROFILE" "$LOGS_PROJECT" log-analytics "$LOGS_DIR"
+fi
+
 if [ -n "$KEEP" ]; then
     common_stage cleanup "keeping the whole setup as it is (--keep; the port-forward is stopped)"
     common_kubeportforward_stop
@@ -602,6 +833,7 @@ if [ -n "$KEEP" ]; then
     common_note "then: export _TDD_VENV=$VENV; tdd tdk login --profile $PROFILE --server $SERVER --user admin --password ***"
     common_note "your kubeconfig was not touched; the run's copy is $RUN_KUBECONFIG ($CONTEXT, namespace $NAMESPACE)"
     common_tabsdata_setup_info common_note
+    aks_left common_note
 else
     common_stage cleanup "destroy the domains, delete the instance, the namespace $NAMESPACE and the venv"
     common_kubeportforward_stop
@@ -612,8 +844,24 @@ else
     common_run tdd domain destroy --domain "$DB_DOMAIN" --force
     # delete works here: the cluster is external, so it survives the workload
     # and configmap removal (unlike kminus, where delete stops the cluster first)
+    # the worker-logs run was kept to read its logs: its domains and suite run are ours too
+    if [ -n "$LOGS_SETUP" ]; then
+        common_run tdd xp destroy-domains --suite-run "$LOGS_PROJECT"
+        common_run tdd xp destroy-instance --suite-run "$LOGS_PROJECT"
+    fi
     common_run tdd tdkserver delete --instance "$INSTANCE" --trash true "${TDK_OPTS[@]}"
     common_run "${KUBECTL[@]}" delete namespace "$NAMESPACE" --wait=true --timeout=300s
+    # only what worker-logs-setup made, the assignment first; what it found
+    # stays. The rows expire with the table: Log Analytics deletes no single one.
+    if [ -n "$AKS_RA_ADDED" ]; then
+        common_run az role assignment delete --ids "$AKS_RA_ADDED"
+    fi
+    if [ -n "$AKS_ID_CREATED" ]; then
+        common_run az identity delete --subscription "$AKS_SUBSCRIPTION" --resource-group "$AKS_GROUP" --name "$AKS_ID"
+    elif [ -n "$AKS_FC_ADDED" ]; then
+        common_run az identity federated-credential delete --subscription "$AKS_SUBSCRIPTION" --resource-group "$AKS_GROUP" \
+            --identity-name "$AKS_ID" --name "$AKS_FC" --yes
+    fi
     common_run tdd venv deactivate
     common_run tdd venv delete --name "$VENV"
 fi

@@ -64,7 +64,8 @@ status` (`instance-state`, `pods-ready`), reading a project's workers, their pod
 (`finished-workers`, `worker-pods-gone`, `live-workers`, `live-log`, `archived-logs`), what
 the EKS smoke needs for its apiserver's IAM role (`eks-cluster`, `eks-role-documents`), the GKE
 smoke for its service account and view (`gke-cluster`, `gke-log-bucket`, `gke-service-account`,
-`gke-has-binding`), a local instance's processes (`instance-pids`,
+`gke-has-binding`) and the AKS smoke for its managed identity (`aks-cluster`, `aks-condition`,
+`aks-has-assignment`), a local instance's processes (`instance-pids`,
 `instance-stop`, `instance-gone`) and the screen beyond the stage lines (`window`, `pointers`,
 `paint-help`). A call costs ~100 ms, nothing beside a stage. So a script loads tdd first,
 before its own checks and its banner; `--help`, read with the options, has `common_help` load
@@ -236,6 +237,29 @@ cloud-logging`: the reader starts 30s before `started_on`, so the log may begin 
 `0040-begin-execution`, which the rule allows. The cleanup removes only what the run added -- grant, service account (or
 only its binding, when reused), view -- after the namespace; the entries expire with their
 bucket, since Cloud Logging deletes no single one.
+
+`smoke-aks` does it against Log Analytics, after the dguide's AKS worker logs page. The
+kubeconfig names no subscription or resource group, and the cluster need not be in az's default
+subscription, so `worker-logs-setup` looks through `az aks list` of every subscription the
+account sees for the cluster whose `fqdn` or `privateFqdn` is the context's API server (`tdd
+_smoke aks-cluster`), which also says whether Workload Identity is on, the OIDC issuer and the
+Container Insights workspace. Every az call then names that subscription -- `az account set` is
+never run -- and the script exports `AZURE_EXTENSION_USE_DYNAMIC_INSTALL=no`, since an az command
+once installed an extension unasked. After checking `--provider` is aks and the workspace allows
+resource permissions (else the namespace condition does not apply), it finds or makes the
+managed identity `td-<namespace>-apiserver`, its federated credential `aut-apiserver` for the
+service account, and Log Analytics Data Reader on the workspace under the dguide's condition on
+`ContainerLogV2` rows of the namespace (`tdd _smoke aks-condition`). Each is read first and
+written only if missing; an assignment of the identity under another condition is refused, not
+added to, because Azure grants the sum of every assignment (`tdd _smoke aks-has-assignment`).
+Making the assignment needs `roleAssignments/write`, which a Contributor lacks: without it the
+stage stops there and the check is skipped until an admin makes the assignment once. `init`
+passes the `azure.workload.identity/client-id` annotation and `worker_logs.workspace`; the
+stage checks the apiserver names that workspace, then captures and compares the logs with
+`--archive log-analytics`, waiting longer than on GKE: the Jobs live 180s, and rows reach the workspace 1-3
+minutes after they are written. The cleanup removes the assignment first -- one whose identity
+is gone lingers as an unknown principal -- then the identity this run made, or only the
+credential it added to one it found.
 
 `smoke-km` hands the `--llm-domain` key to quickstart as `--config <system>-key=env:LLM__API_KEY`:
 `tdd domain info --format export` exports it into the script's shell and tdkserver reads it from

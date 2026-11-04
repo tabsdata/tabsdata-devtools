@@ -26,6 +26,7 @@ import sys
 from tabsdata_dev.common.core import cli, errors, render
 
 from . import (
+    aks,
     configs,
     display,
     eks,
@@ -303,6 +304,32 @@ def configure(p: argparse.ArgumentParser) -> None:
     held.add_argument("--member", required=True)
     held.add_argument("--expression", help="the binding's condition")
 
+    aks_cluster = sub.add_parser(
+        "aks-cluster",
+        help="the AKS cluster of `--clusters` whose API server the `kubectl "
+        "config view --minify --output json` read from stdin names: `SUBSCRIPTION "
+        "GROUP NAME ISSUER WORKLOAD-IDENTITY WORKSPACE`; nothing when none is",
+    )
+    aks_cluster.add_argument(
+        "--clusters", required=True, help="a file: `az aks list --output json`"
+    )
+
+    cond = sub.add_parser(
+        "aks-condition",
+        help="the role condition limiting Log Analytics Data Reader to the "
+        "ContainerLogV2 rows of a namespace",
+    )
+    cond.add_argument("--namespace", required=True)
+
+    assigned = sub.add_parser(
+        "aks-has-assignment",
+        help="present (and its id), absent or different: the principal's Log "
+        "Analytics Data Reader assignment in the `az role assignment list "
+        "--output json` read from stdin, under the namespace's condition",
+    )
+    assigned.add_argument("--principal", required=True, help="its object id")
+    assigned.add_argument("--namespace", required=True)
+
     index = sub.add_parser(
         "uv-index",
         help="the URL a --uv-index value stands for: @dev, @dev:NAME, "
@@ -500,6 +527,21 @@ def body(args: argparse.Namespace, out: render.Renderer) -> int:
             sys.stdin.read(), args.role, args.member, args.expression
         )
         return out.ok(PRESENT if present else ABSENT, present=present)
+    if args.action == "aks-cluster":
+        try:
+            found = aks.cluster(
+                sys.stdin.read(), pathlib.Path(args.clusters).read_text()
+            )
+        except ValueError as e:
+            raise errors.ToolError(str(e)) from e
+        return out.ok(" ".join(found) if found else "", cluster=found)
+    if args.action == "aks-condition":
+        return out.ok(aks.condition(args.namespace))
+    if args.action == "aks-has-assignment":
+        state, assignment = aks.assignment(
+            sys.stdin.read(), args.principal, args.namespace
+        )
+        return out.ok(f"{state} {assignment}".strip(), state=state, id=assignment)
     if args.action == "uv-index":
         if args.no_local and indexes.is_local(args.value):
             return out.error(

@@ -434,9 +434,69 @@ def test_the_gke_smoke_sets_up_worker_logs_and_skips_their_check_without_them():
         assert cleanup.index("delete namespace") < guard < cleanup.index(command)
 
 
+def test_the_aks_smoke_sets_up_worker_logs_and_skips_their_check_without_them():
+    """The identity, its federated credential and its namespace-limited
+    assignment are made or found before init; each is read first and written
+    only when missing; az works in the cluster's subscription without moving
+    the account's default or installing an extension; and the cleanup undoes
+    only what the run made, the assignment first."""
+    text = (smoke.scripts_dir() / "smoke-aks.sh").read_text()
+    code = "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
+    stages = _stages(text)
+    assert stages.index("namespace") + 1 == stages.index("worker-logs-setup")
+    assert stages.index("worker-logs-setup") + 1 == stages.index("init")
+    assert stages[-3:] == ["worker-logs", "cleanup", "cleanup"], stages
+    names = text.split("STAGE_NAMES=(", 1)[1].split("\n. ", 1)[0]
+    assert "namespace worker-logs-setup init" in names
+    assert 'STAGE_NAMES[${#STAGE_NAMES[@]}]="worker-logs"' in names
+    assert "common_stage --continue worker-logs-setup " in text
+    assert "    WORKER_LOGS=1\n" in text
+
+    assert "\nexport AZURE_EXTENSION_USE_DYNAMIC_INSTALL=no\n" in text
+    assert "az account set" not in code
+
+    init = text.split("common_stage init ", 1)[1].split("common_stage ", 1)[0]
+    guarded = init.split('if [ -n "$WORKER_LOGS" ]; then', 1)[1].split("\nfi\n", 1)[0]
+    assert (
+        'annotations.\\"azure.workload.identity/client-id\\"=$AKS_CLIENT_ID' in guarded
+    )
+    assert "worker_logs.workspace=$AKS_WORKSPACE" in guarded
+    assert '"${INIT_CONFIG[@]}"' in init
+
+    for function, read, write in [
+        ("aks_managed_identity", "az identity show", "az identity create"),
+        (
+            "aks_federated_credential",
+            "az identity federated-credential show",
+            "az identity federated-credential create",
+        ),
+        ("aks_role_assignment", "az role assignment list", "az role assignment create"),
+    ]:
+        body = text.split(f"{function}() {{", 1)[1].split("\n}\n", 1)[0]
+        assert body.index(read) < body.index(write), function
+
+    check = text.split("common_stage --continue worker-logs ", 1)[1]
+    check = check.split("\nfi\n", 1)[0]
+    assert 'if [ -z "$WORKER_LOGS" ]; then\n    common_stage_skip ' in check
+    assert check.index("common_worker_pods_gone") < check.index(
+        "common_worker_logs_archived"
+    )
+    assert "log-analytics" in check.split("common_worker_logs_archived", 1)[1]
+
+    cleanup = text.split('common_stage cleanup "destroy', 1)[1]
+    assignment = cleanup.index('[ -n "$AKS_RA_ADDED" ]')
+    identity = cleanup.index('[ -n "$AKS_ID_CREATED" ]')
+    assert cleanup.index("delete namespace") < assignment < identity
+    assert assignment < cleanup.index("az role assignment delete") < identity
+    assert identity < cleanup.index("az identity delete")
+    assert cleanup.index('elif [ -n "$AKS_FC_ADDED" ]') < cleanup.index(
+        "az identity federated-credential delete"
+    )
+
+
 @pytest.mark.parametrize(
     "script, archive",
-    [("eks", "cloudwatch"), ("gke", "cloud-logging")],
+    [("eks", "cloudwatch"), ("gke", "cloud-logging"), ("aks", "log-analytics")],
 )
 def test_a_cloud_smoke_compares_the_archived_logs_with_the_live_ones(script, archive):
     """The live log is read while the pods are there, the archive's once they

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "/subscriptions/9dd049b8-201a-41da-88e5-d6123d9f157a/resourcegroups/tabsdata-dev/providers/Microsoft.ContainerService/managedClusters/tabsdata-other",
+    "fqdn": "tabsdata-o-tabsdata-dev-9dd049-aaaaaa.hcp.spaincentral.azmk8s.io",
+    "privateFqdn": null,
+    "oidcIssuerProfile": {"enabled": false, "issuerUrl": null},
+    "securityProfile": {"workloadIdentity": null},
+    "addonProfiles": {}
+  },
+  {
+    "id": "/subscriptions/9dd049b8-201a-41da-88e5-d6123d9f157a/resourcegroups/tabsdata-dev/providers/Microsoft.ContainerService/managedClusters/tabsdata-aks-dev",
+    "fqdn": "tabsdata-a-tabsdata-dev-9dd049-x1y2z3.hcp.spaincentral.azmk8s.io",
+    "privateFqdn": null,
+    "oidcIssuerProfile": {"enabled": true, "issuerUrl": "https://spaincentral.oic.prod-aks.azure.com/00000000-0000-0000-0000-000000000000/11111111-1111-1111-1111-111111111111/"},
+    "securityProfile": {"workloadIdentity": {"enabled": true}},
+    "addonProfiles": {"omsagent": {"enabled": true, "config": {"logAnalyticsWorkspaceResourceID": "/subscriptions/9dd049b8-201a-41da-88e5-d6123d9f157a/resourceGroups/tabsdata-dev/providers/Microsoft.OperationalInsights/workspaces/tabsdata-aks-dev-logs", "useAADAuth": "true"}}}
+  },
+  {
+    "id": "/subscriptions/9dd049b8-201a-41da-88e5-d6123d9f157a/resourcegroups/tabsdata-dev/providers/Microsoft.ContainerService/managedClusters/tabsdata-private",
+    "fqdn": null,
+    "privateFqdn": "tabsdata-private-a1b2c3d4.0f1e2d3c.privatelink.spaincentral.azmk8s.io",
+    "oidcIssuerProfile": {"enabled": false, "issuerUrl": null},
+    "securityProfile": {},
+    "addonProfiles": {"omsAgent": {"enabled": false, "config": {"logAnalyticsWorkspaceResourceId": "/subscriptions/x/resourceGroups/y/providers/Microsoft.OperationalInsights/workspaces/z"}}}
+  }
+]
