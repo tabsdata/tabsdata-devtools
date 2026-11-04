@@ -12,6 +12,7 @@ shape tdkserver refuses, a run writing to the developer's kubeconfig.
 
 import pathlib
 
+import pytest
 from tabsdata_dev.common.core import render
 from tabsdata_dev.tool import smoke
 
@@ -286,6 +287,139 @@ def test_every_powershell_script_is_its_bash_twin():
         ps1_text, sh_text = ps1.read_text(), sh.read_text()
         assert _help_options(ps1_text) == _help_options(sh_text), ps1.name
         assert _stages(ps1_text) == _stages(sh_text), ps1.name
+
+
+def test_a_stage_whose_setup_failed_is_skipped_not_failed_again(
+    tmp_path, resource_folder
+):
+    """A --continue stage that sets something up fails once, counted; the
+    stage that would check it is skipped, saying why, rather than failing a
+    second time over the same cause -- and the run still completes."""
+    import os
+    import subprocess
+
+    done = subprocess.run(
+        [
+            "bash",
+            resource_folder / "stage_skip.sh",
+            smoke.scripts_dir() / "_common.sh",
+            tmp_path / "run.log",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "SMOKE_ENGINE": _smoke_engine(), "NO_COLOR": "1"},
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    out = done.stdout
+    assert "skipped -- setup did not complete" in out, out
+    assert "· check (skipped)" in out, out
+    assert "✗ setup (failed after" in out, out
+    assert "✓ cleanup" in out, out
+    assert "COMPLETED, 1 stage(s) failed and were continued" in out, out
+
+
+def test_a_probe_that_waiting_cannot_change_ends_its_retries(tmp_path, resource_folder):
+    """A probe exiting $COMMON_FINAL is not retried again: the stage fails at
+    that attempt instead of spending the rest of its wait."""
+    import os
+    import subprocess
+
+    counter = tmp_path / "attempts"
+    done = subprocess.run(
+        [
+            "bash",
+            resource_folder / "retry_final.sh",
+            smoke.scripts_dir() / "_common.sh",
+            tmp_path / "run.log",
+            counter,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "SMOKE_ENGINE": _smoke_engine(), "NO_COLOR": "1"},
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert counter.read_text().count("x") == 2
+    assert "failed on attempt 2/30, and waiting cannot change it" in done.stdout
+    ps1 = (smoke.scripts_dir() / "_common.ps1").read_text()
+    assert "$script:COMMON_FINAL = 97" in ps1
+    assert "if ($rc -eq $script:COMMON_FINAL) {" in ps1
+
+
+def test_the_eks_smoke_sets_up_worker_logs_and_skips_their_check_without_them():
+    """The apiserver's IAM role is made (or reused) before init, which only then
+    annotates the service account with it; a run that could not make it says
+    so and skips the check, and only a role this run created is deleted."""
+    text = (smoke.scripts_dir() / "smoke-eks.sh").read_text()
+    stages = _stages(text)
+    assert stages.index("namespace") + 1 == stages.index("worker-logs-setup")
+    assert stages.index("worker-logs-setup") + 1 == stages.index("init")
+    # cleanup twice: the --keep branch and the other
+    assert stages[-3:] == ["worker-logs", "cleanup", "cleanup"], stages
+    names = text.split("STAGE_NAMES=(", 1)[1].split("\n. ", 1)[0]
+    assert "namespace worker-logs-setup init" in names
+    assert 'STAGE_NAMES[${#STAGE_NAMES[@]}]="worker-logs"' in names
+
+    assert "common_stage --continue worker-logs-setup " in text
+    assert "common_stage --continue worker-logs " in text
+    assert "    WORKER_LOGS=1\n" in text
+
+    init = text.split("common_stage init ", 1)[1].split("common_stage ", 1)[0]
+    assert '[ -z "$WORKER_LOGS" ] || INIT_CONFIG=(--config ' in init
+    assert 'annotations.\\"eks.amazonaws.com/role-arn\\"=$EKS_ROLE_ARN' in init
+    assert '"${INIT_CONFIG[@]}"' in init
+
+    check = text.split("common_stage --continue worker-logs ", 1)[1]
+    check = check.split("\nfi\n", 1)[0]
+    assert 'if [ -z "$WORKER_LOGS" ]; then\n    common_stage_skip ' in check
+    # the archive is read only once the pods are gone: CloudWatch's log looks
+    # the same as the live one
+    assert check.index("common_worker_pods_gone") < check.index(
+        "common_worker_logs_archived"
+    )
+    assert "cloudwatch" in check.split("common_worker_logs_archived", 1)[1]
+
+    cleanup = text.split('common_stage cleanup "destroy', 1)[1]
+    guard = cleanup.index('if [ -n "$EKS_ROLE_CREATED" ]; then')
+    assert guard < cleanup.index("aws iam delete-role-policy")
+    assert guard < cleanup.index("aws iam delete-role ")
+    assert cleanup.index("delete namespace") < guard
+
+
+@pytest.mark.parametrize(
+    "script, archive",
+    [("eks", "cloudwatch")],
+)
+def test_a_cloud_smoke_compares_the_archived_logs_with_the_live_ones(script, archive):
+    """The live log is read while the pods are there, the archive's once they
+    are gone, and the two are compared; nothing re-runs the function when the
+    live read missed its window."""
+    text = (smoke.scripts_dir() / f"smoke-{script}.sh").read_text()
+    check = text.split("common_stage --continue worker-logs ", 1)[1]
+    check = check.split("\nfi\n", 1)[0]
+    live = check.index("common_worker_logs_live ")
+    gone = check.index("common_worker_pods_gone ")
+    kept = check.index("common_worker_logs_archived ")
+    assert check.index("tdd xp one-shot --suite test/test") < live < gone < kept
+    assert (
+        f'common_worker_logs_archived "$PROFILE" "$LOGS_PROJECT" {archive} "$LOGS_DIR"'
+        in check
+    )
+    assert '"$LOGS_DIR" &&' in check[live:gone]
+    assert "run-triggers" not in check
+    assert 'LOGS_DIR="${LOG%.log}-worker-logs"' in text
+
+
+def test_no_conditional_word_holds_an_apostrophe():
+    """In bash 3.2 a `'` inside `"${X:+...}"` opens a quote: the script then
+    parses -- or not -- up to the next `'`, wherever that is."""
+    import re
+
+    for path in sorted(smoke.scripts_dir().glob("*.sh")):
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            for word in re.findall(r"\$\{\w+:?[-+=?]([^}$]*)\}", line):
+                assert "'" not in word, (path.name, number, line)
 
 
 def test_the_scripts_carry_no_inline_interpreter():

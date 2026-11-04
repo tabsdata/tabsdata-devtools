@@ -32,6 +32,9 @@ $script:COMMON_TMP = [IO.Path]::GetTempPath().TrimEnd([IO.Path]::DirectorySepara
 $script:COMMON_SCRIPT = [IO.Path]::GetFileNameWithoutExtension($MyInvocation.PSCommandPath)
 
 $script:WINDOW = if ($env:WINDOW) { [int]$env:WINDOW } else { 10 }
+# The exit a probe for common_run_retry gives when waiting cannot change its
+# answer: the retries stop there instead of spending the rest of the wait.
+$script:COMMON_FINAL = 97
 
 # `tdd _smoke ARGS...` with this function's pipeline input as its stdin.
 function common_smoke {
@@ -209,6 +212,18 @@ function common_stage_ok {
     common_screen "    $($script:GREEN)ok$($script:RESET) ($($script:STAGE_SECONDS[$script:STAGE_I])s)"
 }
 
+# Close the running stage as skipped, saying why: what it checks was never set
+# up, because an earlier stage failed -- and that failure is already counted.
+function common_stage_skip {
+    param([string]$Why)
+    if ($script:STAGE_I -lt 0) { return }
+    if ($script:STAGE_STATUS.ContainsKey($script:STAGE_I)) { return }
+    $script:STAGE_STATUS[$script:STAGE_I] = 'skipped'
+    $script:STAGE_SECONDS[$script:STAGE_I] = common_elapsed
+    common_collapse
+    common_screen "    $($script:YELLOW)skipped$($script:RESET) -- $Why"
+}
+
 # common_stage [--continue] NAME "what it does"
 function common_stage {
     common_stage_ok
@@ -343,6 +358,12 @@ function common_run_retry {
             $global:LASTEXITCODE = 0
             return
         }
+        if ($rc -eq $script:COMMON_FINAL) {
+            $script:STAGE_CMD_STATUS[$script:STAGE_CMD_STATUS.Count - 1] = 'failed'
+            common_stage_failed "$shown failed on attempt $attempt/$attempts, and waiting cannot change it" 1
+            $global:LASTEXITCODE = 1
+            return
+        }
         if ($attempt -ge $attempts) {
             $script:STAGE_CMD_STATUS[$script:STAGE_CMD_STATUS.Count - 1] = 'failed'
             common_stage_failed "$shown failed $attempts times (last exit $rc)" $rc
@@ -427,6 +448,148 @@ function common_tdkserver_pods_running {
         return
     }
     $verdict = ($out | common_smoke pods-ready --instance $instance @services) -join ''
+    common_status ($verdict -eq 'ready')
+}
+
+function common_worker_logs_live {
+    param([string]$Kubeconfig, [string]$Context, [string]$Namespace, [string]$ProfileName, [string]$Project, [string]$Dir)
+    $listing = (tdd tdk worker list --profile $ProfileName --proj $Project --format json | Out-String)
+    if ($LASTEXITCODE) {
+        Write-Output 'tdk worker list failed'
+        common_status $false
+        return
+    }
+    $ids = @($listing | common_smoke finished-workers | Where-Object { $_ })
+    if ($ids.Count -eq 0) {
+        Write-Output "no finished worker in $Project yet"
+        common_status $false
+        return
+    }
+    $pods = (kubectl --kubeconfig $Kubeconfig --context $Context --namespace $Namespace `
+            get pods --selector tabsdata.com/worker-id --output json | Out-String)
+    if ($LASTEXITCODE) {
+        Write-Output 'kubectl get pods failed'
+        common_status $false
+        return
+    }
+    $ended = @($pods | common_smoke live-workers --workers ($ids -join ' ') | Where-Object { $_ })
+    if ($ended.Count -eq 0) {
+        Write-Output "no finished worker of $Project has an ended pod left to read"
+        common_status $false
+        return
+    }
+    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+    Remove-Item -Path (Join-Path $Dir '*.live') -ErrorAction SilentlyContinue
+    foreach ($id in $ended) {
+        $log = (tdd tdk worker logs --profile $ProfileName --worker $id | Out-String)
+        if ($LASTEXITCODE) {
+            Write-Output "tdk worker logs --worker $id failed"
+            common_status $false
+            return
+        }
+        Set-Content -Path (Join-Path $Dir "$id.live") -Value $log -NoNewline
+    }
+    $pods = (kubectl --kubeconfig $Kubeconfig --context $Context --namespace $Namespace `
+            get pods --selector tabsdata.com/worker-id --output json | Out-String)
+    if ($LASTEXITCODE) {
+        Write-Output 'kubectl get pods failed'
+        common_status $false
+        return
+    }
+    $kept = @($pods | common_smoke live-workers --workers ($ended -join ' ') | Where-Object { $_ })
+    foreach ($id in $ended) {
+        $file = Join-Path $Dir "$id.live"
+        if ($kept -notcontains $id) {
+            Write-Output "worker ${id}: its pod went during the read, which may have come from the archive"
+            Remove-Item -Path $file -ErrorAction SilentlyContinue
+            continue
+        }
+        $verdict = (Get-Content -Raw -Path $file | common_smoke live-log --worker $id) -join ''
+        if ($verdict -ne 'ready') {
+            common_status $false
+            return
+        }
+        Write-Output "worker ${id}: live log in $file"
+    }
+    if (-not (Get-ChildItem -Path (Join-Path $Dir '*.live') -ErrorAction SilentlyContinue)) {
+        Write-Output 'no live log kept'
+        common_status $false
+        return
+    }
+    common_status $true
+}
+function common_worker_logs_archived {
+    param([string]$ProfileName, [string]$Project, [string]$Archive, [string]$Dir = '')
+    if ($Dir) {
+        $ids = @(Get-ChildItem -Path (Join-Path $Dir '*.live') -ErrorAction SilentlyContinue |
+                ForEach-Object { $_.BaseName })
+    } else {
+        $listing = (tdd tdk worker list --profile $ProfileName --proj $Project --format json | Out-String)
+        if ($LASTEXITCODE) {
+            Write-Output 'tdk worker list failed'
+            common_status $false
+            return
+        }
+        $ids = @($listing | common_smoke finished-workers | Where-Object { $_ })
+    }
+    if ($ids.Count -eq 0) {
+        Write-Output "no finished worker in $Project yet"
+        common_status $false
+        return
+    }
+    foreach ($id in $ids) {
+        $log = (tdd tdk worker logs --profile $ProfileName --worker $id | Out-String)
+        if ($LASTEXITCODE) {
+            Write-Output "tdk worker logs --worker $id failed"
+            common_status $false
+            return
+        }
+        if ($Dir) {
+            Set-Content -Path (Join-Path $Dir "$id.archived") -Value $log -NoNewline
+            $live = Join-Path $Dir "$id.live"
+            $verdict = ($log | common_smoke archived-logs --worker $id --archive $Archive --live $live) -join ''
+            if ($verdict -eq 'failed') {
+                $global:LASTEXITCODE = $script:COMMON_FINAL
+                return
+            }
+        } else {
+            $verdict = ($log | common_smoke archived-logs --worker $id --archive $Archive) -join ''
+        }
+        if ($verdict -ne 'ready') {
+            common_status $false
+            return
+        }
+    }
+    common_status $true
+}
+
+# common_worker_pods_gone KUBECONFIG CONTEXT NAMESPACE PROFILE PROJECT -- no pod of
+# PROJECT's finished workers is left. Read while its pod is there, a worker's
+# log is the live one, and an archive that writes the live log's own headers
+# (CloudWatch) could not be told from it. Meant for `common_run_retry`: the pods
+# go when their Job's time to live runs out.
+function common_worker_pods_gone {
+    param([string]$Kubeconfig, [string]$Context, [string]$Namespace, [string]$ProfileName, [string]$Project)
+    $listing = (tdd tdk worker list --profile $ProfileName --proj $Project --format json | Out-String)
+    if ($LASTEXITCODE) {
+        Write-Output 'tdk worker list failed'
+        common_status $false
+        return
+    }
+    $ids = @($listing | common_smoke finished-workers | Where-Object { $_ })
+    if ($ids.Count -eq 0) {
+        Write-Output "no finished worker in $Project yet"
+        common_status $false
+        return
+    }
+    $pods = (kubectl --kubeconfig $Kubeconfig --context $Context --namespace $Namespace `
+            get pods --selector tabsdata.com/worker-id --output json | Out-String)
+    if ($LASTEXITCODE) {
+        Write-Output 'kubectl get pods failed'
+        common_status $false
+        return
+    }
+    $verdict = ($pods | common_smoke worker-pods-gone --workers ($ids -join ' ')) -join ''
     common_status ($verdict -eq 'ready')
 }
 
@@ -579,6 +742,7 @@ function common_report {
             'ok' { common_screen "  $($script:GREEN)✓$($script:RESET) $name$(if ($null -ne $secs) { " (${secs}s)" })" }
             'failed' { common_screen "  $($script:RED)✗$($script:RESET) $name (failed$(if ($null -ne $secs) { " after ${secs}s" }))" }
             'continued' { common_screen "  $($script:YELLOW)✗$($script:RESET) $name (failed after ${secs}s, continued)" }
+            'skipped' { common_screen "  $($script:YELLOW)·$($script:RESET) $name (skipped)" }
             default { common_screen "  $($script:YELLOW)·$($script:RESET) $name (not done)" }
         }
         $i += 1

@@ -1,0 +1,10 @@
+==================================================
+container: 0080-source-plugin
+==================================================
+2026-11-03T20:26:37.293Z INFO tabsdatak.server._tdrunner.function.commands.runners.source_plugin.runner: Running the source plugin
+2026-11-03T20:26:38.673Z DEBUG tabsdatak.server._tdrunner.function.commands.runners.source_plugin.runner: Source plugin DataGenSrcPlugin for connection DataGenSrcConn (PublisherInfo, cardinality 1)
+2026-11-03T20:26:38.673Z WARNING tabsdatak.server._tdrunner.function.commands.runners.source_plugin.runner: tabsdatak.conn.dev._plugin.DataGenSrcPlugin.read_in returns the deprecated list[list[TableFileInput]]; return LazyFrameInputs instead
+2026-11-03T20:26:38.673Z DEBUG tabsdatak.server._tdrunner.function._handlers.state: State not read: slot 'td.fn_state__06gq65hsp1oad231l37o4v5nmg' has no location
+2026-11-03T20:26:38.673Z DEBUG tabsdatak.server._tdrunner.function.commands.runners.source_plugin.runner: Source context ready on /tabsdata/shared/in
+2026-11-03T20:26:38.674Z INFO tabsdatak.server._tdrunner.function.commands.runners.source_plugin.runner: Landing 1 input(s)
+2026-11-03T20:26:38.836Z INFO tabsdatak.server._tdrunner.function.commands.runners.source_plugin.runner: Source plugin landed 1 file(s)

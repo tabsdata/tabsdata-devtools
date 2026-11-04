@@ -254,6 +254,17 @@ common_stage_ok() {
     common_screen "    ${GREEN}ok${RESET} (${STAGE_SECONDS[$STAGE_I]}s)"
 }
 
+# Close the running stage as skipped, saying why: what it checks was never set
+# up, because an earlier stage failed -- and that failure is already counted.
+common_stage_skip() {
+    [ "$STAGE_I" -ge 0 ] || return 0
+    [ -z "${STAGE_STATUS[$STAGE_I]:-}" ] || return 0
+    STAGE_STATUS[$STAGE_I]="skipped"
+    STAGE_SECONDS[$STAGE_I]="$(common_elapsed)"
+    common_collapse
+    common_screen "    ${YELLOW}skipped${RESET} -- $1"
+}
+
 # stage [--continue] NAME "what it does"
 common_stage() {
     common_stage_ok
@@ -351,8 +362,13 @@ common_run_shown() {
     return 0
 }
 
+# The exit a probe for common_run_retry gives when waiting cannot change its
+# answer: the retries stop there instead of spending the rest of the wait.
+COMMON_FINAL=97
+
 # common_run_retry N PAUSE CMD... -- for a probe of something that comes up on its own
-# time (a server after start): the command is the readiness check.
+# time (a server after start): the command is the readiness check. A probe exiting
+# $COMMON_FINAL ends the retries at once.
 common_run_retry() {
     local attempts="$1" pause="$2" attempt=1 rc shown
     shift 2
@@ -371,6 +387,11 @@ common_run_retry() {
             STAGE_CMD_STATUS[$((${#STAGE_CMD_STATUS[@]} - 1))]="ok"
             [ "$attempt" -gt 1 ] && common_note "succeeded on attempt $attempt"
             return 0
+        fi
+        if [ $rc -eq "$COMMON_FINAL" ]; then
+            STAGE_CMD_STATUS[$((${#STAGE_CMD_STATUS[@]} - 1))]="failed"
+            common_stage_failed "$shown failed on attempt $attempt/$attempts, and waiting cannot change it" 1
+            return 1
         fi
         if [ "$attempt" -ge "$attempts" ]; then
             STAGE_CMD_STATUS[$((${#STAGE_CMD_STATUS[@]} - 1))]="failed"
@@ -418,6 +439,129 @@ common_tdkserver_pods_running() {
         return 1
     }
     verdict="$(printf '%s\n' "$out" | tdd _smoke pods-ready --instance "$instance" "$@")" || return 1
+    [ "$verdict" = ready ]
+}
+
+# common_worker_logs_live KUBECONFIG CONTEXT NAMESPACE PROFILE PROJECT DIR -- the
+# log of each of PROJECT's finished workers whose pod has ended and is still
+# there, read into DIR/<worker>.live: what a cloud archive's copy must match.
+# The pod listed before and after the read is what makes the read the live log
+# -- the apiserver goes to the archive only once it finds no pod -- and one that
+# went in between is dropped. Meant for `common_run_retry`, right after the
+# run: the pods go when their Job's time to live runs out.
+common_worker_logs_live() {
+    local kubeconfig="$1" context="$2" namespace="$3" profile="$4" project="$5" dir="$6"
+    local listing ids pods ended kept id verdict
+    listing="$(tdd tdk worker list --profile "$profile" --proj "$project" --format json)" || {
+        echo "tdk worker list failed"
+        return 1
+    }
+    ids="$(printf '%s\n' "$listing" | tdd _smoke finished-workers)" || return 1
+    if [ -z "$ids" ]; then
+        echo "no finished worker in $project yet"
+        return 1
+    fi
+    pods="$(kubectl --kubeconfig "$kubeconfig" --context "$context" --namespace "$namespace" \
+        get pods --selector tabsdata.com/worker-id --output json)" || {
+        echo "kubectl get pods failed"
+        return 1
+    }
+    ended="$(printf '%s\n' "$pods" | tdd _smoke live-workers --workers "$(printf '%s' "$ids" | tr '\n' ' ')")" || return 1
+    if [ -z "$ended" ]; then
+        echo "no finished worker of $project has an ended pod left to read"
+        return 1
+    fi
+    mkdir -p "$dir"
+    rm -f "$dir"/*.live
+    for id in $ended; do
+        tdd tdk worker logs --profile "$profile" --worker "$id" >"$dir/$id.live" || {
+            echo "tdk worker logs --worker $id failed"
+            return 1
+        }
+    done
+    pods="$(kubectl --kubeconfig "$kubeconfig" --context "$context" --namespace "$namespace" \
+        get pods --selector tabsdata.com/worker-id --output json)" || {
+        echo "kubectl get pods failed"
+        return 1
+    }
+    kept=" $(printf '%s\n' "$pods" | tdd _smoke live-workers --workers "$(printf '%s' "$ended" | tr '\n' ' ')" | tr '\n' ' ') "
+    for id in $ended; do
+        case "$kept" in
+            *" $id "*) ;;
+            *)
+                echo "worker $id: its pod went during the read, which may have come from the archive"
+                rm -f "$dir/$id.live"
+                continue
+                ;;
+        esac
+        verdict="$(tdd _smoke live-log --worker "$id" <"$dir/$id.live")" || return 1
+        [ "$verdict" = ready ] || return 1
+        echo "worker $id: live log in $dir/$id.live"
+    done
+    ls "$dir"/*.live >/dev/null 2>&1 || {
+        echo "no live log kept"
+        return 1
+    }
+}
+
+# common_worker_logs_archived PROFILE PROJECT ARCHIVE [DIR] -- each finished
+# worker's log, read now, came from ARCHIVE whole (`tdd _smoke archived-logs`).
+# With DIR, the workers are those common_worker_logs_live read there, each copy
+# is judged against its live log and kept beside it as <worker>.archived. Exits
+# $COMMON_FINAL when the helper says waiting cannot change the answer.
+common_worker_logs_archived() {
+    local profile="$1" project="$2" archive="$3" dir="${4:-}" listing ids id log verdict live
+    if [ -n "$dir" ]; then
+        ids="$(for live in "$dir"/*.live; do [ -e "$live" ] && basename "$live" .live; done)"
+    else
+        listing="$(tdd tdk worker list --profile "$profile" --proj "$project" --format json)" || {
+            echo "tdk worker list failed"
+            return 1
+        }
+        ids="$(printf '%s\n' "$listing" | tdd _smoke finished-workers)" || return 1
+    fi
+    if [ -z "$ids" ]; then
+        echo "no finished worker in $project yet"
+        return 1
+    fi
+    for id in $ids; do
+        log="$(tdd tdk worker logs --profile "$profile" --worker "$id")" || {
+            echo "tdk worker logs --worker $id failed"
+            return 1
+        }
+        if [ -n "$dir" ]; then
+            printf '%s\n' "$log" >"$dir/$id.archived"
+            verdict="$(printf '%s\n' "$log" | tdd _smoke archived-logs --worker "$id" --archive "$archive" --live "$dir/$id.live")" || return 1
+            [ "$verdict" = failed ] && return "$COMMON_FINAL"
+        else
+            verdict="$(printf '%s\n' "$log" | tdd _smoke archived-logs --worker "$id" --archive "$archive")" || return 1
+        fi
+        [ "$verdict" = ready ] || return 1
+    done
+}
+
+# common_worker_pods_gone KUBECONFIG CONTEXT NAMESPACE PROFILE PROJECT -- no pod of
+# PROJECT's finished workers is left. Read while its pod is there, a worker's
+# log is the live one, and an archive that writes the live log's own headers
+# (CloudWatch) could not be told from it. Meant for `common_run_retry`: the pods
+# go when their Job's time to live runs out.
+common_worker_pods_gone() {
+    local kubeconfig="$1" context="$2" namespace="$3" profile="$4" project="$5" listing ids pods verdict
+    listing="$(tdd tdk worker list --profile "$profile" --proj "$project" --format json)" || {
+        echo "tdk worker list failed"
+        return 1
+    }
+    ids="$(printf '%s\n' "$listing" | tdd _smoke finished-workers)" || return 1
+    if [ -z "$ids" ]; then
+        echo "no finished worker in $project yet"
+        return 1
+    fi
+    pods="$(kubectl --kubeconfig "$kubeconfig" --context "$context" --namespace "$namespace" \
+        get pods --selector tabsdata.com/worker-id --output json)" || {
+        echo "kubectl get pods failed"
+        return 1
+    }
+    verdict="$(printf '%s\n' "$pods" | tdd _smoke worker-pods-gone --workers "$(printf '%s' "$ids" | tr '\n' ' ')")" || return 1
     [ "$verdict" = ready ]
 }
 
@@ -764,6 +908,7 @@ common_report() {
             ok) common_screen "  ${GREEN}✓${RESET} $name${secs:+ (${secs}s)}" ;;
             failed) common_screen "  ${RED}✗${RESET} $name (failed${secs:+ after ${secs}s})" ;;
             continued) common_screen "  ${YELLOW}✗${RESET} $name (failed after ${secs}s, continued)" ;;
+            skipped) common_screen "  ${YELLOW}·${RESET} $name (skipped)" ;;
             *) common_screen "  ${YELLOW}·${RESET} $name (not done)" ;;
         esac
         i=$((i + 1))

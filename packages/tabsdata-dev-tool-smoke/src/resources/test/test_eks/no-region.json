@@ -1,0 +1,8 @@
+{
+  "kind": "Config",
+  "apiVersion": "v1",
+  "current-context": "dev",
+  "contexts": [{"name": "dev", "context": {"cluster": "dev", "user": "dev"}}],
+  "clusters": [{"name": "dev", "cluster": {"server": "https://0123456789ABCDEF0123456789ABCDEF.yl4.us-east-2.eks.amazonaws.com"}}],
+  "users": [{"name": "dev", "user": {"exec": {"apiVersion": "client.authentication.k8s.io/v1beta1", "command": "aws", "args": ["eks", "get-token", "--cluster-name=tabsdata-eks-ohio"]}}}]
+}

@@ -1,0 +1,1 @@
+the Log Analytics workspace 'fccdfef1-d7b9-4f1b-86a8-78fc72277906' has no Kubernetes metadata: turn on metadata collection with podLabels

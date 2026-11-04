@@ -1,0 +1,31 @@
+
+Deployments
+┏━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━┳━━━━━┓
+┃ Name          ┃ Status  ┃ Ready ┃ Age ┃
+┡━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━╇━━━━━┩
+│ srv-aiagent   │ Running │ 1/1   │ 1m  │
+│ srv-aitdk     │ Running │ 1/1   │ 1m  │
+│ srv-apiserver │ Running │ 1/1   │ 1m  │
+│ srv-embedder  │ Running │ 1/1   │ 1m  │
+└───────────────┴─────────┴───────┴─────┘
+
+Pods
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━┳━━━━━┓
+┃ Name                          ┃ Status  ┃ Ready ┃ Age ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━╇━━━━━┩
+│ srv-aiagent-8c748fb8b-gbg6d   │ Running │ 1/1   │ 1m  │
+│ srv-aitdk-569bd4d6c5-hh6jh    │ Running │ 1/1   │ 1m  │
+│ srv-apiserver-6646d9cbf-x9wtq │ Running │ 1/1   │ 1m  │
+│ srv-embedder-59cd7b54cb-xw95l │ Running │ 1/1   │ 1m  │
+└───────────────────────────────┴─────────┴───────┴─────┘
+
+CronJobs
+No rows found.
+
+Jobs
+┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━┓
+┃ Name           ┃ Status   ┃ Completions ┃ Age ┃
+┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━┩
+│ ini-inspector  │ Complete │ 1/1         │ 1m  │
+│ ini-venvloader │ Complete │ 1/1         │ 1m  │
+└────────────────┴──────────┴─────────────┴─────┘

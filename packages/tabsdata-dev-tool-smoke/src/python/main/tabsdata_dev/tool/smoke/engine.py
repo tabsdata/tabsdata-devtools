@@ -18,13 +18,24 @@ credential arrives in the environment, never as an argument.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import pathlib
 import sys
 
 from tabsdata_dev.common.core import cli, errors, render
 
-from . import configs, display, forward, indexes, instances, screen, status
+from . import (
+    configs,
+    display,
+    eks,
+    forward,
+    indexes,
+    instances,
+    screen,
+    status,
+    workers,
+)
 
 DESCRIPTION = (
     "plumbing of the smoke scripts: the config edits, masking and status "
@@ -36,6 +47,9 @@ DESCRIPTION = (
 #: error event and its failure log.
 READY = "ready"
 NOT_READY = "not ready"
+#: What `archived-logs` answers when waiting cannot change its no, so the
+#: script stops retrying.
+FAILED = "failed"
 
 #: Where `fill-placeholder` and `fill-pem` read their value: a credential, a
 #: PEM, never a command-line argument.
@@ -182,6 +196,72 @@ def configure(p: argparse.ArgumentParser) -> None:
         help="paint as for a terminal: the caller knows, and stdout is its pipe",
     )
 
+    done = sub.add_parser(
+        "finished-workers",
+        help="the ids of the finished workers in `tdk worker list --format json` "
+        "read from stdin, one per line",
+    )
+    done.add_argument(
+        "--max", type=int, default=3, help="at most this many (default: 3)"
+    )
+
+    kept = sub.add_parser(
+        "archived-logs",
+        help="ready when the worker log read from stdin came whole from ARCHIVE "
+        "once its pod was gone; not ready while it may still arrive, failed when "
+        "waiting cannot change that",
+    )
+    kept.add_argument("--worker", required=True, help="the worker, for the log")
+    kept.add_argument("--archive", required=True, choices=workers.ARCHIVES)
+    kept.add_argument(
+        "--live",
+        help="a file: the worker's log read while its pod was there, which a "
+        "cloud archive's must match (required but for pod-runner)",
+    )
+
+    ended = sub.add_parser(
+        "live-workers",
+        help="the WORKERS whose pod in the `kubectl get pods --output json` read "
+        "from stdin has ended, one per line: their live log is whole and readable",
+    )
+    ended.add_argument(
+        "--workers", required=True, help="the worker ids, whitespace separated"
+    )
+
+    reference = sub.add_parser(
+        "live-log",
+        help="ready when the worker log read from stdin, read while its pod was "
+        "there, ran to the pod's last container; not ready otherwise",
+    )
+    reference.add_argument("--worker", required=True, help="the worker, for the log")
+
+    left = sub.add_parser(
+        "worker-pods-gone",
+        help="ready when no pod of WORKERS is left in the `kubectl get pods "
+        "--output json` read from stdin; not ready otherwise",
+    )
+    left.add_argument(
+        "--workers", required=True, help="the worker ids, whitespace separated"
+    )
+
+    sub.add_parser(
+        "eks-cluster",
+        help="the EKS cluster and region, `NAME REGION`, of the `kubectl config "
+        "view --minify --output json` read from stdin",
+    )
+
+    role = sub.add_parser(
+        "eks-role-documents",
+        help="write the trust and permission policies of an instance's "
+        "apiserver role, which reads its worker logs from CloudWatch",
+    )
+    role.add_argument("--caller-arn", required=True, help="who makes the role")
+    role.add_argument("--issuer", required=True, help="the cluster's OIDC issuer")
+    role.add_argument("--namespace", required=True, help="the instance's")
+    role.add_argument("--region", required=True, help="the cluster's")
+    role.add_argument("--trust", required=True, help="the trust policy's file")
+    role.add_argument("--permissions", required=True, help="the permissions' file")
+
     index = sub.add_parser(
         "uv-index",
         help="the URL a --uv-index value stands for: @dev, @dev:NAME, "
@@ -314,6 +394,47 @@ def body(args: argparse.Namespace, out: render.Renderer) -> int:
         required = set(args.required.split())
         tty = args.tty or sys.stdout.isatty()
         return out.ok(screen.paint_help(text, required, tty))
+    if args.action == "finished-workers":
+        ids = workers.finished(sys.stdin.read())[: args.max]
+        return out.ok("\n".join(ids), workers=ids)
+    if args.action == "archived-logs":
+        live = pathlib.Path(args.live).read_text() if args.live else None
+        return _archived_logs(args.worker, args.archive, sys.stdin.read(), live, out)
+    if args.action == "live-workers":
+        ended = workers.terminal(sys.stdin.read(), args.workers.split())
+        return out.ok("\n".join(ended), workers=ended)
+    if args.action == "live-log":
+        found = workers.live_problems(sys.stdin.read())
+        for problem in found:
+            out.info(f"worker {args.worker}: {problem}")
+        if found:
+            return out.ok(NOT_READY, worker=args.worker, problems=found)
+        return out.ok(READY, worker=args.worker)
+    if args.action == "worker-pods-gone":
+        left = workers.pods_left(sys.stdin.read(), args.workers.split())
+        if left:
+            out.info(f"pods of the workers still there: {' '.join(left)}")
+            return out.ok(NOT_READY, pods=left)
+        out.info(f"no pod left of: {args.workers}")
+        return out.ok(READY, pods=left)
+    if args.action == "eks-cluster":
+        try:
+            name, region = eks.cluster(sys.stdin.read())
+        except ValueError as e:
+            raise errors.ToolError(str(e)) from e
+        return out.ok(f"{name} {region}", cluster=name, region=region)
+    if args.action == "eks-role-documents":
+        try:
+            trust, permissions = eks.role_documents(
+                args.caller_arn, args.issuer, args.namespace, args.region
+            )
+        except ValueError as e:
+            raise errors.ToolError(str(e)) from e
+        pathlib.Path(args.trust).write_text(json.dumps(trust, indent=2) + "\n")
+        pathlib.Path(args.permissions).write_text(
+            json.dumps(permissions, indent=2) + "\n"
+        )
+        return out.ok(f"{args.trust} {args.permissions}")
     if args.action == "uv-index":
         if args.no_local and indexes.is_local(args.value):
             return out.error(
@@ -346,6 +467,27 @@ def _pods_ready(
         return out.ok(NOT_READY, instance=instance, missing=missing)
     out.info(f"every expected service pod is Running and Ready: {' '.join(services)}")
     return out.ok(READY, instance=instance)
+
+
+def _archived_logs(
+    worker: str, archive: str, text: str, live: str | None, out: render.Renderer
+) -> int:
+    held = workers.containers(text, archive)
+    try:
+        verdict = workers.judge(text, archive, live)
+    except ValueError as e:
+        raise errors.ToolError(str(e)) from e
+    out.info(f"worker {worker}: containers {' '.join(held) or '(none)'}")
+    if verdict.problems:
+        for problem in verdict.problems:
+            out.info(f"  {problem}")
+        if verdict.lasting:
+            out.info(f"worker {worker}: waiting cannot change this")
+        answer = FAILED if verdict.lasting else NOT_READY
+        return out.ok(answer, worker=worker, problems=verdict.problems)
+    said = "the live log, line for line" if live is not None else "its whole log"
+    out.info(f"worker {worker}: {said}, from the {archive} archive")
+    return out.ok(READY, worker=worker, containers=held)
 
 
 def main() -> int:

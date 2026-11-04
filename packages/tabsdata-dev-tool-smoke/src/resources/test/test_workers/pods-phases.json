@@ -1,0 +1,22 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "metadata": {"name": "pub-wkr20261030-11-5rt89", "labels": {"tabsdata.com/worker-id": "wkr20261030-11"}},
+      "status": {"phase": "Succeeded"}
+    },
+    {
+      "metadata": {"name": "pub-wkr20261030-12-k9d2m", "labels": {"tabsdata.com/worker-id": "wkr20261030-12"}},
+      "status": {"phase": "Running"}
+    },
+    {
+      "metadata": {"name": "pub-wkr20261030-15-x2b7q", "labels": {"tabsdata.com/worker-id": "wkr20261030-15"}},
+      "status": {"phase": "Failed"}
+    },
+    {
+      "metadata": {"name": "srv-apiserver-7d9f8-abcde", "labels": {"app.kubernetes.io/component": "apiserver"}},
+      "status": {"phase": "Running"}
+    }
+  ]
+}

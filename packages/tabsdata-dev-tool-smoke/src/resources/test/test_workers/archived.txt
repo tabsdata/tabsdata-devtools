@@ -1,0 +1,9 @@
+------------------------------------------------------------
+POD STARTED 2026-10-30T19:41:20Z pub-wkr20261030-11-5rt89
+------------------------------------------------------------
+--- container 0000-inspect-function ---
+2026-10-30T19:41:21.102Z INFO tabsdata.inspect-function: starting
+--- container 0090-function ---
+2026-10-30T19:41:25.415Z INFO tabsdata.function: done
+--- container 1000-end-execution ---
+2026-10-30T19:41:27.001Z INFO tabsdata.end-execution: finished

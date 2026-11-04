@@ -15,8 +15,12 @@ from tabsdata_dev.tool.smoke import engine, status
     "fixture, found",
     [
         ("running.txt", status.RUNNING),
+        # later builds draw the header heavy: `┡` rules it off, not `├`
+        ("running-heavy-head.txt", status.RUNNING),
         # eks draws its tables even when stopped: empty, a completed job aside
         ("stopped-tables.txt", status.STOPPED),
+        # later builds print an empty table as `No rows found.` instead
+        ("stopped-no-rows.txt", status.STOPPED),
         ("not-running.txt", status.STOPPED),
         ("missing.txt", status.MISSING),
     ],
@@ -36,6 +40,19 @@ def test_the_pods_table_ends_at_the_next_title(resource_folder):
         "srv-apiserver-58cc-pfkch",
         "srv-database-7d9f-x2k4q",
     ]
+
+
+def test_a_heavy_header_is_not_read_as_a_pod(resource_folder):
+    text = (resource_folder / "running-heavy-head.txt").read_text()
+    assert status.workload_rows(text) == 8
+    listed = status.pods(text)
+    assert [p.name.rsplit("-", 2)[0] for p in listed] == [
+        "srv-aiagent",
+        "srv-aitdk",
+        "srv-apiserver",
+        "srv-embedder",
+    ]
+    assert status.unready(listed, ["srv-apiserver"]) == ([], [])
 
 
 def test_a_pod_is_ready_only_running_with_every_container_ready(resource_folder):

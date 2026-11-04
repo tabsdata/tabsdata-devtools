@@ -117,6 +117,14 @@ options:
 
 The drivers added to the instance's fn and ag venvs (tdkserver venv update):
   mysql-connector-python==9.6.0  psycopg2-binary==2.9.12  oracledb==3.2.0
+
+Worker logs: the run gives the apiserver the IAM role tabsdata-<namespace>-apiserver
+(reused if it exists), runs test/test, reads its workers' logs while their pods
+are there, and checks the copies the CloudWatch log group /tabsdata/<namespace>
+returns once the pods are gone match them line for line. It needs the
+aws CLI with an identity that can manage IAM, the cluster's OIDC provider in IAM
+and Fluent Bit shipping to /tabsdata/*. If the role cannot be set up, the run says
+why and skips the check.
 HELP
 }
 
@@ -239,8 +247,13 @@ STORAGE_DOMAIN="${BASE}__${STORAGE_SYSTEM}"
 LLM_DOMAIN="${LLM_SYSTEM:+${BASE}__${LLM_SYSTEM}}"
 XP_PROJECTS=""           # the xp instance/project names this run creates, for --keep and failures
 SMOKE_DOMAINS=""         # domains this run creates, appended as each one is (common_tabsdata_setup_info lists them)
+LOGS_PROJECT="${BASE}__logs"   # the worker-logs stage's own xp run, kept until its logs are read
+LOGS_SETUP=""            # 1 once that run is set up: the cleanup removes its domains
+WORKER_LOGS=""           # 1 once worker-logs-setup has the apiserver's role: init annotates with it
+WORKER_LOGS_WHY=""       # why worker-logs-setup stopped, for the remark that says so
 EXPECT_POD_LIST="$(printf '%s' "$EXPECT_PODS" | tr ',' ' ')"
 LOG="${LOG:-$COMMON_TMP/smoke-$INSTANCE-$STAMP.log}"
+LOGS_DIR="${LOG%.log}-worker-logs"   # the live and archived copies the worker-logs check compares
 WORK="$(mktemp -d "$COMMON_TMP/smoke-$INSTANCE-$STAMP.XXXX")"
 SERVER="http://127.0.0.1:$FORWARD_PORT"
 TABSDATA_SPEC="tabsdata[$TD_EXTRAS]==$TD_VERSION"
@@ -257,6 +270,12 @@ cp "$KUBECONFIG_OPT" "$RUN_KUBECONFIG"
 kubectl --kubeconfig "$RUN_KUBECONFIG" config use-context "$CONTEXT" >/dev/null
 export KUBECONFIG="$RUN_KUBECONFIG"
 KUBECTL=(kubectl --kubeconfig "$RUN_KUBECONFIG" --context "$CONTEXT")
+# The apiserver reads a removed pod's log from CloudWatch with an IAM role of its
+# own, per namespace, as the dguide's EKS worker logs page makes it by hand.
+EKS_ROLE="tabsdata-$NAMESPACE-apiserver"
+EKS_ROLE_ARN=""
+EKS_ROLE_CREATED=""      # 1 when this run created the role: only then does the cleanup delete it
+EKS_LOG_GROUP="/tabsdata/$NAMESPACE"
 SUITE_LIST=()
 for suite in $(printf '%s' "$SUITES" | tr ',' ' '); do SUITE_LIST[${#SUITE_LIST[@]}]="$suite"; done
 if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
@@ -265,8 +284,10 @@ if [ "${#SUITE_LIST[@]}" -eq 0 ]; then
 fi
 STAGE_NAMES=(unset-td unset-pypi set-crypto cluster systems pycache clean-previous create-venv install)
 [ "$TD_VERSION" = "2.0.2" ] && STAGE_NAMES[${#STAGE_NAMES[@]}]="cdc-driver"
-for stage in domains namespace init configure create start-1 pods-1 forward-1 login-1 stop-1 venv-update start-2 pods-2 forward-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
+for stage in domains namespace worker-logs-setup init configure create start-1 pods-1 forward-1 login-1; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
+for stage in stop-1 venv-update start-2 pods-2 forward-2 login-2; do STAGE_NAMES[${#STAGE_NAMES[@]}]="$stage"; done
 for suite in "${SUITE_LIST[@]}"; do STAGE_NAMES[${#STAGE_NAMES[@]}]="xp-$(printf '%s' "$suite" | tr '/' '_')"; done
+STAGE_NAMES[${#STAGE_NAMES[@]}]="worker-logs"
 STAGE_NAMES[${#STAGE_NAMES[@]}]="cleanup"
 
 # shellcheck disable=SC1091
@@ -307,7 +328,85 @@ common_on_stage_failed() {
         # reason is in the pod it left behind
         common_indented "cluster    the failed pods' logs and the namespace's events are in the log"
     fi
+    if [ -n "$EKS_ROLE_CREATED" ]; then
+        common_indented "iam role   $EKS_ROLE -- aws iam delete-role-policy --role-name $EKS_ROLE --policy-name read-worker-logs && aws iam delete-role --role-name $EKS_ROLE"
+    fi
     common_k8s_report "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE"
+}
+
+# The steps of worker-logs-setup, each a stage command: a failure records why
+# for the remark, since the stage's own lines are gone once it closes.
+eks_why() {
+    WORKER_LOGS_WHY="$1"
+    echo "$1"
+    return 1
+}
+
+eks_aws_identity() {
+    command -v aws >/dev/null 2>&1 || eks_why "no aws CLI on the PATH" || return 1
+    EKS_CALLER_ARN="$(aws sts get-caller-identity --query Arn --output text)" ||
+        eks_why "aws sts get-caller-identity failed: no usable AWS credentials" || return 1
+    echo "aws identity: $EKS_CALLER_ARN"
+}
+
+eks_cluster() {
+    local found
+    found="$("${KUBECTL[@]}" config view --minify --output json | tdd _smoke eks-cluster)" ||
+        eks_why "no EKS cluster and region in context $CONTEXT" || return 1
+    EKS_CLUSTER="${found% *}"
+    EKS_REGION="${found#* }"
+    echo "cluster $EKS_CLUSTER in $EKS_REGION"
+}
+
+eks_oidc_provider() {
+    local providers
+    EKS_ISSUER="$(aws eks describe-cluster --name "$EKS_CLUSTER" --region "$EKS_REGION" \
+        --query cluster.identity.oidc.issuer --output text)" ||
+        eks_why "aws eks describe-cluster $EKS_CLUSTER failed" || return 1
+    case "$EKS_ISSUER" in https://*) ;; *) eks_why "cluster $EKS_CLUSTER has no OIDC issuer" || return 1 ;; esac
+    providers="$(aws iam list-open-id-connect-providers --query 'OpenIDConnectProviderList[].Arn' --output text)" ||
+        eks_why "aws iam list-open-id-connect-providers failed" || return 1
+    printf '%s\n' "$providers" | tr '\t' '\n' | grep -qF "oidc-provider/${EKS_ISSUER#https://}" ||
+        eks_why "the OIDC issuer of $EKS_CLUSTER is no IAM identity provider; once per cluster: eksctl utils associate-iam-oidc-provider --cluster $EKS_CLUSTER --region $EKS_REGION --approve" ||
+        return 1
+    echo "OIDC provider: $EKS_ISSUER"
+}
+
+# A role a previous run left (a failed or --keep one) is reused, its policies
+# put back as this run needs them; one this run creates is deleted at cleanup.
+eks_role() {
+    tdd _smoke eks-role-documents --caller-arn "$EKS_CALLER_ARN" --issuer "$EKS_ISSUER" \
+        --namespace "$NAMESPACE" --region "$EKS_REGION" \
+        --trust "$WORK/apiserver-trust.json" --permissions "$WORK/apiserver-permissions.json" ||
+        eks_why "the role's policy documents could not be written" || return 1
+    if aws iam get-role --role-name "$EKS_ROLE" >/dev/null 2>&1; then
+        echo "role $EKS_ROLE exists: reused, its trust and permissions applied again"
+        aws iam update-assume-role-policy --role-name "$EKS_ROLE" \
+            --policy-document "file://$WORK/apiserver-trust.json" ||
+            eks_why "aws iam update-assume-role-policy $EKS_ROLE failed" || return 1
+    else
+        aws iam create-role --role-name "$EKS_ROLE" \
+            --assume-role-policy-document "file://$WORK/apiserver-trust.json" \
+            --description "tdd smoke $BASE: the apiserver of $NAMESPACE reads its worker logs from CloudWatch" ||
+            eks_why "aws iam create-role $EKS_ROLE failed: the identity may not manage IAM" || return 1
+        EKS_ROLE_CREATED=1
+    fi
+    aws iam put-role-policy --role-name "$EKS_ROLE" --policy-name read-worker-logs \
+        --policy-document "file://$WORK/apiserver-permissions.json" ||
+        eks_why "aws iam put-role-policy $EKS_ROLE failed" || return 1
+    EKS_ROLE_ARN="$(aws iam get-role --role-name "$EKS_ROLE" --query Role.Arn --output text)" ||
+        eks_why "aws iam get-role $EKS_ROLE failed" || return 1
+    echo "role: $EKS_ROLE_ARN"
+}
+
+# EKS hands the pod the role's credentials from the service account annotation;
+# without AWS_ROLE_ARN the apiserver has no CloudWatch reader at all.
+eks_apiserver_has_role() {
+    local arn
+    arn="$("${KUBECTL[@]}" --namespace "$NAMESPACE" get pods --selector app.kubernetes.io/component=apiserver \
+        --output jsonpath='{.items[0].spec.containers[*].env[?(@.name=="AWS_ROLE_ARN")].value}')" || return 1
+    echo "apiserver AWS_ROLE_ARN: ${arn:-(none)}"
+    [ "$arn" = "$EKS_ROLE_ARN" ]
 }
 
 common_screen "smoke-eks: effective options"
@@ -336,6 +435,7 @@ common_screen "  --tdd-dir           $TDD_DIR_OPT"
 common_screen "  --verbose           $([ "$VERBOSE" = 1 ] && echo yes || echo "no (rolling window of $WINDOW log lines)")"
 common_screen "  server              $SERVER through kubectl port-forward service/net-apiserver $FORWARD_PORT:$PORT"
 common_screen "  drivers for fn/ag   $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
+common_screen "  worker logs         role $EKS_ROLE, then test/test as $LOGS_PROJECT, read live, then back from CloudWatch $EKS_LOG_GROUP once its pods are gone, and compared"
 common_xp_expand_all
 
 common_stage unset-td "unset every TD_* variable (tdd env unset --td spares the crypto key)"
@@ -453,8 +553,18 @@ common_stage namespace "create the namespace $NAMESPACE and point the run's kube
 common_run "${KUBECTL[@]}" create namespace "$NAMESPACE"
 common_run "${KUBECTL[@]}" config set-context "$CONTEXT" --namespace "$NAMESPACE"
 
-common_stage init "tdkserver init --provider eks --instance $INSTANCE (the editable config folder)"
-common_run tdd tdkserver init --provider eks --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}"
+common_stage --continue worker-logs-setup "the apiserver's IAM role $EKS_ROLE, to read worker logs from CloudWatch $EKS_LOG_GROUP (continue on error)"
+common_run_shown "aws sts get-caller-identity" eks_aws_identity &&
+    common_run_shown "kubectl config view --minify: the EKS cluster and region" eks_cluster &&
+    common_run_shown "aws eks describe-cluster; aws iam list-open-id-connect-providers" eks_oidc_provider &&
+    common_run_shown "aws iam create-role (or reuse) $EKS_ROLE; aws iam put-role-policy read-worker-logs" eks_role &&
+    WORKER_LOGS=1
+[ -n "$WORKER_LOGS" ] || common_remark "worker logs not checked: ${WORKER_LOGS_WHY:-the setup failed} (see the log)"
+
+common_stage init "tdkserver init --provider eks --instance $INSTANCE (the editable config folder${WORKER_LOGS:+, with the apiserver role})"
+INIT_CONFIG=()
+[ -z "$WORKER_LOGS" ] || INIT_CONFIG=(--config "tabsdata:pods.service.apiserver.service_account.annotations.\"eks.amazonaws.com/role-arn\"=$EKS_ROLE_ARN")
+common_run tdd tdkserver init --provider eks --instance "$INSTANCE" --kubeconfig "$RUN_KUBECONFIG" "${TDK_OPTS[@]}" "${INIT_CONFIG[@]}"
 common_run test -d "$CONFIGS"
 
 common_stage configure "fill the config files from the domains: database, storage, LLM key, uv index, function pod sizing"
@@ -540,6 +650,20 @@ for suite in "${SUITE_LIST[@]}"; do
     common_run tdd xp one-shot --suite "$suite" --suite-run "$project" --project "$project" --profile "$PROFILE" ${KEEP:+--keep}
 done
 
+common_stage --continue worker-logs "run test/test as $LOGS_PROJECT, read its workers' live logs, then their copies from CloudWatch once their pods are gone, line for line (continue on error)"
+if [ -z "$WORKER_LOGS" ]; then
+    common_stage_skip "worker-logs-setup did not complete"
+else
+    XP_PROJECTS="$XP_PROJECTS $LOGS_PROJECT"
+    common_kubeportforward_ensure &&
+        common_run_shown "kubectl get pods --selector app.kubernetes.io/component=apiserver: AWS_ROLE_ARN is $EKS_ROLE_ARN" eks_apiserver_has_role &&
+        common_run tdd xp one-shot --suite test/test --suite-run "$LOGS_PROJECT" --project "$LOGS_PROJECT" --profile "$PROFILE" --keep &&
+        LOGS_SETUP=1 &&
+        common_run_retry 5 3 common_worker_logs_live "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE" "$PROFILE" "$LOGS_PROJECT" "$LOGS_DIR" &&
+        common_run_retry 30 10 common_worker_pods_gone "$RUN_KUBECONFIG" "$CONTEXT" "$NAMESPACE" "$PROFILE" "$LOGS_PROJECT" &&
+        common_run_retry 36 10 common_worker_logs_archived "$PROFILE" "$LOGS_PROJECT" cloudwatch "$LOGS_DIR"
+fi
+
 if [ -n "$KEEP" ]; then
     common_stage cleanup "keeping the whole setup as it is (--keep; the port-forward is stopped)"
     common_kubeportforward_stop
@@ -547,6 +671,10 @@ if [ -n "$KEEP" ]; then
     common_note "then: export _TDD_VENV=$VENV; tdd tdk login --profile $PROFILE --server $SERVER --user admin --password ***"
     common_note "your kubeconfig was not touched; the run's copy is $RUN_KUBECONFIG ($CONTEXT, namespace $NAMESPACE)"
     common_tabsdata_setup_info common_note
+    if [ -n "$EKS_ROLE_CREATED" ]; then
+        common_note "iam role $EKS_ROLE -- aws iam delete-role-policy --role-name $EKS_ROLE --policy-name read-worker-logs && aws iam delete-role --role-name $EKS_ROLE"
+    fi
+    [ -z "$WORKER_LOGS" ] || common_note "log group $EKS_LOG_GROUP -- aws logs delete-log-group --log-group-name $EKS_LOG_GROUP --region $EKS_REGION"
 else
     common_stage cleanup "destroy the domains, delete the instance, the namespace $NAMESPACE and the venv"
     common_kubeportforward_stop
@@ -557,8 +685,29 @@ else
     common_run tdd domain destroy --domain "$DB_DOMAIN" --force
     # delete works here: the cluster is external, so it survives the workload
     # and configmap removal (unlike kminus, where delete stops the cluster first)
+    # the worker-logs run was kept to read its logs: its domains and suite run are ours too
+    if [ -n "$LOGS_SETUP" ]; then
+        common_run tdd xp destroy-domains --suite-run "$LOGS_PROJECT"
+        common_run tdd xp destroy-instance --suite-run "$LOGS_PROJECT"
+    fi
     common_run tdd tdkserver delete --instance "$INSTANCE" --trash true "${TDK_OPTS[@]}"
     common_run "${KUBECTL[@]}" delete namespace "$NAMESPACE" --wait=true --timeout=300s
+    # after the namespace: no pod is left to ship lines into the log group again
+    if [ -n "$EKS_ROLE_CREATED" ]; then
+        common_run aws iam delete-role-policy --role-name "$EKS_ROLE" --policy-name read-worker-logs
+        common_run aws iam delete-role --role-name "$EKS_ROLE"
+    fi
+    # Fluent Bit made the group with its own retention (the dguide's 7 days), so
+    # deleting it now is tidiness: an identity without logs:DeleteLogGroup
+    # leaves it to expire instead of failing the cleanup
+    if [ -n "$WORKER_LOGS" ] && aws logs describe-log-groups --log-group-name-prefix "$EKS_LOG_GROUP" --region "$EKS_REGION" \
+        --query "logGroups[?logGroupName=='$EKS_LOG_GROUP'].logGroupName" --output text 2>/dev/null | grep -qxF "$EKS_LOG_GROUP"; then
+        if aws logs delete-log-group --log-group-name "$EKS_LOG_GROUP" --region "$EKS_REGION"; then
+            common_note "log group $EKS_LOG_GROUP deleted"
+        else
+            common_note "log group $EKS_LOG_GROUP left to expire with its retention: the delete was refused (see the log)"
+        fi
+    fi
     common_run tdd venv deactivate
     common_run tdd venv delete --name "$VENV"
 fi

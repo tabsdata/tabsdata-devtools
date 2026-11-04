@@ -7,8 +7,9 @@
 tdkserver exits 0 whether the instance runs or not, so the state is read from
 its text. kminus says `Instance 'NAME' is not running.` when stopped and lists
 the workloads otherwise; eks always draws the Deployments/Pods/CronJobs/Jobs
-tables and says nothing -- stopped is the tables being empty. So a sentence
-decides when there is one, else the Deployments and Pods rows do.
+tables and says nothing -- stopped is the tables being empty, drawn as an
+empty box or, by later builds, as `No rows found.` under the title. So a
+sentence decides when there is one, else the Deployments and Pods rows do.
 """
 
 from __future__ import annotations
@@ -81,15 +82,16 @@ def unready(listed: list[Pod], services: list[str]) -> tuple[list[str], list[Pod
 
 def workload_rows(text: str) -> int:
     """How many data rows the Deployments and Pods tables hold, between a
-    table's `├` rule and its `└` bottom. Jobs and CronJobs are left out: a
-    completed init job can outlive a stop, a deployment or pod cannot."""
+    table's header rule (`├`, or `┡` under a heavy header) and its `└`
+    bottom. Jobs and CronJobs are left out: a completed init job can outlive a
+    stop, a deployment or pod cannot."""
     rows, keep, body = 0, False, False
     for line in _lines(text):
         if re.match(r"^(Deployments|Pods)\s*$", line):
             keep = True
         elif re.match(r"^(CronJobs|Jobs)\s*$", line):
             keep = False
-        elif line.startswith("├"):
+        elif line.startswith(("├", "┡")):
             body = True
         elif line.startswith("└"):
             body = False
@@ -103,7 +105,6 @@ def state(text: str) -> str:
         return MISSING
     if any(says in text for says in _STOPPED_SAYS):
         return STOPPED
-    tables = text.find("Deployments")
-    if tables >= 0 and "┌" in text[tables:]:
+    if "Deployments" in text:
         return RUNNING if workload_rows(text) > 0 else STOPPED
     return RUNNING

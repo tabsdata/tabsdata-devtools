@@ -60,7 +60,10 @@ _smoke`, a second entry point of this package, plumbing (the `_` keeps it out of
 the config edits (`set-uv-index`, `set-fn-resources`, `fill-placeholder`, `fill-pem`,
 `fill-storage`, `placeholders-left`), reading a field of a command's JSON Lines
 (`event-field`), masking a command line (`display`, ~30 calls a run), reading `tdkserver
-status` (`instance-state`, `pods-ready`), a local instance's processes (`instance-pids`,
+status` (`instance-state`, `pods-ready`), reading a project's workers, their pods and their logs
+(`finished-workers`, `worker-pods-gone`, `live-workers`, `live-log`, `archived-logs`), what
+the EKS smoke needs for its apiserver's IAM role (`eks-cluster`, `eks-role-documents`), a local
+instance's processes (`instance-pids`,
 `instance-stop`, `instance-gone`) and the screen beyond the stage lines (`window`, `pointers`,
 `paint-help`). A call costs ~100 ms, nothing beside a stage. So a script loads tdd first,
 before its own checks and its banner; `--help`, read with the options, has `common_help` load
@@ -86,7 +89,9 @@ it from the tdd dir known so far, and is printed plain without one.
 - The engine still runs `tdd tdkserver status` itself -- in the venv the run activated -- and
   pipes the listing in; the helper answers (`running`, `ready`, `not ready`) and the engine
   judges. A pods check is retried until the pods come up, so a no is an answer, never an error
-  event leaving a failure log behind on every attempt.
+  event leaving a failure log behind on every attempt. `archived-logs` answers the same way:
+  the engine pipes in what `tdd tdk worker logs` printed, and the check is retried until the pod
+  is gone and the archive holds the whole log.
 - `display` takes the command after `--`, which the shared CLI layer reads as operands: a
   `--format json` of the command's own is a word to show, not the helper's format.
 
@@ -160,6 +165,54 @@ the same pair tdkserver meant to set. The cluster scripts do not do this and mus
 run in a real cluster and inherit nothing from the machine the script was launched on, which is
 why they write the value into `tabsdata.yaml` instead. Drop the stage when tdkserver hands its
 own `--uv-index` to the pods.
+
+`smoke-eks` ends with `worker-logs`, a `--continue` stage that checks a worker's log outlives its
+pod, reading it back from CloudWatch. It sets the stage up itself, because the apiserver reads
+CloudWatch only with an IAM role of its own, per namespace. `worker-logs-setup`, a `--continue` stage between `namespace` and `init`, follows the dguide's EKS worker logs page:
+the `aws` identity (one that can manage IAM, not the kubeconfig's), the cluster and region from
+the context's `aws eks get-token` arguments (`tdd _smoke eks-cluster`; the region falls back to
+the server's host name), the cluster's OIDC provider in IAM, then the role
+`tabsdata-<namespace>-apiserver` -- trusted by `aut-apiserver` in the namespace, allowed
+`logs:GetLogEvents` on `/tabsdata/<namespace>` only (`tdd _smoke eks-role-documents`). A role
+that exists is reused and its policies put back; only one this run created is deleted at
+cleanup, after the namespace. The log group goes then too, if the identity may delete it:
+Fluent Bit made it with a retention of its own, so one left behind expires rather than
+failing the cleanup. `init` then passes `--config` with the
+service account's `eks.amazonaws.com/role-arn` annotation (tabsdata's `tabsdata.schema.yaml`
+opens that mapping). Nothing about the cluster itself is set up: the OIDC provider and Fluent
+Bit are the cluster's, once, by a person. There is no option: the setup is always tried, and
+when a step fails the stage says which in a remark and `worker-logs` is closed as `skipped`
+(`common_stage_skip`) -- not failed a second time over the same cause.
+
+CloudWatch's reader writes the live log's own `container: <name>` headers, so its log cannot be
+told from the live one by shape -- and so the live one is what it is judged against. The stage
+first checks the apiserver pod got the role (`AWS_ROLE_ARN`, which EKS injects from the
+annotation) and runs `test/test`. Right after, `common_worker_logs_live` reads the log of each
+finished worker whose pod has ended (`tdd _smoke live-workers`) into
+`<log>-worker-logs/<worker>.live`, 5 times 3s apart: `tdk worker logs` has no follow, so the live
+log is readable only between the pod's end and its Job's time to live (60s), and a pod listed
+both before and after the read is what makes the read live -- the apiserver goes to the archive
+only once it finds no pod. A capture that is a refusal, or has no `1000-` container, is not a
+reference (`tdd _smoke live-log`). A missed window fails the stage; nothing re-runs the
+function. The stage then waits until no pod carries a finished worker's
+`tabsdata.com/worker-id` (`common_worker_pods_gone`, `tdd _smoke worker-pods-gone`, 30 times
+10s), and reads each captured worker's log again, 36 times 10s apart for Fluent Bit's flush,
+keeping it as `<worker>.archived` beside the live one: `tdd _smoke archived-logs --live` passes
+it when it is the live log from some line on, starting no later than the first line of
+`*-begin-execution`, where two lines may only have swapped if both are of one container and
+their leading timestamps are within 10ms -- Log Analytics and Cloud Logging order by time, and
+cannot tell apart the stdout and stderr lines a container wrote in the same few milliseconds
+(Log Analytics breaks the tie by a random row id). Otherwise it says how many lines are missing
+or extra, or which pair is out of order, with a diff of at most 20 lines. The lines are compared
+as every reader agrees on them: no `\r`, no blank lines, a JSON object in one spelling, a
+container that printed nothing dropped; a container that appears twice is a problem of its own.
+The rule is the same for the three cloud readers: those reading from 30s before `started_on`
+may lose the setup containers' earlier lines, and CloudWatch, which reads the whole stream in
+order, passes it too. Only lines still missing, an empty archive, or a refusal waiting can clear
+(`no logs found`, `no access to` -- an Azure grant takes up to 15 minutes) are retried: an extra
+or misplaced line, a split container or any other refusal is `failed`, and the probe exits
+`COMMON_FINAL` (97), on which `common_run_retry` stops at that attempt. The pod runner's check,
+judged by shape, is never `failed`: its log is not compared with a live one.
 
 `smoke-km` hands the `--llm-domain` key to quickstart as `--config <system>-key=env:LLM__API_KEY`:
 `tdd domain info --format export` exports it into the script's shell and tdkserver reads it from
