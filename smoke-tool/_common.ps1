@@ -389,6 +389,12 @@ function common_remove_folder {
     common_status (-not (Test-Path -LiteralPath $Folder))
 }
 
+# common_file_exists PATH -- PATH is a file (the sh side's `test -r`).
+function common_file_exists {
+    param([string]$Path)
+    common_status (Test-Path -LiteralPath $Path -PathType Leaf)
+}
+
 # common_variable_set NAME -- NAME holds a value in this session's environment;
 # the value itself is never shown.
 function common_variable_set {

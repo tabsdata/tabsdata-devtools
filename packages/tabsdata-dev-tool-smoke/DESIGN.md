@@ -279,6 +279,31 @@ that variable, so the key is on no command line, in no log and in no `ps`. `--co
 passes `--<system>-key KEY`, which `common_display` masks. The cluster scripts never took the
 option: they fill the `${{secret:<system>-key?}}` placeholder in `aiagent.yaml`.
 
+`smoke-km --td-storage fs|aws|azure|gcs` (default `fs`) is where the instance keeps its storage.
+`fs` is tabsdata's own: kminus mounts ROOT, BUNDLES and IMAGES under a folder of the instance
+(`${{system:tdk_storage_url}}`, no options). A cloud names the storage system behind it (`s3`,
+`azureblob`, `gcs`, which must be in the tdd store, checked at `systems`), and a `storage-domain`
+stage creates `sm_<NAME>__<system>`, exports its descriptor into the shell and writes a settings
+stub for quickstart (`--config @<work>/storage.yaml`): the three mounts' `uri` under the domain's
+URI -- `data/`, `bundles/`, `images/`, where the cluster scripts' `fill-storage` puts them -- and
+the cloud's option keys, the ones the cluster storage templates carry (`aws_region` and the key
+pair from the s3 **system**, as eks reads them; `azure_storage_account_name`/`_key`;
+`google_service_account_key`, a gcs key given as a path read into the variable first). The
+credentials go as `env:` references, which tdkserver resolves from the script's shell, so the stub
+holds URIs and variable names only and is echoed into the log. Every mount also carries
+object_store's request timeout as `300s`, under the cloud's prefix (`aws_timeout`,
+`azure_timeout`, `google_timeout`): the pymanager admits a mount option only under that prefix or
+by its friendly names (a bare `timeout` is "not a known s3 option"), and object_store, in obstore
+and in the apiserver's `parse_url_opts` alike, strips the prefix to its client key `timeout`. The
+pymanager sends the three venv images (1.3 GB) with obstore's twelve 5 MiB parts in flight, and
+over a laptop's uplink a part does not finish inside the 30s default -- the first run lost one to
+five timeouts in 180s. kminus's storage schema declares
+each mount's `uri` a secret and its `options` open, which is what lets a stub set the first and
+add to the second (tabsdata-os OS-4358, 2.3.0: `--td-storage` refuses an older `--td-version`).
+The instance is still one quickstart; the cluster scripts' init/configure/create path and
+`fill-storage` stay theirs. The domain is destroyed at cleanup after the instance is trashed,
+and kept with `--keep`.
+
 `--kube-port-forward` is the local port `kubectl port-forward` listens on -- the one `tdk` logs in
 to -- and it moves that end only. Each script has its own default, so two runs on one machine
 never fight over it: km's instance starts at 10000 (`--port`), eks forwards from 11000, aks from

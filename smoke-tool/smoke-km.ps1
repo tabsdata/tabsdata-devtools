@@ -22,9 +22,9 @@ $REQUIRED_OPTIONS = '--name --td-version'
 function usage {
     @'
 usage: smoke-km.ps1 --name NAME --td-version VERSION
-                    [--uv-index URI] [--llm-domain SYSTEM] [--td-extras EXTRAS]
-                    [--venv-type uv|pyenv|conda] [--py-version VERSION] [--port PORT]
-                    [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep]
+                    [--uv-index URI] [--td-storage fs|aws|azure|gcs] [--llm-domain SYSTEM]
+                    [--td-extras EXTRAS] [--venv-type uv|pyenv|conda] [--py-version VERSION]
+                    [--port PORT] [--xp-suites LIST] [--expect-pods LIST] [--force] [--keep]
                     [--profile NAME] [--log FILE] [--tdd-dir DIR] [--verbose]
 
 Tabsdata Kminus smoke test.
@@ -35,6 +35,16 @@ options:
                       sm_NAME__<what>: the domains and the xp instances/projects
   --td-version VERSION
                       REQUIRED: the tabsdata release to install, tabsdata[EXTRAS]==VERSION
+  --td-storage STORAGE
+                      where the instance keeps its storage: fs is tabsdata's
+                      own, a folder of the instance; aws, azure or gcs is a
+                      domain on that cloud's storage system (s3, azureblob or
+                      gcs, which must be in the tdd store), created as
+                      sm_NAME__<system> and handed to quickstart as the ROOT,
+                      BUNDLES and IMAGES mounts under the domain's URI
+                      (--config @stub, the credentials as env: references);
+                      the domain is destroyed at the end unless --keep. The
+                      clouds need tabsdata 2.3.0 or newer (default: fs)
   --td-extras EXTRAS
                       the extras to install (default: all). tabsdata is a
                       meta-package: without the right extras (server, cli,
@@ -77,8 +87,8 @@ options:
                       the previous instance stopped and removed first (default: fail)
   --keep              on success, leave the whole setup as it is at the end:
                       the instance running and logged in, the venv in place, the
-                      LLM domain, and -- passed on as `xp one-shot --keep` -- every
-                      xp instance/project and its domains
+                      storage and LLM domains, and -- passed on as `xp one-shot
+                      --keep` -- every xp instance/project and its domains
                       (default: no -- the running instance is stopped and
                       trashed, and the venv deleted; a failed run always leaves
                       everything standing)
@@ -106,6 +116,7 @@ function fail_usage {
 }
 
 $NAME = ''                  # required; everything is sm_$NAME
+$TD_STORAGE = 'fs'          # --td-storage: fs, or aws|azure|gcs for a domain on that cloud's storage
 $LLM_SYSTEM = ''            # --llm-domain: none unless asked for
 $EXPECT_PODS = 'srv-apiserver,srv-database'
 $VENV_TYPE = 'uv'
@@ -126,6 +137,7 @@ $REQUIREMENTS = @('mysql-connector-python==9.6.0', 'psycopg2-binary==2.9.12', 'o
 $valued = @{
     '--name' = 'NAME'; '--llm-domain' = 'LLM_SYSTEM'; '--expect-pods' = 'EXPECT_PODS'
     '--venv-type' = 'VENV_TYPE'; '--py-version' = 'PYTHON'; '--td-version' = 'TD_VERSION'
+    '--td-storage' = 'TD_STORAGE'
     '--td-extras' = 'TD_EXTRAS'; '--port' = 'PORT'; '--uv-index' = 'UV_INDEX_URI'
     '--xp-suites' = 'SUITES'; '--log' = 'LOG_OPT'; '--profile' = 'PROFILE_NAME'
     '--tdd-dir' = 'TDD_DIR_OPT'
@@ -161,6 +173,11 @@ $env:TDD_DIR = $TDD_DIR_OPT
 $UV_INDEX_URI = common_resolve_uv_index $UV_INDEX_URI
 
 if ($VENV_TYPE -notin 'uv', 'pyenv', 'conda') { fail_usage '--venv-type must be uv, pyenv or conda' }
+# --td-storage names the cloud; the system behind it is the tdd store's.
+$STORAGE_SYSTEM = switch ($TD_STORAGE) {
+    'fs' { '' } 'aws' { 's3' } 'azure' { 'azureblob' } 'gcs' { 'gcs' }
+    default { fail_usage '--td-storage must be fs, aws, azure or gcs' }
+}
 $missing = @()
 foreach ($need in $REQUIRED_OPTIONS -split ' ') {
     if ($need -eq '--name' -and -not $NAME) { $missing += $need }
@@ -168,6 +185,10 @@ foreach ($need in $REQUIRED_OPTIONS -split ' ') {
 }
 if ($missing) { fail_usage "missing required option(s): $($missing -join ' ') (see --help)" }
 if ($NAME -notmatch '^[A-Za-z0-9]+$') { fail_usage '--name must be alphanumeric (it becomes part of domain names)' }
+# The mounts are set through `quickstart --config @stub`, which came with 2.3.0 (see smoke-km.sh).
+if ($STORAGE_SYSTEM -and $TD_VERSION -match '^(1\.|2\.0\.|2\.1\.|2\.2\.)') {
+    fail_usage "--td-storage $TD_STORAGE needs tabsdata 2.3.0 or newer; $TD_VERSION keeps its storage in the instance (--td-storage fs)"
+}
 
 $BASE = "sm_$NAME"
 if (-not $PROFILE_NAME) { $PROFILE_NAME = $BASE }   # the tdk connection is this run's own
@@ -176,6 +197,7 @@ $INSTANCE = $BASE
 $VENV = $BASE
 $STAMP = Get-Date -Format 'yyyyMMdd-HHmmss'
 $LLM_DOMAIN = if ($LLM_SYSTEM) { "${BASE}__${LLM_SYSTEM}" } else { '' }
+$STORAGE_DOMAIN = if ($STORAGE_SYSTEM) { "${BASE}__${STORAGE_SYSTEM}" } else { '' }
 $XP_PROJECTS = [Collections.Generic.List[string]]::new()
 $SMOKE_DOMAINS = [Collections.Generic.List[string]]::new()
 $LOGS_PROJECT = "${BASE}__logs"   # the worker-logs stage's own xp run, kept until its logs are read
@@ -195,6 +217,7 @@ $STAGE_NAMES = [Collections.Generic.List[string]]::new([string[]]@('unset-td', '
 if ($UV_INDEX_URI) { $STAGE_NAMES.Add('set-pypi') }
 foreach ($s in 'systems', 'pycache', 'clean-previous', 'create-venv', 'install') { $STAGE_NAMES.Add($s) }
 if ($TD_VERSION -eq '2.0.2') { $STAGE_NAMES.Add('cdc-driver') }
+if ($STORAGE_SYSTEM) { $STAGE_NAMES.Add('storage-domain') }
 if ($LLM_SYSTEM) { $STAGE_NAMES.Add('llm-domain') }
 foreach ($s in 'quickstart', 'pods-1', 'login-1', 'stop-1', 'venv-update', 'start', 'pods-2', 'login-2') { $STAGE_NAMES.Add($s) }
 foreach ($suite in $SUITE_LIST) { $STAGE_NAMES.Add("xp-$($suite -replace '/', '_')") }
@@ -227,6 +250,7 @@ common_screen "  --venv-type         $VENV_TYPE"
 common_screen "  --py-version    $PYTHON"
 common_screen "  --td-version        $TD_VERSION"
 common_screen "  --td-extras   $TD_EXTRAS   -> installs $TABSDATA_SPEC"
+common_screen "  --td-storage        $TD_STORAGE   -> $(if ($STORAGE_SYSTEM) { "domain $STORAGE_DOMAIN on $STORAGE_SYSTEM, the storage mounts under its URI" } else { "tabsdata's own, a folder of the instance" })"
 common_screen "  --port              $PORT   -> server $SERVER"
 common_screen "  --uv-index          $(common_display $(if ($UV_INDEX_URI) { $UV_INDEX_URI } else { '(none)' }))"
 common_screen "  --xp-suites            $SUITES   -> xp projects ${BASE}__xp_<ts>_<suite>"
@@ -274,6 +298,8 @@ foreach ($suite in $SUITE_LIST) {
 }
 # status checks the LLM credential is there without printing it
 if ($LLM_SYSTEM) { common_run tdd system status --sys $LLM_SYSTEM }
+# and the storage system's, the same way
+if ($STORAGE_SYSTEM) { common_run tdd system status --sys $STORAGE_SYSTEM }
 
 common_stage pycache 'purge tabsdata from the uv and pip caches'
 # a republished wheel of the same version must not be served stale from the cache
@@ -309,6 +335,72 @@ if ($TD_VERSION -eq '2.0.2') {
     common_remark "workaround: tabsdata 2.0.2 ships no psycopg2 with its Postgres connector; psycopg2-binary was installed into $VENV so the CDC plugin loads"
 }
 
+# kminus keeps the instance's storage in a folder of its own; a `quickstart
+# --config @stub` points the ROOT, BUNDLES and IMAGES mounts at the domain and
+# adds the cloud's credential keys as env: references, and object_store's
+# request `timeout` under the cloud's prefix, for the image uploads over a
+# laptop's uplink (see smoke-km.sh).
+$STORAGE_TIMEOUT = '300s'
+$STORAGE_OPTS = @()
+if ($STORAGE_SYSTEM) {
+    common_stage storage-domain "domain $STORAGE_DOMAIN on $STORAGE_SYSTEM, the instance's storage mounts for quickstart"
+    common_run tdd domain create --sys $STORAGE_SYSTEM --domain $STORAGE_DOMAIN --force
+    $SMOKE_DOMAINS.Add($STORAGE_DOMAIN)
+    common_note "tdd domain info --domain $STORAGE_DOMAIN --format export --platform windows --prefix STORD | Invoke-Expression   (the credentials are not shown)"
+    (tdd domain info --domain $STORAGE_DOMAIN --format export --platform windows --prefix STORD 2>$null) -join "`n" | Invoke-Expression
+    common_run common_variable_set STORD__URI
+    # the stub's option lines: the cloud's timeout key, then one per credential key
+    switch ($TD_STORAGE) {
+        'aws' {
+            # the region and the keys are the s3 system's, as the cluster scripts read them
+            common_note "tdd system info --sys $STORAGE_SYSTEM --format export --platform windows --prefix STORS | Invoke-Expression   (the keys are not shown)"
+            (tdd system info --sys $STORAGE_SYSTEM --format export --platform windows --prefix STORS 2>$null) -join "`n" | Invoke-Expression
+            common_run common_variable_set STORS__REGION
+            $storageKeys = @("options.aws_timeout: $STORAGE_TIMEOUT", 'options.aws_region: env:STORS__REGION')
+            # a system without keys leaves the pods to the AWS credentials this session has
+            if ($env:STORS__ACCESS_KEY) {
+                $storageKeys += 'options.aws_access_key_id: env:STORS__ACCESS_KEY'
+                $storageKeys += 'options.aws_secret_access_key: env:STORS__SECRET_KEY'
+            }
+        }
+        'azure' {
+            common_run common_variable_set STORD__ACCOUNT_NAME
+            common_run common_variable_set STORD__ACCOUNT_KEY
+            $storageKeys = @("options.azure_timeout: $STORAGE_TIMEOUT")
+            $storageKeys += 'options.azure_storage_account_name: env:STORD__ACCOUNT_NAME'
+            $storageKeys += 'options.azure_storage_account_key: env:STORD__ACCOUNT_KEY'
+        }
+        'gcs' {
+            # the gcs system holds the service-account key inline or as a path to
+            # it; the mount wants the JSON, so a path is read here, into the variable
+            common_run common_variable_set STORD__SERVICE_ACCOUNT_KEY
+            if (-not "$env:STORD__SERVICE_ACCOUNT_KEY".TrimStart().StartsWith('{')) {
+                $keyFile = "$env:STORD__SERVICE_ACCOUNT_KEY".Trim() -replace '^~', $HOME
+                common_note "the service-account key is a path ($keyFile): its content is what tdkserver gets"
+                common_run common_file_exists $keyFile
+                $env:STORD__SERVICE_ACCOUNT_KEY = Get-Content -Raw -LiteralPath $keyFile
+            }
+            $storageKeys = @("options.google_timeout: $STORAGE_TIMEOUT")
+            $storageKeys += 'options.google_service_account_key: env:STORD__SERVICE_ACCOUNT_KEY'
+        }
+    }
+    $STORAGE_STUB = Join-Path $WORK 'storage.yaml'
+    $storageUri = "$env:STORD__URI".TrimEnd('/')
+    $stub = [Collections.Generic.List[string]]::new()
+    $stub.Add('files:')
+    $stub.Add('  apiserver.storage:')
+    foreach ($mount in @('ROOT:data', 'BUNDLES:bundles', 'IMAGES:images')) {
+        $id, $folder = $mount -split ':'
+        $stub.Add("    storage.mounts[id=$id]:")
+        $stub.Add("      uri: `"$storageUri/$folder/`"")
+        foreach ($key in $storageKeys) { $stub.Add("      $key") }
+    }
+    [IO.File]::WriteAllText($STORAGE_STUB, (($stub -join "`n") + "`n"))
+    common_note "quickstart --config @${STORAGE_STUB}: the mounts under $storageUri/, a $STORAGE_TIMEOUT request timeout, the credentials as env: references:"
+    foreach ($line in $stub) { common_note "    $line" }
+    $STORAGE_OPTS = @('--config', "@$STORAGE_STUB")
+}
+
 $LLM_KEY_OPTS = @()
 if ($LLM_SYSTEM) {
     common_stage llm-domain "domain $LLM_DOMAIN on $LLM_SYSTEM, its API key for quickstart"
@@ -329,9 +421,10 @@ if ($LLM_SYSTEM) {
 }
 
 $quickIndex = if ($UV_INDEX_URI) { @('--uv-index', $UV_INDEX_URI) } else { @() }
+$storageSays = if ($STORAGE_DOMAIN) { "on $STORAGE_DOMAIN" } else { 'in the instance' }
 $llmSays = if ($LLM_SYSTEM) { ", $LLM_SYSTEM key from $LLM_DOMAIN" } else { ', no LLM key' }
-common_stage quickstart "tdkserver quickstart --instance $INSTANCE (kminus$llmSays)"
-common_run tdd tdkserver quickstart --instance $INSTANCE --provider kminus --port $PORT @quickIndex @LLM_KEY_OPTS @TDK_OPTS
+common_stage quickstart "tdkserver quickstart --instance $INSTANCE (kminus, storage $storageSays$llmSays)"
+common_run tdd tdkserver quickstart --instance $INSTANCE --provider kminus --port $PORT @quickIndex @STORAGE_OPTS @LLM_KEY_OPTS @TDK_OPTS
 common_run common_tdkserver_expect $INSTANCE running
 
 # retried: the pods come up after quickstart/start return
@@ -404,6 +497,8 @@ if ($KEEP) {
     common_run common_tdkserver_expect $INSTANCE stopped
     common_run tdd tdkserver trash --instance $INSTANCE @TDK_OPTS
     common_run common_instance_gone $INSTANCE
+    # the storage domain outlives the instance that wrote into it; now it goes
+    if ($STORAGE_DOMAIN) { common_run tdd domain destroy --domain $STORAGE_DOMAIN --force }
     common_run tdd venv deactivate
     common_run tdd venv delete --name $VENV
 }
