@@ -781,9 +781,9 @@ common_run common_tdkserver_expect "$INSTANCE" stopped
 common_stage venv-update "update the instance's fn and ag venvs with the DB drivers"
 printf '%s\n' "$REQUIREMENTS" > "$WORK/requirements.txt"
 common_note "requirements: $(printf '%s' "$REQUIREMENTS" | tr '\n' ' ')"
-for name in fn ag; do
-    common_run tdd tdkserver venv update --instance "$INSTANCE" --name "$name" --requirements "$WORK/requirements.txt" "${TDK_OPTS[@]}"
-done
+# Both venvs in one call: every call rebuilds all three venvs and sends all
+# three images to the IMAGES mount, so two calls would do that twice.
+common_run tdd tdkserver venv update --instance "$INSTANCE" --name fn,ag --requirements "$WORK/requirements.txt" "${TDK_OPTS[@]}"
 
 common_stage start-2 "tdkserver start"
 common_run tdd tdkserver start --instance "$INSTANCE" "${TDK_OPTS[@]}"
