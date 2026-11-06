@@ -2442,6 +2442,16 @@ def test_db2cdc_waits_until_every_stop_is_taken_not_until_none_is_pending(db2cdc
     assert '[ "$got" = "2" ]' in call
 
 
+def test_db2cdc_counts_a_registration_capture_made_inactive_as_stopped(db2cdc):
+    """asncap prunes the stops it took, so the wait also reads the
+    registration it made inactive, which it no longer writes to."""
+    db2cdc._remove_registrations("C", "S", ["A"])
+    [call] = [c for c in db2cdc.calls if "'CAPSTOP'" in c]
+    wait = call[call.index("while") : call.index("done")]
+    assert "from ASN.ibmsnap_register" in wait and "state = 'I'" in wait
+    assert "union" in wait and "source_owner = 'S'" in wait
+
+
 def test_db2cdc_keeps_what_a_running_capture_still_holds(db2cdc):
     """Stops not all taken while asncap runs: nothing is removed -- its next
     insert into a dropped CD table would stop it for every domain."""

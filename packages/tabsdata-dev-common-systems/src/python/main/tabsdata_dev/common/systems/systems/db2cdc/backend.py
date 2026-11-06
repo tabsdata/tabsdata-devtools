@@ -509,9 +509,10 @@ class Db2Cdc(Db2):
         on: dropping a CD table under a still-capturing registration fails its
         next insert (SQLCODE -42704) and takes the capture program down -- for
         every domain on the system, since one asncap serves them all. So the
-        removal waits until every source's latest stop is taken, not until none
-        is pending: a stop whose insert failed is never pending, and was never
-        taken. Stops not all taken while asncap runs leave everything in place
+        removal waits until every source's latest stop is taken (or its
+        registration inactive, once asncap has pruned that stop), not until
+        none is pending: a stop whose insert failed is never pending, and was
+        never taken. Stops not all taken while asncap runs leave everything in place
         and are an error (the removal can be run again once asncap has caught
         up); a capture program that is down never takes them, and there the
         registrations go regardless -- on its next start it reads only those
@@ -523,14 +524,20 @@ class Db2Cdc(Db2):
         sources = [f"{schema}.{table}" for table in tables]
         names = _sql_list(tables)
         # Only each source's latest stop counts: an older one sent while the
-        # capture program was down is never consumed.
+        # capture program was down is never consumed. asncap prunes taken
+        # stops, so a registration it made inactive counts as taken too: it
+        # writes to no CD table of an inactive one.
         taken = (
-            f"select count(*) from (select signal_state, row_number() over "
+            f"select count(*) from (select signal_input_in as source from "
+            f"(select signal_input_in, signal_state, row_number() over "
             f"(partition by signal_input_in order by signal_time desc) as latest "
             f"from {_ASN}.ibmsnap_signal where signal_type = 'CMD' and "
             f"signal_subtype = 'CAPSTOP' and signal_input_in in "
             f"({_sql_list(sources)})) as stops "
-            f"where latest = 1 and signal_state = 'C'"
+            f"where latest = 1 and signal_state = 'C' "
+            f"union select trim(source_owner) || '.' || trim(source_table) "
+            f"from {_ASN}.ibmsnap_register where source_owner = '{schema}' and "
+            f"source_table in ({names}) and state = 'I') as taken"
         )
         removal = (
             [
