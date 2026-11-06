@@ -10,12 +10,13 @@ Target names MUST be backtick-quoted (resolve to project.dataset.table from the 
 - ``bigquery_out_append``  / ``bigquery_out_replace`` / ``bigquery_out_none``.
 - ``bigquery_evolve_v1`` : narrow ``cap_evo_v1`` -> creates ``cap_evolve``.
 - ``bigquery_evolve_v2`` : wide ``cap_evo_v2`` appended with ``schema_evolution="update"``
-  (ALLOW_FIELD_ADDITION) -> adds the ``population`` column. Run v1 then v2 (v2 not
+  -> the connector ALTERs ``cap_evolve`` to add the ``population`` column (the
+  ``iceberg`` engine, the default). Run v1 then v2 (v2 not
   auto-triggered so they don't race).
 - ``bigquery_merge_<batch>`` : ``if_table_exists="merge"`` of the CDC batches in
   ``_merge_plan.py`` onto each batch's target (``cap_merge``, ``cap_merge_from_load``,
-  ``cap_merge_from_truncate``) -- changes, initial loads, truncates. A merge requires
-  ``bigquery.schema_evolution_engine="iceberg"``.
+  ``cap_merge_from_truncate``) -- changes, initial loads, truncates. The engine is left
+  unset: its default, ``iceberg``, is the one a merge takes (it refuses ``native``).
 """
 from __future__ import annotations
 
@@ -76,7 +77,6 @@ def _merge_dest(table: str) -> BigQueryDest:
         tables=[table],
         if_table_exists="merge",
         merge_cfg=[MergeCfg(on=["cap_id"], op_column="op")],
-        dest_cfg={"bigquery.schema_evolution_engine": "iceberg"},
     )
 
 

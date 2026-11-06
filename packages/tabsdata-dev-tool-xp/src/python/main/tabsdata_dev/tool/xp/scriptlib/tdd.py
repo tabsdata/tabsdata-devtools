@@ -18,6 +18,7 @@ so it works in any of them.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,24 @@ __all__ = ["TddError", "note", "tdd"]
 
 #: xp reads a stdout line so marked as the step's note (xp's actions.NOTE_MARK).
 NOTE_MARK = "xp-note:"
+#: The VIRTUAL_ENV xp started under (xp's state.STEP_VENV_ENV).
+STEP_VENV_ENV = "_TDD_XP_VENV"
+
+
+def _env() -> dict[str, str] | None:
+    """The environment tdd-exe runs in: this one, with the VIRTUAL_ENV xp started
+    under put back. `uv run --with` points VIRTUAL_ENV at the ephemeral env it
+    made for the step, and the tdk launcher would take that for the user's venv.
+    None (inherit) outside an xp step."""
+    if STEP_VENV_ENV not in os.environ:
+        return None
+    env = dict(os.environ)
+    venv = env[STEP_VENV_ENV]
+    if venv:
+        env["VIRTUAL_ENV"] = venv
+    else:
+        env.pop("VIRTUAL_ENV", None)
+    return env
 
 
 class TddError(RuntimeError):
@@ -45,6 +64,7 @@ def tdd(*args: str, out: Path | None = None, check: bool = True) -> str:
         ["tdd-exe", *args],
         check=False,
         capture_output=True,
+        env=_env(),
         encoding="utf-8",
     )
     if done.returncode != 0 and check:

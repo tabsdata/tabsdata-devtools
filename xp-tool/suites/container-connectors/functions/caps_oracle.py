@@ -12,7 +12,8 @@ SOURCE (`@publisher`, collection ``oracle_in``, reads seeded ``oracle_world_xs``
 DEST (`@subscriber`, collection ``oracle_out``, input from datagen ``caps_input/cap_rows``):
 - ``oracle_out_append`` / ``oracle_out_replace`` / ``oracle_out_none``.
 
-Oracle has no ``schema_evolution`` (append/replace only).
+``schema_evolution`` (``"strict"`` by default, or ``"update"``) is the
+schema-evolution suites'.
 
 SRC METADATA — the ``tabsdata.src_metadata.drop`` contract: ``oracle_meta_keep`` and
 ``oracle_meta_drop`` (collection ``oracle_in``) read the same one-query ``SELECT`` with

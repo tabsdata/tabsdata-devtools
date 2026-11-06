@@ -14,7 +14,8 @@ DEST (`@subscriber`, collection ``db2_out``, input from datagen ``caps_input/cap
   NOTE the Db2 dest is known to hit an ibm_db array-bind / SQLRowCount bug (DB2_9 /
   CLI0125E) on write — expect these to stall until the connector is fixed.
 
-Db2 has no ``schema_evolution`` (append/replace only).
+``schema_evolution`` (``"strict"`` by default, or ``"update"``) is the
+schema-evolution suites'.
 
 SRC METADATA — the ``tabsdata.src_metadata.drop`` contract: ``db2_meta_keep`` and
 ``db2_meta_drop`` (collection ``db2_in``) read the same one-query ``SELECT`` with and

@@ -166,9 +166,9 @@ example onto another connector.
 | `trigger_by=TablesTrigger/AllTablesTrigger` | `@transformer` and `@subscriber` |
 | `tables` + `if_table_exists` | every SQL and warehouse destination — except `mongodb`, which takes `collections_with_ids` + `if_collection_exists` |
 | an upsert | `mongodb` alone (`update_existing=True`) |
-| `schema_evolution` = `update` \| `strict` | `databricks` (default `update`), `bigquery` (default `update`) |
-| `schema_evolution` = `strict` \| `iceberg` | `clickhouse` (default `strict`), `starrocks` (default `strict`, but its load path cannot yet use it) |
-| no `schema_evolution` at all | `snowflake`, `postgres`, `mysql`, `mssql`, `oracle`, `db2`, `mongodb`, `druid` |
+| `schema_evolution` = `strict` (default) \| `update` | every table destination: `databricks`, `bigquery`, `snowflake`, `clickhouse`, `starrocks`, `postgres`, `mysql`, `mssql`, `oracle`, `db2` |
+| `<system>.schema_evolution_engine` = `iceberg` (default) \| `native` | `bigquery`, `snowflake` (a merge refuses `native`) |
+| no `schema_evolution` at all | `mongodb`, `druid` -- schemaless |
 | create-on-write | everything except `starrocks` |
 | a staging area on the connection | `snowflake` (stage), `databricks` (volume), `clickhouse` / `starrocks` / `bigquery` (object store) |
 | CDC via a replication slot | `postgrescdc` |

@@ -12,7 +12,14 @@ import sys
 
 from tdd import note, tdd  # noqa: F401
 
-NAMES = ("XP_WORK_DIR", "XP_PROJECT", "XP_ID", "XP_SHORT_ID", "XP_SUITE_RUN")
+NAMES = (
+    "XP_WORK_DIR",
+    "XP_PROJECT",
+    "XP_ID",
+    "XP_SHORT_ID",
+    "XP_SUITE_RUN",
+    "_TDD_XP_VENV",
+)
 
 seen = {
     "argv": sys.argv[1:],

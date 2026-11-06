@@ -2562,6 +2562,8 @@ def test_a_python_step_gets_its_params_env_path_and_the_tdd_module(
 ):
     """Run from the suite dir, params expanded, the run's names in its
     environment, tdd-exe first on its PATH and `from tdd import tdd` working."""
+    import os
+
     from tabsdata_dev.tool.xp import work
 
     script = _script(xp_root, resource_folder / "steps" / "seen.py")
@@ -2583,6 +2585,7 @@ def test_a_python_step_gets_its_params_env_path_and_the_tdd_module(
         "XP_ID": PH,
         "XP_SHORT_ID": "use0000_000000",
         "XP_SUITE_RUN": "i",
+        "_TDD_XP_VENV": os.environ.get("VIRTUAL_ENV", ""),
     }
     assert seen["path0"] == "/fake/tdd/bin"
 
@@ -3034,6 +3037,47 @@ def test_the_tdd_module_runs_tdd_exe_and_says_how_it_failed(
     ] == ["tdd.py"]
 
 
+@pytest.mark.parametrize(
+    "xp_venv, expected",
+    [
+        ("/user/venv", "venv: /user/venv"),
+        ("", "venv: unset"),
+        (None, "venv: /ephemeral"),
+    ],
+)
+def test_the_tdd_module_gives_tdd_exe_the_venv_xp_started_under(
+    tmp_path, resource_folder, xp_venv, expected
+):
+    """`uv run --with` points a step's VIRTUAL_ENV at the ephemeral env it made,
+    which `tdd tdk` would take for the user's venv: the module puts back the one
+    xp started under (none: unset), and outside xp leaves it alone."""
+    import os
+    import subprocess
+    import sys
+
+    from tabsdata_dev.tool.xp import actions, state
+
+    _fake_tdd_exe(resource_folder, tmp_path / "bin")
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+        "PYTHONPATH": str(actions.tdd_module_dir()),
+        "VIRTUAL_ENV": "/ephemeral",
+    }
+    env.pop(state.STEP_VENV_ENV, None)
+    if xp_venv is not None:
+        env[state.STEP_VENV_ENV] = xp_venv
+    done = subprocess.run(
+        [sys.executable, str(resource_folder / "steps" / "tdd_module_venv.py")],
+        check=False,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == expected
+
+
 def test_the_tdd_module_is_standard_library_only():
     """It runs in whatever environment a step's reqs make, so it imports
     nothing else."""
@@ -3050,7 +3094,7 @@ def test_the_tdd_module_is_standard_library_only():
         if isinstance(node, (ast.Import, ast.ImportFrom))
         for alias in node.names
     }
-    assert imported <= {"__future__", "subprocess", "sys", "pathlib"}, imported
+    assert imported <= {"__future__", "os", "subprocess", "sys", "pathlib"}, imported
 
 
 @pytest.mark.parametrize(

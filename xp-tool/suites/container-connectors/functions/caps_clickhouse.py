@@ -18,8 +18,9 @@ SCHEMA EVOLUTION (two functions writing the SAME table ``cap_evolve``, run in or
 - ``clickhouse_evolve_v1`` : writes the NARROW ``cap_evo_v1`` (code, name) with
                              ``replace`` -> creates cap_evolve with the narrow schema.
 - ``clickhouse_evolve_v2`` : writes the WIDE ``cap_evo_v2`` (code, name, population) with
-                             ``append`` + ``schema_evolution="iceberg"`` -> ClickHouse adds
-                             the new ``population`` column to cap_evolve.
+                             ``append`` + ``schema_evolution="update"`` -> the connector
+                             ALTERs cap_evolve to add the new ``population`` column
+                             (``"strict"``, the default, refuses the batch).
   ORDER MATTERS: run v1 (trigger caps_evo_v1) and let it commit, THEN run v2 (trigger
   caps_evo_v2). v2 is not auto-triggered so the two don't race on cap_evolve.
 """
@@ -71,9 +72,9 @@ def clickhouse_evolve_v1(v1: TableFrameSpec) -> TableFrameSpec:
     destination=ClickHouseDest(
         tables=["cap_evolve"],
         if_table_exists="append",
-        # iceberg -> apply the schema delta (add the new `population` column) instead
-        # of failing on the mismatch (which "strict" would do).
-        schema_evolution="iceberg",
+        # update -> add the new `population` column instead of refusing the batch
+        # (which "strict", the default, would do).
+        schema_evolution="update",
     ),
     input_tables=["caps_input/cap_evo_v2"],
 )

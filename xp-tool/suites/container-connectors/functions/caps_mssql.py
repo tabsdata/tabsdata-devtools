@@ -15,7 +15,8 @@ SOURCE (`@publisher`, collection ``mssql_in``, reads the seeded ``mssqlserver_wo
 DEST (`@subscriber`, collection ``mssql_out``, input from datagen ``caps_input/cap_rows``):
 - ``mssql_out_append``  / ``mssql_out_replace`` / ``mssql_out_none``.
 
-SQL Server has no ``schema_evolution`` (append/replace only).
+``schema_evolution`` (``"strict"`` by default, or ``"update"``) is the
+schema-evolution suites'.
 
 SRC METADATA — the ``tabsdata.src_metadata.drop`` contract: ``mssql_meta_keep`` and
 ``mssql_meta_drop`` (collection ``mssql_in``) read the same one-query ``SELECT`` with

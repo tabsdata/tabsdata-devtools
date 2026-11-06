@@ -470,6 +470,7 @@ def script_env(inst: Instance, project: str | None) -> dict:
         "XP_SHORT_ID": inst.short_id,
         "XP_SUITE_RUN": inst.name,
         "XP_SUITE_DIR": inst.source_dir,
+        state.STEP_VENV_ENV: os.environ.get("VIRTUAL_ENV", ""),
     }
 
 
@@ -498,8 +499,10 @@ def uv_run() -> list[str]:
     """How a python step starts: on the very interpreter xp runs on -- its
     toolset's base, uv's own build of the repo's PYTHON -- named by path.
     A version is not enough: with a venv active in the shell, `uv run` takes
-    that venv's interpreter even under --managed-python, and the step keeps
-    VIRTUAL_ENV, which `tdd tdk` inside it reads to find the user's venv."""
+    that venv's interpreter even under --managed-python. Its `--with` env is an
+    ephemeral one that VIRTUAL_ENV then names, so the step also gets the
+    VIRTUAL_ENV xp started under (`state.STEP_VENV_ENV`), which the scriptlib's
+    `tdd()` restores for `tdd tdk` to find the user's venv."""
     return [
         "uv",
         "run",

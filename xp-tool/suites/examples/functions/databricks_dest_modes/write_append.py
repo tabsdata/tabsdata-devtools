@@ -19,7 +19,7 @@ does not.
 DATABRICKS SPECIFICS
     Target names are completed from the connection's `catalog` / `schema`, so
     `customers_append` is really `<catalog>.<schema>.customers_append`.
-    Databricks also has `schema_evolution` (default `"update"`) — see the
+    `schema_evolution` defaults to `"strict"` here — see the
     databricks_dest_evolution suite.
 """
 from __future__ import annotations

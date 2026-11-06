@@ -2,8 +2,9 @@
 # Copyright 2026 Tabsdata Inc.
 #
 
-"""caps_snowflake — Snowflake bulk dest write modes (create/append/replace; no
-schema_evolution). Input from the dev datagen ``caps_input/cap_rows`` frame.
+"""caps_snowflake — Snowflake bulk dest write modes (create/append/replace/merge;
+``schema_evolution`` is the schema-evolution suites'). Input from the dev datagen
+``caps_input/cap_rows`` frame.
 
 - ``snowflake_out_append``  : ``if_table_exists="append"`` — create then accumulate.
 - ``snowflake_out_replace`` : ``if_table_exists="replace"`` — create then TRUNCATE+reload.
@@ -11,7 +12,9 @@ schema_evolution). Input from the dev datagen ``caps_input/cap_rows`` frame.
 - ``snowflake_merge_<batch>`` : ``if_table_exists="merge"`` of the CDC batches in
   ``_merge_plan.py`` onto each batch's target (``cap_merge``, ``cap_merge_from_load``,
   ``cap_merge_from_truncate``; the connector quotes a table name as written, so
-  these are lower case in Snowflake) -- changes, initial loads, truncates. A merge requires ``snowflake.schema_evolution_engine="iceberg"``.
+  these are lower case in Snowflake) -- changes, initial loads, truncates. The engine
+  is left unset: its default, ``iceberg``, is the one a merge takes (it refuses
+  ``native``).
 """
 from __future__ import annotations
 
@@ -52,7 +55,6 @@ def _merge_dest(table: str) -> SnowflakeDest:
         tables=[table],
         if_table_exists="merge",
         merge_cfg=[MergeCfg(on=["cap_id"], op_column="op")],
-        dest_cfg={"snowflake.schema_evolution_engine": "iceberg"},
     )
 
 

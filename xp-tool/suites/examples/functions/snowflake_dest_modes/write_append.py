@@ -20,8 +20,8 @@ does not.
 SNOWFLAKE SPECIFICS
     Snowflake folds unquoted identifiers to UPPERCASE, so `customers_append`
     below creates `CUSTOMERS_APPEND`. Double-quote the name in `tables` to keep
-    it lowercase. Snowflake has NO `schema_evolution` field: append and replace
-    are the whole vocabulary.
+    it lowercase. `schema_evolution` defaults to `"strict"` here, as on every
+    table destination; `"update"` adds a column and widens a type.
 """
 from __future__ import annotations
 

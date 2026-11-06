@@ -251,7 +251,8 @@ SQL_SOURCES = {
     },
 }
 
-# A plain SQL destination: `tables` + `if_table_exists`, no schema evolution.
+# A plain SQL destination: `tables` + `if_table_exists` (and `schema_evolution`,
+# "strict" by default, which the schema-evolution suites exercise).
 SQL_DESTS = {
     "postgres": {
         "module": "tabsdatak.conn.postgres",
@@ -2208,8 +2209,8 @@ WAREHOUSE_DESTS = {
         "note": (
             "Snowflake folds unquoted identifiers to UPPERCASE, so `customers_append`\n"
             "    below creates `CUSTOMERS_APPEND`. Double-quote the name in `tables` to\n"
-            "    keep it lowercase. Snowflake has NO `schema_evolution` field: append and\n"
-            "    replace are the whole vocabulary."
+            "    keep it lowercase. `schema_evolution` defaults to `\"strict\"` here, as on\n"
+            "    every table destination; `\"update\"` adds a column and widens a type."
         ),
     },
     "databricks": {
@@ -2224,7 +2225,7 @@ WAREHOUSE_DESTS = {
         "note": (
             "Target names are completed from the connection's `catalog` / `schema`, so\n"
             "    `customers_append` is really `<catalog>.<schema>.customers_append`.\n"
-            "    Databricks also has `schema_evolution` (default `\"update\"`) — see the\n"
+            "    `schema_evolution` defaults to `\"strict\"` here — see the\n"
             "    databricks_dest_evolution suite."
         ),
     },
@@ -2549,11 +2550,10 @@ Nothing is staged and nothing is loaded — and the `replace` target is NOT
 truncated. On a connector whose replace mode throws away a seeded table, that
 asymmetry is worth being sure of: a run with no data cannot empty the target.
 
-NOT EXERCISED HERE: `schema_evolution="iceberg"`. StarRocks loads via
-`INSERT ... SELECT * FROM FILES(...)` and does not pre-ALTER the target on that
-path, so a widened frame fails with a column-count mismatch rather than adding
-the column — unlike ClickHouse, whose iceberg path does add it. The field exists;
-the load path cannot yet use it.
+NOT EXERCISED HERE: `schema_evolution="update"`, which ALTERs the target
+before the load — a new column added, a type widened (a StarRocks job the write
+waits for). These targets are the seeded world tables, which the example keeps
+as the model made them; the schema-evolution suites cover it.
 """
 from __future__ import annotations
 
@@ -2582,9 +2582,9 @@ def write_nothing(city: TableFrameSpec) -> TableFrameSpec:
         "GROWS; country's key is `code`, so appending the same codes would upsert in "
         "place, which is why replace targets that one (and truncates the 239 seeded "
         "countries away). write_nothing shows a returned None staging nothing and NOT "
-        "truncating. schema_evolution=\"iceberg\" is deliberately NOT exercised: the "
-        "INSERT ... SELECT FROM FILES path does not pre-ALTER the target, so a widened "
-        "frame fails on column count rather than evolving. Staging is via S3 here; the "
+        "truncating. schema_evolution=\"update\" (ALTER the target before the load) is "
+        "not exercised: these targets are the seeded world tables, kept as the model "
+        "made them; the schema-evolution suites cover it. Staging is via S3 here; the "
         "_gcs and _az templates are the same connector with a different staging store. "
         "One function per file under functions/starrocks_dest_modes/. "
         "Run: `tdd xp one-shot --suite examples/starrocks_dest_modes --keep`.",
@@ -2795,7 +2795,7 @@ EVOLUTION = {
         "label": "Databricks",
         "quote": lambda n: n,
         "permissive": "update",
-        "default": "update",
+        "default": "strict",
         "mechanism": "forwards `mergeSchema=true` to `COPY INTO`",
     },
     "bigquery": {
@@ -2807,8 +2807,8 @@ EVOLUTION = {
         "label": "BigQuery",
         "quote": lambda n: f"`{n}`",
         "permissive": "update",
-        "default": "update",
-        "mechanism": "sets the load job's schema-update options, adding the columns as NULLABLE",
+        "default": "strict",
+        "mechanism": "has the connector ALTER the target before the load (the default `iceberg` engine), adding the columns as NULLABLE",
     },
     "clickhouse": {
         "module": "tabsdatak.conn.clickhouse",
@@ -2818,9 +2818,9 @@ EVOLUTION = {
         "system": "clickhouse",
         "label": "ClickHouse",
         "quote": lambda n: n,
-        "permissive": "iceberg",
+        "permissive": "update",
         "default": "strict",
-        "mechanism": "applies Iceberg-style schema deltas, ALTERing the target",
+        "mechanism": "has the connector ALTER the target before the load, adding the columns as Nullable",
         "staging_domain": "s3",
     },
 }
@@ -2833,27 +2833,27 @@ def emit_evolution(key: str, c: dict) -> tuple[str, dict]:
     perm, dflt = c["permissive"], c["default"]
     mech_wrapped = textwrap.fill(c["mechanism"], width=78)
 
-    matrix = f'''THE VALUES AND THE DEFAULTS DIFFER PER CONNECTOR, which is the thing to carry
-away — identical code is permissive on one warehouse and strict on another:
+    matrix = f'''THE SAME TWO VALUES ON EVERY TABLE DESTINATION — Databricks, BigQuery,
+Snowflake, ClickHouse, StarRocks, PostgreSQL, MySQL, SQL Server, Oracle, Db2:
 
-    Databricks   "update"  (DEFAULT) | "strict"
-    BigQuery     "update"  (DEFAULT) | "strict"
-    ClickHouse   "strict"  (DEFAULT) | "iceberg"
-    StarRocks    "strict"  (DEFAULT) | "iceberg"   — but its INSERT ... SELECT
-                 FROM FILES load path does not pre-ALTER the target, so a widened
-                 frame fails on column count rather than evolving. The field
-                 exists; the path cannot use it yet.
-    Snowflake, PostgreSQL, MySQL, SQL Server, Oracle, Db2, MongoDB, Druid
-                 no `schema_evolution` field at all — append and replace are the
-                 whole vocabulary, and a mismatched frame fails.
+    "strict"  (DEFAULT)  refuses a batch with a column the table lacks or a
+                         wider type
+    "update"             adds the column and widens the type, and refuses a
+                         change the database cannot make
+
+    A column the BATCH lacks is written NULL either way. BigQuery and Snowflake
+    also take `dest_cfg={{"<system>.schema_evolution_engine": ...}}`: `"iceberg"`
+    (the default) has the connector ALTER the table itself, `"native"` leaves
+    `"update"` to the warehouse's own load options, which add a column but never
+    widen one.
 
     On {c["label"]} the permissive value is `"{perm}"` and the DEFAULT is
     `"{dflt}"`. Every subscriber in this suite spells the value out rather than
     relying on that default.
 
-EVOLUTION IS ADDITIVE ONLY, everywhere. A REMOVED column, a RENAMED one or a
-changed TYPE is not schema evolution — it is a migration, and no setting here
-will do it for you.'''
+EVOLUTION ONLY GROWS A TABLE. A REMOVED column, a RENAMED one or a type that
+narrows is not schema evolution — it is a migration, and no setting here will
+do it for you.'''
 
     w(d / "supporting_generate_narrow.py", COPYRIGHT + '''
 """SUPPORTING — not the example. The NARROW frame (`sku`, `name`) that creates
@@ -3037,12 +3037,12 @@ def write_wider_conformed(v2: TableFrameSpec) -> TableFrameSpec:
         f"NULL there; with it REFUSED (\"strict\") the write would fail, so "
         f"write_wider_conformed CONFORMS the frame with a .select() — the real answer "
         f"at a strict boundary, and what keeps this suite green (delete the select and "
-        f"re-run to see the refusal). THE VALUES AND DEFAULTS DIFFER PER CONNECTOR "
-        f"(Databricks/BigQuery \"update\" by default, ClickHouse/StarRocks \"strict\"; "
-        f"Snowflake and the plain databases have no such field), and on {c['label']} the "
-        f"default is \"{dflt}\" — so every sink here spells the value out. Evolution is "
-        f"ADDITIVE ONLY: a dropped, renamed or retyped column is a migration, not "
-        f"evolution. v1 uses `replace` so the example is repeatable and v2 uses "
+        f"re-run to see the refusal). Every table destination takes the same two "
+        f"values, \"strict\" (the default) and \"update\", which adds a column and widens "
+        f"a type; on {c['label']} too the default is \"{dflt}\" — every sink here spells "
+        f"the value out all the same. Evolution only grows a table: a dropped, renamed "
+        f"or narrowed column is a migration, not evolution. The schema-evolution suites "
+        f"hold every table destination to the whole policy. v1 uses `replace` so the example is repeatable and v2 uses "
         f"`append` so there is something to evolve; ordering comes from TWO supporting "
         f"publishers with the narrow trigger declared `detached: false` as a GATE. One "
         f"function per file under functions/{suite}/. "

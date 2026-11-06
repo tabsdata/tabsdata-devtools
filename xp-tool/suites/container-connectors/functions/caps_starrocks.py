@@ -27,11 +27,9 @@ where:
 Appending onto ``country`` would NOT grow it: its primary key is ``code``, so re-loading
 the same codes upserts in place. Keep append on the AUTO_INCREMENT table.
 
-NOTE: iceberg schema-evolution is NOT exercised here. StarRocks loads via
-``INSERT ... SELECT * FROM FILES(...)`` and does not pre-ALTER the target on an
-iceberg append, so a widened frame fails with a column-count mismatch (unlike
-ClickHouse, whose iceberg path adds the column). Left out until the connector
-widens the target on that path.
+Schema evolution (``schema_evolution="update"``, which ALTERs the target before the
+load) is not exercised here: it is the schema-evolution suites', whose StarRocks lane
+creates its own targets rather than widening the seeded world tables.
 """
 from __future__ import annotations
 

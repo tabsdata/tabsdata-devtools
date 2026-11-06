@@ -28,6 +28,11 @@ DEFAULT_SECRET_ENV = "_TDD_CRYPTO_KEY"
 SCRATCH_ENV = "_TDD_XP_SCRATCH"
 SCRATCH_PARENT_ENV = "_TDD_XP_PARENT"
 SEQ_ENV = "_TDD_XP_SEQ"
+# The VIRTUAL_ENV xp started under, handed to a python step: `uv run --with`
+# puts the step in an ephemeral env and points VIRTUAL_ENV at it, which the tdk
+# launcher would then take for the user's venv. The scriptlib's `tdd()` puts it
+# back for the tdd-exe it runs (empty: none was active, so it unsets it).
+STEP_VENV_ENV = "_TDD_XP_VENV"
 
 
 class XpError(ToolError):

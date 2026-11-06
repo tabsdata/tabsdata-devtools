@@ -20,8 +20,9 @@ DEST (`@subscriber`, collection ``postgres_out``, input from the datagen
                              DROP+recreates (row count stays constant). ("truncate" mode.)
 - ``postgres_out_none``    : return-None contract (write_out not invoked).
 
-PostgreSQL has no ``schema_evolution`` (append/replace only). Append and replace target
-DIFFERENT tables so both can fire off the same ``cap_rows`` publish.
+``schema_evolution`` (``"strict"`` by default, or ``"update"``) is the
+schema-evolution suites'. Append and replace target DIFFERENT tables so both can
+fire off the same ``cap_rows`` publish.
 
 SRC METADATA — the ``tabsdata.src_metadata.drop`` contract: ``postgres_meta_keep`` and
 ``postgres_meta_drop`` (collection ``postgres_in``) read the same one-query ``SELECT``

@@ -111,7 +111,25 @@ times the phases, `--dry-run` prints the commands.
   buckets to the plan's, catches a drift between them. `functions/dq_salesforce_leads_report.py`
   is the same publisher over `SalesforceReportSrc`, for the post, registered by no suite. The
   check imports `dataquality/trends/scripts/verify_dq_trends.py` across the tree rather than
-  carrying a copy. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
+  carrying a copy. `schema-evolution` (written by its `gen_suites.py`) holds every table
+  destination -- postgres, mysql, mssql, oracle, db2, clickhouse, starrocks, databricks,
+  snowflake, bigquery, one lane each -- to the `schema_evolution` policy: the cases of
+  tabsdata-os' shared schema policy itests (strict refuses a new column or a wider type,
+  update adds and widens, a column the batch lacks is NULL, a merge keeps it), in
+  `functions/_evo_plan.py`, standard library only, so the publishers, the generated
+  subscribers and the check share it. Every case owns a table and is written in two phases
+  of non-detached triggers -- seeds, then the frame under test, the writes that may fail
+  last, each refused write on a publisher of its own so it shares no transaction with one
+  that must succeed. tdk's trigger exits non-zero when a run of its plan failed, so those
+  publishers are triggered by `verify_evo.py --trigger`, which judges by `tdk worker list`
+  instead (each subscriber ran to the end; only one that may fail failed) -- and after each `scripts/verify_evo.py` reads every table from the
+  database itself (SQLAlchemy over the descriptor's URI, or the warehouse's client), and
+  after phase 2 also each refused write's worker log for `SQL_COMMON_10`: a table left
+  alone because its subscriber never ran is not a refusal. A setup step drops the lane's
+  tables first, and creates StarRocks' (it cannot create its target). No monitor stage:
+  the refused writes fail their transactions on purpose. BigQuery's and Snowflake's append
+  cases run under both engines, side by side. A directory of its own for now, outside the
+  connector type dirs the smoke runs take. `--suite <type>/<name>|<type>` selects under them or under `--suites-dir DIR`; `export-suites --dir DIR` copies them out.
 - No `bin-reqs`: xp reaches tdk and tdkserver only through `tdd tdk`/`tdd tdkserver`,
   and those launchers declare the binaries themselves -- the requirement belongs to the
   command that runs the program. Pointers under `<tdd_dir>/data/xp`; a scratch dir per run
@@ -420,7 +438,9 @@ digits, `_`, `-`; unique across the suite) and may have `tags`:
   library only. It replaced `tdd _xp-execute` and its one-off venvs: uv caches the environment a
   set of reqs makes, and PEP 723 inline metadata works too. A step gets `XP_WORK_DIR`,
   `XP_PROJECT`, `XP_ID`, `XP_SHORT_ID`, `XP_SUITE_RUN`, `XP_SUITE_DIR` and `tdd-exe` first on its
-  PATH; a python step's stdout line `xp-note: <text>` (`tdd.note()`; the last wins) is in its
+  PATH, and `_TDD_XP_VENV`, the `VIRTUAL_ENV` xp started under: `uv run --with` points
+  `VIRTUAL_ENV` at the ephemeral env it made, which `tdd tdk` would take for the user's venv,
+  so the module's `tdd()` puts it back for the tdd-exe it runs; a python step's stdout line `xp-note: <text>` (`tdd.note()`; the last wins) is in its
   step's note, deciding nothing. Rejected: a script that passes by printing, or a result file --
   an exit code is what every tool already speaks.
 - **`background` starts its actions and the script goes on**; **`parallel`** runs them side by

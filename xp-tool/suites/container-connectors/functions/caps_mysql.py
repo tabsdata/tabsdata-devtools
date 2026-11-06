@@ -16,8 +16,9 @@ DEST (`@subscriber`, collection ``mysql_out``, input from datagen ``caps_input/c
 - ``mysql_out_replace`` : ``if_table_exists="replace"`` — create then DROP+recreate.
 - ``mysql_out_none``    : return-None contract.
 
-MySQL has no ``schema_evolution`` (append/replace only). Append and replace target
-DIFFERENT tables so both fire off the same ``cap_rows`` publish.
+``schema_evolution`` (``"strict"`` by default, or ``"update"``) is the
+schema-evolution suites'. Append and replace target DIFFERENT tables so both fire
+off the same ``cap_rows`` publish.
 
 SRC METADATA — the ``tabsdata.src_metadata.drop`` contract: ``mysql_meta_keep`` and
 ``mysql_meta_drop`` (collection ``mysql_in``) read the same one-query ``SELECT`` with
