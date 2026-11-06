@@ -322,6 +322,62 @@ def evo_strict_wider_type_iceberg_write(rows: TableFrameSpec) -> TableFrameSpec:
     return rows
 
 
+# strict_fitting_type (native), phase 1: strict takes a wider integer into a 32-bit column when its values fit.
+@subscriber(
+    destination=SnowflakeDest(
+        tables=["evo_strict_fitting_type_native"],
+        if_table_exists="replace",
+        schema_evolution="strict",
+        dest_cfg={"snowflake.schema_evolution_engine": "native"},
+    ),
+    input_tables=["evo_input/evo_narrow"],
+)
+def evo_strict_fitting_type_native_seed(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+# strict_fitting_type (native), phase 2: strict takes a wider integer into a 32-bit column when its values fit.
+@subscriber(
+    destination=SnowflakeDest(
+        tables=["evo_strict_fitting_type_native"],
+        if_table_exists="append",
+        schema_evolution="strict",
+        dest_cfg={"snowflake.schema_evolution_engine": "native"},
+    ),
+    input_tables=["evo_input/evo_fitting"],
+)
+def evo_strict_fitting_type_native_write(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+# strict_fitting_type (iceberg), phase 1: strict takes a wider integer into a 32-bit column when its values fit.
+@subscriber(
+    destination=SnowflakeDest(
+        tables=["evo_strict_fitting_type_iceberg"],
+        if_table_exists="replace",
+        schema_evolution="strict",
+        dest_cfg={"snowflake.schema_evolution_engine": "iceberg"},
+    ),
+    input_tables=["evo_input/evo_narrow"],
+)
+def evo_strict_fitting_type_iceberg_seed(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+# strict_fitting_type (iceberg), phase 2: strict takes a wider integer into a 32-bit column when its values fit.
+@subscriber(
+    destination=SnowflakeDest(
+        tables=["evo_strict_fitting_type_iceberg"],
+        if_table_exists="append",
+        schema_evolution="strict",
+        dest_cfg={"snowflake.schema_evolution_engine": "iceberg"},
+    ),
+    input_tables=["evo_input/evo_fitting"],
+)
+def evo_strict_fitting_type_iceberg_write(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
 # update_wider_type (native), phase 1: update widens a 32-bit integer column to hold 2**40.
 @subscriber(
     destination=SnowflakeDest(

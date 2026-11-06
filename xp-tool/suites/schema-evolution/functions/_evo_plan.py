@@ -73,6 +73,7 @@ FRAMES: dict[str, Frame] = {
     "evo_lacking": Frame(_LACKING, ((2, "two"),)),
     "evo_wide": Frame(_BASE, ((2, "two", BEYOND_INT32),)),
     "evo_wide_strict": Frame(_BASE, ((2, "two", BEYOND_INT32),)),
+    "evo_fitting": Frame(_BASE, ((2, "two", 20),)),
     "evo_merge_lacking": Frame(
         (*_LACKING, (OP, "String")), ((1, "uno", "u"), (2, "two", "i"))
     ),
@@ -176,6 +177,17 @@ CASES: tuple[Case, ...] = (
         Write("evo_wide_strict", APPEND, STRICT),
         _SEEDED,
         (_SEEDED, _WIDENED),
+    ),
+    # The usual shape of the case above: polars integers are 64-bit, and a table
+    # made elsewhere has 32-bit columns. Values that fit are taken.
+    Case(
+        "strict_fitting_type",
+        "strict takes a wider integer into a 32-bit column when its values fit",
+        False,
+        Write("evo_narrow", REPLACE, STRICT),
+        Write("evo_fitting", APPEND, STRICT),
+        _SEEDED,
+        (State((ID, NAME, SCORE), ((1, "one", 10), (2, "two", 20))),),
     ),
     Case(
         "update_wider_type",

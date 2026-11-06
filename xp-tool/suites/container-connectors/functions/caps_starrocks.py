@@ -33,6 +33,7 @@ creates its own targets rather than widening the seeded world tables.
 """
 from __future__ import annotations
 
+import polars as pl
 from tabsdatak.api import TableFrameSpec, subscriber
 from tabsdatak.conn.starrocks import StarRocksDest
 
@@ -51,8 +52,10 @@ def starrocks_out_append(city: TableFrameSpec) -> TableFrameSpec:
     input_tables=["caps_input/cap_country"],
 )
 def starrocks_out_replace(country: TableFrameSpec) -> TableFrameSpec:
-    # TRUNCATE + reload -> count stays at 3 however often this runs.
-    return country
+    # TRUNCATE + reload -> count stays at 3 however often this runs. The world
+    # table's surface_area is DECIMAL(10,2) and the frame's a float: a change of
+    # type, which strict refuses, so the frame takes the column's type.
+    return country.cast({"surface_area": pl.Decimal(10, 2)})
 
 
 @subscriber(

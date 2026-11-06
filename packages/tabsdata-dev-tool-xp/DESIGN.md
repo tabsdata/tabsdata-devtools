@@ -115,7 +115,7 @@ times the phases, `--dry-run` prints the commands.
   destination -- postgres, mysql, mssql, oracle, db2, clickhouse, starrocks, databricks,
   snowflake, bigquery, one lane each -- to the `schema_evolution` policy: the cases of
   tabsdata-os' shared schema policy itests (strict refuses a new column or a wider type,
-  update adds and widens, a column the batch lacks is NULL, a merge keeps it), in
+  yet takes a wider integer whose values fit a 32-bit column, update adds and widens, a column the batch lacks is NULL, a merge keeps it), in
   `functions/_evo_plan.py`, standard library only, so the publishers, the generated
   subscribers and the check share it. Every case owns a table and is written in two phases
   of non-detached triggers -- seeds, then the frame under test, the writes that may fail

@@ -157,6 +157,32 @@ def evo_strict_wider_type_write(rows: TableFrameSpec) -> TableFrameSpec:
     return rows
 
 
+# strict_fitting_type, phase 1: strict takes a wider integer into a 32-bit column when its values fit.
+@subscriber(
+    destination=MSSQLDest(
+        tables=["evo_strict_fitting_type"],
+        if_table_exists="append",
+        schema_evolution="strict",
+    ),
+    input_tables=["evo_input/evo_narrow"],
+)
+def evo_strict_fitting_type_seed(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
+# strict_fitting_type, phase 2: strict takes a wider integer into a 32-bit column when its values fit.
+@subscriber(
+    destination=MSSQLDest(
+        tables=["evo_strict_fitting_type"],
+        if_table_exists="append",
+        schema_evolution="strict",
+    ),
+    input_tables=["evo_input/evo_fitting"],
+)
+def evo_strict_fitting_type_write(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
 # update_wider_type, phase 1: update widens a 32-bit integer column to hold 2**40.
 @subscriber(
     destination=MSSQLDest(

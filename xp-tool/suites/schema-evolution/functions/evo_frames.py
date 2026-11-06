@@ -78,6 +78,11 @@ def evo_wide_strict(rows: TableFrameSpec) -> TableFrameSpec:
     return rows
 
 
+@publisher(source=DataGenSrc(data=[Data(_frame("evo_fitting"))]), output_tables=["evo_fitting"])
+def evo_fitting(rows: TableFrameSpec) -> TableFrameSpec:
+    return rows
+
+
 @publisher(
     source=DataGenSrc(data=[Data(_frame("evo_merge_lacking"))]),
     output_tables=["evo_merge_lacking"],
