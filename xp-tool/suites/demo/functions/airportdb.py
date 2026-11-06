@@ -69,7 +69,7 @@ def pub_airportdb(
 # --- marts: enrichment joins + filters (airport_src -> airport_marts) ---------
 @transformer(
     input_tables=[
-        "airport_src/booking@NEW",
+        "airport_src/booking@HEAD",
         "airport_src/passenger@HEAD",
         "airport_src/flight@HEAD",
         "airport_src/airline@HEAD",
@@ -109,7 +109,7 @@ def tfr_bookings_enriched(
     )
 
 
-@transformer(input_tables=["airport_src/booking@NEW"], output_tables=["high_value_bookings"])
+@transformer(input_tables=["airport_src/booking@HEAD"], output_tables=["high_value_bookings"])
 def tfr_high_value_bookings(booking: TableFrameSpec) -> TableFrameSpec:
     # Bookings above a price threshold, most expensive first.
     return (
@@ -121,7 +121,7 @@ def tfr_high_value_bookings(booking: TableFrameSpec) -> TableFrameSpec:
 
 @transformer(
     input_tables=[
-        "airport_src/flight@NEW",
+        "airport_src/flight@HEAD",
         "airport_src/airline@HEAD",
         "airport_src/airport@HEAD",
     ],
@@ -158,7 +158,7 @@ def tfr_flight_roster(
 
 
 @transformer(
-    input_tables=["airport_src/airport@NEW", "airport_src/airport_geo@HEAD"],
+    input_tables=["airport_src/airport@HEAD", "airport_src/airport_geo@HEAD"],
     output_tables=["airport_directory"],
 )
 def tfr_airport_directory(airport: TableFrameSpec, airport_geo: TableFrameSpec) -> TableFrameSpec:

@@ -17,7 +17,8 @@ also quietly removes the `country_right` collision the single-key version has.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 
 
 @transformer(
@@ -25,9 +26,10 @@ from tabsdatak.api import TableFrameSpec, transformer
     output_tables=["orders_same_country"],
 )
 def join_composite_key(
-    orders: TableFrameSpec,
+    orders_versions: TableFramesSpec,
     customers: TableFrameSpec,
 ) -> TableFrameSpec:
+    orders = concat(orders_versions or [])
     return orders.join(
         customers.select("customer_id", "country", "name"),
         on=["customer_id", "country"],

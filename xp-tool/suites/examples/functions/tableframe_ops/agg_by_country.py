@@ -24,12 +24,14 @@ ROW-PRESERVING vs RESHAPING, THE ONE CAVEAT IN THIS SUITE
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.tableframe.functions import col
 
 
 @transformer(input_tables=["src/orders@NEW"], output_tables=["revenue_by_country"])
-def agg_by_country(orders: TableFrameSpec) -> TableFrameSpec:
+def agg_by_country(orders_versions: TableFramesSpec) -> TableFrameSpec:
+    orders = concat(orders_versions or [])
     return orders.group_by("country").agg(
         col("order_id").count().alias("orders"),
         col("amount").sum().alias("revenue"),

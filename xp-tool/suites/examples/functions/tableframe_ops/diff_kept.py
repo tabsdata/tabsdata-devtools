@@ -19,12 +19,14 @@ is often the real reason to choose it.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 
 
 @transformer(
     input_tables=["src/customers@NEW", "src/customers_previous@HEAD"],
     output_tables=["customers_kept"],
 )
-def diff_kept(current: TableFrameSpec, previous: TableFrameSpec) -> TableFrameSpec:
+def diff_kept(current_versions: TableFramesSpec, previous: TableFrameSpec) -> TableFrameSpec:
+    current = concat(current_versions or [])
     return current.join(previous, on="customer_id", how="semi")

@@ -25,6 +25,7 @@ from tabsdatak.api import (
     subscriber,
     transformer,
 )
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.conn.databricks import DatabricksDest
 from tabsdatak.conn.localfile import LocalFileDest, LocalFileSrc
 from tabsdatak.tableframe.functions import col
@@ -68,12 +69,13 @@ def pub_airport(
     output_tables=["bookings_enriched"],
 )
 def tfr_bookings_enriched(
-    booking: TableFrameSpec,
+    booking_versions: TableFramesSpec,
     passenger: TableFrameSpec,
     flight: TableFrameSpec,
     airline: TableFrameSpec,
 ) -> TableFrameSpec:
     # booking -> passenger (name) -> flight (flightno, airline_id) -> airline (name).
+    booking = concat(booking_versions or [])
     enriched = booking.join(
         passenger.select("passenger_id", "firstname", "lastname"),
         on="passenger_id",
@@ -91,8 +93,9 @@ def tfr_bookings_enriched(
 
 
 @transformer(input_tables=["airport_src/booking@NEW"], output_tables=["high_value_bookings"])
-def tfr_high_value_bookings(booking: TableFrameSpec) -> TableFrameSpec:
+def tfr_high_value_bookings(booking_versions: TableFramesSpec) -> TableFrameSpec:
     # Bookings above a price threshold, most expensive first.
+    booking = concat(booking_versions or [])
     return (
         booking.filter(col("price") > 500)
         .select("booking_id", "flight_id", "passenger_id", "seat", "price")
@@ -104,8 +107,9 @@ def tfr_high_value_bookings(booking: TableFrameSpec) -> TableFrameSpec:
     input_tables=["airport_src/flight@NEW", "airport_src/airline@HEAD"],
     output_tables=["flight_roster"],
 )
-def tfr_flight_roster(flight: TableFrameSpec, airline: TableFrameSpec) -> TableFrameSpec:
+def tfr_flight_roster(flight_versions: TableFramesSpec, airline: TableFrameSpec) -> TableFrameSpec:
     # Flights with their operating airline's name.
+    flight = concat(flight_versions or [])
     return flight.join(
         airline.select("airline_id", "airline_name"), on="airline_id", how="left"
     ).select("flight_id", "flightno", "from_airport", "to_airport", "departure", "airline_name")

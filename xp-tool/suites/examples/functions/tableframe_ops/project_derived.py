@@ -20,12 +20,14 @@ reading the plan.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.tableframe.functions import col, lit
 
 
 @transformer(input_tables=["src/orders@NEW"], output_tables=["orders_derived"])
-def project_derived(orders: TableFrameSpec) -> TableFrameSpec:
+def project_derived(orders_versions: TableFramesSpec) -> TableFrameSpec:
+    orders = concat(orders_versions or [])
     return (
         orders.filter(col("status") != "cancelled")
         .with_columns(

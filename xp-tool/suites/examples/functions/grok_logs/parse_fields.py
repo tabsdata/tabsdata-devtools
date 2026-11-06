@@ -38,13 +38,15 @@ suite to mine.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.tableframe import datatypes as td
 from tabsdatak.tableframe.grok import ColumnDefinition as CD
 
 
 @transformer(input_tables=["logs/app_log@NEW"], output_tables=["log_fields"])
-def parse_fields(log: TableFrameSpec) -> TableFrameSpec:
+def parse_fields(log_versions: TableFramesSpec) -> TableFrameSpec:
+    log = concat(log_versions or [])
     return log.grok(
         "message",
         r"^%{TIMESTAMP_ISO8601:ts} %{LOGLEVEL:level} %{NOTSPACE:service} "

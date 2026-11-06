@@ -19,11 +19,12 @@ every output slot, so single-table sinks stay independent).
 from __future__ import annotations
 
 from tabsdatak.api import (
-    TableFrameSpec,
+    TableFrameSpec, TableFramesSpec,
     publisher,
     subscriber,
     transformer,
 )
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.conn.localfile import LocalFileDest
 from tabsdatak.conn.postgres import PostgresSrc
 from tabsdatak.conn.snowflake import SnowflakeDest
@@ -55,8 +56,9 @@ def pub_world(
     input_tables=["world_src/city@NEW", "world_src/country@HEAD"],
     output_tables=["cities_enriched"],
 )
-def tfr_cities_enriched(city: TableFrameSpec, country: TableFrameSpec) -> TableFrameSpec:
+def tfr_cities_enriched(city_versions: TableFramesSpec, country: TableFrameSpec) -> TableFrameSpec:
     # Attach each city's country name / continent / region (city -> country).
+    city = concat(city_versions or [])
     country_dim = country.select("code", "name", "continent", "region").rename(
         {"name": "country_name"}
     )
@@ -70,9 +72,10 @@ def tfr_cities_enriched(city: TableFrameSpec, country: TableFrameSpec) -> TableF
     output_tables=["official_languages"],
 )
 def tfr_official_languages(
-    country_language: TableFrameSpec, country: TableFrameSpec
+    country_language_versions: TableFramesSpec, country: TableFrameSpec
 ) -> TableFrameSpec:
     # Official languages only, with the country name, most-spoken first.
+    country_language = concat(country_language_versions or [])
     country_dim = country.select("code", "name").rename({"name": "country_name"})
     return (
         country_language.filter(col("is_official") == "T")
@@ -83,8 +86,9 @@ def tfr_official_languages(
 
 
 @transformer(input_tables=["world_src/city@NEW"], output_tables=["large_cities"])
-def tfr_large_cities(city: TableFrameSpec) -> TableFrameSpec:
+def tfr_large_cities(city_versions: TableFramesSpec) -> TableFrameSpec:
     # Cities with more than a million people, largest first.
+    city = concat(city_versions or [])
     return (
         city.filter(col("population") > 1000000)
         .select("id", "name", "country_code", "population")

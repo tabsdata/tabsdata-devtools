@@ -19,13 +19,15 @@ match.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.tableframe import datatypes as td
 from tabsdatak.tableframe.grok import ColumnDefinition as CD
 
 
 @transformer(input_tables=["logs/app_log@NEW"], output_tables=["log_metrics"])
-def parse_metrics(log: TableFrameSpec) -> TableFrameSpec:
+def parse_metrics(log_versions: TableFramesSpec) -> TableFrameSpec:
+    log = concat(log_versions or [])
     return log.grok(
         "message",
         r"^%{DATA} status=%{INT:status} duration_ms=%{INT:duration}$",

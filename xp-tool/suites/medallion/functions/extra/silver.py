@@ -13,45 +13,51 @@ silver tables). See ../../extra.json / ../../xsuite.json."""
 
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 
 
 @transformer(
     input_tables=["mysql_in_silver/append_silver@NEW"],
     output_tables=["extra_silver_01"],
 )
-def tfr_extra_silver_01(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_silver_01(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit mysql_in_silver/append_silver unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["postgres_in_silver/append_silver@NEW"],
     output_tables=["extra_silver_02"],
 )
-def tfr_extra_silver_02(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_silver_02(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit postgres_in_silver/append_silver unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["oracle_in_silver/append_silver@NEW"],
     output_tables=["extra_silver_03"],
 )
-def tfr_extra_silver_03(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_silver_03(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit oracle_in_silver/append_silver unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["db2_in_silver/append_silver@NEW"],
     output_tables=["extra_silver_04"],
 )
-def tfr_extra_silver_04(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_silver_04(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit db2_in_silver/append_silver unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["mssqlserver_in_silver/append_silver@NEW"],
     output_tables=["extra_silver_05"],
 )
-def tfr_extra_silver_05(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_silver_05(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit mssqlserver_in_silver/append_silver unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t

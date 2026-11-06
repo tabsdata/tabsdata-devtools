@@ -77,7 +77,8 @@ def jn_log_pub(
 
 # --- parse: one transformer per log (gk_marts) --------------------------------
 @transformer(input_tables=["gk_logs/jn_city_lines@NEW"], output_tables=["jn_cities"])
-def jn_parse_cities(log: TableFrameSpec) -> TableFrameSpec:
+def jn_parse_cities(log_versions: TableFramesSpec) -> TableFrameSpec:
+    log = concat(log_versions or [])
     return (
         log.grok("message", CITY_LINE, CITY_SCHEMA)
         .filter(col("city_id").is_not_null())
@@ -86,7 +87,8 @@ def jn_parse_cities(log: TableFrameSpec) -> TableFrameSpec:
 
 
 @transformer(input_tables=["gk_logs/jn_lang_lines@NEW"], output_tables=["jn_languages"])
-def jn_parse_languages(log: TableFrameSpec) -> TableFrameSpec:
+def jn_parse_languages(log_versions: TableFramesSpec) -> TableFrameSpec:
+    log = concat(log_versions or [])
     return (
         log.grok("message", LANG_LINE, LANG_SCHEMA)
         .filter(col("country_code").is_not_null())
@@ -103,7 +105,9 @@ def jn_parse_languages(log: TableFrameSpec) -> TableFrameSpec:
     input_tables=["jn_cities@NEW", "jn_languages@NEW"],
     output_tables=["city_languages"],
 )
-def mart_city_languages(city: TableFrameSpec, lang: TableFrameSpec) -> TableFrameSpec:
+def mart_city_languages(city_versions: TableFramesSpec, lang_versions: TableFramesSpec) -> TableFrameSpec:
+    city = concat(city_versions or [])
+    lang = concat(lang_versions or [])
     official = (
         lang.filter(col("is_official") == "T")
         .select("country_code", "language", "percentage")

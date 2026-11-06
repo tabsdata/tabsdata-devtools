@@ -26,7 +26,7 @@ why the file sources in these examples use it as their fold.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
 from tabsdatak.tableframe.functions import concat
 
 
@@ -35,7 +35,8 @@ from tabsdatak.tableframe.functions import concat
     output_tables=["customers_union"],
 )
 def union_and_dedupe(
-    current: TableFrameSpec,
+    current_versions: TableFramesSpec,
     previous: TableFrameSpec,
 ) -> TableFrameSpec:
+    current = concat(current_versions or [])
     return concat([current, previous], how="vertical").unique(subset=["customer_id"])

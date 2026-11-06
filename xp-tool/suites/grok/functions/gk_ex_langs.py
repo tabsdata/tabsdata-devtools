@@ -68,7 +68,8 @@ def lang_log_pub(lines: TableFramesSpec) -> TableFrameSpec:
 
 # --- parse: two grok calls, then ordinary column work (gk_marts) --------------
 @transformer(input_tables=["gk_logs/lang_lines@NEW"], output_tables=["languages"])
-def parse_lang_log(log: TableFrameSpec) -> TableFrameSpec:
+def parse_lang_log(log_versions: TableFramesSpec) -> TableFrameSpec:
+    log = concat(log_versions or [])
     return (
         # Chained: parse the line, then parse the file name of the row you just parsed.
         log.grok("message", LANG_LINE, LANG_SCHEMA)
@@ -84,7 +85,8 @@ def parse_lang_log(log: TableFrameSpec) -> TableFrameSpec:
 
 # --- mart: the official languages, most-spoken first --------------------------
 @transformer(input_tables=["languages@NEW"], output_tables=["official_languages"])
-def mart_official_languages(lang: TableFrameSpec) -> TableFrameSpec:
+def mart_official_languages(lang_versions: TableFramesSpec) -> TableFrameSpec:
+    lang = concat(lang_versions or [])
     return (
         lang.filter(col("is_official") == "T")
         .select("country_code", "language", "percentage", "load_day")

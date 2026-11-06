@@ -130,7 +130,7 @@ def stream_finance_changes(
 # --- marts: enrichment joins + filters (finance_src -> finance_marts) ---------
 @transformer(
     input_tables=[
-        "finance_src/customer_subscriptions@NEW",
+        "finance_src/customer_subscriptions@HEAD",
         "finance_src/customers@HEAD",
         "finance_src/subscription_plans@HEAD",
         "finance_src/payment_methods@HEAD",
@@ -191,7 +191,7 @@ def tfr_subscriptions_enriched(
 
 
 @transformer(
-    input_tables=["finance_marts/subscriptions_enriched@NEW"],
+    input_tables=["finance_marts/subscriptions_enriched@HEAD"],
     output_tables=["active_subscriptions"],
 )
 def tfr_active_subscriptions(enriched: TableFrameSpec) -> TableFrameSpec:
@@ -201,7 +201,7 @@ def tfr_active_subscriptions(enriched: TableFrameSpec) -> TableFrameSpec:
 
 @transformer(
     input_tables=[
-        "finance_src/customer_subscriptions@NEW",
+        "finance_src/customer_subscriptions@HEAD",
         "finance_src/customers@HEAD",
         "finance_src/subscription_plans@HEAD",
     ],
@@ -233,7 +233,7 @@ def tfr_churned_subscriptions(
 
 @transformer(
     input_tables=[
-        "finance_src/customer_subscription_events@NEW",
+        "finance_src/customer_subscription_events@HEAD",
         "finance_src/customer_subscriptions@HEAD",
         "finance_src/customers@HEAD",
     ],

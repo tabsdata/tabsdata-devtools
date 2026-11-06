@@ -20,7 +20,8 @@ because copying rows onto themselves would mean nothing.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.dataquality import (
     AllOk,
     AnyFailed,
@@ -56,5 +57,6 @@ from tabsdatak.dataquality import (
         )
     ],
 )
-def check_select(orders: TableFrameSpec) -> TableFrameSpec:
+def check_select(orders_versions: TableFramesSpec) -> TableFrameSpec:
+    orders = concat(orders_versions or [])
     return orders

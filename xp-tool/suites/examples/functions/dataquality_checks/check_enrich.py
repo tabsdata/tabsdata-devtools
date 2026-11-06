@@ -44,7 +44,8 @@ audiences — see `check_gate.py`.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.dataquality import (
     DataQuality,
     Enrich,
@@ -75,5 +76,6 @@ from tabsdatak.dataquality import (
         )
     ],
 )
-def check_enrich(orders: TableFrameSpec) -> TableFrameSpec:
+def check_enrich(orders_versions: TableFramesSpec) -> TableFrameSpec:
+    orders = concat(orders_versions or [])
     return orders

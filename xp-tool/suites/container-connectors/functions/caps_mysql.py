@@ -32,12 +32,13 @@ transformer over both tables cannot work.
 from __future__ import annotations
 
 from tabsdatak.api import (
-    TableFrameSpec,
+    TableFrameSpec, TableFramesSpec,
     TransactionCtx,
     publisher,
     subscriber,
     transformer,
 )
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.conn.mysql import MySQLDest, MySQLSrc
 
 try:
@@ -173,12 +174,14 @@ def mysql_meta_drop(country: TableFrameSpec) -> TableFrameSpec:
 
 
 @transformer(input_tables=["mysql_in/meta_keep@NEW"], output_tables=["meta_keep_ok"])
-def mysql_meta_keep_check(keep: TableFrameSpec) -> TableFrameSpec:
+def mysql_meta_keep_check(keep_versions: TableFramesSpec) -> TableFrameSpec:
+    keep = concat(keep_versions or [])
     return check_keep(keep, SQL_META, QUERY_COLUMNS,
                       exact={SQL_META_QUERY: _META_QUERY,
                              SQL_META_INITIAL_VALUES: NO_BINDS})
 
 
 @transformer(input_tables=["mysql_in/meta_drop@NEW"], output_tables=["meta_drop_ok"])
-def mysql_meta_drop_check(drop: TableFrameSpec) -> TableFrameSpec:
+def mysql_meta_drop_check(drop_versions: TableFramesSpec) -> TableFrameSpec:
+    drop = concat(drop_versions or [])
     return check_drop(drop, QUERY_COLUMNS)

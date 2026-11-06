@@ -20,14 +20,16 @@ aggregate — `agg_top_customers.py` shows that shape.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 
 
 @transformer(
     input_tables=["src/customers@NEW", "src/orders@HEAD"],
     output_tables=["customers_with_orders"],
 )
-def join_left(customers: TableFrameSpec, orders: TableFrameSpec) -> TableFrameSpec:
+def join_left(customers_versions: TableFramesSpec, orders: TableFrameSpec) -> TableFrameSpec:
+    customers = concat(customers_versions or [])
     return customers.join(
         orders.select("order_id", "customer_id", "amount"),
         on="customer_id",

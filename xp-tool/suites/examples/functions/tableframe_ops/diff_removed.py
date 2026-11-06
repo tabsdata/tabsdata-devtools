@@ -17,12 +17,14 @@ whichever table's arrival should recompute the answer.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 
 
 @transformer(
     input_tables=["src/customers_previous@NEW", "src/customers@HEAD"],
     output_tables=["customers_removed"],
 )
-def diff_removed(previous: TableFrameSpec, current: TableFrameSpec) -> TableFrameSpec:
+def diff_removed(previous_versions: TableFramesSpec, current: TableFrameSpec) -> TableFrameSpec:
+    previous = concat(previous_versions or [])
     return previous.join(current, on="customer_id", how="anti")

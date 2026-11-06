@@ -27,14 +27,16 @@ collisions in a join are a silent widening otherwise.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 
 
 @transformer(
     input_tables=["src/orders@NEW", "src/customers@HEAD"],
     output_tables=["orders_enriched"],
 )
-def join_inner(orders: TableFrameSpec, customers: TableFrameSpec) -> TableFrameSpec:
+def join_inner(orders_versions: TableFramesSpec, customers: TableFrameSpec) -> TableFrameSpec:
+    orders = concat(orders_versions or [])
     return orders.join(
         customers.select("customer_id", "name", "tier"),
         on="customer_id",

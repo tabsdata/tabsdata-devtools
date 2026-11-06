@@ -18,11 +18,13 @@ warehouse's. Do it once, here, rather than in every consumer.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 
 
 @transformer(input_tables=["src/customers@NEW"], output_tables=["customer_labels"])
-def project_columns(customers: TableFrameSpec) -> TableFrameSpec:
+def project_columns(customers_versions: TableFramesSpec) -> TableFrameSpec:
+    customers = concat(customers_versions or [])
     return (
         customers.select("customer_id", "name", "country")
         .rename({"name": "customer_name"})

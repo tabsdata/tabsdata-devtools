@@ -25,7 +25,8 @@ the transaction aborts — worth doing once to see what a gate failure looks lik
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.dataquality import (
     AnyFailed,
     DataQuality,
@@ -61,5 +62,6 @@ from tabsdatak.dataquality import (
         )
     ],
 )
-def check_gate(orders: TableFrameSpec) -> TableFrameSpec:
+def check_gate(orders_versions: TableFramesSpec) -> TableFrameSpec:
+    orders = concat(orders_versions or [])
     return orders

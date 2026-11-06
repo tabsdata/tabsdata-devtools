@@ -74,7 +74,7 @@ def pub_logistics(
 # --- marts: enrichment joins + filters (logistics_src -> logistics_marts) -----
 @transformer(
     input_tables=[
-        "logistics_src/shipments@NEW",
+        "logistics_src/shipments@HEAD",
         "logistics_src/customers@HEAD",
         "logistics_src/hubs@HEAD",
     ],
@@ -118,7 +118,7 @@ def tfr_shipments_enriched(
 
 
 @transformer(
-    input_tables=["logistics_marts/shipments_enriched@NEW"],
+    input_tables=["logistics_marts/shipments_enriched@HEAD"],
     output_tables=["in_transit_shipments"],
 )
 def tfr_in_transit_shipments(enriched: TableFrameSpec) -> TableFrameSpec:
@@ -127,7 +127,7 @@ def tfr_in_transit_shipments(enriched: TableFrameSpec) -> TableFrameSpec:
 
 
 @transformer(
-    input_tables=["logistics_marts/shipments_enriched@NEW"],
+    input_tables=["logistics_marts/shipments_enriched@HEAD"],
     output_tables=["failed_deliveries"],
 )
 def tfr_failed_deliveries(enriched: TableFrameSpec) -> TableFrameSpec:
@@ -138,7 +138,7 @@ def tfr_failed_deliveries(enriched: TableFrameSpec) -> TableFrameSpec:
 
 @transformer(
     input_tables=[
-        "logistics_src/tracking_events@NEW",
+        "logistics_src/tracking_events@HEAD",
         "logistics_src/shipments@HEAD",
         "logistics_src/hubs@HEAD",
         "logistics_src/couriers@HEAD",

@@ -21,11 +21,12 @@ from __future__ import annotations
 import polars as pl  # DataGenSrc input only — never used in a transform.
 
 from tabsdatak.api import (
-    TableFrameSpec,
+    TableFrameSpec, TableFramesSpec,
     publisher,
     subscriber,
     transformer,
 )
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.conn.clickhouse import ClickHouseDest
 from tabsdatak.conn.dev import Data, DataGenSrc
 from tabsdatak.conn.s3 import S3Dest
@@ -68,9 +69,10 @@ def pub_retail(
     output_tables=["orders_enriched"],
 )
 def tfr_orders_enriched(
-    orders: TableFrameSpec, customers: TableFrameSpec
+    orders_versions: TableFramesSpec, customers: TableFrameSpec
 ) -> TableFrameSpec:
     # Attach each order's customer name and country (orders -> customers).
+    orders = concat(orders_versions or [])
     return orders.join(customers, on="customer_id", how="left").select(
         "order_id", "customer_id", "name", "country", "amount", "status"
     )
@@ -81,9 +83,10 @@ def tfr_orders_enriched(
     output_tables=["paid_orders"],
 )
 def tfr_paid_orders(
-    orders: TableFrameSpec, customers: TableFrameSpec
+    orders_versions: TableFramesSpec, customers: TableFrameSpec
 ) -> TableFrameSpec:
     # Paid orders only, enriched with the customer, biggest first.
+    orders = concat(orders_versions or [])
     return (
         orders.filter(col("status") == "paid")
         .join(customers, on="customer_id", how="left")

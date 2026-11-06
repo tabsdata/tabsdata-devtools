@@ -13,245 +13,276 @@ bronze tables). See ../../extra.json / ../../xsuite.json."""
 
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 
 
 @transformer(
     input_tables=["mysql_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_01"],
 )
-def tfr_extra_bronze_01(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_01(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit mysql_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["postgres_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_02"],
 )
-def tfr_extra_bronze_02(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_02(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit postgres_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["oracle_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_03"],
 )
-def tfr_extra_bronze_03(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_03(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit oracle_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["db2_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_04"],
 )
-def tfr_extra_bronze_04(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_04(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit db2_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["mssqlserver_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_05"],
 )
-def tfr_extra_bronze_05(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_05(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit mssqlserver_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["databricks_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_06"],
 )
-def tfr_extra_bronze_06(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_06(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit databricks_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["mysql_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_07"],
 )
-def tfr_extra_bronze_07(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_07(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit mysql_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["postgres_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_08"],
 )
-def tfr_extra_bronze_08(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_08(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit postgres_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["oracle_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_09"],
 )
-def tfr_extra_bronze_09(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_09(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit oracle_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["db2_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_10"],
 )
-def tfr_extra_bronze_10(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_10(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit db2_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["mssqlserver_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_11"],
 )
-def tfr_extra_bronze_11(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_11(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit mssqlserver_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["databricks_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_12"],
 )
-def tfr_extra_bronze_12(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_12(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit databricks_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["mysql_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_13"],
 )
-def tfr_extra_bronze_13(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_13(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit mysql_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["postgres_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_14"],
 )
-def tfr_extra_bronze_14(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_14(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit postgres_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["oracle_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_15"],
 )
-def tfr_extra_bronze_15(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_15(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit oracle_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["db2_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_16"],
 )
-def tfr_extra_bronze_16(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_16(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit db2_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["mssqlserver_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_17"],
 )
-def tfr_extra_bronze_17(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_17(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit mssqlserver_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["databricks_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_18"],
 )
-def tfr_extra_bronze_18(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_18(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit databricks_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["mysql_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_19"],
 )
-def tfr_extra_bronze_19(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_19(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit mysql_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["postgres_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_20"],
 )
-def tfr_extra_bronze_20(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_20(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit postgres_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["oracle_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_21"],
 )
-def tfr_extra_bronze_21(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_21(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit oracle_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["db2_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_22"],
 )
-def tfr_extra_bronze_22(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_22(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit db2_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["mssqlserver_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_23"],
 )
-def tfr_extra_bronze_23(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_23(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit mssqlserver_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["databricks_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_24"],
 )
-def tfr_extra_bronze_24(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_24(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit databricks_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["mysql_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_25"],
 )
-def tfr_extra_bronze_25(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_25(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit mysql_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["postgres_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_26"],
 )
-def tfr_extra_bronze_26(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_26(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit postgres_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["oracle_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_27"],
 )
-def tfr_extra_bronze_27(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_27(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit oracle_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["db2_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_28"],
 )
-def tfr_extra_bronze_28(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_28(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit db2_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["mssqlserver_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_29"],
 )
-def tfr_extra_bronze_29(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_29(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit mssqlserver_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t
 
 @transformer(
     input_tables=["databricks_in_bronze/append_bronze@NEW"],
     output_tables=["extra_bronze_30"],
 )
-def tfr_extra_bronze_30(t: TableFrameSpec) -> TableFrameSpec:
+def tfr_extra_bronze_30(t_versions: TableFramesSpec) -> TableFrameSpec:
     # Identity: re-emit databricks_in_bronze/append_bronze unchanged as an unused leaf copy.
+    t = concat(t_versions or [])
     return t

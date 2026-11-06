@@ -78,7 +78,8 @@ def city_log_pub(lines: TableFramesSpec) -> TableFrameSpec:
 
 # --- parse: grok in a regular transformer (gk_marts) --------------------------
 @transformer(input_tables=["gk_logs/city_lines@NEW"], output_tables=["cities"])
-def parse_city_log(log: TableFrameSpec) -> TableFrameSpec:
+def parse_city_log(log_versions: TableFramesSpec) -> TableFrameSpec:
+    log = concat(log_versions or [])
     parsed = log.grok("message", CITY_LINE, CITY_SCHEMA)
     return (
         # The CSV header line matches no typed pattern, so its captures are null — drop
@@ -93,8 +94,9 @@ def parse_city_log(log: TableFrameSpec) -> TableFrameSpec:
 # A table produced in the same collection is referenced by its BARE name (a
 # `collection/table` reference is for crossing collections).
 @transformer(input_tables=["cities@NEW"], output_tables=["big_cities"])
-def mart_big_cities(city: TableFrameSpec) -> TableFrameSpec:
+def mart_big_cities(city_versions: TableFramesSpec) -> TableFrameSpec:
     # Nothing here knows the table came from a log: past the grok call it is a table.
+    city = concat(city_versions or [])
     return (
         city.filter(col("population") > 1000000)
         .select("city_id", "city_name", "country_code", "population")

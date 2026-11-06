@@ -24,7 +24,8 @@ a subscriber.
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.tableframe.functions import col
 
 
@@ -33,9 +34,10 @@ from tabsdatak.tableframe.functions import col
     output_tables=["top_customers"],
 )
 def agg_top_customers(
-    orders: TableFrameSpec,
+    orders_versions: TableFramesSpec,
     customers: TableFrameSpec,
 ) -> TableFrameSpec:
+    orders = concat(orders_versions or [])
     totals = orders.group_by("customer_id").agg(
         col("amount").sum().alias("total_spend"),
         col("order_id").count().alias("orders"),

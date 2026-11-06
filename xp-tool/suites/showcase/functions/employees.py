@@ -23,6 +23,7 @@ from tabsdatak.api import (
     subscriber,
     transformer,
 )
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.conn.bigquery import BigQueryDest
 from tabsdatak.conn.localfile import LocalFileDest, LocalFileSrc
 from tabsdatak.tableframe.functions import col
@@ -65,9 +66,10 @@ def pub_employees(
     output_tables=["dept_roster"],
 )
 def tfr_dept_roster(
-    dept_emp: TableFrameSpec, departments: TableFrameSpec, employees: TableFrameSpec
+    dept_emp_versions: TableFramesSpec, departments: TableFrameSpec, employees: TableFrameSpec
 ) -> TableFrameSpec:
     # Who works where: dept_emp -> departments (name) -> employees (name).
+    dept_emp = concat(dept_emp_versions or [])
     roster = dept_emp.join(
         departments.select("dept_no", "dept_name"), on="dept_no", how="left"
     )
@@ -82,9 +84,10 @@ def tfr_dept_roster(
     output_tables=["high_earners"],
 )
 def tfr_high_earners(
-    salaries: TableFrameSpec, employees: TableFrameSpec
+    salaries_versions: TableFramesSpec, employees: TableFrameSpec
 ) -> TableFrameSpec:
     # Salary records above a threshold, with the employee's name, highest first.
+    salaries = concat(salaries_versions or [])
     return (
         salaries.filter(col("salary") > 70000)
         .join(employees.select("emp_no", "first_name", "last_name"), on="emp_no", how="left")

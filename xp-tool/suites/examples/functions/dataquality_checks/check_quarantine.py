@@ -25,7 +25,8 @@ By default a null or NaN verdict COUNTS AS A FAILURE; `none_is_ok=True` /
 """
 from __future__ import annotations
 
-from tabsdatak.api import TableFrameSpec, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, transformer
+from tabsdatak.tableframe.functions import concat
 from tabsdatak.dataquality import (
     AnyFailed,
     DataQuality,
@@ -61,8 +62,9 @@ from tabsdatak.dataquality import (
         )
     ],
 )
-def check_quarantine(orders: TableFrameSpec) -> TableFrameSpec:
+def check_quarantine(orders_versions: TableFramesSpec) -> TableFrameSpec:
     # `screened` comes out holding only the rows that passed everything;
     # `rejected` holds the three that did not, with the verdicts that explain
     # why.
+    orders = concat(orders_versions or [])
     return orders

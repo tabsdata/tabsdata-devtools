@@ -152,10 +152,12 @@ def gcs_meta_drop(country: TableFramesSpec) -> TableFrameSpec:
 
 
 @transformer(input_tables=["gcs_in/meta_keep@NEW"], output_tables=["meta_keep_ok"])
-def gcs_meta_keep_check(keep: TableFrameSpec) -> TableFrameSpec:
+def gcs_meta_keep_check(keep_versions: TableFramesSpec) -> TableFrameSpec:
+    keep = concat(keep_versions or [])
     return check_keep(keep, FILE_META, COUNTRY_COLUMNS)
 
 
 @transformer(input_tables=["gcs_in/meta_drop@NEW"], output_tables=["meta_drop_ok"])
-def gcs_meta_drop_check(drop: TableFrameSpec) -> TableFrameSpec:
+def gcs_meta_drop_check(drop_versions: TableFramesSpec) -> TableFrameSpec:
+    drop = concat(drop_versions or [])
     return check_drop(drop, COUNTRY_COLUMNS)
