@@ -566,12 +566,13 @@ class Db2Cdc(Db2):
         )
         out = self._run(container, body, ignore_failure=True)
         if _SECTION + "held" in out:
+            _, _, why = out.partition(_SECTION + "held")
             raise CaptureBusyError(
                 f"CDC: asncap has not taken the CAPSTOP of {', '.join(sources)} "
                 f"within {_WAIT_TIMEOUT_S}s; their registrations and CD tables are "
                 f"left in place, since dropping a CD table asncap still writes to "
                 f"stops it for every domain. Run this again once asncap has "
-                f"caught up."
+                f"caught up.\n{why.strip()}"
             )
         _, _, tail = out.partition(_SECTION + "left")
         left = {

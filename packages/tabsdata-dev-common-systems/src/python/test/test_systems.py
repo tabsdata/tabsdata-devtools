@@ -2484,6 +2484,40 @@ def test_db2cdc_a_held_removal_is_an_error_and_fails_the_destroy(db2cdc):
         db2cdc._deregister_schema({})
 
 
+def test_db2cdc_a_held_removal_reports_what_capture_was_doing(db2cdc):
+    """What tells a capture program that is behind from one that is stuck
+    reaches the error, read over the script's own connection."""
+    from tabsdata_dev.common.systems.systems.db2cdc import backend
+
+    db2cdc._remove_registrations("C", "S", ["A"])
+    [call] = [c for c in db2cdc.calls if "'CAPSTOP'" in c]
+    report = call[call.index("held'") :]
+    for probe in (
+        '"$restart"',
+        "mon_get_transaction_log",
+        "global_record = 'Y'",
+        "signal_input_in in ('S.A')",
+        "sysibmadm.mon_lockwaits",
+        "mon_get_unit_of_work",
+        "status show details",
+    ):
+        assert probe in report
+    assert call.index("ibmsnap_restart") < call.index("'CAPSTOP'")
+    assert "$(db2" not in call
+
+    db2cdc._run = lambda container, body, **kwargs: (
+        f"{backend._SECTION}held\nWaited 300s; 0 of 1 stop(s) taken.\n"
+    )
+    with pytest.raises(backend.CaptureBusyError, match="Waited 300s; 0 of 1"):
+        db2cdc._remove_registrations("C", "S", ["A"])
+
+
+def test_db2cdc_a_reclaim_reads_no_report(db2cdc):
+    db2cdc._remove_registrations("C", "S", ["A"], source_gone=True)
+    [call] = [c for c in db2cdc.calls if "'CAPSTOP'" in c]
+    assert "mon_lockwaits" not in call and "ibmsnap_restart" not in call
+
+
 def test_db2cdc_a_deregistration_clears_data_capture_and_drops_its_sources(db2cdc):
     db2cdc._deregister_tables("C", "S", ["A"], drop=True)
     [call] = [c for c in db2cdc.calls if "'CAPSTOP'" in c]
