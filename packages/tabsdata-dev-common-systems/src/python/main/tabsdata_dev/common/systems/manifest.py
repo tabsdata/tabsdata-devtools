@@ -105,8 +105,10 @@ def domain_entry(info: descriptor.DomainInfo) -> dict:
         entry["model"] = info.model
     if info.data:
         entry["size"] = info.data
-    # A create option a type adds: the pgvector types' `--pgvector on`. Off is the
-    # default, so only on is worth replaying.
-    if info.meta.get("PGVECTOR") == "on":
-        entry["pgvector"] = "on"
+    # The create options a type adds: the pgvector types' `--pgvector on`, the
+    # redpanda types' `--registry on`. Off is the default, so only on is worth
+    # replaying.
+    for key in ("PGVECTOR", "REGISTRY"):
+        if info.meta.get(key) == "on":
+            entry[key.lower()] = "on"
     return entry

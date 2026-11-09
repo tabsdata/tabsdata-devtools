@@ -1,0 +1,14 @@
+[
+  {
+    "name": "app",
+    "sizeable": true
+  },
+  {
+    "name": "access",
+    "sizeable": true
+  },
+  {
+    "name": "xp_sentinel",
+    "sizeable": false
+  }
+]

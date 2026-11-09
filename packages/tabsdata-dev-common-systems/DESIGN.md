@@ -50,11 +50,38 @@ with per-system DDL. The tools `system`, `domain` and `domain-sf` are thin entry
 - Docker containers are named from one constant (`DOCKER_CONTAINER_PREFIX`, `tdd`), which is what
   `clean-docker` matches; `tdx2` survives only where it means the legacy descriptor format.
 
+## File domains: what is staged, in which formats
+
+Every file system (fs, s3/s3local, gcs/gcslocal, azureblob/azurebloblocal) stages through
+`FileStore._stage_and_upload`, so a format is added once for all of them. A table is staged as
+`<fmt>/<entity>_<stamp>.<fmt>` in each of `emit.FILE_FORMATS` -- csv, ndjson, parquet, avro,
+xlsx: every format a tabsdata file source reads by extension -- and a log table in `log` alone.
+
+- **Avro is written from the columns, not the frame** (`emit.avro_schema`, fastavro): polars
+  writes neither a time column nor an all-null one, and its schema would be whatever it inferred.
+  Each SQL type takes the Avro type arrow-avro (tabsdata's reader) maps back to the same Arrow
+  type: `decimal` bytes at the column's precision and scale, `date`, `time-micros`,
+  `local-timestamp-micros` (the models' times carry no zone). A nullable column -- and an `auto`
+  one, which a model may leave to the database a file does not have -- is `["null", T]`.
+- **xlsx is the frame's** (polars `write_excel`, xlsxwriter), one sheet with a header.
+- **A table a format cannot hold is left out of it, and the run says so** (`emit.unwritable`):
+  names Avro refuses (bronze's `@td.cdc.*` CDC table), more rows than a worksheet holds
+  (1,048,575). Rejected: renaming the columns for Avro, which would make that file the one whose
+  columns differ from the other four.
+- **A log table is one with a column marked `log_line`**; its file is that column's values, one
+  per line, LF and UTF-8 written as bytes. The other columns are what the line says and travel
+  only in the `--emit-ops` trail, so a check compares what a parser made of the lines with what
+  they were made from. The marker is on the `Column`, not the model: modify-data's and
+  sentinel-data's tables are rebuilt from the changes' columns, and the sentinel table of a log
+  model, which has no lines, is staged like any other. The `logs` model is two such files --
+  an application log (a stack-trace continuation every 25th line, which matches no line
+  pattern) and the combined access log, its month spelled from a table rather than the locale.
+
 ## redpanda: topics, partitions and the shape of a message
 
-A redpanda domain is a topic prefix; its data plane produces one JSON message per row to
+A redpanda domain is a topic prefix; its data plane produces one message per row to
 `<prefix>.<entity>`, keyed by the row's first field so a row lands on the same partition run to
-run. Its own `create-model`, `create-data` and `modify-data` (`redpanda/domain/`, the rules in
+run -- JSON, unless the model says otherwise (below). Its own `create-model`, `create-data` and `modify-data` (`redpanda/domain/`, the rules in
 `redpanda/shape.py`, pure so a dry run plans what a real run does):
 
 - **`create-model` creates every entity's topic**, before anything is produced. A producer
@@ -91,6 +118,36 @@ run. Its own `create-model`, `create-data` and `modify-data` (`redpanda/domain/`
   redpanda's create-model, create-data and modify-data: the dispatcher finds a type's commands by
   its slug, not its base class, so without them it would get the shared ones (no partitions or
   schema changes, and an update/delete recipe a topic refuses).
+
+## redpanda: Avro and Protobuf messages
+
+A model names the entities whose messages are not JSON in its `model.json`
+(`"message_formats": {"page_view": "avro", "order_placed": "protobuf"}`, the `shopevents`
+model); `create-model` records them in the domain's meta (`MESSAGE_FORMATS`) and the data-plane
+handle carries them, so every produce encodes by them (`redpanda/wire.py`).
+
+- **Every schema is made from the entity's columns** (those a message carries, `auto` ones
+  left out), so nothing is kept beside the model to drift from it. Avro is the schema the file
+  domains write (`tdd.<Entity>`); a message is the record's binary encoding, no container
+  header. Protobuf is one `.proto` per entity, `package tdd`, a message named after the entity
+  in CamelCase, a field per column in column order, a nullable column `optional` so a null is
+  absent rather than zero; a decimal, date or time travels as its text, Protobuf having none.
+- **The descriptor is built, not compiled**: compiling the `.proto` text needs `protoc`, which
+  no toolset pins. `proto_text` renders the same declaration for a consumer; a test compares
+  the two field by field, and protoc compiling the text to the identical descriptor is in
+  `.claude/VERIFIED.md`.
+- **`domain create --registry on`** (meta `REGISTRY`, replayed by `manifest`) frames those
+  messages in the Confluent wire format: `0x00`, the schema id big-endian, the message index
+  `0x00` for Protobuf, then the payload; each schema registered under `<topic>-value` in the
+  system's registry over its REST API, with the standard library. Registering a schema already
+  there returns its id, so every produce registers and no id is stored; destroy and
+  delete-model delete the prefix's subjects, best-effort. A domain-level choice rather than a
+  per-run flag: a topic mixing plain and framed messages is one no consumer reads. JSON is never
+  framed.
+- **`create-model --schemas-dir DIR`** writes `<entity>.avsc` / `<entity>.proto` for a consumer,
+  and the report names the Protobuf message (`tdd.OrderPlaced`).
+- **`--schema-changes` is refused on such a topic**: an Avro or Protobuf message is its schema's,
+  and no row can add, drop or retype a field of it.
 
 ## The two backend bases
 

@@ -8,9 +8,10 @@ The container needs a custom ``redpanda start`` command (internal + external
 kafka listeners, and the Confluent-compatible schema registry published on a
 host port), so ``provision_system`` is bespoke; readiness is ``rpk cluster
 info``. A domain is a topic managed through the confluent-kafka AdminClient
-(there is no per-topic auth). The data plane produces a model's rows as JSON
+(there is no per-topic auth). The data plane produces a model's rows as
 messages, one per row, keyed by the row's first field, to a
-``<domain>.<entity>`` topic per entity. ``create-model`` creates those topics,
+``<domain>.<entity>`` topic per entity: JSON, or the Avro / Protobuf the model
+names for an entity, plain or registry-framed (``wire``). ``create-model`` creates those topics,
 each with the partitions ``--up-to-partitions`` gave it (``shape``), so a
 consumer can subscribe before anything is produced and a topic nothing writes
 still exists; ``modify-data`` is insert-only (a Kafka log only appends).
@@ -19,9 +20,8 @@ still exists; ``modify-data`` is insert-only (a Kafka log only appends).
 
 from __future__ import annotations
 
-import json
 from contextlib import contextmanager
-from urllib.parse import quote, unquote
+from urllib.parse import parse_qs, quote, unquote, urlencode
 
 from tabsdata_dev.common.systems import constants, datagen, emit, naming, options
 from tabsdata_dev.common.systems.errors import TdxError
@@ -44,7 +44,7 @@ from tabsdata_dev.common.systems.systems._common.hosting.endpoint import (
 from tabsdata_dev.common.systems.systems._common.nature.server.messaging import (
     Messaging,
 )
-from tabsdata_dev.common.systems.systems.redpanda import shape
+from tabsdata_dev.common.systems.systems.redpanda import shape, wire
 
 _REGISTRY_INTERNAL_PORT = 8081
 # The one SASL user a system with --sasl on has, and how it authenticates --
@@ -87,8 +87,20 @@ class Redpanda(SingleContainerHosting, Messaging):
     image_platform = images.REDPANDA.platform
     internal_port = 9092
 
+    # What `domain create --registry` chose for the domain it is creating.
+    _registry: str = wire.REGISTRY_OFF
+
     def generate_password(self) -> str:
         return ""  # a password is generated only for --sasl on (plan_system)
+
+    def use_registry(self, choice: str) -> None:
+        """Bind ``--registry`` for the domain this create makes (on or off)."""
+        if choice not in (wire.REGISTRY_ON, wire.REGISTRY_OFF):
+            raise TdxError(
+                f"{wire.OPT_REGISTRY} takes {wire.REGISTRY_ON} or "
+                f"{wire.REGISTRY_OFF}, not {choice!r}"
+            )
+        self._registry = choice
 
     def options(self) -> tuple[options.Option, ...]:
         return (
@@ -296,6 +308,7 @@ class Redpanda(SingleContainerHosting, Messaging):
             "KAFKA_BROKERS": brokers,
             "SCHEMA_REGISTRY_URL": sys_meta.get("SCHEMA_REGISTRY_URL", ""),
             "GROUP_ID": naming.build_identity(),
+            wire.META_REGISTRY: self._registry,
         }
 
     def provision_domain(
@@ -323,6 +336,17 @@ class Redpanda(SingleContainerHosting, Messaging):
 
     def destroy_domain(self, domain_meta: dict[str, str]) -> None:
         self._delete_topics(self._admin_client(domain_meta), domain_meta["DB"])
+        self._delete_subjects(wire.registry_of(domain_meta), domain_meta["DB"])
+
+    @staticmethod
+    def _delete_subjects(registry: str, prefix: str) -> None:
+        """The schemas a registry domain's topics were framed with, after the
+        topics: best-effort, said so, since what is left behind only matters to
+        an incompatible schema registered under the same topic name."""
+        if not registry:
+            return
+        for failure in wire.delete_subjects(registry, prefix):
+            print(f">>> schema registry: could not delete {failure}")
 
     def list_domain_entities(self, sys_meta: dict[str, str]) -> list[str]:
         # A domain is one dot-free topic; per-entity `<domain>.<table>` topics go
@@ -336,7 +360,7 @@ class Redpanda(SingleContainerHosting, Messaging):
     def purge_domain_entity(self, sys_meta: dict[str, str], name: str) -> None:
         self._delete_topics(self._admin_client(sys_meta), name)
 
-    # ---- data plane: produce a model's rows as JSON messages -----------
+    # ---- data plane: produce a model's rows as messages ----------------
 
     def has_model(self, model: str) -> bool:
         return model in datagen.list_models()  # any model — no per-system schema
@@ -350,17 +374,36 @@ class Redpanda(SingleContainerHosting, Messaging):
         # endpoint, so the descriptor stores no URI: this composes the handle the
         # generic data-plane commands pass around -- the SASL user in it when
         # there is one -- and `_endpoint` takes it apart again.
+        # The messages' formats and registry ride in the query, so the handle
+        # alone says how to encode them.
         user = meta.get("USER", "")
         auth = f"{quote(user, safe='')}:{quote(meta.get('PASSWORD', ''), safe='')}@"
+        query = {
+            k: v
+            for k, v in (
+                ("formats", meta.get(wire.META_MESSAGE_FORMATS, "")),
+                ("registry", wire.registry_of(meta)),
+            )
+            if v
+        }
         yield (
             f"kafka://{auth if user else ''}{meta.get('KAFKA_BROKERS', '')}/"
-            f"{meta.get('DB', '')}"
+            f"{meta.get('DB', '')}" + (f"?{urlencode(query)}" if query else "")
         )
+
+    @staticmethod
+    def _wire(uri: str) -> tuple[dict[str, str], str]:
+        """``({entity: avro|protobuf}, registry URL)`` from a data-plane handle."""
+        _, _, query = uri.partition("?")
+        params = parse_qs(query)
+        raw = (params.get("formats") or [""])[0]
+        formats = wire.formats_of({wire.META_MESSAGE_FORMATS: raw})
+        return formats, (params.get("registry") or [""])[0]
 
     @staticmethod
     def _endpoint(uri: str) -> tuple[dict, str, str]:
         """``(client config, brokers, topic prefix)`` from a data-plane handle."""
-        rest = uri.split("://", 1)[-1]
+        rest = uri.split("://", 1)[-1].partition("?")[0]
         auth, rest = rest.rsplit("@", 1) if "@" in rest else ("", rest)
         brokers, _, prefix = rest.partition("/")
         user, _, password = auth.partition(":")
@@ -407,11 +450,11 @@ class Redpanda(SingleContainerHosting, Messaging):
         layout = ", ".join(f"{t.rsplit('.', 1)[-1]}={n}" for t, n in wanted.items())
         print(f">>> kafka domain: {len(wanted)} topic(s), partitions {layout}")
 
-    def _produce(
-        self, conf: dict, prefix: str, tables: list[emit.Table]
-    ) -> dict[str, int]:
+    def _produce(self, uri: str, tables: list[emit.Table]) -> dict[str, int]:
         from confluent_kafka import Producer
 
+        conf, _, prefix = self._endpoint(uri)
+        formats, registry = self._wire(uri)
         producer = Producer(conf)
         failed: list = []
 
@@ -422,9 +465,10 @@ class Redpanda(SingleContainerHosting, Messaging):
         counts: dict[str, int] = {}
         for tbl in tables:
             topic = f"{prefix}.{tbl.name}"
+            fmt = formats.get(tbl.name, datagen.MESSAGE_JSON)
+            encode = wire.encoder(fmt, topic, tbl.name, tbl.columns, registry)
             for row in tbl.rows:
-                record = shape.record(row, tbl.columns)
-                value = json.dumps(record, default=str, separators=(",", ":")).encode()
+                value = encode(shape.record(row, tbl.columns))
                 key = shape.message_key(row, tbl.columns)
                 while True:
                     try:
@@ -445,13 +489,12 @@ class Redpanda(SingleContainerHosting, Messaging):
         return counts
 
     def load_tables(self, uri: str, tables: list[emit.Table]) -> dict[str, int]:
-        conf, brokers, prefix = self._endpoint(uri)
+        _, brokers, _ = self._endpoint(uri)
         rows = sum(len(t.rows) for t in tables)
         print(
-            f">>> producing {rows} JSON message(s) to {len(tables)} topic(s) "
-            f"on {brokers} …"
+            f">>> producing {rows} message(s) to {len(tables)} topic(s) on {brokers} …"
         )
-        return self._produce(conf, prefix, tables)
+        return self._produce(uri, tables)
 
     def apply_changes(
         self,
@@ -480,9 +523,9 @@ class Redpanda(SingleContainerHosting, Messaging):
             emit.Table(name=t, columns=cols, rows=rows)
             for t, (cols, rows) in by_table.items()
         ]
-        conf, brokers, prefix = self._endpoint(uri)
-        print(f">>> producing {len(changes)} JSON message(s) to {brokers} …")
-        produced = self._produce(conf, prefix, tables)
+        _, brokers, _ = self._endpoint(uri)
+        print(f">>> producing {len(changes)} message(s) to {brokers} …")
+        produced = self._produce(uri, tables)
         new = dict(before)
         for topic, n in produced.items():
             new[topic] = new.get(topic, 0) + n  # kafka log appends
@@ -493,3 +536,4 @@ class Redpanda(SingleContainerHosting, Messaging):
 
         conf, _, prefix = self._endpoint(uri)
         self._delete_topics(AdminClient(conf), prefix, include_root=False)
+        self._delete_subjects(self._wire(uri)[1], prefix)

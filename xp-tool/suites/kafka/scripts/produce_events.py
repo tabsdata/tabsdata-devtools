@@ -7,8 +7,10 @@ own data plane does not write, and append them to the trail a check reads.
     produce_events.py DOMAIN TOPIC --format json|avro|protobuf [--registry]
                       [--count N] [--first K] [--plain N] --emit-ops FILE
 
-The domain's data plane writes plain JSON only; the Avro, Protobuf and
-schema-registry publishers need something else on their topic, and this is it.
+The domain's data plane writes a model's rows, as JSON or -- for a model that
+names them, ``shopevents`` -- as Avro or Protobuf; the publishers here read one
+event shape in every format, with plain messages mixed into a registry topic,
+which no model's rows are, and this is what writes it.
 TOPIC is the entity part: the messages go to ``<prefix>.TOPIC``, the prefix
 and brokers (and the SASL user, the schema registry) read from ``tdd domain
 info --format export``.

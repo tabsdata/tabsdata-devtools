@@ -1,0 +1,14 @@
+[
+  {
+    "name": "page_view",
+    "sizeable": true
+  },
+  {
+    "name": "order_placed",
+    "sizeable": true
+  },
+  {
+    "name": "xp_sentinel",
+    "sizeable": false
+  }
+]

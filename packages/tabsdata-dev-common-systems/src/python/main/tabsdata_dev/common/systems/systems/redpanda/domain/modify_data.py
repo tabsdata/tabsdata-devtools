@@ -6,7 +6,7 @@
 
 Kafka is append-only, so modify-data does not apply the shared delta recipe
 (insert/update/delete on specific rows); instead it produces a fresh batch of the
-model's rows as new JSON messages to every ``<domain>.<entity>`` topic. ``--size``
+model's rows as new messages (in each topic's format) to every ``<domain>.<entity>`` topic. ``--size``
 sets the batch multiplier (as in create-data); successive runs advance the seed so
 models with random data vary (fixed reference models re-emit the same rows).
 ``--dry-run`` plans the batch without producing it and leaves the seed where it
@@ -22,7 +22,7 @@ import random
 
 from tabsdata_dev.common.systems import cli, console, constants, datagen, descriptor
 from tabsdata_dev.common.systems.errors import TdxError
-from tabsdata_dev.common.systems.systems.redpanda import shape
+from tabsdata_dev.common.systems.systems.redpanda import shape, wire
 from tabsdata_dev.common.systems.systems.redpanda.domain import create_data
 
 
@@ -51,9 +51,10 @@ def run(ctx: cli.Context) -> int:
     tables = datagen.load_model(info.model).build_initial(
         random.Random(datagen.INITIAL_SEED + seed), n
     )
-    tables = shape.vary_tables(
-        shape.select_tables(tables, a.entity), shape.parse_kinds(a.schema_changes)
-    )
+    kinds = shape.parse_kinds(a.schema_changes)
+    tables = shape.select_tables(tables, a.entity)
+    shape.refuse_schema_changes(tables, kinds, wire.formats_of(info.meta))
+    tables = shape.vary_tables(tables, kinds)
     if a.dry_run:
         _emit(ctx, tables, seed, dry_run=True)
         if console.json_mode():

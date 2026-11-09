@@ -16,7 +16,7 @@ import argparse
 
 from tabsdata_dev.common.systems import cli, constants
 from tabsdata_dev.common.systems.systems._common.commands import dom_create_data
-from tabsdata_dev.common.systems.systems.redpanda import shape
+from tabsdata_dev.common.systems.systems.redpanda import shape, wire
 
 
 def add_entity(parser: argparse.ArgumentParser) -> None:
@@ -51,9 +51,11 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def run(ctx: cli.Context) -> int:
     kinds = shape.parse_kinds(ctx.args.schema_changes)
     entity = ctx.args.entity
-    return dom_create_data.run(
-        ctx,
-        prepare=lambda tables: shape.vary_tables(
-            shape.select_tables(tables, entity), kinds
-        ),
-    )
+    formats = wire.formats_of(ctx.info.meta) if ctx.info is not None else {}
+
+    def prepare(tables):
+        chosen = shape.select_tables(tables, entity)
+        shape.refuse_schema_changes(chosen, kinds, formats)
+        return shape.vary_tables(chosen, kinds)
+
+    return dom_create_data.run(ctx, prepare=prepare)

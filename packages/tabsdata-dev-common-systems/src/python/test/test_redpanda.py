@@ -281,8 +281,8 @@ def test_messages_are_keyed_and_carry_the_fields_a_row_has(kafka):
     kafka.Producer = Producer
     cols = [emit.Column("id", "int"), emit.Column("name", "varchar(9)")]
     table = emit.Table("t", cols, [{"id": 1, "name": "a"}, {"id": 2}])
-    conf = backend.client_conf("b:1")
-    assert backend.Redpanda()._produce(conf, "pfx", [table]) == {"pfx.t": 2}
+    uri = "kafka://b:1/pfx"
+    assert backend.Redpanda()._produce(uri, [table]) == {"pfx.t": 2}
     assert sent == [
         ("pfx.t", b"1", {"id": 1, "name": "a"}),
         ("pfx.t", b"2", {"id": 2}),
@@ -290,7 +290,7 @@ def test_messages_are_keyed_and_carry_the_fields_a_row_has(kafka):
     # a delivery the broker refused is the produce's error, never a count
     fail.append("MSG_SIZE_TOO_LARGE")
     with pytest.raises(TdxError, match="2 failed .first: MSG_SIZE_TOO_LARGE"):
-        backend.Redpanda()._produce(conf, "pfx", [table])
+        backend.Redpanda()._produce(uri, [table])
 
 
 def test_data_goes_to_the_entities_named_and_the_trail_is_what_was_sent(
@@ -350,6 +350,7 @@ def test_data_goes_to_the_entities_named_and_the_trail_is_what_was_sent(
 @pytest.mark.parametrize(
     "verb, own",
     [
+        ("create", ["--sys", "s", "--registry", "on"]),
         ("create-model", ["--model", "employees", "--up-to-partitions", "2"]),
         ("create-data", ["--entity", "a,b", "--schema-changes"]),
         ("modify-data", ["--entity", "a", "--schema-changes", "drop"]),
@@ -371,6 +372,8 @@ def test_the_dispatcher_resolves_redpandas_own_verbs(slug, verb, own):
         assert args.schema_changes == constants.ENTITY_ALL and args.size == 1
     if verb == "modify-data":
         assert args.schema_changes == "drop"
+    if verb == "create":
+        assert args.registry == "on"
 
 
 def test_sasl_on_gives_the_system_a_user_its_domains_and_clients_carry(monkeypatch):
@@ -429,3 +432,358 @@ def test_a_sasl_systems_probe_authenticates(monkeypatch):
     assert system.check_ready("c", "") and system.check_ready("c", "pw")
     assert calls[0] == ("rpk", "cluster", "info")
     assert "user=tdd" in calls[1] and "pass=pw" in calls[1]
+
+
+# ---- message formats: Avro and Protobuf, plain and registry-framed ----------
+
+
+def _shop_tables():
+    return datagen.load_model("shopevents").build_initial(
+        random.Random(datagen.INITIAL_SEED), datagen.BASE_SIZE
+    )
+
+
+def test_shopevents_names_its_avro_and_protobuf_entities():
+    assert datagen.message_formats("shopevents") == {
+        "page_view": "avro",
+        "order_placed": "protobuf",
+    }
+    assert datagen.message_formats("employees") == {}
+
+
+@pytest.mark.parametrize(
+    "formats, why",
+    [
+        ({"nope": "avro"}, "names no entity: nope"),
+        ({"a": "thrift"}, "'thrift' is not one of json, avro, protobuf"),
+    ],
+)
+def test_a_models_message_formats_are_checked(tmp_path, monkeypatch, formats, why):
+    model = tmp_path / "m"
+    model.mkdir()
+    (model / "entities.json").write_text(json.dumps(["a"]), encoding="utf-8")
+    (model / "model.json").write_text(
+        json.dumps({"message_formats": formats}), encoding="utf-8"
+    )
+    monkeypatch.setattr(datagen, "_models_root", lambda: tmp_path)
+    with pytest.raises(TdxError, match=why):
+        datagen.message_formats("m")
+
+
+def test_an_avro_message_is_the_record_and_nothing_else():
+    """Plain Avro: the record's binary encoding, no header, readable with the
+    schema the consumer is given -- nulls, a timestamp and a boolean intact."""
+    import io
+
+    fastavro = pytest.importorskip("fastavro")
+    from tabsdata_dev.common.systems.systems.redpanda import shape, wire
+
+    views = _shop_tables()[0]
+    encode = wire.encoder("avro", "pfx.page_view", "page_view", views.columns)
+    schema = json.loads(wire.schema_text("avro", "page_view", views.columns))
+    assert schema["name"] == "PageView" and schema["namespace"] == "tdd"
+    parsed = fastavro.parse_schema(schema)
+    for row in views.rows[:20]:
+        sent = encode(shape.record(row, views.columns))
+        assert not sent.startswith(b"Obj\x01")  # no container header
+        back = fastavro.schemaless_reader(io.BytesIO(sent), parsed)
+        assert back == row
+
+
+def test_a_protobuf_message_decodes_with_the_declared_message():
+    """Plain Protobuf: SerializeToString of tdd.OrderPlaced; a null is absent,
+    a decimal its text at the column's scale, a date and a time ISO 8601."""
+    pytest.importorskip("google.protobuf")
+    from tabsdata_dev.common.systems.systems.redpanda import shape, wire
+
+    orders = _shop_tables()[1]
+    encode = wire.encoder(
+        "protobuf", "pfx.order_placed", "order_placed", orders.columns
+    )
+    cls = wire.proto_class("order_placed", orders.columns)
+    assert cls.DESCRIPTOR.full_name == "tdd.OrderPlaced"
+    nulls = 0
+    for row in orders.rows:
+        msg = cls()
+        msg.ParseFromString(encode(shape.record(row, orders.columns)))
+        assert msg.order_id == row["order_id"] and msg.items == row["items"]
+        assert msg.total == f"{row['total']:.2f}"
+        assert msg.placed_at == row["placed_at"].isoformat()
+        assert msg.ship_by == row["ship_by"].isoformat()
+        if row["coupon"] is None:
+            nulls += 1
+            assert not msg.HasField("coupon")
+        else:
+            assert msg.coupon == row["coupon"]
+    assert nulls  # the model has null coupons, so absence was exercised
+
+
+def test_the_proto_text_declares_what_the_descriptor_holds():
+    """The descriptor is built, not compiled from the text (no protoc), so the
+    two are compared field by field -- name, number, type and optional. That
+    protoc compiles the text to this very descriptor is in VERIFIED.md."""
+    import re
+
+    pytest.importorskip("google.protobuf")
+    from google.protobuf import descriptor_pb2
+    from tabsdata_dev.common.systems.systems.redpanda import wire
+
+    fdp = descriptor_pb2.FieldDescriptorProto
+    names = {
+        fdp.TYPE_INT32: "int32",
+        fdp.TYPE_INT64: "int64",
+        fdp.TYPE_BOOL: "bool",
+        fdp.TYPE_DOUBLE: "double",
+        fdp.TYPE_STRING: "string",
+    }
+    for table in _shop_tables():
+        text = wire.proto_text(table.name, table.columns)
+        declared = re.findall(
+            r"^  (optional )?(\w+) (\w+) = (\d+);$", text, re.MULTILINE
+        )
+        msg = wire.proto_descriptor(table.name, table.columns).message_type[0]
+        assert f"message {msg.name} {{" in text and "package tdd;" in text
+        built = [
+            (
+                "optional " if f.proto3_optional else "",
+                names[f.type],
+                f.name,
+                str(f.number),
+            )
+            for f in msg.field
+        ]
+        assert declared == built
+
+
+def test_a_registry_message_carries_the_schema_id(monkeypatch):
+    """Registry-framed: 0x00, the id big-endian, the message index for
+    Protobuf, then the plain payload; each schema registered under
+    <topic>-value as its type."""
+    pytest.importorskip("fastavro")
+    pytest.importorskip("google.protobuf")
+    from tabsdata_dev.common.systems.systems.redpanda import shape, wire
+
+    registered = []
+
+    def register(registry, topic, fmt, schema):
+        registered.append((registry, wire.subject(topic), fmt))
+        return 258
+
+    monkeypatch.setattr(wire, "register", register)
+    for table in _shop_tables():
+        fmt = datagen.message_formats("shopevents")[table.name]
+        record = shape.record(table.rows[0], table.columns)
+        plain = wire.encoder(fmt, f"pfx.{table.name}", table.name, table.columns)
+        framed = wire.encoder(
+            fmt, f"pfx.{table.name}", table.name, table.columns, "http://r:1"
+        )
+        head = b"\x00\x00\x00\x01\x02" + (b"\x00" if fmt == "protobuf" else b"")
+        assert framed(record) == head + plain(record)
+    assert registered == [
+        ("http://r:1", "pfx.page_view-value", "avro"),
+        ("http://r:1", "pfx.order_placed-value", "protobuf"),
+    ]
+    # JSON is never framed, registry or not
+    assert wire.encoder("json", "pfx.t", "t", [], "http://r:1")({"a": 1}) == b'{"a":1}'
+
+
+@pytest.fixture
+def registry():
+    """A schema registry on 127.0.0.1, port 0: what it was sent, and subjects
+    to list."""
+    import http.server
+    import threading
+
+    state = {"calls": [], "subjects": []}
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def _reply(self, code, body):
+            data = json.dumps(body).encode()
+            self.send_response(code)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            size = int(self.headers["Content-Length"])
+            body = json.loads(self.rfile.read(size))
+            state["calls"].append(("POST", self.path, body))
+            self._reply(200, {"id": 7})
+
+        def do_GET(self):
+            state["calls"].append(("GET", self.path, None))
+            self._reply(200, state["subjects"])
+
+        def do_DELETE(self):
+            state["calls"].append(("DELETE", self.path, None))
+            gone = "permanent" in self.path and "gone" in self.path
+            self._reply(404 if gone else 200, [1])
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    state["url"] = f"http://127.0.0.1:{server.server_address[1]}"
+    yield state
+    server.shutdown()
+    server.server_close()
+
+
+def test_the_registry_client_registers_and_deletes_a_prefixs_subjects(registry):
+    from tabsdata_dev.common.systems.systems.redpanda import wire
+
+    assert wire.register(registry["url"], "pfx.t", "protobuf", "syntax") == 7
+    assert registry["calls"][0] == (
+        "POST",
+        "/subjects/pfx.t-value/versions",
+        {"schema": "syntax", "schemaType": "PROTOBUF"},
+    )
+    registry["calls"].clear()
+    registry["subjects"] = ["pfx.a-value", "pfx.gone-value", "other.a-value", "pfx"]
+    assert wire.delete_subjects(registry["url"], "pfx") == []
+    assert [c[1] for c in registry["calls"]] == [
+        "/subjects",
+        "/subjects/pfx.a-value",
+        "/subjects/pfx.a-value?permanent=true",
+        "/subjects/pfx.gone-value",
+        "/subjects/pfx.gone-value?permanent=true",  # 404: already gone
+    ]
+
+
+def test_the_handle_carries_the_formats_and_registry(kafka):
+    """data_plane_uri puts the recorded formats and, with --registry on, the
+    registry URL in the handle's query; the endpoint ignores it."""
+    from tabsdata_dev.common.systems.systems.redpanda import backend, wire
+
+    system = backend.Redpanda()
+    meta = {"KAFKA_BROKERS": "h:9", "DB": "pfx", "SCHEMA_REGISTRY_URL": "http://h:8"}
+    meta[wire.META_MESSAGE_FORMATS] = wire.encode_formats({"a": "avro"})
+    with system.data_plane_uri(meta) as uri:
+        assert system._wire(uri) == ({"a": "avro"}, "")
+        assert system._endpoint(uri)[1:] == ("h:9", "pfx")
+    meta[wire.META_REGISTRY] = wire.REGISTRY_ON
+    with system.data_plane_uri(meta) as uri:
+        assert system._wire(uri) == ({"a": "avro"}, "http://h:8")
+    plain = {"KAFKA_BROKERS": "h:9", "DB": "pfx"}
+    with system.data_plane_uri(plain) as uri:
+        assert uri == "kafka://h:9/pfx" and system._wire(uri) == ({}, "")
+
+
+def test_produce_encodes_each_topic_in_its_format(kafka):
+    pytest.importorskip("fastavro")
+    pytest.importorskip("google.protobuf")
+    from tabsdata_dev.common.systems import emit
+    from tabsdata_dev.common.systems.systems.redpanda import backend, wire
+
+    sent = {}
+
+    class Producer:
+        def __init__(self, conf):
+            pass
+
+        def produce(self, topic, value, key=None, on_delivery=None):
+            sent.setdefault(topic, []).append(value)
+
+        def poll(self, timeout):
+            return 0
+
+        def flush(self, timeout=None):
+            return 0
+
+    kafka.Producer = Producer
+    tables = _shop_tables()
+    tables.append(emit.Table("plain", tables[0].columns[:1], [{"view_id": 5}]))
+    formats = wire.encode_formats(datagen.message_formats("shopevents"))
+    meta = {"KAFKA_BROKERS": "h:9", "DB": "pfx", wire.META_MESSAGE_FORMATS: formats}
+    system = backend.Redpanda()
+    with system.data_plane_uri(meta) as uri:
+        counts = system.load_tables(uri, tables)
+    assert counts == {"pfx.page_view": 100, "pfx.order_placed": 10, "pfx.plain": 1}
+    assert sent["pfx.plain"] == [b'{"view_id":5}']
+    cls = wire.proto_class("order_placed", tables[1].columns)
+    msg = cls()
+    msg.ParseFromString(sent["pfx.order_placed"][0])
+    assert msg.order_id == 1
+
+
+def test_create_model_records_the_formats_and_writes_the_schemas(
+    tmp_path, monkeypatch, kafka
+):
+    pytest.importorskip("fastavro")
+    pytest.importorskip("google.protobuf")
+    from tabsdata_dev.common.systems import descriptor
+    from tabsdata_dev.common.systems.systems.redpanda import backend, wire
+    from tabsdata_dev.common.systems.systems.redpanda.domain import create_model
+
+    path = _domain(tmp_path, monkeypatch, model=None)
+    system = backend.Redpanda()
+    monkeypatch.setattr(system, "install_schema", lambda *a, **k: None)
+    out = tmp_path / "schemas"
+    opts = {"model": "shopevents", "force": False, "up_to_partitions": 1}
+    opts["schemas_dir"] = str(out)
+    assert create_model.run(_ctx(path, tmp_path, "create-model", system, **opts)) == 0
+    assert wire.formats_of(descriptor.load(path).meta) == {
+        "page_view": "avro",
+        "order_placed": "protobuf",
+    }
+    assert sorted(p.name for p in out.iterdir()) == [
+        "order_placed.proto",
+        "page_view.avsc",
+    ]
+    assert "message OrderPlaced {" in (out / "order_placed.proto").read_text(
+        encoding="utf-8"
+    )
+    avsc = json.loads((out / "page_view.avsc").read_text(encoding="utf-8"))
+    assert [f["name"] for f in avsc["fields"]][:2] == ["view_id", "session_id"]
+
+
+def test_schema_changes_are_refused_on_schema_bound_topics(tmp_path, monkeypatch):
+    from tabsdata_dev.common.systems import descriptor
+    from tabsdata_dev.common.systems.systems.redpanda import backend, wire
+    from tabsdata_dev.common.systems.systems.redpanda.domain import modify_data
+
+    path = _domain(tmp_path, monkeypatch, model="shopevents")
+    info = descriptor.load(path)
+    info.meta[wire.META_MESSAGE_FORMATS] = wire.encode_formats(
+        datagen.message_formats("shopevents")
+    )
+    descriptor.save(info, path)
+    system = backend.Redpanda()
+    loaded = []
+    monkeypatch.setattr(
+        system,
+        "load_tables",
+        lambda uri, tables: loaded.append(1) or {f"pfx.{t.name}": 1 for t in tables},
+    )
+    opts = {"size": 1, "dry_run": False, "emit_ops": None, "entity": "ALL"}
+    opts["schema_changes"] = "add"
+    with pytest.raises(
+        TdxError, match=r"page_view \(avro\), order_placed \(protobuf\)"
+    ):
+        modify_data.run(_ctx(path, tmp_path, "modify-data", system, **opts))
+    assert not loaded
+    opts["schema_changes"] = None
+    assert modify_data.run(_ctx(path, tmp_path, "modify-data", system, **opts)) == 0
+
+
+def test_a_registry_domain_records_it_and_its_manifest_replays_it(
+    tmp_path, monkeypatch
+):
+    from tabsdata_dev.common.systems import descriptor, manifest
+    from tabsdata_dev.common.systems.systems.redpanda import backend, wire
+
+    system = backend.Redpanda()
+    sys_meta = {"HOST": "h", "PORT": "1", "SCHEMA_REGISTRY_URL": "http://h:2"}
+    assert system.domain_meta(sys_meta, "pfx", "")[wire.META_REGISTRY] == "off"
+    system.use_registry("on")
+    meta = system.domain_meta(sys_meta, "pfx", "")
+    assert wire.registry_of(meta) == "http://h:2"
+    with pytest.raises(TdxError, match="--registry takes on or off"):
+        system.use_registry("yes")
+    path = _domain(tmp_path, monkeypatch, model=None)
+    info = descriptor.load(path)
+    assert "registry" not in manifest.domain_entry(info)
+    info.meta[wire.META_REGISTRY] = meta[wire.META_REGISTRY]
+    assert manifest.domain_entry(info)["registry"] == "on"

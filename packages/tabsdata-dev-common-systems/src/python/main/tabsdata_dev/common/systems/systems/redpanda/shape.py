@@ -86,6 +86,21 @@ def select_tables(tables: list[emit.Table], spec: str | None) -> list[emit.Table
     return [t for t in tables if t.name in wanted]
 
 
+def refuse_schema_changes(
+    tables: list[emit.Table], kinds: tuple[str, ...], formats: dict[str, str]
+) -> None:
+    """``--schema-changes`` reshapes JSON messages: an Avro or Protobuf message
+    is its schema's, and no row can add, drop or retype a field of it."""
+    if not kinds:
+        return
+    fixed = [f"{t.name} ({formats[t.name]})" for t in tables if t.name in formats]
+    if fixed:
+        raise TdxError(
+            f"{OPT_SCHEMA_CHANGES} varies JSON messages only; these topics carry "
+            f"schema-bound ones: {', '.join(fixed)} (narrow {constants.OPT_ENTITY})"
+        )
+
+
 def parse_kinds(spec: str | None) -> tuple[str, ...]:
     """``--schema-changes``'s kinds: none when absent, every kind for ALL (what
     the bare flag gives), else the comma list, in KINDS order."""

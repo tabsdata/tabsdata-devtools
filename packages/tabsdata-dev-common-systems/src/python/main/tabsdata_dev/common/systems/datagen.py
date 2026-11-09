@@ -553,6 +553,35 @@ def sizeable_entities(name: str) -> list[str]:
     return [e.name for e in entity_specs(name) if e.sizeable]
 
 
+# The wire formats a kafka domain's messages take, per entity (``model.json``'s
+# ``message_formats``); an entity it does not name is JSON.
+MESSAGE_JSON, MESSAGE_AVRO, MESSAGE_PROTOBUF = "json", "avro", "protobuf"
+MESSAGE_FORMATS = (MESSAGE_JSON, MESSAGE_AVRO, MESSAGE_PROTOBUF)
+
+
+def message_formats(name: str) -> dict[str, str]:
+    """``{entity: avro|protobuf}`` from the model's ``model.json``
+    (``{"message_formats": {...}}``): the entities whose kafka messages are not
+    JSON. ``{}`` for a model without one, as for every model that predates it."""
+    path = model_dir(name) / "model.json"
+    if not path.is_file():
+        return {}
+    raw = json.loads(path.read_text(encoding="utf-8")).get("message_formats") or {}
+    known = set(entities_of(name))
+    out: dict[str, str] = {}
+    for entity, fmt in raw.items():
+        if entity not in known:
+            raise TdxError(f"{path}: message_formats names no entity: {entity}")
+        if fmt not in MESSAGE_FORMATS:
+            raise TdxError(
+                f"{path}: {entity}: message format {fmt!r} is not one of "
+                f"{', '.join(MESSAGE_FORMATS)}"
+            )
+        if fmt != MESSAGE_JSON:
+            out[entity] = fmt
+    return out
+
+
 def load_model(name: str) -> Model:
     """Import ``models/<name>/datagenerator.py`` and return its ``Model``."""
     if not (model_dir(name) / "datagenerator.py").is_file():

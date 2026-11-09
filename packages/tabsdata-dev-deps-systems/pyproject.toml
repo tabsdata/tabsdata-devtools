@@ -5,7 +5,7 @@
 [project]
 name = "tabsdata-dev-deps-systems"
 dynamic = ["version"]
-description = "pins for the systems toolset: SQL dialects and drivers, object-store SDKs, kafka, the frame writer"
+description = "pins for the systems toolset: SQL dialects and drivers, object-store SDKs, kafka, the frame writer and its xlsx engine"
 requires-python = ">=3.12,<3.13"
 # A SQL system needs its SQLAlchemy *dialect*, not just its driver: the dialect
 # is what registers the name in Backend.driver (clickhousedb <- clickhouse-connect,
@@ -40,6 +40,7 @@ dependencies = [
     "snowflake-sqlalchemy==1.11.1",
     "sqlalchemy==2.0.55",
     "sqlparse==0.6.0",
+    "xlsxwriter==3.3.1",
 ]
 
 [tool.hatch.version]

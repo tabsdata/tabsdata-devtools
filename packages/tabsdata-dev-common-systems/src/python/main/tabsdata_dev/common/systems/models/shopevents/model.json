@@ -1,0 +1,6 @@
+{
+  "message_formats": {
+    "page_view": "avro",
+    "order_placed": "protobuf"
+  }
+}

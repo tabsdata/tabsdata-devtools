@@ -9,11 +9,11 @@ its own schema and its own types, so there is no dialect to agree on and no
 `format_cfg` to get wrong — which is why it is the format to prefer for anything
 one Tabsdata function writes and another reads back.
 
-A `fs` domain seeded with the `world` model stages every entity in THREE
+A `fs` domain seeded with the `world` model stages every entity in FIVE
 formats, one directory each — `csv/<entity>_<stamp>.csv`,
-`ndjson/<entity>_<stamp>.ndjson`, `parquet/<entity>_<stamp>.parquet` — so the
-three readers in this suite read the SAME rows three ways and differ in exactly
-one field. The `<stamp>` is the staging time, which is why each path is a
+`ndjson/<entity>_<stamp>.ndjson`, `parquet/<entity>_<stamp>.parquet`, and
+`avro/` and `xlsx/`, which this suite does not read — so the three readers in
+this suite read the SAME rows three ways and differ in exactly one field. The `<stamp>` is the staging time, which is why each path is a
 wildcard.
 
 A WILDCARD IS A PREFIX MATCH, and this model is a good reminder of what that

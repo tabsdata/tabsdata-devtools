@@ -137,8 +137,9 @@ manifests so a test suite gets the same data on every backend.
 - Implementations resolve per system: `systems/<slug>/<verb>.py` when a backend overrides one,
   else the shared `_common/commands`, and `-h` prints the named target's own (`--sys` on
   create, `--domain` otherwise) -- the first type's when the store lacks it, cannot read it
-  without the key, or the selector is a batch, since help asks for neither. redpanda's own add options: `create-model
-  --up-to-partitions N`, `create-data`/`modify-data --entity A,B` and `--schema-changes`;
+  without the key, or the selector is a batch, since help asks for neither. redpanda's own add options: `create --registry on|off`, `create-model
+  --up-to-partitions N` and `--schemas-dir DIR`, `create-data`/`modify-data --entity A,B` and
+  `--schema-changes`;
   `postgrespgvector`'s and `postgresnativepgvector`'s `create --pgvector on|off` (default off,
   pgvector installed on the server and created in no database) creates the pgvector extension
   in the domain's database and records `PGVECTOR`, a manifest entry's `pgvector: "on"` replaying

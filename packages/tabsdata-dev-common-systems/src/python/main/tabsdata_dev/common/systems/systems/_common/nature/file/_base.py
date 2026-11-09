@@ -6,9 +6,12 @@
 
 A file system has no container and no schema: the "system" is a staging root, a
 "domain" is a prefix/folder under it, and a model's data is staged as one file
-per entity per format (:data:`emit.FILE_FORMATS` — csv / ndjson / parquet), each
-named ``<entity>_<YYYYMMDD>T<hhmmss_mmm>.<fmt>`` after the command's invocation
-time. ``modify-data`` is **insert-only** — each run writes the inserted rows as
+per entity per format (:data:`emit.FILE_FORMATS` — csv / ndjson / parquet /
+avro / xlsx; a log entity as its ``.log`` lines alone, :func:`emit.formats_of`),
+each named ``<entity>_<YYYYMMDD>T<hhmmss_mmm>.<fmt>`` after the command's
+invocation time. A table a format cannot hold (:func:`emit.unwritable`: names
+Avro refuses, more rows than a worksheet) is left out of that format, and said
+so. ``modify-data`` is **insert-only** — each run writes the inserted rows as
 NEW (freshly timestamped) files alongside the seed, never mutating existing ones.
 Concrete systems (fs, and through :class:`ObjectStore` s3, gcs, azureblob)
 implement only the five storage primitives; everything else lives here once.
@@ -200,13 +203,20 @@ class FileStore:
     def _stage_and_upload(
         self, dest: str, tables: list[emit.Table], stamp: str
     ) -> dict[str, int]:
-        """Stage each table as ``<fmt>/<entity>_<stamp>.<fmt>`` for every format,
-        upload the tree under `dest`, and return ``{relative_path: row_count}``."""
+        """Stage each table as ``<fmt>/<entity>_<stamp>.<fmt>`` for each of its
+        formats, upload the tree under `dest`, and return
+        ``{relative_path: row_count}``."""
         entities: dict[str, int] = {}
         with tempfile.TemporaryDirectory(prefix="tdx-files-") as tmp:
             root = Path(tmp)
-            for fmt in emit.FILE_FORMATS:
+            for fmt in (*emit.FILE_FORMATS, emit.LOG_FORMAT):
                 for tbl in tables:
+                    if fmt not in emit.formats_of(tbl):
+                        continue
+                    why = emit.unwritable(tbl, fmt)
+                    if why:
+                        print(f">>> {tbl.name}: no {fmt} file ({why})")
+                        continue
                     rel = f"{fmt}/{tbl.name}_{stamp}.{fmt}"
                     emit.write_frame(tbl, root / rel, fmt)
                     entities[rel] = len(tbl.rows)
@@ -215,10 +225,7 @@ class FileStore:
 
     def load_tables(self, uri: str, tables: list[emit.Table]) -> dict[str, int]:
         stamp = emit.file_stamp()
-        print(
-            f">>> staging {sum(len(t.rows) for t in tables)} rows as "
-            f"{len(emit.FILE_FORMATS)} format(s) -> {uri} …"
-        )
+        print(f">>> staging {sum(len(t.rows) for t in tables)} rows -> {uri} …")
         return self._stage_and_upload(uri, tables, stamp)
 
     def apply_changes(

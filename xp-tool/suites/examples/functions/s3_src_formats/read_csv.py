@@ -9,11 +9,11 @@ extension, and `CSV` / `JSON` / `AVRO` / `PARQUET` / `LOG` name it outright. The
 extension would have inferred CSV here too — it is spelled out so the three
 readers in this suite differ in exactly one thing.
 
-A `s3` domain seeded with the `world` model stages every entity in THREE
+A `s3` domain seeded with the `world` model stages every entity in FIVE
 formats, one directory each — `csv/<entity>_<stamp>.csv`,
-`ndjson/<entity>_<stamp>.ndjson`, `parquet/<entity>_<stamp>.parquet` — so the
-three readers in this suite read the SAME rows three ways and differ in exactly
-one field. The `<stamp>` is the staging time, which is why each path is a
+`ndjson/<entity>_<stamp>.ndjson`, `parquet/<entity>_<stamp>.parquet`, and
+`avro/` and `xlsx/`, which this suite does not read — so the three readers in
+this suite read the SAME rows three ways and differ in exactly one field. The `<stamp>` is the staging time, which is why each path is a
 wildcard.
 
 A WILDCARD IS A PREFIX MATCH, and this model is a good reminder of what that

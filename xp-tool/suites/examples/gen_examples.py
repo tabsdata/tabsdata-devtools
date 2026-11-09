@@ -656,11 +656,11 @@ def emit_file_src_formats(key: str, c: dict) -> tuple[str, dict]:
     d = FN_DIR / suite
     src, mod, sysname = c["src"], c["module"], c["system"]
 
-    shared = f'''A `{sysname}` domain seeded with the `world` model stages every entity in THREE
+    shared = f'''A `{sysname}` domain seeded with the `world` model stages every entity in FIVE
 formats, one directory each — `csv/<entity>_<stamp>.csv`,
-`ndjson/<entity>_<stamp>.ndjson`, `parquet/<entity>_<stamp>.parquet` — so the
-three readers in this suite read the SAME rows three ways and differ in exactly
-one field. The `<stamp>` is the staging time, which is why each path is a
+`ndjson/<entity>_<stamp>.ndjson`, `parquet/<entity>_<stamp>.parquet`, and
+`avro/` and `xlsx/`, which this suite does not read — so the three readers in
+this suite read the SAME rows three ways and differ in exactly one field. The `<stamp>` is the staging time, which is why each path is a
 wildcard.
 
 A WILDCARD IS A PREFIX MATCH, and this model is a good reminder of what that
