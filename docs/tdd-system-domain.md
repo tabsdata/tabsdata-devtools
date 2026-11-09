@@ -138,8 +138,9 @@ only · **-** = not supported. Systems with identical support share a column.
 | salesforce       |                                                     -                                                     |                         -                          |            -            |               -               |             -             |   -    |      S      |
 
 ¹ modify-data in serial transactions only. ² modify-data appends only: pass `--ops Insert`. ³ Kafka has its own
-commands: modify-data appends a fresh batch of the model's rows (no `--ops`), create-model takes `--up-to-partitions`,
-create-data `--entity` and `--schema-changes`. ⁴ a datasource fills on ingestion, so there is no create-data. ⁵ size 1
+commands: modify-data appends a fresh batch of the model's rows (no `--ops`; bronze's next inserts instead),
+create takes `--registry` and `--message-format`, create-model `--up-to-partitions`, create-data `--entity` and
+`--schema-changes`. ⁴ a datasource fills on ingestion, so there is no create-data. ⁵ size 1
 only. Not listed: mongodb, bigquery, anthropic, openai, typesafe and dev take no models.
 
 SQL systems take a model when they have DDL for it, which is why clickhouse and starrocks stop at world and mssqlserver,
@@ -151,6 +152,8 @@ oracle, snowflake and databricks skip employeescdc. Object stores and Kafka take
   `redpanda_sasl` system fails the `kafka_sasl` suite with `no system named 'redpandasasl'`. Fix it with
   `tdd system create --type redpandasasl`.
 - **Insert-only systems.** Object stores only append, so the default `--ops Mix` fails there; pass `--ops Insert`.
-  Kafka (`redpanda`, `redpandasasl`) has its own modify-data, which appends a fresh batch for any model.
+  A snapshot table (bronze's `brz_full_snapshot`) is the exception: it takes Mix and gets a new file of its whole
+  state. Kafka (`redpanda`, `redpandasasl`) has its own modify-data, which appends a fresh batch for any model but
+  bronze, whose next inserts continue its seed.
 - **No key, no store.** A shell without `tdd env set --crypto` cannot read a single descriptor; an old
   `TD_BACKENDS_CRYPTO_KEY` gets a pointer to the new command.

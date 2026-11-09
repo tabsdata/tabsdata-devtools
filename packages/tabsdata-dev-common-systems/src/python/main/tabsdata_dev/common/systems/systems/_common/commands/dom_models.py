@@ -28,13 +28,18 @@ def run(ctx: cli.Context) -> int:
     )
     for model in avail:
         sizeable = set(datagen.sizeable_entities(model))
-        ops_by = {e.table: e.supports for e in datagen.load_model(model).entities}
+        # The verbs each entity takes on this system: a file domain inserts
+        # (and changes a snapshot), a topic only appends.
+        ops_by = {
+            e.table: datagen.verbs_on(ctx.system, e)
+            for e in datagen.load_model(model).entities
+        }
         names = datagen.entities_of(model)
         width = max((len(n) for n in names), default=0)
         console.out(f"  {model}")
         for name in names:
             star = "*" if name in sizeable else " "
-            if name in ops_by:
+            if ops_by.get(name):
                 tag = f"({datagen.ops_tag(ops_by[name])})"
             elif name == datagen.SENTINEL_ENTITY:
                 tag = "(sentinel)"

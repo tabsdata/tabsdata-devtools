@@ -145,10 +145,12 @@ def run(ctx: cli.Context) -> int:
                     f"unknown entity '{ent}' "
                     f"(this model changes: {', '.join(by) or 'none'})"
                 )
-            if ops is not OpSelector.MIX and OpKind(ops.value) not in by[ent].supports:
-                supported = ", ".join(k.value for k in by[ent].supports)
+            verbs = datagen.verbs_on(sysobj, by[ent])
+            if ops is not OpSelector.MIX and OpKind(ops.value) not in verbs:
+                supported = ", ".join(k.value for k in verbs) or "nothing"
+                where = f" on a {ctx.slug} domain" if verbs != by[ent].supports else ""
                 raise TdxError(
-                    f"entity '{ent}' does not support {ops.value} "
+                    f"entity '{ent}' does not support {ops.value}{where} "
                     f"(supports: {supported})"
                 )
         # Model order, parents first, whatever order they were named in.
@@ -182,8 +184,24 @@ def run(ctx: cli.Context) -> int:
     )
     # Targets are bounded by what create-data loaded, not by today's counts:
     # `target` addresses seeded rows. A descriptor from before `seeded` was
-    # recorded falls back to its current counts.
-    txns = datagen.plan(model_obj, spec, info.seeded or counts)
+    # recorded falls back to its current counts. A replaying model is handed
+    # the runs applied since the load, which its state is rebuilt from.
+    history = (
+        [ChangeSpec.from_dict(d) for d in info.changes] if model_obj.replays else []
+    )
+    txns = datagen.plan(
+        model_obj,
+        spec,
+        datagen.seeded_rows(info.seeded or counts),
+        size=datagen.size_of(info.data),
+        history=history,
+        verbs=lambda e: datagen.verbs_on(sysobj, e),
+    )
+    # A file domain stages a snapshot's whole state, not the rows it changed.
+    restage: dict = {}
+    if datagen.restages_snapshots(sysobj):
+        snapshots = {c.table for t in txns for c in t if by[c.table].snapshot}
+        restage = model_obj.restage(snapshots) if snapshots else {}
     concurrency = trx.parse_concurrency(a.trx_concurrency)
     schedule = trx.schedule([len(t) for t in txns], mode, concurrency)
     if mode is not trx.TrxMode.SERIAL:
@@ -200,8 +218,16 @@ def run(ctx: cli.Context) -> int:
     new_entities: dict[str, int] = {}
     if not a.dry_run:
         with sysobj.data_plane_uri(info.meta) as uri:
-            new_entities = sysobj.apply_changes(uri, txns, counts, schedule=schedule)
-        descriptor.record_changes(ctx.path, new_entities, seed=seed if auto else None)
+            extra = {"restage": restage} if restage else {}
+            new_entities = sysobj.apply_changes(
+                uri, txns, counts, schedule=schedule, **extra
+            )
+        descriptor.record_changes(
+            ctx.path,
+            new_entities,
+            seed=seed if auto else None,
+            change=spec.to_dict() if model_obj.replays else None,
+        )
     if a.emit_ops:
         assert ctx.name is not None
         datagen.append_ops(

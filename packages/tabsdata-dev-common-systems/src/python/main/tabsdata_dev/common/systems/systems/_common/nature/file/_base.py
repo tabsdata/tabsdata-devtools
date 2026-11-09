@@ -12,7 +12,11 @@ each named ``<entity>_<YYYYMMDD>T<hhmmss_mmm>.<fmt>`` after the command's
 invocation time. A table a format cannot hold (:func:`emit.unwritable`: names
 Avro refuses, more rows than a worksheet) is left out of that format, and said
 so. ``modify-data`` is **insert-only** — each run writes the inserted rows as
-NEW (freshly timestamped) files alongside the seed, never mutating existing ones.
+NEW (freshly timestamped) files alongside the seed, never mutating existing ones
+— but for a snapshot entity (``Entity.snapshot``), whose file is the whole
+state: it takes UPDATE and DELETE too, and a run stages the state after its
+changes as the new file (``Model.restage``), one file per period for a period
+snapshot.
 Concrete systems (fs, and through :class:`ObjectStore` s3, gcs, azureblob)
 implement only the five storage primitives; everything else lives here once.
 
@@ -74,6 +78,8 @@ class FileStore:
         False  # a change set is one staging; nothing to interleave
     )
     supports_table_capture: bool = False
+    # A snapshot entity's changes are staged as its whole state (`restage`).
+    restages_snapshots: bool = True
 
     # Staging data files needs the frame writer.
     dom_toolset: str = constants.TOOLSET_SYSTEMS
@@ -106,6 +112,13 @@ class FileStore:
 
     def join(self, root: str, child: str) -> str:
         return squash_slashes(f"{root.rstrip('/')}/{child}")
+
+    def change_verbs(self, entity: datagen.Entity) -> tuple[OpKind, ...]:
+        """A change is a new file: INSERT, and for a snapshot -- whose new
+        file is the state after the changes -- every verb it supports."""
+        if entity.snapshot:
+            return entity.supports
+        return tuple(k for k in entity.supports if k is OpKind.INSERT)
 
     # ---- system hooks (for the attached hosting) -----------------------
 
@@ -205,19 +218,27 @@ class FileStore:
     ) -> dict[str, int]:
         """Stage each table as ``<fmt>/<entity>_<stamp>.<fmt>`` for each of its
         formats, upload the tree under `dest`, and return
-        ``{relative_path: row_count}``."""
+        ``{relative_path: row_count}``. A name's k-th table after its first (a
+        period snapshot's next period) is stamped k milliseconds later, so
+        each is a file of its own and the stamps sort in the tables' order."""
         entities: dict[str, int] = {}
+        seen: dict[str, int] = {}
+        stamped = []
+        for tbl in tables:
+            k = seen.get(tbl.name, 0)
+            seen[tbl.name] = k + 1
+            stamped.append((tbl, emit.later_stamp(stamp, k) if k else stamp))
         with tempfile.TemporaryDirectory(prefix="tdx-files-") as tmp:
             root = Path(tmp)
             for fmt in (*emit.FILE_FORMATS, emit.LOG_FORMAT):
-                for tbl in tables:
+                for tbl, at in stamped:
                     if fmt not in emit.formats_of(tbl):
                         continue
                     why = emit.unwritable(tbl, fmt)
                     if why:
                         print(f">>> {tbl.name}: no {fmt} file ({why})")
                         continue
-                    rel = f"{fmt}/{tbl.name}_{stamp}.{fmt}"
+                    rel = f"{fmt}/{tbl.name}_{at}.{fmt}"
                     emit.write_frame(tbl, root / rel, fmt)
                     entities[rel] = len(tbl.rows)
             self.store_upload(dest, str(root))
@@ -236,12 +257,18 @@ class FileStore:
         *,
         label: str = "modify-data",
         schedule=None,
+        restage: dict[str, list[emit.Table]] | None = None,
     ) -> dict[str, int]:
+        """Stage the inserted rows as new files -- and, for each table in
+        `restage` (a snapshot's, from ``Model.restage``), its files instead:
+        the state its changes left, UPDATEs and DELETEs included."""
+        restage = restage or {}
         changes = [c for txn in transactions for c in txn]
-        if any(c.kind is not OpKind.INSERT for c in changes):
+        if any(c.kind is not OpKind.INSERT and c.table not in restage for c in changes):
             raise TdxError(
                 f"{self.slug} domains support only inserts for {label} "
-                f"(a change is a new file) — use --ops Insert"
+                f"(a change is a new file; a snapshot entity's, its whole state) "
+                f"— use --ops Insert"
             )
         if schedule is not None and schedule.mode.value != "serial":
             raise TdxError(
@@ -250,13 +277,19 @@ class FileStore:
             )
         by_table: dict[str, tuple[list, list]] = {}
         for c in changes:
-            by_table.setdefault(c.table, (c.columns, []))[1].append(c.row)
+            if c.table not in restage:
+                by_table.setdefault(c.table, (c.columns, []))[1].append(c.row)
         tables = [
             emit.Table(name=t, columns=cols, rows=rows)
             for t, (cols, rows) in by_table.items()
         ]
+        for files in restage.values():
+            tables.extend(files)
         stamp = emit.file_stamp()
-        print(f">>> staging {len(changes)} inserted row(s) -> {uri} …")
+        print(
+            f">>> staging {len(changes)} change(s) -> {uri} …"
+            + (f" (restaging {', '.join(restage)})" if restage else "")
+        )
         staged = self._stage_and_upload(uri, tables, stamp)
         return {**before, **staged}  # accumulate the new files onto the prior ones
 

@@ -20,6 +20,14 @@
     "sizeable": true
   },
   {
+    "name": "brz_period_snapshot",
+    "sizeable": true
+  },
+  {
+    "name": "brz_log_lines",
+    "sizeable": true
+  },
+  {
     "name": "xp_sentinel",
     "sizeable": false
   }

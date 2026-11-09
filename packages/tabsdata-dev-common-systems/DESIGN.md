@@ -76,6 +76,59 @@ xlsx: every format a tabsdata file source reads by extension -- and a log table 
   model, which has no lines, is staged like any other. The `logs` model is two such files --
   an application log (a stack-trace continuation every 25th line, which matches no line
   pattern) and the combined access log, its month spelled from a table rather than the locale.
+- **A snapshot entity's changes are its whole state** (`Entity.snapshot`: bronze's
+  `brz_full_snapshot` and `brz_period_snapshot`). A file is what a reader sees, and a snapshot's
+  file holds the state, so on a file domain such an entity takes the verbs it takes on SQL -- the
+  others INSERT alone (`FileStore.change_verbs`) -- and a run stages, in place of the rows it
+  inserted, what the model's `restage` returns: the state after the changes, one file; a period
+  snapshot's new periods, one file each, the k-th stamped k ms after the first so the names sort
+  in period order. A snapshot change is asked for with the verbs a SQL domain takes (`--ops Mix`,
+  `Update`, `Delete`), not a verb of its own: the trail is then the same on both natures, and a
+  check rebuilds the expected file from the earlier one and the run's I/U/D lines. The earlier
+  files stay; a reader of the latest sees the state. The flag is the entity's, not a column's:
+  the model, which knows the state, is what builds the file.
+
+## The bronze model: every arrival pattern takes its changes
+
+Seven tables, one per way a source delivers to a bronze layer (`models/bronze/`): full
+snapshot, insert/update with a soft-delete flag, insert/update with deletes invisible, the
+`@td.cdc.*` stream, append-only events, a period snapshot (`period_end DATE`, the state at each
+month-end, three in the seed) and an application log (`brz_log_lines`, the `logs` model's line
+builder, staged as `log/` lines). Every table carries `sim_counter`, the only enforced key; the
+first five seed rows are unchanged from before the last two joined. The verbs each takes are what
+its pattern means: full snapshot and no-delete I/U/D, soft delete I/U (a soft delete is an UPDATE
+to `deleted = 1`, or a change row carrying it), the CDC stream, events, periods and the log I.
+A system narrows them by its nature (`change_verbs`): a file domain INSERT but on a snapshot
+(above), a topic INSERT.
+
+- **A run continues the state the seed and the earlier runs left** (`Model.replays`). A CDC `u`
+  needs a live key and its last image, a version a key that exists, a snapshot file the state:
+  none of it is a function of the seed number, and the planner's runs need not have had one
+  shape. So modify-data keeps each applied run's spec in the descriptor (`DomainInfo.changes`,
+  a few fields each, cleared by every load), and `Model.prepare` rebuilds every table's state
+  from the seed and those specs, planning each again (`PlanContext.replan`, with the same verb
+  filter), before it plans the next. A dry run records nothing, so it plans what the next real
+  run does. Rejected: the state itself in the meta (a full snapshot is the table), reading the
+  last file back (four object stores to teach a read, and it says nothing about CDC's live
+  keys), keys derived from the seed alone (an earlier run's deletions are unknowable without
+  its shape).
+- **What every change keeps**: an inserted `sim_counter` is 10,000,000 plus the table's insert
+  count -- unique whatever seeds the runs had, past any seed below `--size 1000`; every
+  inserted or updated `data_ts` is a second past the table's last (from 2025-01-01, after every
+  seeded one; the log's `ts` one to four), so an incremental read past the last `data_ts` sees
+  each change; a version names a key the table has, a new key is its tenant's next. An UPDATE or
+  DELETE takes the planner's seeded index and moves to the nearest row still there (soft delete:
+  of a key not deleted), so a run after one of another shape never names a row that is gone.
+  The CDC stream keeps the seed's contract: `i` for a key not live, `u`/`d` for a live one with
+  `old` its last `new`, a delete's row state in `new`; transactions of one to three rows,
+  restarted per run. A period is one INSERT: every key still there at the next month-end, a
+  tenth gone, three in ten changed, a tenth new, every row read then.
+- **Times are text**, as `data_ts` always was: a SQL literal carries no fraction and the kafka
+  JSON encoder spells a `datetime` otherwise than the trail, so the log steps in whole seconds
+  and its `ts` is the same string in the table, the message and the trail.
+- **On kafka** (`Model.kafka_recipe`) redpanda's modify-data produces the recipe's INSERTs --
+  each entity's per-set rows times `--size`, the next period per size unit -- instead of
+  re-emitting the seed, whose keys and counters would repeat; it needs create-data first.
 
 ## redpanda: topics, partitions and the shape of a message
 
@@ -144,8 +197,18 @@ handle carries them, so every produce encodes by them (`redpanda/wire.py`).
   delete-model delete the prefix's subjects, best-effort. A domain-level choice rather than a
   per-run flag: a topic mixing plain and framed messages is one no consumer reads. JSON is never
   framed.
+- **`domain create --message-format json|avro|protobuf`** (meta `MESSAGE_FORMAT`, default
+  json, replayed by `manifest` as `message-format`) is the format of every entity the model does
+  not name: a suite reads every bronze table as Avro in one domain, as Protobuf in another. A
+  domain's choice for the reason `--registry` is. A table the format cannot name -- Avro and
+  Protobuf names are identifiers, bronze's `@td.cdc.*` columns are not (`wire.unencodable`) --
+  is left out of it and the run says so: its topic exists and gets nothing, its rows are not in
+  the trail, and a recipe run leaves it out of the plan, so the state continues only what was
+  produced. Rejected: JSON for that topic alone (a consumer of the domain's format would meet a
+  message it cannot decode), renamed fields (the one topic whose fields are not the table's).
 - **`create-model --schemas-dir DIR`** writes `<entity>.avsc` / `<entity>.proto` for a consumer,
-  and the report names the Protobuf message (`tdd.OrderPlaced`).
+  every entity in the format its messages take, and the report names the Protobuf message
+  (`tdd.OrderPlaced`) and each table left out.
 - **`--schema-changes` is refused on such a topic**: an Avro or Protobuf message is its schema's,
   and no row can add, drop or retype a field of it.
 

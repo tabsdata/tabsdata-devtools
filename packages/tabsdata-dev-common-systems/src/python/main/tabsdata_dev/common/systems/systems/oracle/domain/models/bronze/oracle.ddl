@@ -92,6 +92,36 @@ CREATE TABLE brz_append_events (
     is_active       NUMBER(1)                NOT NULL CHECK (is_active IN (0,1))
 );
 
+-- The whole state at each month-end: one row per live key per period_end,
+-- the snapshot's as-of. modify-data's INSERT adds the next period.
+CREATE TABLE brz_period_snapshot (
+    sim_counter     NUMBER(19)      NOT NULL PRIMARY KEY,
+    tenant_id       VARCHAR2(20)    NOT NULL,
+    entity_id       NUMBER(19)      NOT NULL,
+    data_ts         TIMESTAMP WITH TIME ZONE NOT NULL,
+    name            VARCHAR2(80),
+    status          VARCHAR2(20),
+    category        VARCHAR2(20),
+    amount          NUMBER(12,2),
+    quantity        NUMBER(10),
+    score           BINARY_DOUBLE,
+    is_active       NUMBER(1)       NOT NULL CHECK (is_active IN (0,1)),
+    period_end      DATE            NOT NULL
+);
+
+-- An application log, one line per row; `line` is the text a file domain
+-- stages (log/brz_log_lines_<stamp>.log), the rest what it says.
+CREATE TABLE brz_log_lines (
+    sim_counter     NUMBER(19)      NOT NULL PRIMARY KEY,
+    ts              TIMESTAMP,
+    level           VARCHAR2(5),
+    service         VARCHAR2(16),
+    request_id      CHAR(12),
+    latency_ms      NUMBER(10),
+    message         VARCHAR2(200),
+    line            VARCHAR2(400)   NOT NULL
+);
+
 -- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
 CREATE TABLE xp_sentinel (
     sentinel_key     VARCHAR2(255)   PRIMARY KEY,

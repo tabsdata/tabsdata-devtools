@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -343,6 +343,14 @@ def file_stamp() -> str:
     all files staged in one command invocation share the same stamp."""
     now = datetime.now()
     return now.strftime("%Y%m%dT%H%M%S_") + f"{now.microsecond // 1000:03d}"
+
+
+def later_stamp(stamp: str, ms: int) -> str:
+    """`stamp` (a :func:`file_stamp`) `ms` milliseconds later, in its format."""
+    at = datetime.strptime(stamp[:-4], "%Y%m%dT%H%M%S").replace(
+        microsecond=int(stamp[-3:]) * 1000
+    ) + timedelta(milliseconds=ms)
+    return at.strftime("%Y%m%dT%H%M%S_") + f"{at.microsecond // 1000:03d}"
 
 
 def write_frame(tbl: Table, path: str | Path, fmt: str) -> None:

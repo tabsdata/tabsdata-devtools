@@ -70,7 +70,9 @@ class DomainInfo(BaseModel):
     ``{table: rows}``; for a file domain it is ``{staged_file_path: rows}`` (the
     files relative to the domain root). ``seed`` is the last ``modify-data --seed
     auto`` seed applied (insert ordinals derive from it, so the seed alone makes a
-    run sequence repeatable)."""
+    run sequence repeatable). ``changes`` is, for a model that replays
+    (``Model.replays``), the spec of every modify-data run applied since the
+    load, in order: what its next plan rebuilds the model's state from."""
 
     model_config = ConfigDict(protected_namespaces=())
 
@@ -90,6 +92,7 @@ class DomainInfo(BaseModel):
     entities: dict[str, int] = Field(default_factory=dict)
     seeded: dict[str, int] = Field(default_factory=dict)
     seed: int = 0
+    changes: list[dict] = Field(default_factory=list)
 
 
 Info = Annotated[SystemInfo | DomainInfo, Field(discriminator="role")]
@@ -222,6 +225,7 @@ def set_model(path: str | Path, model: str, entity_names: list[str]) -> None:
     info.entities = {n: 0 for n in entity_names}
     info.seeded = {}
     info.seed = 0
+    info.changes = []
     save(info, path)
 
 
@@ -234,6 +238,7 @@ def clear_model(path: str | Path) -> None:
     info.entities = {}
     info.seeded = {}
     info.seed = 0
+    info.changes = []
     save(info, path)
 
 
@@ -245,20 +250,28 @@ def record_data(path: str | Path, size: str, entities: dict[str, int]) -> None:
     info.entities = dict(entities)
     info.seeded = dict(entities)
     info.seed = 0
+    info.changes = []
     save(info, path)
 
 
 def record_changes(
-    path: str | Path, entities: dict[str, int], *, seed: int | None = None
+    path: str | Path,
+    entities: dict[str, int],
+    *,
+    seed: int | None = None,
+    change: dict | None = None,
 ) -> None:
     """Persist the post-``modify-data`` per-entity row counts. When the run used
     ``--seed auto``, `seed` also records the applied seed so the next auto run
     continues from ``seed + 1``; a fixed seed passes ``None`` and leaves the auto
-    cursor untouched."""
+    cursor untouched. `change` is the run's spec, appended to ``changes`` for a
+    model that replays its runs."""
     info = _load_domain(path)
     info.entities = dict(entities)
     if seed is not None:
         info.seed = seed
+    if change is not None:
+        info.changes.append(change)
     save(info, path)
 
 

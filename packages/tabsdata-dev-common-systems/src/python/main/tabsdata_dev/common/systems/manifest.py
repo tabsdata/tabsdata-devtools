@@ -111,4 +111,8 @@ def domain_entry(info: descriptor.DomainInfo) -> dict:
     for key in ("PGVECTOR", "REGISTRY"):
         if info.meta.get(key) == "on":
             entry[key.lower()] = "on"
+    # redpanda's `--message-format`: JSON is the default, the others replayed.
+    fmt = info.meta.get("MESSAGE_FORMAT", "")
+    if fmt and fmt != "json":
+        entry["message-format"] = fmt
     return entry

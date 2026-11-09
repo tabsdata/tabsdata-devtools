@@ -96,6 +96,38 @@ CREATE TABLE brz_append_events (
     PRIMARY KEY (sim_counter)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- The whole state at each month-end: one row per live key per period_end,
+-- the snapshot's as-of. modify-data's INSERT adds the next period.
+CREATE TABLE brz_period_snapshot (
+    sim_counter     BIGINT          NOT NULL,
+    tenant_id       VARCHAR(20)     NOT NULL,
+    entity_id       BIGINT          NOT NULL,
+    data_ts         DATETIME        NOT NULL,
+    name            VARCHAR(80),
+    status          VARCHAR(20),
+    category        VARCHAR(20),
+    amount          DECIMAL(12,2),
+    quantity        INT,
+    score           DOUBLE,
+    is_active       TINYINT(1)      NOT NULL,
+    period_end      DATE            NOT NULL,
+    PRIMARY KEY (sim_counter)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- An application log, one line per row; `line` is the text a file domain
+-- stages (log/brz_log_lines_<stamp>.log), the rest what it says.
+CREATE TABLE brz_log_lines (
+    sim_counter     BIGINT          NOT NULL,
+    ts              DATETIME,
+    level           VARCHAR(5),
+    service         VARCHAR(16),
+    request_id      CHAR(12),
+    latency_ms      INT,
+    message         VARCHAR(200),
+    line            VARCHAR(400)    NOT NULL,
+    PRIMARY KEY (sim_counter)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- xp_sentinel: written only by `tdd domain sentinel-data`, never by create/modify-data.
 CREATE TABLE xp_sentinel (
     sentinel_key     VARCHAR(255)    NOT NULL,

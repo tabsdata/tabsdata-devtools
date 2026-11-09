@@ -62,6 +62,19 @@ manifests so a test suite gets the same data on every backend.
   current count, and a Mix pass (one row and one seed more) deleted the same row forever. The
   walk assumes the domain's earlier passes were consecutive seeds of the same shape, which is
   what AUTO produces; a descriptor from before `seeded` bounds by its current counts.
+- **A system narrows the verbs an entity takes** (`change_verbs`, read off the system's type,
+  so a dry run plans by it without reaching the system): a SQL domain every verb the entity
+  supports, a file domain INSERT -- and every verb on a snapshot entity, whose new file is the
+  state after the changes -- a topic INSERT. Naming a verb an entity does not take there is
+  refused naming the system type, and `models` tags each entity with what it takes on that
+  system. A file domain's seeded counts are by staged file; the planner reads them by entity
+  (`datagen.seeded_rows`).
+- **A model that replays keeps its runs** (bronze, `Model.replays`): every applied
+  modify-data's spec goes into the descriptor's `changes`, cleared by create-data, delete-data
+  and the model verbs, and the next plan rebuilds the model's state from the seed and those runs
+  -- so a run continues what any earlier run did, of whatever shape. A run that failed after
+  committing part of its changes records nothing, and the state then no longer matches the
+  data: reload with `create-data --force`.
 - **modify-data's transactions are serial, interleaved, nested or a mix** (`--trx-mode`,
   default `serial`), on the SQL engines (`supports_trx_modes`: the container databases and the
   managed postgres three; a file or kafka domain, a warehouse or an OLAP store refuses anything
@@ -137,7 +150,8 @@ manifests so a test suite gets the same data on every backend.
 - Implementations resolve per system: `systems/<slug>/<verb>.py` when a backend overrides one,
   else the shared `_common/commands`, and `-h` prints the named target's own (`--sys` on
   create, `--domain` otherwise) -- the first type's when the store lacks it, cannot read it
-  without the key, or the selector is a batch, since help asks for neither. redpanda's own add options: `create --registry on|off`, `create-model
+  without the key, or the selector is a batch, since help asks for neither. redpanda's own add options: `create --registry on|off` and `--message-format
+  json|avro|protobuf`, `create-model
   --up-to-partitions N` and `--schemas-dir DIR`, `create-data`/`modify-data --entity A,B` and
   `--schema-changes`;
   `postgrespgvector`'s and `postgresnativepgvector`'s `create --pgvector on|off` (default off,

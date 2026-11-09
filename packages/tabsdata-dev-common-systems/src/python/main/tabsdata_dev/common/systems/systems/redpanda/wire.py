@@ -7,8 +7,13 @@ or in the Confluent schema-registry wire format.
 
 A model names the entities whose messages are not JSON (``model.json``'s
 ``message_formats``, :func:`datagen.message_formats`); ``create-model`` records
-them in the domain's meta (``MESSAGE_FORMATS``), and ``domain create
---registry on`` records ``REGISTRY``. Every schema is made from the entity's
+them in the domain's meta (``MESSAGE_FORMATS``). ``domain create
+--message-format json|avro|protobuf`` records the format of every other entity
+(``MESSAGE_FORMAT``, default JSON), and ``--registry on`` records ``REGISTRY``.
+A table whose names the format cannot hold (Avro and Protobuf names are
+identifiers, bronze's ``@td.cdc.*`` columns are not) is left out of it -- its
+topic gets no messages, and the run says so -- as a file domain leaves it out
+of its Avro files. Every schema is made from the entity's
 columns -- the ones a message carries, ``auto`` ones left out -- so nothing is
 kept beside the model to drift from it:
 
@@ -36,6 +41,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import struct
 import urllib.error
 import urllib.parse
@@ -49,6 +55,10 @@ from tabsdata_dev.common.systems.errors import TdxError
 
 #: The domain meta key holding ``{entity: avro|protobuf}`` (JSON).
 META_MESSAGE_FORMATS = "MESSAGE_FORMATS"
+#: The domain meta key holding the format of every entity the model does not
+#: name (``domain create --message-format``; JSON when absent).
+META_MESSAGE_FORMAT = "MESSAGE_FORMAT"
+OPT_MESSAGE_FORMAT = "--message-format"
 #: The domain meta key saying whether messages go in the registry wire format.
 META_REGISTRY = "REGISTRY"
 REGISTRY_ON, REGISTRY_OFF = "on", "off"
@@ -58,6 +68,8 @@ OPT_REGISTRY = "--registry"
 NAMESPACE = "tdd"
 
 _REGISTRY_CONTENT = "application/vnd.schemaregistry.v1+json"
+# An Avro name and a Protobuf field name alike.
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _REGISTRY_TIMEOUT = 30
 
 
@@ -77,6 +89,60 @@ def formats_of(meta: dict[str, str]) -> dict[str, str]:
 
 def encode_formats(formats: dict[str, str]) -> str:
     return json.dumps(formats, separators=(",", ":"), sort_keys=True)
+
+
+def default_format(meta: dict[str, str]) -> str:
+    """The format of a domain's entities its model does not name."""
+    return meta.get(META_MESSAGE_FORMAT) or datagen.MESSAGE_JSON
+
+
+def effective_formats(
+    formats: dict[str, str], default: str, entities: list[str]
+) -> dict[str, str]:
+    """``{entity: avro|protobuf}`` for `entities`: the model's own format, else
+    the domain's `default`; a JSON entity is left out, as in ``formats``."""
+    out = {}
+    for name in entities:
+        fmt = formats.get(name, default)
+        if fmt != datagen.MESSAGE_JSON:
+            out[name] = fmt
+    return out
+
+
+def domain_formats(meta: dict[str, str], entities: list[str]) -> dict[str, str]:
+    """:func:`effective_formats` from a domain's meta."""
+    return effective_formats(formats_of(meta), default_format(meta), entities)
+
+
+def unencodable(fmt: str, entity: str, columns: list[emit.Column]) -> str | None:
+    """Why `entity`'s messages cannot be `fmt`, or ``None`` when they can: an
+    Avro or Protobuf field is named by an identifier, which bronze's
+    ``@td.cdc.*`` columns are not."""
+    if fmt == datagen.MESSAGE_JSON:
+        return None
+    bad = [c.name for c in message_columns(columns) if not _IDENT.match(c.name)]
+    if not _IDENT.match(entity):
+        bad.insert(0, entity)
+    if not bad:
+        return None
+    more = f" and {len(bad) - 3} more" if len(bad) > 3 else ""
+    return f"not {fmt} names: {', '.join(bad[:3])}{more}"
+
+
+def leave_out(
+    tables: list[emit.Table], formats: dict[str, str]
+) -> tuple[list[emit.Table], list[str]]:
+    """`tables` but those whose messages their format cannot be (`formats` as
+    :func:`effective_formats` gives them), and a line for each one left out."""
+    kept, notes = [], []
+    for t in tables:
+        fmt = formats.get(t.name, datagen.MESSAGE_JSON)
+        why = unencodable(fmt, t.name, t.columns)
+        if why:
+            notes.append(f"{t.name}: no {fmt} messages ({why})")
+        else:
+            kept.append(t)
+    return kept, notes
 
 
 def registry_of(meta: dict[str, str]) -> str:

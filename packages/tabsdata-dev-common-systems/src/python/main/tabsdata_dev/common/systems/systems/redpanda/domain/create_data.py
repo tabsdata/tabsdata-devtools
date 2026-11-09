@@ -7,14 +7,15 @@
 The shared create-data, with two choices of its own (see ``redpanda.shape``):
 ``--entity A,B`` produces to those topics alone, leaving the others empty, and
 ``--schema-changes [add,drop,retype|ALL]`` varies the shape of the messages, as
-it varies the trail ``--emit-ops`` writes.
+it varies the trail ``--emit-ops`` writes. A table the domain's message format
+cannot hold (``--message-format``, ``redpanda.wire``) is left out, and said.
 """
 
 from __future__ import annotations
 
 import argparse
 
-from tabsdata_dev.common.systems import cli, constants
+from tabsdata_dev.common.systems import cli, console, constants
 from tabsdata_dev.common.systems.systems._common.commands import dom_create_data
 from tabsdata_dev.common.systems.systems.redpanda import shape, wire
 
@@ -51,11 +52,23 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def run(ctx: cli.Context) -> int:
     kinds = shape.parse_kinds(ctx.args.schema_changes)
     entity = ctx.args.entity
-    formats = wire.formats_of(ctx.info.meta) if ctx.info is not None else {}
+    meta = ctx.info.meta if ctx.info is not None else {}
 
     def prepare(tables):
         chosen = shape.select_tables(tables, entity)
+        formats = wire.domain_formats(meta, [t.name for t in chosen])
+        chosen = leave_out(chosen, formats)
         shape.refuse_schema_changes(chosen, kinds, formats)
         return shape.vary_tables(chosen, kinds)
 
     return dom_create_data.run(ctx, prepare=prepare)
+
+
+def leave_out(tables: list, formats: dict[str, str]) -> list:
+    """`tables` but those their format cannot hold, each one said: the trail
+    then holds only what is produced."""
+    kept, notes = wire.leave_out(tables, formats)
+    if not console.json_mode():
+        for note in notes:
+            console.out(note)
+    return kept

@@ -10,8 +10,9 @@ default, is one partition each). The counts are recorded in the domain's meta
 (``PARTITIONS``), and a create-data reload creates the topics again from them.
 
 The entities whose messages the model makes Avro or Protobuf are recorded too
-(``MESSAGE_FORMATS``), which every later produce encodes by; ``--schemas-dir
-DIR`` writes each one's schema there -- ``<entity>.avsc``, ``<entity>.proto``
+(``MESSAGE_FORMATS``), which every later produce encodes by -- every other one in
+the domain's ``--message-format``; ``--schemas-dir DIR`` writes each one's
+schema there -- ``<entity>.avsc``, ``<entity>.proto``
 -- as a consumer needs it, and the report names them, with the Protobuf
 message's full name.
 """
@@ -70,8 +71,10 @@ def run(ctx: cli.Context) -> int:
         for key in (shape.META_PARTITIONS, wire.META_MESSAGE_FORMATS):
             info.meta[key] = ctx.info.meta[key]
         descriptor.save(info, ctx.path)
-        if formats:
-            _report_schemas(a.model, formats, a.schemas_dir)
+        # Every entity's own format, or the domain's --message-format.
+        every = wire.domain_formats(info.meta, datagen.entities_of(a.model))
+        if every:
+            _report_schemas(a.model, every, a.schemas_dir)
     return rc
 
 
@@ -81,10 +84,13 @@ def schemas(model: str, formats: dict[str, str]) -> dict[str, dict]:
     messages' do."""
     tables = datagen.load_model(model).build_initial(random.Random(0), 1)
     columns = {t.name: t.columns for t in tables}
+    columns.setdefault(datagen.SENTINEL_ENTITY, datagen.SENTINEL_COLUMNS)
     out: dict[str, dict] = {}
     for entity, fmt in formats.items():
         if entity not in columns:
             raise TdxError(f"model '{model}' builds no table {entity}")
+        if wire.unencodable(fmt, entity, columns[entity]):
+            continue  # no messages, no schema: the data verbs say why
         entry = {
             "format": fmt,
             "file": f"{entity}.{_EXTENSIONS[fmt]}",
@@ -98,6 +104,9 @@ def schemas(model: str, formats: dict[str, str]) -> dict[str, dict]:
 
 def _report_schemas(model: str, formats: dict[str, str], out_dir: str | None) -> None:
     found = schemas(model, formats)
+    for entity, fmt in formats.items():
+        if entity not in found:
+            console.out(f"  {entity}: no {fmt} messages (its names)")
     if out_dir:
         root = Path(out_dir)
         root.mkdir(parents=True, exist_ok=True)

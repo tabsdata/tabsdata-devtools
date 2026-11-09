@@ -87,8 +87,10 @@ class Redpanda(SingleContainerHosting, Messaging):
     image_platform = images.REDPANDA.platform
     internal_port = 9092
 
-    # What `domain create --registry` chose for the domain it is creating.
+    # What `domain create --registry` and `--message-format` chose for the
+    # domain it is creating.
     _registry: str = wire.REGISTRY_OFF
+    _message_format: str = datagen.MESSAGE_JSON
 
     def generate_password(self) -> str:
         return ""  # a password is generated only for --sasl on (plan_system)
@@ -101,6 +103,20 @@ class Redpanda(SingleContainerHosting, Messaging):
                 f"{wire.REGISTRY_OFF}, not {choice!r}"
             )
         self._registry = choice
+
+    def use_message_format(self, choice: str) -> None:
+        """Bind ``--message-format`` for the domain this create makes: the
+        format of every entity its model does not name."""
+        if choice not in datagen.MESSAGE_FORMATS:
+            raise TdxError(
+                f"{wire.OPT_MESSAGE_FORMAT} takes "
+                f"{'|'.join(datagen.MESSAGE_FORMATS)}, not {choice!r}"
+            )
+        self._message_format = choice
+
+    def change_verbs(self, entity: datagen.Entity) -> tuple[datagen.OpKind, ...]:
+        """A topic only appends: a change is a new message."""
+        return tuple(k for k in entity.supports if k is datagen.OpKind.INSERT)
 
     def options(self) -> tuple[options.Option, ...]:
         return (
@@ -309,6 +325,7 @@ class Redpanda(SingleContainerHosting, Messaging):
             "SCHEMA_REGISTRY_URL": sys_meta.get("SCHEMA_REGISTRY_URL", ""),
             "GROUP_ID": naming.build_identity(),
             wire.META_REGISTRY: self._registry,
+            wire.META_MESSAGE_FORMAT: self._message_format,
         }
 
     def provision_domain(
@@ -382,6 +399,7 @@ class Redpanda(SingleContainerHosting, Messaging):
             k: v
             for k, v in (
                 ("formats", meta.get(wire.META_MESSAGE_FORMATS, "")),
+                ("format", meta.get(wire.META_MESSAGE_FORMAT, "")),
                 ("registry", wire.registry_of(meta)),
             )
             if v
@@ -399,6 +417,14 @@ class Redpanda(SingleContainerHosting, Messaging):
         raw = (params.get("formats") or [""])[0]
         formats = wire.formats_of({wire.META_MESSAGE_FORMATS: raw})
         return formats, (params.get("registry") or [""])[0]
+
+    @staticmethod
+    def _default_format(uri: str) -> str:
+        """The format of the entities the model does not name, from a handle."""
+        params = parse_qs(uri.partition("?")[2])
+        return wire.default_format(
+            {wire.META_MESSAGE_FORMAT: (params.get("format") or [""])[0]}
+        )
 
     @staticmethod
     def _endpoint(uri: str) -> tuple[dict, str, str]:
@@ -455,6 +481,14 @@ class Redpanda(SingleContainerHosting, Messaging):
 
         conf, _, prefix = self._endpoint(uri)
         formats, registry = self._wire(uri)
+        formats = wire.effective_formats(
+            formats, self._default_format(uri), [t.name for t in tables]
+        )
+        # The commands leave such a table out before the trail is written;
+        # this is for a caller that did not.
+        tables, notes = wire.leave_out(tables, formats)
+        for note in notes:
+            print(f">>> {note}")
         producer = Producer(conf)
         failed: list = []
 

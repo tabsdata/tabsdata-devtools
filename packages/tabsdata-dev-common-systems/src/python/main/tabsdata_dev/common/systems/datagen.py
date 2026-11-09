@@ -31,7 +31,8 @@ import json
 import os
 import random
 import uuid
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib import import_module
 from pathlib import Path
@@ -123,15 +124,29 @@ class Entity:
     (0-based) for UPDATE / DELETE; ``mutate`` returns the column->new-value
     changes for an UPDATE. ``supports`` narrows the verbs an entity can take;
     ``rows_per_set`` is how many rows a ``--entity ALL`` run applies to this
-    entity per set."""
+    entity per set.
+
+    Two hooks a model with state of its own overrides (bronze): ``new_rows``,
+    the rows one INSERT adds -- one, unless an insert is a batch, as a period
+    of a period snapshot is -- and ``pick``, the ``(where, set)`` of one UPDATE
+    or DELETE (``set`` ``None`` for a DELETE), or ``None`` when no row is left
+    to take it.
+
+    ``snapshot`` marks a table whose file holds the whole state: a file domain
+    takes its UPDATEs and DELETEs too, and stages the state after the changes
+    (:meth:`Model.restage`) instead of the inserted rows."""
 
     table: str
     columns: list[Column]
     supports: tuple[OpKind, ...] = (OpKind.INSERT, OpKind.UPDATE, OpKind.DELETE)
     rows_per_set: int = 1
+    snapshot: bool = False
 
     def new_row(self, rng: random.Random, i: int) -> dict:
         raise NotImplementedError
+
+    def new_rows(self, rng: random.Random, i: int) -> list[dict]:
+        return [self.new_row(rng, i)]
 
     def target(self, i: int, existing: int) -> dict:
         raise NotImplementedError
@@ -139,18 +154,65 @@ class Entity:
     def mutate(self, rng: random.Random, i: int, existing: int) -> dict:
         raise NotImplementedError
 
+    def pick(
+        self, kind: OpKind, rng: random.Random, i: int, existing: int
+    ) -> tuple[dict, dict | None] | None:
+        # mutate before target: the order the planner always called them in,
+        # so a model's rng is drawn as it was.
+        set_values = self.mutate(rng, i, existing) if kind is OpKind.UPDATE else None
+        return self.target(i, existing), set_values
+
+
+# The verbs a system lets an entity take, of those it supports (a system's
+# `change_verbs`); a system without one takes every verb.
+VerbFilter = Callable[[Entity], tuple[OpKind, ...]]
+
+
+def verbs_on(system: object, entity: Entity) -> tuple[OpKind, ...]:
+    """The verbs `entity` takes on `system`: what the entity supports, narrowed
+    by the system's ``change_verbs`` when it has one -- a file domain takes
+    INSERT (and a snapshot's UPDATE and DELETE), a kafka topic INSERT. Read off
+    the system's type: it is what the nature can do, and a dry run, which
+    reaches no system, plans by it too."""
+    narrow = getattr(type(system), "change_verbs", None)
+    return entity.supports if narrow is None else narrow(system, entity)
+
+
+def restages_snapshots(system: object) -> bool:
+    """Whether `system` stages a snapshot entity's whole state (a file store),
+    off its type, as :func:`verbs_on` reads."""
+    return bool(getattr(type(system), "restages_snapshots", False))
+
 
 class Model:
     """A model: the delta entities plus a deterministic initial-data builder.
 
     ``entities`` is ordered parents-first so a transaction (and its inserts) that
     spans tables satisfies foreign keys. ``build_initial`` returns every
-    generated table (a superset of the delta entities) in FK-safe load order."""
+    generated table (a superset of the delta entities) in FK-safe load order.
+
+    A model whose changes depend on its earlier ones sets ``replays``: every
+    applied modify-data run's spec is kept in the domain's descriptor
+    (``DomainInfo.changes``), and :func:`plan` hands them to :meth:`prepare`
+    first, which rebuilds the model's state from the seed and those runs --
+    replaying their plans -- so the next run continues it. ``kafka_recipe``
+    makes redpanda's modify-data produce the model's INSERTs rather than a
+    fresh batch of its seed."""
 
     entities: ClassVar[list[Entity]] = []
+    replays: ClassVar[bool] = False
+    kafka_recipe: ClassVar[bool] = False
 
     def build_initial(self, rng: random.Random, n: int) -> list[Table]:
         raise NotImplementedError
+
+    def prepare(self, ctx: PlanContext) -> None:
+        """Called by :func:`plan` before it plans (a replaying model's hook)."""
+
+    def restage(self, tables: set[str]) -> dict[str, list[Table]]:
+        """The files a file domain stages for the snapshot entities in `tables`
+        that the last plan changed: ``{entity: [Table, ...]}``, one file each."""
+        return {}
 
 
 @dataclass
@@ -166,6 +228,81 @@ class ChangeSpec:
     rows_per_entity: dict[str, int]
     seed: int = 0
     insert_base: int = 0
+
+    def to_dict(self) -> dict:
+        """What the descriptor keeps of an applied run, for a replay."""
+        return {
+            "entities": list(self.entities),
+            "ops": self.ops.value,
+            "sets": self.sets,
+            "rows": dict(self.rows_per_entity),
+            "seed": self.seed,
+            "insert_base": self.insert_base,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> ChangeSpec:
+        return cls(
+            entities=list(d["entities"]),
+            ops=OpSelector(d["ops"]),
+            sets=int(d["sets"]),
+            rows_per_entity={k: int(v) for k, v in d["rows"].items()},
+            seed=int(d["seed"]),
+            insert_base=int(d["insert_base"]),
+        )
+
+
+@dataclass
+class PlanContext:
+    """What :meth:`Model.prepare` gets: the create-data ``size``, the seeded
+    counts the plan is bounded by, the specs of the runs applied since the
+    load, in order, and the system's verb filter -- so a replay plans each one
+    as it was planned."""
+
+    size: int = 1
+    counts: dict[str, int] = field(default_factory=dict)
+    history: list[ChangeSpec] = field(default_factory=list)
+    verbs: VerbFilter | None = None
+
+    def replan(self, model: Model, spec: ChangeSpec) -> list[Transaction]:
+        """Plan an earlier run again, as it was planned: no ``prepare``, and
+        an entity the model no longer has is left out."""
+        known = {e.table for e in model.entities}
+        names = [n for n in spec.entities if n in known]
+        if not names:
+            return []
+        spec = ChangeSpec(
+            names,
+            spec.ops,
+            spec.sets,
+            spec.rows_per_entity,
+            spec.seed,
+            spec.insert_base,
+        )
+        return _plan_sets(model, spec, self.counts, self.verbs)
+
+
+def seeded_rows(seeded: dict[str, int]) -> dict[str, int]:
+    """Per-entity row counts from a descriptor's ``seeded``: a SQL domain's are
+    already by table; a file domain's are by staged file,
+    ``<fmt>/<entity>_<stamp>.<fmt>``, one per format, so an entity's count is
+    its largest per format (every format holds the same rows, but one a table
+    cannot be written as)."""
+    per: dict[tuple[str, str], int] = {}
+    out: dict[str, int] = {}
+    for key, rows in seeded.items():
+        fmt, sep, rest = key.partition("/")
+        if not sep:
+            out[key] = rows
+            continue
+        name = rest.rsplit(".", 1)[0]
+        # <entity>_<YYYYMMDD>T<hhmmss>_<mmm>: the stamp is the last two parts.
+        parts = name.rsplit("_", 2)
+        entity = parts[0] if len(parts) == 3 else name
+        per[(fmt, entity)] = per.get((fmt, entity), 0) + rows
+    for (_, entity), rows in per.items():
+        out[entity] = max(out.get(entity, 0), rows)
+    return out
 
 
 # ======================================================================
@@ -189,22 +326,27 @@ def resolve_entities(model: Model, names: list[str]) -> list[Entity]:
     return [e for e in model.entities if e.table in wanted]
 
 
-def plan(model: Model, spec: ChangeSpec, counts: dict[str, int]) -> list[Transaction]:
+def plan(
+    model: Model,
+    spec: ChangeSpec,
+    counts: dict[str, int],
+    *,
+    size: int = 1,
+    history: list[ChangeSpec] | None = None,
+    verbs: VerbFilter | None = None,
+) -> list[Transaction]:
     """Build ``spec.sets`` transactions, applying ``spec.rows_per_entity`` changes
     to each requested entity per transaction (parents-first). ``counts`` -- the
     SEEDED per-table row counts, the rows ``Entity.target`` addresses -- bounds
     UPDATE / DELETE targets (see ``_Planner._take`` for how they are walked).
-    Deterministic for a given ``spec.seed`` / ``spec.insert_base``."""
+    `verbs` narrows what each entity takes on the system the plan is for.
+    Deterministic for a given ``spec.seed`` / ``spec.insert_base`` (and, for a
+    replaying model, the `history` of earlier runs and the create-data
+    `size`)."""
     if spec.sets < 1:
         raise TdxError("modify-data: --sets must be >= 1")
-    entities = resolve_entities(model, spec.entities)
-    rng = random.Random(spec.seed)
-    planner = _Planner(spec, counts, rng, entities)
-    txns: list[Transaction] = []
-    for t in range(spec.sets):
-        txn = planner.build(t)
-        if txn:
-            txns.append(txn)
+    model.prepare(PlanContext(size, dict(counts), list(history or []), verbs))
+    txns = _plan_sets(model, spec, counts, verbs)
     if not txns:
         raise TdxError(
             "modify-data: nothing to do — the requested entities / ops produced no "
@@ -212,6 +354,23 @@ def plan(model: Model, spec: ChangeSpec, counts: dict[str, int]) -> list[Transac
             "--ops Insert or create-data first, or name entities that support the "
             "chosen op)"
         )
+    return txns
+
+
+def _plan_sets(
+    model: Model,
+    spec: ChangeSpec,
+    counts: dict[str, int],
+    verbs: VerbFilter | None,
+) -> list[Transaction]:
+    entities = resolve_entities(model, spec.entities)
+    rng = random.Random(spec.seed)
+    planner = _Planner(spec, counts, rng, entities, verbs)
+    txns: list[Transaction] = []
+    for t in range(spec.sets):
+        txn = planner.build(t)
+        if txn:
+            txns.append(txn)
     return txns
 
 
@@ -251,11 +410,15 @@ class _Planner:
         counts: dict[str, int],
         rng: random.Random,
         entities: list[Entity],
+        verbs: VerbFilter | None = None,
     ) -> None:
         self.spec = spec
         self.counts = counts
         self.rng = rng
         self.entities = entities
+        self._verbs = {
+            e.table: e.supports if verbs is None else verbs(e) for e in entities
+        }
         self._cursor: dict[tuple[str, OpKind], int] = {}
         self._inserts = 0
         self._mix = 0
@@ -270,7 +433,7 @@ class _Planner:
         ]
         for kind in kinds:
             for entity in entities:
-                if kind in entity.supports:
+                if kind in self._verbs[entity.table]:
                     key = (entity.table, kind)
                     self._per_run[key] = self._per_run.get(
                         key, 0
@@ -283,15 +446,16 @@ class _Planner:
             return k
         return OpKind(self.spec.ops.value)
 
-    def _take(self, entity: Entity, kind: OpKind) -> Change | None:
-        if kind not in entity.supports:
-            return None
+    def _take(self, entity: Entity, kind: OpKind) -> list[Change]:
+        if kind not in self._verbs[entity.table]:
+            return []
         if kind is OpKind.INSERT:
             i = self.spec.insert_base + self._inserts
             self._inserts += 1
-            return Change(
-                kind, entity.table, entity.columns, row=entity.new_row(self.rng, i)
-            )
+            return [
+                Change(kind, entity.table, entity.columns, row=row)
+                for row in entity.new_rows(self.rng, i)
+            ]
         # The seeded rows `target` addresses. DELETEs walk in from the tail,
         # each seed taking a block of its own (seed * deletes-per-run on), so a
         # run of `--seed AUTO` passes deletes a distinct row every time and stops
@@ -302,7 +466,7 @@ class _Planner:
         # and a seed, and the two cancelled.
         seeded = self.counts.get(entity.table, 0)
         if seeded <= 0:
-            return None
+            return []
         key = (entity.table, kind)
         local = self._cursor.get(key, 0)
         self._cursor[key] = local + 1
@@ -310,34 +474,30 @@ class _Planner:
         if kind is OpKind.UPDATE:
             alive = seeded - (self.spec.seed + 1) * deletes
             if alive <= 0:
-                return None
+                return []
             per_run = self._per_run.get(key, 1)
-            offset = (self.spec.seed * per_run + local) % alive
-            return Change(
-                kind,
-                entity.table,
-                entity.columns,
-                set_values=entity.mutate(self.rng, offset, seeded),
-                where=entity.target(offset, seeded),
+            index = (self.spec.seed * per_run + local) % alive
+        else:
+            position = self.spec.seed * deletes + local
+            if position >= seeded:
+                return []
+            index = seeded - 1 - position
+        picked = entity.pick(kind, self.rng, index, seeded)
+        if picked is None:
+            return []
+        where, set_values = picked
+        return [
+            Change(
+                kind, entity.table, entity.columns, set_values=set_values, where=where
             )
-        position = self.spec.seed * deletes + local
-        if position >= seeded:
-            return None
-        return Change(
-            kind,
-            entity.table,
-            entity.columns,
-            where=entity.target(seeded - 1 - position, seeded),
-        )
+        ]
 
     def build(self, t: int) -> Transaction:
         kind = self._next_kind()
         out: Transaction = []
         for entity in self.entities:
             for _ in range(self.spec.rows_per_entity.get(entity.table, 1)):
-                ch = self._take(entity, kind)
-                if ch:
-                    out.append(ch)
+                out.extend(self._take(entity, kind))
         return out
 
 
@@ -401,6 +561,27 @@ def op_line(run: dict, txn: int, change: Change, commit: int | None = None) -> d
         if change.kind is OpKind.UPDATE:
             out["set"] = change.set_values
     return out
+
+
+def tables_of(transactions: list[Transaction]) -> list[Table]:
+    """The INSERTs of a plan as tables, one per entity in first-touched order:
+    what a file is staged from, or a topic's messages produced from."""
+    by_table: dict[str, tuple[list[Column], list[dict]]] = {}
+    for txn in transactions:
+        for ch in txn:
+            if ch.kind is OpKind.INSERT:
+                assert ch.row is not None
+                by_table.setdefault(ch.table, (ch.columns, []))[1].append(ch.row)
+    return [Table(name, cols, rows) for name, (cols, rows) in by_table.items()]
+
+
+def size_of(data: str | None) -> int:
+    """The create-data ``--size`` a domain recorded (1 when it is not a
+    number, as on a descriptor from before it was)."""
+    try:
+        return max(1, int(data or 1))
+    except ValueError:
+        return 1
 
 
 def initial_changes(tables: list[Table]) -> Transaction:
