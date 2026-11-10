@@ -221,7 +221,7 @@ def open_db(lane: str, meta: dict[str, str]) -> Db:
 
 def setup(lane: str, db: Db) -> int:
     made = 0
-    for c, _, table in plan.tables(lane):
+    for c, table in plan.tables(lane):
         db.drop(table)
         if plan.made_by_setup(lane, c):
             columns = plan.FRAMES[c.seed.publisher].columns
@@ -263,7 +263,7 @@ def _say(state: plan.State) -> str:
 
 def check_tables(lane: str, db: Db, phase: int) -> list[str]:
     problems = []
-    for c, engine, table in plan.tables(lane):
+    for c, table in plan.tables(lane):
         accepted = (c.seeded,) if phase == 1 else c.final
         try:
             columns, rows = db.read(table)
@@ -303,10 +303,10 @@ def check_runs(lane: str, proj: str, coll: str) -> list[str]:
     """The phase-2 writes that may fail: every one ran to the end, and a refused
     one failed with the refusal."""
     problems = []
-    for c, engine, table in plan.tables(lane):
+    for c, table in plan.tables(lane):
         if not plan.may_fail(c):
             continue
-        fn = plan.subscriber(c, 2, engine)
+        fn = plan.subscriber(c, 2)
         found = workers(proj, coll, fn)
         if not found or not all(w.get("final") for w in found):
             problems.append(f"{fn} ({c.what}): did not run to the end -- {_status(found) or 'no worker'}")
@@ -343,7 +343,7 @@ def trigger(lane: str, publisher: str, proj: str, source: str, coll: str) -> int
     2's check."""
     tdd("tdk", "fn", "trigger", "--proj", proj, "--coll", source, "--name", publisher,
         *PROFILE, check=False)
-    fed = [(c, plan.subscriber(c, 2, e)) for c, e, _ in plan.tables(lane)
+    fed = [(c, plan.subscriber(c, 2)) for c, _ in plan.tables(lane)
            if c.write and c.write.publisher == publisher]
     problems, failed = [], 0
     for c, fn in fed:

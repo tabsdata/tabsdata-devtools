@@ -22,8 +22,8 @@ Every case owns its table and is written in two PHASES, each phase a set of
 publishers triggered one at a time (a non-detached ``tdk fn trigger``, which
 waits for the subscribers): phase 1 makes every table -- a ``replace`` of the
 seed frame, or a merge's first batch -- and phase 2 writes the frame under test.
-A publisher feeds one subscriber per case (and per engine) that writes it, so the
-cases of a phase run side by side on tables of their own. A write that is refused
+A publisher feeds one subscriber per case that writes it, so the cases of a
+phase run side by side on tables of their own. A write that is refused
 has a publisher of its own and is triggered after the others: its transaction
 fails, and nothing that should succeed shares it.
 
@@ -244,9 +244,11 @@ MERGE_KEY, MERGE_OP = ID, OP
 class Destination(NamedTuple):
     #: Whether it takes ``if_table_exists="merge"`` (and runs the merge cases).
     merge: bool = False
-    #: ``<system>.schema_evolution_engine`` values each append case runs under,
-    #: one table each; ``(None,)`` when there is no choice (or one engine only).
-    engines: tuple[str | None, ...] = (None,)
+    #: The ``<system>.schema_evolution_engine`` an update merge has to name: a
+    #: warehouse's native evolution does not apply to MERGE, so ``update`` alone
+    #: is refused there (``SQL_COMMON_11``). Every other write leaves the engine
+    #: out -- it is the destination's to choose, and naming it is refused too.
+    merge_update_engine: str | None = None
     #: Whether a write creates its table; one that cannot (StarRocks) has the
     #: check's setup create each seeded table first, with the seed's types.
     creates: bool = True
@@ -268,21 +270,21 @@ DESTINATIONS: dict[str, Destination] = {
     "clickhouse": Destination(),
     "starrocks": Destination(creates=False),
     "databricks": Destination(merge=True),
-    "snowflake": Destination(merge=True, engines=("native", "iceberg")),
-    "bigquery": Destination(merge=True, engines=("native", "iceberg")),
+    "snowflake": Destination(merge=True, merge_update_engine="iceberg"),
+    "bigquery": Destination(merge=True, merge_update_engine="iceberg"),
 }
 
 
-def engines(d: Destination, c: Case) -> tuple[str | None, ...]:
-    """The engines a case runs under: a merge refuses ``native``, so it runs
-    under the default alone."""
-    return (None,) if c.merge else d.engines
+def engine(lane: str, w: Write) -> str | None:
+    """The engine a write names in its ``dest_cfg``, None when it names none."""
+    if w.mode == MERGE and w.evolution == UPDATE:
+        return DESTINATIONS[lane].merge_update_engine
+    return None
 
 
-def tables(lane: str) -> list[tuple[Case, str | None, str]]:
-    """Every (case, engine, table) of a lane."""
-    d = DESTINATIONS[lane]
-    return [(c, e, table(c, e)) for c in cases(d.merge) for e in engines(d, c)]
+def tables(lane: str) -> list[tuple[Case, str]]:
+    """Every (case, table) of a lane."""
+    return [(c, table(c)) for c in cases(DESTINATIONS[lane].merge)]
 
 
 def case(name: str) -> Case:
@@ -298,15 +300,14 @@ def cases(merge: bool) -> tuple[Case, ...]:
     return tuple(c for c in CASES if merge or not c.merge)
 
 
-def table(c: Case, engine: str | None) -> str:
-    """The case's table: ``evo_<case>``, ``_<engine>`` when the destination has
-    a choice of engines (each engine its own table, side by side)."""
-    return f"evo_{c.name}" + (f"_{engine}" if engine else "")
+def table(c: Case) -> str:
+    """The case's table: ``evo_<case>``."""
+    return f"evo_{c.name}"
 
 
-def subscriber(c: Case, phase: int, engine: str | None) -> str:
+def subscriber(c: Case, phase: int) -> str:
     """The subscriber writing the case's phase (1: seed, 2: write)."""
-    return f"{table(c, engine)}_{'seed' if phase == 1 else 'write'}"
+    return f"{table(c)}_{'seed' if phase == 1 else 'write'}"
 
 
 def may_fail(c: Case) -> bool:
