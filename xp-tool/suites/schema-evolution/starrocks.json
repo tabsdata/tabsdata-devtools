@@ -163,7 +163,7 @@
           ],
           "reqs": [
             "sqlalchemy==2.0.55",
-            "mysql-connector-python==26.10.0"
+            "pymysql==1.2.3"
           ]
         }
       },
@@ -232,7 +232,7 @@
           ],
           "reqs": [
             "sqlalchemy==2.0.55",
-            "mysql-connector-python==26.10.0"
+            "pymysql==1.2.3"
           ]
         }
       },
@@ -345,7 +345,7 @@
           ],
           "reqs": [
             "sqlalchemy==2.0.55",
-            "mysql-connector-python==26.10.0"
+            "pymysql==1.2.3"
           ]
         }
       },
@@ -374,7 +374,7 @@
           ],
           "reqs": [
             "sqlalchemy==2.0.55",
-            "mysql-connector-python==26.10.0"
+            "pymysql==1.2.3"
           ]
         }
       },
@@ -401,7 +401,7 @@
           ],
           "reqs": [
             "sqlalchemy==2.0.55",
-            "mysql-connector-python==26.10.0"
+            "pymysql==1.2.3"
           ]
         }
       }

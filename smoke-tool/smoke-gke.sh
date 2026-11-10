@@ -137,7 +137,7 @@ options:
   --help, -h          this help
 
 The drivers added to the instance's fn and ag venvs (tdkserver venv update):
-  mysql-connector-python==9.6.0  psycopg2-binary==2.9.12  oracledb==3.2.0
+  pymysql==1.2.3  psycopg2-binary==2.9.12  oracledb==3.2.0
 
 Worker logs: the run gives the apiserver the Google service account
 td-<namespace>-apiserver and the log view tabsdata-<namespace> (each reused if
@@ -180,7 +180,7 @@ LOG=""
 PROFILE=""               # --profile: defaults to $BASE once --name is known
 VERBOSE=0
 TDD_DIR_OPT="${TDD_DIR:-$HOME/.tdd}"
-REQUIREMENTS="mysql-connector-python==9.6.0
+REQUIREMENTS="pymysql==1.2.3
 psycopg2-binary==2.9.12
 oracledb==3.2.0"
 

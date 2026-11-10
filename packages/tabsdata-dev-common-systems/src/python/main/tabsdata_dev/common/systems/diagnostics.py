@@ -40,7 +40,8 @@ _PG_DIAG = (
 )
 
 #: Where the SQLSTATE (or the driver's equivalent) hides, by driver: psycopg2
-#: `pgcode`, mysql-connector `sqlstate`/`errno`, oracledb `code`.
+#: `pgcode`, oracledb `code`; pymysql has none, only the error number first in
+#: its args.
 _CODE_ATTRS = ("pgcode", "sqlstate", "errno", "code")
 
 
@@ -88,6 +89,10 @@ def db_failure(
                     lines, "sqlstate" if attr in ("pgcode", "sqlstate") else attr, code
                 )
                 break
+        else:
+            args = getattr(orig, "args", ())
+            if args and isinstance(args[0], int):
+                _row(lines, "errno", args[0])
         diag = getattr(orig, "diag", None)
         for attr, name in _PG_DIAG:
             _row(lines, name, getattr(diag, attr, None) if diag else None)

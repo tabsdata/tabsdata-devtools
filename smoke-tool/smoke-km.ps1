@@ -105,7 +105,7 @@ options:
   --help, -h          this help
 
 The drivers added to the instance's fn and ag venvs (tdkserver venv update):
-  mysql-connector-python==9.6.0  psycopg2-binary==2.9.12  oracledb==3.2.0
+  pymysql==1.2.3  psycopg2-binary==2.9.12  oracledb==3.2.0
 '@ | common_help $REQUIRED_OPTIONS
 }
 
@@ -132,7 +132,7 @@ $LOG_OPT = ''
 $PROFILE_NAME = ''          # --profile ($PROFILE is PowerShell's own); defaults to $BASE
 $VERBOSE_OPT = 0
 $TDD_DIR_OPT = if ($env:TDD_DIR) { $env:TDD_DIR } else { Join-Path $HOME '.tdd' }
-$REQUIREMENTS = @('mysql-connector-python==9.6.0', 'psycopg2-binary==2.9.12', 'oracledb==3.2.0')
+$REQUIREMENTS = @('pymysql==1.2.3', 'psycopg2-binary==2.9.12', 'oracledb==3.2.0')
 
 $valued = @{
     '--name' = 'NAME'; '--llm-domain' = 'LLM_SYSTEM'; '--expect-pods' = 'EXPECT_PODS'

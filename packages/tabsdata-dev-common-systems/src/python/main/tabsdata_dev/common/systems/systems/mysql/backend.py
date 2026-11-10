@@ -36,7 +36,7 @@ class Mysql(SingleContainerHosting, SqlDatabase):
     image_platform = images.MYSQL.platform
     internal_port = 3306
     root_user = "root"
-    driver = "mysql+mysqlconnector"
+    driver = "mysql+pymysql"
     sql_quote = "`"
     scan_locks = True  # InnoDB locks every row a DELETE scans
     cmd_args: ClassVar[list[str]] = [

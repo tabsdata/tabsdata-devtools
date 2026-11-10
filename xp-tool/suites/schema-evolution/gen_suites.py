@@ -60,7 +60,7 @@ LANES = {
     ),
     "mysql": dict(
         module="tabsdatak.conn.mysql", dest="MySQLDest", system="mysql",
-        conn="mysql_sql_out", reqs=[SQLALCHEMY, "mysql-connector-python==26.10.0"],
+        conn="mysql_sql_out", reqs=[SQLALCHEMY, "pymysql==1.2.3"],
     ),
     "mssql": dict(
         module="tabsdatak.conn.mssql", dest="MSSQLDest", system="mssqlserver",
@@ -84,7 +84,7 @@ LANES = {
     "starrocks": dict(
         module="tabsdatak.conn.starrocks", dest="StarRocksDest", system="starrocks",
         conn="starrocks_bulk_out_s3", staging="s3",
-        reqs=[SQLALCHEMY, "mysql-connector-python==26.10.0"],
+        reqs=[SQLALCHEMY, "pymysql==1.2.3"],
     ),
     "databricks": dict(
         module="tabsdatak.conn.databricks", dest="DatabricksDest", system="databricks",

@@ -6,7 +6,7 @@
 
 A domain is a database with a dedicated user. The allin1 image mandates the
 empty ``root`` password and has a single BE, so replication is tuned to 1 after
-start. Admin speaks the MySQL protocol (mysqlconnector). Only the StarRocks
+start. Admin speaks the MySQL protocol (pymysql). Only the StarRocks
 dialect hooks live here.
 """
 
@@ -35,7 +35,7 @@ class Starrocks(SingleContainerHosting, SqlDatabase):
     image_platform = images.STARROCKS.platform
     internal_port = 9030
     root_user = "root"
-    driver = "mysql+mysqlconnector"
+    driver = "mysql+pymysql"
     sql_quote = "`"
     system_schemas = frozenset({"information_schema", "_statistics_", "sys"})
 

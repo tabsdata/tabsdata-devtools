@@ -27,7 +27,7 @@ def test_a_help_page_is_painted_and_nothing_moves(resource_folder):
     assert painted[6] == f"  {RED}--td-version VERSION{OFF}"
     assert painted[8] == f"  {CYAN}--force, -f{OFF}         replace what exists"
     assert painted[11] == "The drivers added to the instance's fn and ag venvs:"
-    assert painted[12] == "  mysql-connector-python==9.6.0  psycopg2-binary==2.9.12"
+    assert painted[12] == "  pymysql==1.2.3  psycopg2-binary==2.9.12"
     # stripped of its colour, the page is the page
     assert screen.ANSI.sub("", "\n".join(painted)) == page
 

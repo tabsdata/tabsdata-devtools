@@ -75,7 +75,7 @@ class SqlDatabase(Server):
     login_maxlen: int = 32
 
     # ---- dialect hooks (subclass overrides) ----
-    driver: str = ""  # SQLAlchemy driver, e.g. "mysql+mysqlconnector"
+    driver: str = ""  # SQLAlchemy driver, e.g. "mysql+pymysql"
     sql_quote: str = '"'
     system_schemas: frozenset[str] = frozenset()
     admin_db: str = ""  # maintenance DB the admin connection targets (pg: postgres)
