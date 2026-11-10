@@ -78,6 +78,9 @@ class SqlDatabase(Server):
     # ---- dialect hooks (subclass overrides) ----
     driver: str = ""  # SQLAlchemy driver, e.g. "mysql+pymysql"
     sql_quote: str = '"'
+    # Lower-case words the dialect refuses as a bare column name; the generated
+    # INSERT/UPDATE/DELETE quote them, as the system's DDL has to.
+    sql_reserved: frozenset[str] = frozenset()
     system_schemas: frozenset[str] = frozenset()
     admin_db: str = ""  # maintenance DB the admin connection targets (pg: postgres)
     admin_autocommit: bool = False  # some DBs can't CREATE/DROP DATABASE in a txn
@@ -353,6 +356,7 @@ class SqlDatabase(Server):
                     tbl.rows,
                     batch=self.insert_batch,
                     quote=self.sql_quote,
+                    reserved=self.sql_reserved,
                 )
             )
         if statements:
@@ -374,7 +378,10 @@ class SqlDatabase(Server):
         from tabsdata_dev.common.systems import trx
 
         rendered = [
-            [datagen.render_sql(c, quote=self.sql_quote) for c in txn]
+            [
+                datagen.render_sql(c, quote=self.sql_quote, reserved=self.sql_reserved)
+                for c in txn
+            ]
             for txn in transactions
         ]
         if schedule is None or schedule.mode is trx.TrxMode.SERIAL:

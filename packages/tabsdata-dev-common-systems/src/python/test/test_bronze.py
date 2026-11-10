@@ -796,3 +796,36 @@ def test_a_restage_without_a_plan_is_refused():
     """The model's state exists only once a plan prepared it."""
     with pytest.raises(RuntimeError, match="before prepare"):
         datagen.load_model(MODEL).restage({FULL})
+
+
+# ---- reserved words ---------------------------------------------------------
+
+
+def test_oracle_quotes_the_column_it_reserves_in_its_ddl_and_its_sql(seed):
+    """LEVEL is ORA-03050 as a bare column name: the DDL creating the log table
+    and every statement loading it have to quote it alike."""
+    from tabsdata_dev.common.systems.systems.oracle.backend import Oracle
+
+    oracle = Oracle()
+    log = seed["brz_log_lines"]
+    reserved = [c.name for c in log.columns if c.name in oracle.sql_reserved]
+    assert reserved == ["level"]
+
+    ddl = oracle.ddl_text(MODEL)
+    assert '"level"' in ddl
+    assert not [x for x in ddl.splitlines() if x.split()[:1] == ["level"]]
+
+    kw = {"quote": oracle.sql_quote, "reserved": oracle.sql_reserved}
+    [insert] = emit.iter_insert_statements(log.name, log.columns, log.rows[:1], **kw)
+    assert insert.startswith('INSERT INTO brz_log_lines (sim_counter,ts,"level",')
+    # A dialect that reserves nothing keeps the name bare.
+    [bare] = emit.iter_insert_statements(log.name, log.columns, log.rows[:1])
+    assert bare.startswith("INSERT INTO brz_log_lines (sim_counter,ts,level,")
+
+    changes = [
+        c for run in _runs(seed, 3) for txn in run for c in txn if c.table == log.name
+    ]
+    assert changes
+    for change in changes:
+        sql = datagen.render_sql(change, **kw)
+        assert " level" not in sql.split(" VALUES ")[0].replace(",", " ")

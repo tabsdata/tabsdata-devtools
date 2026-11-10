@@ -44,6 +44,9 @@ class Oracle(SingleContainerHosting, SqlDatabase):
     root_user = "system"
     driver = "oracle+oracledb"
     insert_batch = 1  # Oracle has no multi-row VALUES
+    # LEVEL is the hierarchical-query pseudocolumn: ORA-03050 as a bare column
+    # name. Quoted, it keeps the model's lower case, like the "@td.cdc.*" columns.
+    sql_reserved = frozenset({"level"})
 
     def session_setup(self) -> list[str]:
         # So the generator's ISO date/timestamp literals parse regardless of the

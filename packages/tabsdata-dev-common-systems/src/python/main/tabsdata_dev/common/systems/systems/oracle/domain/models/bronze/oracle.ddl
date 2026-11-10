@@ -114,7 +114,7 @@ CREATE TABLE brz_period_snapshot (
 CREATE TABLE brz_log_lines (
     sim_counter     NUMBER(19)      NOT NULL PRIMARY KEY,
     ts              TIMESTAMP,
-    level           VARCHAR2(5),
+    "level"         VARCHAR2(5),
     service         VARCHAR2(16),
     request_id      CHAR(12),
     latency_ms      NUMBER(10),

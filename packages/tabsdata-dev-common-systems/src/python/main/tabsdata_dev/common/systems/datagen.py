@@ -506,30 +506,34 @@ class _Planner:
 # ======================================================================
 
 
-def render_sql(change: Change, quote: str = '"') -> str:
+def render_sql(
+    change: Change, quote: str = '"', reserved: frozenset[str] = frozenset()
+) -> str:
     """Render one change to a portable SQL statement (no trailing ``;``)."""
     cols = {c.name: c for c in change.columns}
     if change.kind is OpKind.INSERT:
         assert change.row is not None
         used = [c for c in change.columns if not c.auto and c.name in change.row]
-        names = ",".join(sql_quote_ident(c.name, quote) for c in used)
+        names = ",".join(sql_quote_ident(c.name, quote, reserved) for c in used)
         vals = ",".join(sql_literal(change.row.get(c.name), c.sql_type) for c in used)
         return f"INSERT INTO {change.table} ({names}) VALUES ({vals})"
     if change.kind is OpKind.UPDATE:
         assert change.set_values is not None and change.where is not None
         sets = ", ".join(
-            f"{sql_quote_ident(k, quote)} = {sql_literal(v, cols[k].sql_type)}"
+            f"{sql_quote_ident(k, quote, reserved)} = {sql_literal(v, cols[k].sql_type)}"
             for k, v in change.set_values.items()
         )
-        where = _where_sql(change.where, cols, quote)
+        where = _where_sql(change.where, cols, quote, reserved)
         return f"UPDATE {change.table} SET {sets} WHERE {where}"
     assert change.where is not None
-    return f"DELETE FROM {change.table} WHERE {_where_sql(change.where, cols, quote)}"
+    return f"DELETE FROM {change.table} WHERE {_where_sql(change.where, cols, quote, reserved)}"
 
 
-def _where_sql(where: dict, cols: dict[str, Column], quote: str) -> str:
+def _where_sql(
+    where: dict, cols: dict[str, Column], quote: str, reserved: frozenset[str]
+) -> str:
     return " AND ".join(
-        f"{sql_quote_ident(k, quote)} = {sql_literal(v, cols[k].sql_type)}"
+        f"{sql_quote_ident(k, quote, reserved)} = {sql_literal(v, cols[k].sql_type)}"
         for k, v in where.items()
     )
 

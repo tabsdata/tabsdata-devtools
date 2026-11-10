@@ -90,10 +90,14 @@ def _norm(t: str) -> str:
 _BARE_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-def sql_quote_ident(name: str, quote: str) -> str:
+def sql_quote_ident(
+    name: str, quote: str, reserved: frozenset[str] = frozenset()
+) -> str:
     """Wrap `name` in `quote` if it isn't a bare SQL identifier, doubling any
-    embedded quote char so the name round-trips."""
-    if _BARE_IDENT_RE.match(name):
+    embedded quote char so the name round-trips. `reserved` holds, in lower
+    case, the words the dialect refuses as a bare column name: a bare name
+    among them is quoted too."""
+    if _BARE_IDENT_RE.match(name) and name.lower() not in reserved:
         return name
     return f"{quote}{name.replace(quote, quote * 2)}{quote}"
 
@@ -167,12 +171,13 @@ def iter_insert_statements(
     *,
     batch: int = 1,
     quote: str = '"',
+    reserved: frozenset[str] = frozenset(),
 ) -> Iterable[str]:
     """Yield ``INSERT INTO ... VALUES ...`` statements (no trailing ``;``).
     ``auto`` columns are skipped. With ``batch > 1`` each statement carries up to
     ``batch`` row tuples in one multi-row ``VALUES`` clause."""
     cols = [c for c in columns if not c.auto]
-    col_names = ",".join(sql_quote_ident(c.name, quote) for c in cols)
+    col_names = ",".join(sql_quote_ident(c.name, quote, reserved) for c in cols)
     batch = max(batch, 1)
     for start in range(0, len(rows), batch):
         tuples = ",".join(
