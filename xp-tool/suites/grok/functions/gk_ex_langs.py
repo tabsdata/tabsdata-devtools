@@ -131,9 +131,9 @@ def demo() -> dict[str, TableFrame]:
         "file": [SAMPLE_FILE] * len(SAMPLE_LINES),
         "message": list(SAMPLE_LINES),
     }))
-    languages = parse_lang_log.func(log)
+    languages = parse_lang_log.func([log])
     return {"languages": languages,
-            "official_languages": mart_official_languages.func(languages)}
+            "official_languages": mart_official_languages.func([languages])}
 
 
 if __name__ == "__main__":

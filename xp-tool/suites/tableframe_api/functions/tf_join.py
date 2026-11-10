@@ -7,9 +7,10 @@ overlapping column (two input tables)."""
 from __future__ import annotations
 
 import polars as pl
-from tabsdatak.api import TableFrameSpec, publisher, subscriber, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, publisher, subscriber, transformer
 from tabsdatak.conn.dev import DataGenSrc, TrashDest
 from tabsdatak.tableframe import TableFrame
+from tabsdatak.tableframe.functions import concat
 
 try:
     from ._harness import OPS, SRC, Check, TFCase, unordered_equal
@@ -56,7 +57,7 @@ def join_pub(
     output_tables=CASE.output_names,
 )
 def join_tfr(
-    left: TableFrameSpec, right: TableFrameSpec
+    left_versions: TableFramesSpec, right: TableFrameSpec
 ) -> tuple[
     TableFrameSpec,
     TableFrameSpec,
@@ -68,6 +69,7 @@ def join_tfr(
     TableFrameSpec,
     TableFrameSpec,
 ]:
+    left = concat(left_versions or [])
     return CASE.transform(left, right)
 
 

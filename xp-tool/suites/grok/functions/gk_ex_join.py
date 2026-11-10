@@ -161,12 +161,12 @@ def demo() -> dict[str, TableFrame]:
 
     A decorated name is a flow DESCRIPTOR, not a callable — the function itself is on
     ``.func``, which is what a local run (or a unit test) calls."""
-    cities = jn_parse_cities.func(_log("city", CITY_LINES))
-    languages = jn_parse_languages.func(_log("country_language", LANG_LINES))
+    cities = jn_parse_cities.func([_log("city", CITY_LINES)])
+    languages = jn_parse_languages.func([_log("country_language", LANG_LINES)])
     return {
         "jn_cities": cities,
         "jn_languages": languages,
-        "city_languages": mart_city_languages.func(cities, languages),
+        "city_languages": mart_city_languages.func([cities], [languages]),
     }
 
 

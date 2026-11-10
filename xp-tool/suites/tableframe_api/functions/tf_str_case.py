@@ -5,9 +5,10 @@
 from __future__ import annotations
 
 import polars as pl
-from tabsdatak.api import TableFrameSpec, publisher, subscriber, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, publisher, subscriber, transformer
 from tabsdatak.conn.dev import DataGenSrc, TrashDest
 from tabsdatak.tableframe import TableFrame
+from tabsdatak.tableframe.functions import concat
 
 try:
     from ._harness import OPS, SRC, Check, TFCase, unordered_equal
@@ -33,13 +34,14 @@ def sc_pub(t: TableFrameSpec) -> TableFrameSpec:
 
 @transformer(input_tables=[f"{SRC}/sc_in@NEW"], output_tables=CASE.output_names)
 def sc_tfr(
-    t: TableFrameSpec,
+    t_versions: TableFramesSpec,
 ) -> tuple[
     TableFrameSpec,
     TableFrameSpec,
     TableFrameSpec,
     TableFrameSpec,
 ]:
+    t = concat(t_versions or [])
     return CASE.transform(t)
 
 

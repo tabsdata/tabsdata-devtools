@@ -102,9 +102,10 @@ def types_pub(lines: TableFramesSpec) -> TableFrameSpec:
 
 
 @transformer(input_tables=[f"{SRC}/{CASE.table}@NEW"], output_tables=CASE.output_names)
-def types_tfr(log: TableFrameSpec) -> tuple[
+def types_tfr(log_versions: TableFramesSpec) -> tuple[
     TableFrameSpec, TableFrameSpec, TableFrameSpec, TableFrameSpec
 ]:
+    log = concat(log_versions or [])
     return CASE.transform(log)
 
 

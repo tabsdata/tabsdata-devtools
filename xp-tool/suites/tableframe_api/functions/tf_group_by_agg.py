@@ -6,9 +6,10 @@ aggregations keyed by a group column."""
 from __future__ import annotations
 
 import polars as pl
-from tabsdatak.api import TableFrameSpec, publisher, subscriber, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, publisher, subscriber, transformer
 from tabsdatak.conn.dev import DataGenSrc, TrashDest
 from tabsdatak.tableframe import TableFrame
+from tabsdatak.tableframe.functions import concat
 
 try:
     from ._harness import OPS, SRC, Check, TFCase, unordered_equal
@@ -36,7 +37,7 @@ def gba_pub(t: TableFrameSpec) -> TableFrameSpec:
 
 @transformer(input_tables=[f"{SRC}/gba_in@NEW"], output_tables=CASE.output_names)
 def gba_tfr(
-    t: TableFrameSpec,
+    t_versions: TableFramesSpec,
 ) -> tuple[
     TableFrameSpec,
     TableFrameSpec,
@@ -45,6 +46,7 @@ def gba_tfr(
     TableFrameSpec,
     TableFrameSpec,
 ]:
+    t = concat(t_versions or [])
     return CASE.transform(t)
 
 

@@ -27,10 +27,11 @@ engine (the oracle; see functions/_harness.py).
 from __future__ import annotations
 
 import polars as pl
-from tabsdatak.api import TableFrameSpec, publisher, subscriber, transformer
+from tabsdatak.api import TableFrameSpec, TableFramesSpec, publisher, subscriber, transformer
 from tabsdatak.conn.dev import DataGenSrc, TrashDest
 from tabsdatak.dataquality import DataQuality, Enrich, IsIn, Summary
 from tabsdatak.tableframe import TableFrame
+from tabsdatak.tableframe.functions import concat
 
 try:
     from ._harness import (
@@ -125,7 +126,8 @@ def iin_pub(t: TableFrameSpec) -> TableFrameSpec:
     output_tables=CASE.main_tables,
     on_tables=[CASE.action],
 )
-def iin_tfr(t: TableFrameSpec) -> TableFrameSpec:
+def iin_tfr(t_versions: TableFramesSpec) -> TableFrameSpec:
+    t = concat(t_versions or [])
     return CASE.transform(t)
 
 

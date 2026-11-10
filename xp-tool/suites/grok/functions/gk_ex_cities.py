@@ -140,8 +140,8 @@ def demo() -> dict[str, TableFrame]:
         "file": ["city_20260101T000000_000.csv"] * len(SAMPLE_LINES),
         "message": list(SAMPLE_LINES),
     }))
-    cities = parse_city_log.func(log)
-    return {"cities": cities, "big_cities": mart_big_cities.func(cities)}
+    cities = parse_city_log.func([log])
+    return {"cities": cities, "big_cities": mart_big_cities.func([cities])}
 
 
 if __name__ == "__main__":

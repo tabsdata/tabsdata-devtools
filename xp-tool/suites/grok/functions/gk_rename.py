@@ -118,7 +118,8 @@ def rename_pub(lines: TableFramesSpec) -> TableFrameSpec:
 
 
 @transformer(input_tables=[f"{SRC}/{CASE.table}@NEW"], output_tables=CASE.output_names)
-def rename_tfr(log: TableFrameSpec) -> tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec]:
+def rename_tfr(log_versions: TableFramesSpec) -> tuple[TableFrameSpec, TableFrameSpec, TableFrameSpec]:
+    log = concat(log_versions or [])
     return CASE.transform(log)
 
 
