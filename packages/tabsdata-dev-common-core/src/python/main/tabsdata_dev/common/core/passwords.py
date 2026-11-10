@@ -10,13 +10,11 @@ import secrets
 import string
 
 # The punctuation a generated password may use: the URL-unreserved set, and
-# nothing else. A password reaches a server three ways and each rules something
+# nothing else. A password reaches a server two ways and each rules something
 # out. It is interpolated into a quoted SQL literal (`IDENTIFIED BY '...'`), so
-# no quote and no backslash. It is executed through a DB-API driver's
-# `exec_driver_sql`, which reads `%` as a placeholder -- the same reason the
-# postgres DDL avoids it. And it is put in a SQLAlchemy URL that only the
-# managed backends percent-encode, so nothing URL-reserved (`@ : / ? # &`).
-# These four survive all three untouched.
+# no quote and no backslash. And it is put in a SQLAlchemy URL that only the
+# managed backends percent-encode, so nothing URL-reserved (`@ : / ? # &`) and
+# no `%`, which starts an escape there. These four survive both untouched.
 SAFE_SYMBOLS = "-._~"
 
 

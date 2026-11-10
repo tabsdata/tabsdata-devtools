@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from tabsdata_dev.common.systems import options
 from tabsdata_dev.common.systems.errors import TdxError
+from tabsdata_dev.common.systems.sql_runner import as_written
 from tabsdata_dev.common.systems.systems._common.nature.database.sql import (
     SqlDatabase,
 )
@@ -62,7 +63,7 @@ class SqlWarehouse(SqlDatabase):
         try:
             with engine.begin() as conn:
                 for stmt in statements:
-                    conn.exec_driver_sql(stmt)
+                    as_written(conn, stmt)
         except Exception as exc:
             raise TdxError(f"{self.label} SQL failed: {exc}") from exc
         finally:
@@ -74,7 +75,7 @@ class SqlWarehouse(SqlDatabase):
         engine = create_engine(url)
         try:
             with engine.connect() as conn:
-                rows = conn.exec_driver_sql(sql).fetchall()
+                rows = as_written(conn, sql).fetchall()
         except Exception as exc:
             raise TdxError(f"{self.label} query failed: {exc}") from exc
         finally:

@@ -31,6 +31,7 @@ from tabsdata_dev.common.systems.diagnostics import db_failure
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import validate_name
 from tabsdata_dev.common.systems.sql_runner import (
+    as_written,
     run_sql_schedule,
     run_sql_text,
     run_sql_transactions,
@@ -255,12 +256,12 @@ class SqlDatabase(Server):
                     conn = conn.execution_options(isolation_level="AUTOCOMMIT")
                     for st in statements:
                         running = st
-                        conn.exec_driver_sql(st)
+                        as_written(conn, st)
             else:
                 with engine.begin() as conn:
                     for st in statements:
                         running = st
-                        conn.exec_driver_sql(st)
+                        as_written(conn, st)
         except Exception as exc:
             raise TdxError(
                 f"{self.label} admin SQL failed: {exc}",
@@ -276,7 +277,7 @@ class SqlDatabase(Server):
         engine = create_engine(url)
         try:
             with engine.connect() as conn:
-                rows = conn.exec_driver_sql(query).fetchall()
+                rows = as_written(conn, query).fetchall()
         except Exception as exc:
             raise TdxError(
                 f"{self.label} admin query failed: {exc}",

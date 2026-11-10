@@ -27,6 +27,22 @@ from tabsdata_dev.common.systems.errors import TdxError
 _SQL_COMMENT_RE = re.compile(r"/\*.*?\*/|--[^\n]*", re.DOTALL)
 
 
+# The drivers that format a statement with `%` even when it has no parameters,
+# as SQLAlchemy runs every statement as written: a literal `%` must be doubled.
+# mysql-connector and pg8000 leave such a statement alone.
+_PERCENT_FORMATTING_DRIVERS = frozenset(
+    {"pymysql", "mysqldb", "psycopg2", "psycopg2cffi"}
+)
+
+
+def as_written(conn, statement: str):
+    """Run ``statement`` exactly as written -- its `%` included -- on a
+    SQLAlchemy connection, returning the result."""
+    if conn.dialect.driver in _PERCENT_FORMATTING_DRIVERS:
+        statement = statement.replace("%", "%%")
+    return conn.exec_driver_sql(statement)
+
+
 def _is_only_comments(fragment: str) -> bool:
     return not _SQL_COMMENT_RE.sub("", fragment).strip()
 
@@ -69,7 +85,7 @@ def run_sql_text(uri: str, sql: str, label: str = "sql") -> None:
                 stmt = stmt.rstrip(";").strip()
                 if stmt:
                     running = stmt
-                    conn.exec_driver_sql(stmt)
+                    as_written(conn, stmt)
     except SQLAlchemyError as exc:
         orig = getattr(exc, "orig", None) or exc
         raise TdxError(
@@ -102,7 +118,7 @@ def run_sql_transactions(
                     stmt = stmt.rstrip(";").strip()
                     if stmt:
                         running = stmt
-                        conn.exec_driver_sql(stmt)
+                        as_written(conn, stmt)
             applied += 1
     except SQLAlchemyError as exc:
         orig = getattr(exc, "orig", None) or exc
@@ -162,14 +178,14 @@ def run_sql_schedule(
                 print(f">>> txn {step.txn}: begin")
                 for stmt in setup:
                     running = stmt
-                    conn.exec_driver_sql(stmt)
+                    as_written(conn, stmt)
             elif step.action is Action.STATEMENT:
                 conn, _ = open_[step.txn]
                 stmt = transactions[step.txn][step.index].rstrip(";").strip()
                 if stmt:
                     running = stmt
                     print(f">>> txn {step.txn}: {stmt}")
-                    conn.exec_driver_sql(stmt)
+                    as_written(conn, stmt)
             else:
                 conn, txn = open_.pop(step.txn)
                 txn.commit()

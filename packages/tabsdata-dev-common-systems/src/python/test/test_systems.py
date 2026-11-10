@@ -8,6 +8,7 @@ needs a driver, a docker daemon or a crypto key."""
 import itertools
 import json
 import pathlib
+import types
 from datetime import UTC
 
 import pytest
@@ -360,9 +361,7 @@ def test_a_domain_carries_the_block_with_its_own_database_and_owner():
         assert backend._admin(backend._sys_admin_meta(dom)).db == "postgres"
         for plane in ("INTERNAL", "EXTERNAL"):
             assert dom[f"{plane}_URI"].endswith(
-                "/d1"
-                if slug in LOCAL_POSTGRES
-                else "/d1?sslmode=require"
+                "/d1" if slug in LOCAL_POSTGRES else "/d1?sslmode=require"
             ), slug
         # the provider group comes through: not derivable from a host that may
         # be a bare IP, and a domain command never loads the system descriptor
@@ -2867,6 +2866,38 @@ def test_trx_contention_names_a_row_two_transactions_would_both_write():
     assert trx.contention([[upd], [dele]]) == [("t", {"id": "1"})]
 
 
+@pytest.mark.parametrize(
+    "driver,sent",
+    [
+        ("pymysql", "CREATE USER 'u'@'%%' -- 100%%"),
+        ("mysqldb", "CREATE USER 'u'@'%%' -- 100%%"),
+        ("psycopg2", "CREATE USER 'u'@'%%' -- 100%%"),
+        ("psycopg2cffi", "CREATE USER 'u'@'%%' -- 100%%"),
+        ("mysqlconnector", "CREATE USER 'u'@'%' -- 100%"),
+        ("pg8000", "CREATE USER 'u'@'%' -- 100%"),
+        ("oracledb", "CREATE USER 'u'@'%' -- 100%"),
+        ("pyodbc", "CREATE USER 'u'@'%' -- 100%"),
+    ],
+)
+def test_as_written_doubles_a_percent_only_for_a_driver_that_formats_it(driver, sent):
+    """pymysql and psycopg2 format a statement with `%` even with no
+    parameters, so a literal `%` -- MySQL's any-host `'u'@'%'` -- reaches the
+    server only doubled; the other drivers send it as it is."""
+    from tabsdata_dev.common.systems.sql_runner import as_written
+
+    executed = []
+
+    class Conn:
+        dialect = types.SimpleNamespace(driver=driver)
+
+        def exec_driver_sql(self, statement):
+            executed.append(statement)
+            return "result"
+
+    assert as_written(Conn(), "CREATE USER 'u'@'%' -- 100%") == "result"
+    assert executed == [sent]
+
+
 def test_run_sql_schedule_drives_one_connection_per_open_transaction(monkeypatch):
     """Each BEGIN is a connection of its own, set up as the dialect asks; the
     statements go to their transaction's connection in schedule order; a COMMIT
@@ -2890,6 +2921,8 @@ def test_run_sql_schedule_drives_one_connection_per_open_transaction(monkeypatch
             log.append((self.n, "rollback"))
 
     class Conn:
+        dialect = types.SimpleNamespace(driver="pysqlite")
+
         def __init__(self, n):
             self.n = n
 
