@@ -3,11 +3,16 @@
 #
 # Text is stored with LF and checked out as the platform likes, except what a
 # shell or git runs as it is: a CRLF shebang or line end breaks it on Windows
-# too (Git Bash, WSL, a container), so those stay LF everywhere.
+# too (Git Bash, WSL, a container), so those stay LF everywhere. Files whose
+# exact bytes matter are never converted: a patch applies only to the line
+# ends it was made against, and an image built here is named by its inputs'
+# hash.
 
 * text=auto
 *.sh text eol=lf
 *.awk text eol=lf
+*.patch -text
+packages/tabsdata-dev-common-systems/src/python/main/tabsdata_dev/common/systems/systems/gcslocal/image/* -text
 packages/tabsdata-dev-tool-gsx/src/resources/main/hooks/* text eol=lf
 packages/tabsdata-dev-tdd/src/resources/test/test_main/* text eol=lf
 packages/tabsdata-dev-tool-smoke/src/resources/test/test_instances/tdkserver text eol=lf

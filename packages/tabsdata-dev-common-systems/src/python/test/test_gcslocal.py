@@ -38,6 +38,11 @@ def test_the_image_tag_names_the_commit_and_changes_with_any_input(
     assert gcslocal.image_tag() != tag
 
 
+def test_the_image_inputs_keep_the_line_ends_they_are_committed_with():
+    for name in ("Dockerfile", "cloudburrow.patch"):
+        assert b"\r" not in (gcslocal.IMAGE_DIR / name).read_bytes(), name
+
+
 def test_the_upstream_watch_warns_only_when_the_pin_is_behind(monkeypatch):
     said: list[str] = []
     monkeypatch.setattr(gcslocal.console, "warn", said.append)
