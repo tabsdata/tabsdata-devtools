@@ -15,11 +15,13 @@ command (not SQL).
 
 from __future__ import annotations
 
+import os
 import re
+import sys
 import time
 from typing import ClassVar
 
-from tabsdata_dev.common.core import resources
+from tabsdata_dev.common.core import datadir, resources
 from tabsdata_dev.common.systems.errors import TdxError
 from tabsdata_dev.common.systems.shell import docker_exec, docker_exec_check
 from tabsdata_dev.common.systems.systems._common.hosting.container import images
@@ -33,6 +35,28 @@ from tabsdata_dev.common.systems.systems._common.nature.database.sql import (
 )
 
 _XP_DB = "XP"  # the one shared database (<= 8 chars, Db2's DB-name limit)
+
+
+def _use_server_authentication() -> None:
+    """On Windows the IBM CLI driver's default authentication encrypts the
+    password with GSKit crypto, which it cannot load inside python.exe (the
+    connection fails with SQL1042C). The local test container accepts plain
+    SERVER authentication, so the driver is pointed at a db2cli.ini that asks
+    for it -- the same file the product's Db2 connector sets up. A
+    DB2CLIINIPATH someone already set is left alone."""
+    if sys.platform != "win32" or os.environ.get("DB2CLIINIPATH"):
+        return
+    folder = datadir.data_dir("db2") / "cli"
+    folder.mkdir(parents=True, exist_ok=True)
+    ini = folder / "db2cli.ini"
+    if not ini.exists():
+        ini.write_text(
+            "[COMMON]\nAuthentication=SERVER\n", encoding="ascii", newline="\n"
+        )
+    os.environ["DB2CLIINIPATH"] = str(folder)
+
+
+_use_server_authentication()
 
 # Every domain is a schema of the one database, so domains created at once
 # change its catalog at once, and Db2 may pick one of their transactions to
