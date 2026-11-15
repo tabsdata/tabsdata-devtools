@@ -85,16 +85,28 @@ class Postgrescdc(Postgres):
         return images.POSTGRES.version.split(".", 1)[0].split("-", 1)[0] or "17"
 
     def post_provision(self, container: str, password: str) -> None:
+        """Install the newest wal2json build the running server can load.
+
+        The repository rebuilds wal2json for each new minor release, against
+        symbols older minors lack, and installing that build would also upgrade
+        the server's packages under the running server. Holding the server at
+        its installed version keeps both to what the image pins.
+        """
         super().post_provision(container, password)
-        pkg = f"postgresql-{self._pg_major()}-wal2json"
+        server = f"postgresql-{self._pg_major()}"
+        pkg = f"{server}-wal2json"
         print(f">>> installing {pkg} (wal2json output plugin) for logical decoding …")
-        cp = docker_exec(
-            container,
-            "bash",
-            "-lc",
-            f"apt-get update && apt-get install -y {pkg}",
-            user="root",
+        script = (
+            "apt-get update"
+            f" && installed=$(dpkg-query -W -f='${{Version}}' {server})"
+            f" && for version in $(apt-cache madison {pkg} | awk '{{print $3}}'); do"
+            f' if apt-get install -s -y "{pkg}=$version" "{server}=$installed"'
+            " >/dev/null 2>&1; then"
+            f' exec apt-get install -y "{pkg}=$version" "{server}=$installed";'
+            " fi; done"
+            f' && echo "no {pkg} build fits {server} $installed" >&2 && exit 1'
         )
+        cp = docker_exec(container, "bash", "-lc", script, user="root")
         if cp.returncode != 0:
             raise TdxError(
                 f"could not install {pkg} (needed for Postgres CDC): "
