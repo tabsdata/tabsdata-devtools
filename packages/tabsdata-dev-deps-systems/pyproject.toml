@@ -10,7 +10,9 @@ requires-python = ">=3.12,<3.13"
 # A SQL system needs its SQLAlchemy *dialect*, not just its driver: the dialect
 # is what registers the name in Backend.driver (clickhousedb <- clickhouse-connect,
 # snowflake <- snowflake-sqlalchemy, databricks <- databricks-sqlalchemy).
-# ibm_db builds against the IBM clidriver its install downloads -- natively on arm64 too.
+# ibm_db ships wheels for x86_64 everywhere and for macOS arm64; Linux and
+# Windows arm64 have none and its sdist does not build there, so it is left out
+# on them (the Db2 systems are unavailable there), as the product's Db2 connector does.
 dependencies = [
     "azure-storage-blob==12.31.1",
     "boto3==1.43.123",
@@ -21,8 +23,8 @@ dependencies = [
     "fastavro==1.13.1",
     "google-cloud-bigquery==3.47.0",
     "google-cloud-storage==3.17.1",
-    "ibm_db==3.3.0",
-    "ibm_db_sa==0.4.4",
+    "ibm_db==3.3.0 ; sys_platform == 'darwin' or (platform_machine != 'aarch64' and platform_machine != 'ARM64')",
+    "ibm_db_sa==0.4.4 ; sys_platform == 'darwin' or (platform_machine != 'aarch64' and platform_machine != 'ARM64')",
     "mysql-connector-python==26.10.0",
     "obstore==0.12.1",
     "oracledb==26.1.0",
