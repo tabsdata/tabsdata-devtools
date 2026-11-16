@@ -2,7 +2,12 @@
 Copyright 2026 Tabsdata Inc.
 -->
 
-# Building a Python command
+<div align="center">
+    <img src="../assets/images/tabsdata-logo-for-light-theme.svg#gh-light-mode-only" alt="Tabsdata" width="500">
+    <img src="../assets/images/tabsdata-logo-for-dark-theme.svg#gh-dark-mode-only" alt="Tabsdata" width="500">
+</div>
+
+# Tabsdata DevTools: Building a Python Command
 
 A Python command is one package, `packages/tabsdata-dev-tool-<name>/`, depending on exactly one
 dependency bundle (`tabsdata-dev-deps-<toolset>`) -- that single dependency puts it in a toolset,

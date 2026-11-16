@@ -2,7 +2,12 @@
 Copyright 2026 Tabsdata Inc.
 -->
 
-# tabsdata-devtools -- design
+<div align="center">
+    <img src="../assets/images/tabsdata-logo-for-light-theme.svg#gh-light-mode-only" alt="Tabsdata" width="500">
+    <img src="../assets/images/tabsdata-logo-for-dark-theme.svg#gh-dark-mode-only" alt="Tabsdata" width="500">
+</div>
+
+# Tabsdata DevTools: Design
 
 Dev tools in isolated environments behind one entry point, so tool dependencies never reach a
 project's dependencies. This is the *why* and the mechanics that hold everything together; each

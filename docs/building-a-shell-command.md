@@ -2,7 +2,12 @@
 Copyright 2026 Tabsdata Inc.
 -->
 
-# Building a shell command
+<div align="center">
+    <img src="../assets/images/tabsdata-logo-for-light-theme.svg#gh-light-mode-only" alt="Tabsdata" width="500">
+    <img src="../assets/images/tabsdata-logo-for-dark-theme.svg#gh-dark-mode-only" alt="Tabsdata" width="500">
+</div>
+
+# Tabsdata DevTools: Building a Shell Command
 
 A shell command is a function loaded into the caller's shell. Write one only for what an
 executable cannot do: change the current shell -- enter or leave a venv, export a variable, `cd`.

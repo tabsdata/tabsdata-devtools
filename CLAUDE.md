@@ -2,7 +2,12 @@
 Copyright 2026 Tabsdata Inc.
 -->
 
-# tabsdata-devtools
+<div align="center">
+    <img src="assets/images/tabsdata-logo-for-light-theme.svg#gh-light-mode-only" alt="Tabsdata" width="500">
+    <img src="assets/images/tabsdata-logo-for-dark-theme.svg#gh-dark-mode-only" alt="Tabsdata" width="500">
+</div>
+
+# Tabsdata DevTools: Working Contract
 
 Python dev tools in isolated environments behind one entry point, so tool dependencies never
 reach a project's dependencies. This file is the working contract; the design lives in the docs.

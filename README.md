@@ -2,74 +2,94 @@
 Copyright 2026 Tabsdata Inc.
 -->
 
-# tabsdata-devtools
+<div align="center">
+    <img src="assets/images/tabsdata-logo-for-light-theme.svg#gh-light-mode-only" alt="Tabsdata" width="500">
+    <img src="assets/images/tabsdata-logo-for-dark-theme.svg#gh-dark-mode-only" alt="Tabsdata" width="500">
+</div>
 
-**One command, `tdd`, in front of every Tabsdata dev tool -- each tool in its own isolated
-environment, so tool dependencies never touch a project's dependencies.**
+<div align="center">
+    <a href="https://tabsdata.com">Tabsdata</a> |
+    <a href="https://github.com/tabsdata/tabsdata">tabsdata</a> |
+    <a href="https://github.com/tabsdata/tabsdata-devtools">GitHub Repository</a>
+</div>
 
-Python tools live in per-toolset virtualenvs and are dispatched into them; shell commands (the
-ones that must change *your* shell, like entering a venv) are sourced functions. `tdd` routes to
-whichever half owns the word. Nothing is installed globally; nothing has to be active.
+# Tabsdata DevTools
 
-## Install
+**One command, `tdd`, in front of every Tabsdata developer tool, each tool in its own isolated
+environment, so that tool dependencies never touch a project's dependencies.**
 
-You need [`uv`](https://docs.astral.sh/uv/) and [`cargo-make`](https://github.com/sagiegurari/cargo-make);
-no Python, no venv.
+It holds the developer tools of [tabsdata](https://github.com/tabsdata/tabsdata): setup, build
+and test (`tdd`). Among them is the tool that creates the databases and storage the tests of
+tabsdata run against.
 
-```bash
-git clone git@github.com:tabsdata/tabsdata-dt.git && cd tabsdata-dt
-cargo make install
-source ~/.tdd/tdd-source.sh
-echo '' >> ~/.zshrc
-echo '#Tabsdata DevTools' >> ~/.zshrc
-echo 'source ~/.tdd/tdd-source.sh' >> ~/.zshrc
-echo '' >> ~/.zshrc
-```
+Python tools live in per-toolset virtual environments, and **tdd** dispatches each command into
+its own. Shell commands, the ones that must change *your* shell, like entering a virtual
+environment, are functions loaded into it. Nothing is installed globally, and nothing has to be
+active.
 
-## Then
+# Installing tdd
+
+The **tdd** tool is meant to be used together with
+[tabsdata](https://github.com/tabsdata/tabsdata), checked out side by side. Clone this
+repository into a folder named `tabsdata-dt`, and install **tdd** as steps 2 and 4 of
+[Developing Tabsdata](https://github.com/tabsdata/tabsdata/blob/main/DEVELOPING.md#contents)
+describe.
+
+# Using tdd
+
+List every command:
 
 ```bash
 tdd --help
 ```
 
-Smoke test scripts using `tdd`: run one, or export them somewhere you can read and edit them:
+## Smoke tests
+
+The smoke-test scripts run tabsdata end to end: a fresh virtual environment, tabsdata,
+`tdkserver` and the XP test suites. The script for `km` runs on every platform, while the scripts for `eks`, `gke`
+and `aks` run against a cloud Kubernetes cluster from macOS or Linux.
+
+List the scripts, with what each one does:
 
 ```bash
-tdd smoke list                            # smoke-{km,eks,gke,aks}.sh: what each is, how to run it
-tdd smoke run --script km --help          # fresh venv + tabsdata + tdkserver + xp suites, end to end
-tdd smoke run --script eks --help         # the same run against an EKS cluster (rds/s3 domains, port-forward)
-tdd smoke export-scripts --dir ~/smoke    # your own copies, to edit
+tdd smoke list
 ```
 
-The public API of tabsdata as structured JSON, read statically (the spec is explained in
-[packages/tabsdata-dev-tool-apidoc/README.md](packages/tabsdata-dev-tool-apidoc/README.md)):
+Show how to run the `km` script:
 
 ```bash
-tdd apidoc generate --out api.json      # read from the current venv, which must have tabsdata installed
-tdd apidoc export-spec --dir ~/apidoc   # the bundled spec, to edit
-cargo make help         # every build task; `cargo make uninstall` moves ~/.tdd to the trash
+tdd smoke run --script km --help
 ```
 
-## Tests
+Export the scripts, to read and edit your own copies.
+
+macOS and Linux:
 
 ```bash
-cargo make test          # every package's tests, each inside the toolset venv its code ships with
-cargo make check         # what CI runs: ruff lint + tests + `tdd --reqs` (fails on a missing declared binary)
-cargo make fmt           # ruff format, at the version pinned in make/requirements.txt
+tdd smoke export-scripts --dir ~/smoke
 ```
 
-Both need an initialized tdd dir (`cargo make install` or `dev`; `~/.tdd` unless `TDD_DIR` or
-`-- --dir PATH` says otherwise). In an editable install (`cargo make dev`) source edits are
-tested live; in a wheels install run `cargo make install` first so the envs carry the change.
-To run one package's tests directly, use its toolset's interpreter, e.g.
-`~/.tdd/tdd-venvs/systems/bin/python -m pytest packages/tabsdata-dev-tool-xp/src/python/test -q`.
+Windows:
 
-## Docs
+```powershell
+tdd smoke export-scripts --dir $HOME\smoke
+```
 
-| | |
-|---|---|
-| [docs/design.md](docs/DESIGN.md) | how it works and why, with an index of every tool's design doc |
-| [docs/building-a-python-command.md](docs/building-a-python-command.md) | add a Python tool |
-| [docs/building-a-shell-command.md](docs/building-a-shell-command.md) | add a sourced shell command |
-| [docs/command-cli-guidelines.md](docs/command-cli-guidelines.md) | options, exit codes and output every command must have |
-| [CLAUDE.md](CLAUDE.md) | the working contract and invariants for anyone (or anything) editing this repo |
+## API description
+
+The **tdd apidoc** command reads the public API of tabsdata statically, and writes it as one
+structured JSON document. [Tabsdata DevTools: API Description](packages/tabsdata-dev-tool-apidoc/README.md) explains
+the format. Run it in a virtual environment that has tabsdata installed:
+
+```bash
+tdd apidoc generate --out api.json
+```
+
+# Developing tdd
+
+[Developing Tabsdata DevTools](DEVELOPING.md) covers the tasks, the tests and how to add a
+command.
+
+# License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).

@@ -2,19 +2,56 @@
 Copyright 2026 Tabsdata Inc.
 -->
 
-# tdd apidoc
+<div align="center">
+    <img src="../../assets/images/tabsdata-logo-for-light-theme.svg#gh-light-mode-only" alt="Tabsdata" width="500">
+    <img src="../../assets/images/tabsdata-logo-for-dark-theme.svg#gh-dark-mode-only" alt="Tabsdata" width="500">
+</div>
+
+# Tabsdata DevTools: API Description
 
 A Python package's public API as one structured JSON document — or a Markdown file of its
 descriptions — read **statically** with [griffe](https://mkdocstrings.github.io/griffe/): the
 source is parsed, never imported, so no package code runs. It is tabsdata-os's `tdx-apidocgen`,
 brought into tdd; given the same spec and the same source it writes the same document.
 
+Enter a virtual environment that has tabsdata installed:
+
 ```bash
-tdd venv activate --name work                                        # a venv with tabsdata installed
-tdd apidoc generate --out api.json                                   # bundled spec
-tdd apidoc generate --doc-format markdown --out descriptions.md      # descriptions only
-tdd apidoc export-spec --dir ~/apidoc                                # the bundled spec, to edit
-tdd apidoc generate --spec ~/apidoc/apidoc-spec.json --out api.json  # ... and generate from it
+tdd venv activate --name work
+```
+
+Generate the API description with the bundled spec:
+
+```bash
+tdd apidoc generate --out api.json
+```
+
+Generate only the descriptions, as Markdown:
+
+```bash
+tdd apidoc generate --doc-format markdown --out descriptions.md
+```
+
+Export the bundled spec, to edit your own copy, and generate from it.
+
+macOS and Linux:
+
+```bash
+tdd apidoc export-spec --dir ~/apidoc
+```
+
+```bash
+tdd apidoc generate --spec ~/apidoc/apidoc-spec.json --out api.json
+```
+
+Windows:
+
+```powershell
+tdd apidoc export-spec --dir $HOME\apidoc
+```
+
+```powershell
+tdd apidoc generate --spec $HOME\apidoc\apidoc-spec.json --out api.json
 ```
 
 ## Where the package is found: the current venv
