@@ -1,5 +1,5 @@
 {
-  "fingerprint": "cfc2cf23dadf6380",
+  "fingerprint": "0742e66cd878c956",
   "interpreter": "3.12.13",
   "members": {
     "launchers": [
@@ -198,11 +198,11 @@
       ],
       "hidden": false,
       "launcher": false,
-      "optional": [],
-      "package": "tabsdata-dev-tool-ci",
-      "required": [
+      "optional": [
         "gh"
       ],
+      "package": "tabsdata-dev-tool-ci",
+      "required": [],
       "summary": "GitHub Actions runs: download a run's artifacts, in parallel",
       "toolset": "launchers"
     },

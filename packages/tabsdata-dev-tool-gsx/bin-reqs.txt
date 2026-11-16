@@ -7,11 +7,13 @@
 # without it is on PATH all the same. `op` is `approve`'s: an approver is
 # impersonated with the review token 1Password holds for them. `sh` runs the
 # pre-push guard ahead of `submit --move`, the way git itself will run it.
-# op is optional: only `approve` uses it, and checks it there.
+# op is optional: only `approve` uses it, and checks it there. gh is optional
+# so that a tdd dir installs without it; every command that drives it checks
+# it first (gh.require_binaries).
 [required]
 git
-gh
 sh
 
 [optional]
+gh
 op

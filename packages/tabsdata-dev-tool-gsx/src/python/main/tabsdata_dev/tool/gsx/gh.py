@@ -164,15 +164,16 @@ class Runner:
 
 
 def require_binaries() -> None:
-    """git and gh. `bin-reqs.txt` covers both before the command runs; this is
-    the check for a subcommand that needs them without needing gh-stack."""
+    """git and gh. `bin-reqs.txt` requires git before the command runs but
+    leaves gh optional, so this is where gh is checked: for a subcommand that
+    needs them without needing gh-stack."""
     for binary in ("git", "gh"):
         if shutil.which(binary) is None:
             raise ToolError(f"`{binary}` is not on PATH")
 
 
 def require_tools(runner: Runner) -> None:
-    """git, gh and the gh-stack extension. bin-reqs.txt covers the first two
+    """git, gh and the gh-stack extension. bin-reqs.txt requires only git
     before the command runs; the extension is a gh install, not a binary."""
     require_binaries()
     extensions = runner.run(["gh", "extension", "list"], check=False)

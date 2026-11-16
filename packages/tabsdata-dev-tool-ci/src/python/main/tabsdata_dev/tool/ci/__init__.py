@@ -65,8 +65,14 @@ class Artifact:
     expired: bool
 
 
+def _require_gh() -> None:
+    if shutil.which("gh") is None:
+        raise ToolError("`gh` is not on PATH: install the GitHub CLI to use tdd ci")
+
+
 def _gh(*args: str) -> str:
     """`gh ARGS`, its stdout; a failure is a ToolError carrying gh's words."""
+    _require_gh()
     done = proc.run(["gh", *args], capture_output=True, encoding="utf-8")
     if done.returncode != 0:
         said = (done.stderr or done.stdout or "").strip()
@@ -367,6 +373,7 @@ def fetch(
     key = progress.start(a.name, "downloading", a.size)
     finished = False
     try:
+        _require_gh()
         with tempfile.TemporaryFile() as err, part.open("wb") as sink:
             child = proc.popen(
                 ["gh", "api", f"repos/{repo}/actions/artifacts/{a.id}/zip"],
